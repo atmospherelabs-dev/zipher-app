@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
+import '../../zipher_theme.dart';
 import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../generated/intl/messages.dart';
@@ -32,7 +33,9 @@ class _ContactsState extends State<ContactsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: ZipherColors.bg,
       appBar: AppBar(
+        backgroundColor: ZipherColors.surface,
         title: Text(s.contacts),
         actions: [
           if (selected) IconButton(onPressed: _edit, icon: Icon(Icons.edit)),
@@ -79,13 +82,13 @@ class _ContactsState extends State<ContactsPage> {
   }
 
   _add() {
-    GoRouter.of(context).push('/contacts/add');
+    GoRouter.of(context).push('/more/contacts/add');
   }
 
   _edit() {
     final c = listKey.currentState!.selectedContact!;
     final id = c.id;
-    GoRouter.of(context).push('/contacts/edit?id=$id');
+    GoRouter.of(context).push('/more/contacts/edit?id=$id');
   }
 
   _delete() async {
@@ -128,7 +131,7 @@ class ContactListState extends State<ContactList> {
           },
           onPress: () => widget.onSelect?.call(index),
         ),
-        separatorBuilder: (context, index) => Divider(),
+        separatorBuilder: (context, index) => Divider(color: ZipherColors.border),
         itemCount: c.length,
       );
     });
@@ -153,7 +156,7 @@ class ContactItem extends StatelessWidget {
       onTap: onPress,
       onLongPress: onLongPress,
       selected: selected ?? false,
-      selectedTileColor: t.colorScheme.inversePrimary,
+      selectedTileColor: ZipherColors.cyan.withValues(alpha: 0.15),
     );
   }
 }
@@ -183,7 +186,9 @@ class _ContactEditState extends State<ContactEditPage> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
+        backgroundColor: ZipherColors.bg,
         appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
           title: Text(s.editContact),
           actions: [IconButton(onPressed: _save, icon: Icon(Icons.check))],
         ),
@@ -228,7 +233,9 @@ class _ContactAddState extends State<ContactAddPage> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
+        backgroundColor: ZipherColors.bg,
         appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
           title: Text(s.addContact),
           actions: [
             IconButton(onPressed: add, icon: Icon(Icons.add)),

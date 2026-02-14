@@ -8,6 +8,7 @@ import 'package:warp_api/warp_api.dart';
 
 import '../../store2.dart';
 import '../../accounts.dart';
+import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
 import '../utils.dart';
 import '../widgets.dart';
@@ -23,11 +24,14 @@ class _BudgetState extends State<BudgetPage> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final t = Theme.of(context);
     final size = MediaQuery.of(context).size;
     final height = size.height - 420;
     return Scaffold(
-        appBar: AppBar(title: Text(s.budget)),
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
+          title: Text(s.budget),
+        ),
         body: Observer(builder: (context) {
           syncStatus2.syncedHeight;
           return Padding(
@@ -36,12 +40,12 @@ class _BudgetState extends State<BudgetPage> {
               children: [
                 Section(
                   title: s.largestSpendingsByAddress,
-                  color: t.colorScheme.primary,
+                  color: ZipherColors.cyan,
                   child: Container(height: 130, child: BudgetChart()),
                 ),
                 Section(
                     title: s.accountBalanceHistory,
-                    color: t.colorScheme.secondary,
+                    color: ZipherColors.green,
                     child: Container(
                       height: height,
                       child: Chart<TimeSeriesPoint<double>>(
@@ -112,8 +116,7 @@ class BudgetTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    final palette = getPalette(t.primaryColor, spendings.length);
+    final palette = getPalette(ZipherColors.cyan, spendings.length);
     final rows = spendings.asMap().entries.map((e) {
       final style = TextStyle(
           color: palette[e.key], fontFeatures: [FontFeature.tabularFigures()]);

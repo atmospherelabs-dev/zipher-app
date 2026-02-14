@@ -4,6 +4,7 @@ import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../../appsettings.dart';
+import '../../zipher_theme.dart';
 import '../utils.dart';
 import '../widgets.dart';
 import '../../accounts.dart';
@@ -23,7 +24,10 @@ class _MultiPayState extends State<MultiPayPage> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(s.multiPay), actions: [
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
+          title: Text(s.multiPay), actions: [
         selected == null
             ? IconButton(onPressed: add, icon: Icon(Icons.add))
             : IconButton(onPressed: delete, icon: Icon(Icons.delete)),
@@ -37,7 +41,7 @@ class _MultiPayState extends State<MultiPayPage> {
               onTap: () => select(index),
               child: RecipientWidget(outputs[index].unpack(),
                   selected: selected == index)),
-          separatorBuilder: (context, index) => Divider(),
+          separatorBuilder: (context, index) => Divider(color: ZipherColors.border),
           itemCount: outputs.length,
         ),
       ),

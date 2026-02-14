@@ -6,6 +6,7 @@ import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../../accounts.dart';
+import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
 
 class BackupPage extends StatefulWidget {
@@ -75,7 +76,11 @@ class _BackupState extends State<BackupPage> {
     final subKeys = cards.sublist(1);
 
     return Scaffold(
-      appBar: AppBar(title: Text(s.backup)),
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+        backgroundColor: ZipherColors.surface,
+        title: Text(s.backup),
+      ),
       body: SingleChildScrollView(
         child: Padding(
           padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -119,19 +124,40 @@ class BackupPanel extends StatelessWidget {
     final qrLabel = '$label of $name';
     return GestureDetector(
         onTap: () => showQR(context, value, qrLabel),
-        child: Card(
-          elevation: 2,
-          child: Padding(
-            padding: EdgeInsets.all(8),
-            child: InputDecorator(
-              decoration: InputDecoration(
-                  label: Text(label), icon: icon, border: OutlineInputBorder()),
-              child: Text(
+        child: Container(
+          padding: EdgeInsets.all(ZipherSpacing.sm),
+          decoration: BoxDecoration(
+            color: ZipherColors.surface,
+            borderRadius: BorderRadius.circular(ZipherRadius.md),
+            border: Border.all(color: ZipherColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon.icon, color: ZipherColors.textSecondary, size: icon.size ?? 24),
+                  SizedBox(width: ZipherSpacing.sm),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: ZipherColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: ZipherSpacing.xs),
+              Text(
                 value,
-                style: style,
+                style: style ?? TextStyle(
+                  color: ZipherColors.textPrimary,
+                  fontSize: 14,
+                ),
                 maxLines: 6,
               ),
-            ),
+            ],
           ),
         ));
   }

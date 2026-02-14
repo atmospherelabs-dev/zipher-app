@@ -2,11 +2,13 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
+
 import 'package:go_router/go_router.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../../accounts.dart';
+import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
 import '../utils.dart';
 import '../widgets.dart';
@@ -47,7 +49,9 @@ class _SubmitTxState extends State<SubmitTxPage> {
     final s = S.of(context);
     final t = Theme.of(context);
     return Scaffold(
+      backgroundColor: ZipherColors.bg,
       appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
           title: Text(txId != null
               ? s.sent
               : error != null
@@ -97,7 +101,10 @@ class ExportUnsignedTxPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(s.unsignedTx), actions: [
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
+          title: Text(s.unsignedTx), actions: [
         IconButton(onPressed: () => export(context), icon: Icon(Icons.save))
       ]),
       body: AnimatedQR.init(s.rawTransaction, s.scanQrCode, data),

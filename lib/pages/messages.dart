@@ -1,5 +1,6 @@
-import 'package:bubble/bubble.dart';
 import 'package:flutter/material.dart';
+
+import '../zipher_theme.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
@@ -70,8 +71,8 @@ class TableListMessageMetadata extends TableListItemMetadata<ZMessage> {
     var style = t.textTheme.bodyMedium!;
     if (!message.read) style = style.copyWith(fontWeight: FontWeight.bold);
     final addressStyle = message.incoming
-        ? style.apply(color: Colors.green)
-        : style.apply(color: Colors.red);
+        ? style.apply(color: ZipherColors.green)
+        : style.apply(color: ZipherColors.red);
     return DataRow.byIndex(
         index: index,
         cells: [
@@ -103,30 +104,50 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context);
     final date = humanizeDateTime(context, message.timestamp);
     final owner = centerTrim(
         (message.incoming ? message.sender : message.recipient) ?? '',
         length: 8);
+    final bubbleColor = message.incoming
+        ? ZipherColors.surface
+        : ZipherColors.surfaceLight;
     return GestureDetector(
         onTap: () => select(context),
-        child: Bubble(
-          nip: message.incoming ? BubbleNip.leftTop : BubbleNip.rightTop,
-          color: message.incoming
-              ? t.colorScheme.inversePrimary
-              : t.colorScheme.secondaryContainer,
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        child: Container(
+          padding: const EdgeInsets.all(ZipherSpacing.md),
+          decoration: BoxDecoration(
+            color: bubbleColor,
+            borderRadius: BorderRadius.circular(ZipherRadius.md),
+            border: Border.all(color: ZipherColors.border),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Stack(children: [
-              Text(owner, style: t.textTheme.labelMedium),
-              Align(child: Text(message.subject, style: t.textTheme.bodyLarge)),
+              Text(owner,
+                  style: const TextStyle(
+                      color: ZipherColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500)),
+              Align(
+                  child: Text(message.subject,
+                      style: const TextStyle(
+                          color: ZipherColors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w400))),
               Align(
                   alignment: Alignment.centerRight,
-                  child: Text(date, style: t.textTheme.labelMedium)),
+                  child: Text(date,
+                      style: const TextStyle(
+                          color: ZipherColors.textMuted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500))),
             ]),
             Gap(8),
             Text(
               message.body,
+              style: const TextStyle(
+                  color: ZipherColors.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400),
             ),
           ]),
         ));
@@ -146,8 +167,6 @@ class MessageTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
     final s = message.incoming ? message.sender : message.recipient;
     final initial = (s == null || s.isEmpty) ? "?" : s[0];
     final dateString = humanizeDateTime(context, message.timestamp);
@@ -159,15 +178,26 @@ class MessageTile extends StatelessWidget {
 
     final body = Column(
       children: [
-        Text(message.fromto(), style: unreadStyle(textTheme.bodySmall)),
+        Text(message.fromto(),
+            style: unreadStyle(const TextStyle(
+                color: ZipherColors.textMuted,
+                fontSize: 12,
+                fontWeight: FontWeight.w400))),
         Gap(4),
         if (message.subject.isNotEmpty)
           Text(message.subject,
-              style: unreadStyle(textTheme.titleMedium),
+              style: unreadStyle(const TextStyle(
+                  color: ZipherColors.textSecondary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500)),
               overflow: TextOverflow.ellipsis),
         Gap(6),
         Text(
           message.body,
+          style: const TextStyle(
+              color: ZipherColors.textPrimary,
+              fontSize: 14,
+              fontWeight: FontWeight.w400),
           softWrap: true,
           maxLines: 5,
           overflow: TextOverflow.ellipsis,
@@ -189,7 +219,13 @@ class MessageTile extends StatelessWidget {
             Gap(15),
             Expanded(child: body),
             SizedBox(
-                width: 80, child: Text(dateString, textAlign: TextAlign.right)),
+                width: 80,
+                child: Text(dateString,
+                    style: const TextStyle(
+                        color: ZipherColors.textMuted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400),
+                    textAlign: TextAlign.right)),
           ]),
         ));
   }
@@ -225,19 +261,30 @@ class _MessageItemState extends State<MessageItemPage> {
     final s = S.of(context);
     final ts = msgDateFormatFull.format(message.timestamp);
     return Scaffold(
-        appBar: AppBar(title: Text(message.subject), actions: [
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+            backgroundColor: ZipherColors.surface,
+            title: Text(message.subject),
+            actions: [
           IconButton(
               onPressed: nextInThread,
-              icon: Icon(Icons.arrow_left)), // because the sorting is desc
+              icon: const Icon(Icons.arrow_left, color: ZipherColors.cyan)),
           IconButton(
-              onPressed: idx > 0 ? prev : null, icon: Icon(Icons.chevron_left)),
+              onPressed: idx > 0 ? prev : null,
+              icon: const Icon(Icons.chevron_left, color: ZipherColors.cyan)),
           IconButton(
               onPressed: idx < n - 1 ? next : null,
-              icon: Icon(Icons.chevron_right)),
-          IconButton(onPressed: prevInThread, icon: Icon(Icons.arrow_right)),
+              icon: const Icon(Icons.chevron_right, color: ZipherColors.cyan)),
+          IconButton(
+              onPressed: prevInThread,
+              icon: const Icon(Icons.arrow_right, color: ZipherColors.cyan)),
           if (message.fromAddress?.isNotEmpty == true)
-            IconButton(onPressed: reply, icon: Icon(Icons.reply)),
-          IconButton(onPressed: open, icon: Icon(Icons.open_in_browser)),
+            IconButton(
+                onPressed: reply,
+                icon: const Icon(Icons.reply, color: ZipherColors.cyan)),
+          IconButton(
+              onPressed: open,
+              icon: const Icon(Icons.open_in_browser, color: ZipherColors.cyan)),
         ]),
         body: SingleChildScrollView(
           child: Padding(

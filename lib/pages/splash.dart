@@ -23,6 +23,7 @@ import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
 import '../settings.pb.dart';
 import '../store2.dart';
+import '../zipher_theme.dart';
 
 class SplashPage extends StatefulWidget {
   @override
@@ -183,30 +184,89 @@ class LoadProgress extends StatefulWidget {
   State<LoadProgress> createState() => _LoadProgressState();
 }
 
-class _LoadProgressState extends State<LoadProgress> {
+class _LoadProgressState extends State<LoadProgress>
+    with SingleTickerProviderStateMixin {
   var _value = 0.0;
   String _message = "";
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 2000),
+      vsync: this,
+    )..repeat(reverse: true);
+    _pulseAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context);
     final s = S.of(context);
-    final textTheme = t.textTheme;
     return Scaffold(
-        body: Container(
-            alignment: Alignment.center,
-            child: SizedBox(
-                height: 240,
+      backgroundColor: ZipherColors.bg,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment(0, -0.3),
+            radius: 1.2,
+            colors: [
+              Color(0xFF0D1640),
+              ZipherColors.bg,
+            ],
+          ),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Logo with pulse
+              FadeTransition(
+                opacity: _pulseAnimation,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(ZipherRadius.xl),
+                  child: Image.asset('assets/zipher_logo.png', height: 80),
+                ),
+              ),
+              const SizedBox(height: ZipherSpacing.lg),
+              // Brand name
+              ZipherWidgets.brandText(fontSize: 32),
+              const SizedBox(height: ZipherSpacing.sm),
+              const Text(
+                'Private Zcash Wallet',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: ZipherColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: ZipherSpacing.xxl),
+              // Progress bar
+              SizedBox(
                 width: 200,
-                child: Column(children: [
-                  Image.asset('assets/icon.png', height: 64),
-                  Padding(padding: EdgeInsets.all(16)),
-                  Text(s.loading, style: textTheme.headlineMedium),
-                  Padding(padding: EdgeInsets.all(16)),
-                  LinearProgressIndicator(value: _value),
-                  Padding(padding: EdgeInsets.all(8)),
-                  Text(_message, style: textTheme.labelMedium),
-                ]))));
+                child: ZipherWidgets.syncProgressBar(_value),
+              ),
+              const SizedBox(height: ZipherSpacing.md),
+              Text(
+                _message.isNotEmpty ? _message : s.loading,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: ZipherColors.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void setValue(double v, String message) {

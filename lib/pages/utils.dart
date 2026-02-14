@@ -13,7 +13,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
-import 'package:flutter_palette/flutter_palette.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
@@ -37,11 +36,12 @@ import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
 import '../router.dart';
 import '../store2.dart';
+import '../zipher_theme.dart';
 import 'widgets.dart';
 
 var logger = Logger();
 
-const APP_NAME = "YWallet";
+const APP_NAME = "Zipher";
 const ZECUNIT = 100000000.0;
 const ZECUNIT_INT = 100000000;
 const MAX_PRECISION = 8;
@@ -141,13 +141,20 @@ String? paymentURIValidator(String? v) {
   return null;
 }
 
-ColorPalette getPalette(Color color, int n) => ColorPalette.polyad(
-      color,
-      numberOfColors: max(n, 1),
-      hueVariability: 15,
-      saturationVariability: 10,
-      brightnessVariability: 10,
-    );
+/// Generate a list of [n] colors based on [color] with hue variation.
+List<Color> getPalette(Color color, int n) {
+  final count = max(n, 1);
+  final hsl = HSLColor.fromColor(color);
+  return List.generate(count, (i) {
+    final hueShift = (i * 360.0 / count) + hsl.hue;
+    return HSLColor.fromAHSL(
+      1.0,
+      hueShift % 360.0,
+      (hsl.saturation * 0.9).clamp(0.0, 1.0),
+      (hsl.lightness * 0.85 + 0.1).clamp(0.0, 1.0),
+    ).toColor();
+  });
+}
 
 int numPoolsOf(int v) => Uint8(v).bitsSet;
 
@@ -541,10 +548,9 @@ class PnL {
 }
 
 Color amountColor(BuildContext context, num a) {
-  final theme = Theme.of(context);
-  if (a < 0) return Colors.red;
-  if (a > 0) return Colors.green;
-  return theme.textTheme.bodyLarge!.color!;
+  if (a < 0) return ZipherColors.red;
+  if (a > 0) return ZipherColors.green;
+  return ZipherColors.textPrimary;
 }
 
 TextStyle weightFromAmount(TextStyle style, num v) {

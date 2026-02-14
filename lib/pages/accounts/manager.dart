@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
+import '../../zipher_theme.dart';
 import '../../accounts.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
@@ -26,7 +27,11 @@ class _AccountManagerState extends State<AccountManagerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(title: Text(s.accountManager), actions: [
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
+          title: Text(s.accountManager),
+          actions: [
           if (selected != null)
             IconButton(onPressed: edit, icon: Icon(Icons.edit)),
           if (selected != null)
@@ -149,7 +154,7 @@ class AccountList extends StatelessWidget {
             onEdit: onEdit,
           );
         },
-        separatorBuilder: (context, index) => Divider(),
+        separatorBuilder: (context, index) => Divider(color: ZipherColors.border),
         itemCount: accounts.length);
   }
 
@@ -179,12 +184,12 @@ class AccountTile extends StatelessWidget {
     switch (a.keyType) {
       case 0x80:
         icon = WidgetSpan(
-            child: Icon(MdiIcons.snowflake, color: t.colorScheme.secondary),
+            child: Icon(MdiIcons.snowflake, color: ZipherColors.cyan),
             style: t.textTheme.bodyMedium);
         break;
       case 1: // secret key
         icon = WidgetSpan(
-            child: Icon(MdiIcons.sprout, color: t.colorScheme.secondary),
+            child: Icon(MdiIcons.sprout, color: ZipherColors.cyan),
             style: t.textTheme.bodyMedium);
         break;
       case 2: // ledger
@@ -192,7 +197,7 @@ class AccountTile extends StatelessWidget {
             child: Image.asset(
           "assets/ledger.png",
           height: 20,
-          color: t.colorScheme.secondary,
+          color: ZipherColors.cyan,
         ));
         break;
     }
@@ -217,7 +222,7 @@ class AccountTile extends StatelessWidget {
       trailing: Text(amountToString2(a.balance)),
       onTap: onPress,
       onLongPress: onLongPress,
-      selectedTileColor: t.colorScheme.inversePrimary,
+      selectedTileColor: ZipherColors.cyan.withValues(alpha: 0.15),
     );
   }
 }

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../accounts.dart';
 import '../../appsettings.dart';
+import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
 import '../../tablelist.dart';
 import '../utils.dart';
@@ -15,7 +16,11 @@ class CoinControlPage extends StatelessWidget {
     final s = S.of(context);
     return SortSetting(
       child: Scaffold(
-        appBar: AppBar(title: Text(s.notes)),
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
+          title: Text(s.notes),
+        ),
         body: Observer(
           builder: (context) {
             aaSequence.seqno;
@@ -77,7 +82,7 @@ class TableListNoteMetadata extends TableListItemMetadata<Note> {
         behavior: HitTestBehavior.opaque,
         child: ColoredBox(
             color: excluded
-                ? t.primaryColor.withOpacity(0.5)
+                ? ZipherColors.cyan.withOpacity(0.5)
                 : t.colorScheme.surface,
             child: Padding(
                 padding: EdgeInsets.all(8),
@@ -105,7 +110,7 @@ class TableListNoteMetadata extends TableListItemMetadata<Note> {
       selected: note.excluded,
       color: WidgetStateColor.resolveWith((states) =>
           states.contains(WidgetState.selected)
-              ? t.primaryColor.withOpacity(0.5)
+              ? ZipherColors.cyan.withOpacity(0.5)
               : t.colorScheme.surface),
       cells: [
         DataCell(Text("${note.height}", style: style)),
@@ -134,7 +139,7 @@ class TableListNoteMetadata extends TableListItemMetadata<Note> {
     var style = t.textTheme.bodyMedium!;
     if (confirmations(note) < appSettings.anchorOffset)
       style = style.copyWith(color: style.color!.withOpacity(0.5));
-    if (note.orchard) style = style.apply(color: t.primaryColor);
+    if (note.orchard) style = style.apply(color: ZipherColors.cyan);
     return style;
   }
 
@@ -155,7 +160,11 @@ class CoinControlPage2 extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(s.notes)),
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+        backgroundColor: ZipherColors.surface,
+        title: Text(s.notes),
+      ),
       body: Observer(builder: (context) {
         aa.notes.items;
         switch (appSettings.noteView) {
@@ -247,7 +256,7 @@ class NotesDataSource extends DataTableSource {
     var style = t.textTheme.bodyMedium!;
     if (confirmations >= appSettings.anchorOffset)
       style = style.copyWith(color: style.color!.withOpacity(0.5));
-    if (note.orchard) style = style.apply(color: t.primaryColor);
+    if (note.orchard) style = style.apply(color: ZipherColors.cyan);
 
     final amountStyle = weightFromAmount(style, note.value);
 
@@ -256,7 +265,7 @@ class NotesDataSource extends DataTableSource {
       selected: note.excluded,
       color: WidgetStateColor.resolveWith((states) =>
           states.contains(WidgetState.selected)
-              ? t.primaryColor.withOpacity(0.5)
+              ? ZipherColors.cyan.withOpacity(0.5)
               : t.colorScheme.surface),
       cells: [
         DataCell(Text("${note.height}", style: style)),
@@ -356,7 +365,7 @@ class NoteItemState extends State<NoteItem> {
     var style = t.textTheme.titleLarge!;
     if (confirmations >= appSettings.anchorOffset)
       style = style.merge(TextStyle(color: style.color!.withOpacity(0.5)));
-    if (note.orchard) style = style.merge(TextStyle(color: t.primaryColor));
+    if (note.orchard) style = style.merge(TextStyle(color: ZipherColors.cyan));
 
     final amountStyle = weightFromAmount(style, note.value);
 
@@ -365,7 +374,7 @@ class NoteItemState extends State<NoteItem> {
         behavior: HitTestBehavior.opaque,
         child: ColoredBox(
             color: excluded
-                ? t.primaryColor.withOpacity(0.5)
+                ? ZipherColors.cyan.withOpacity(0.5)
                 : t.colorScheme.surface,
             child: Padding(
                 padding: EdgeInsets.all(8),

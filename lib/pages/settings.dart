@@ -14,6 +14,7 @@ import 'package:warp_api/warp_api.dart';
 
 import '../accounts.dart';
 import '../theme_editor.dart';
+import '../zipher_theme.dart';
 import '../coin/coin.dart';
 import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
@@ -64,7 +65,9 @@ class _SettingsState extends State<SettingsPage>
     final s = S.of(context);
     final c = coins[widget.coin];
     return Scaffold(
+      backgroundColor: ZipherColors.bg,
       appBar: AppBar(
+        backgroundColor: ZipherColors.surface,
         title: Text(s.settings),
         bottom: TabBar(controller: tabController, isScrollable: true, tabs: [
           Tab(text: s.general),
@@ -301,19 +304,19 @@ class _PrivacyState extends State<PrivacyTab>
                           ButtonSegment(
                               value: 0,
                               label: Text(s.veryLow,
-                                  style: small.apply(color: Colors.red))),
+                                  style: small.apply(color: ZipherColors.red))),
                           ButtonSegment(
                               value: 1,
                               label: Text(s.low,
-                                  style: small.apply(color: Colors.orange))),
+                                  style: small.apply(color: ZipherColors.orange))),
                           ButtonSegment(
                               value: 2,
                               label: Text(s.medium,
-                                  style: small.apply(color: Colors.yellow))),
+                                  style: small.apply(color: ZipherColors.orange))),
                           ButtonSegment(
                               value: 3,
                               label: Text(s.high,
-                                  style: small.apply(color: Colors.green))),
+                                  style: small.apply(color: ZipherColors.green))),
                         ],
                         selected: {field.value!},
                         onSelectionChanged: (v) => field.didChange(v.first),
@@ -627,8 +630,21 @@ class _QuickSendSettingsState extends State<QuickSendSettingsPage> {
     final t = Theme.of(context);
     final cs = t.colorScheme;
     return Scaffold(
-      appBar: AppBar(title: Text(s.customSendSettings)),
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+        backgroundColor: ZipherColors.surface,
+        title: Text(s.customSendSettings),
+      ),
       body: SettingsList(
+        darkTheme: SettingsThemeData(
+          settingsListBackground: ZipherColors.bg,
+          settingsSectionBackground: ZipherColors.surface,
+          titleTextColor: ZipherColors.cyan,
+          tileDescriptionTextColor: ZipherColors.textMuted,
+          leadingIconsColor: ZipherColors.textSecondary,
+          trailingTextColor: ZipherColors.textSecondary,
+          dividerColor: ZipherColors.border,
+        ),
         sections: [
           SettingsSection(
             title: Text(s.address),

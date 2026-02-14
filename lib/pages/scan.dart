@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../generated/intl/messages.dart';
+import '../zipher_theme.dart';
 import 'utils.dart';
 
 class ScanQRCodePage extends StatefulWidget {
@@ -39,7 +40,11 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-        appBar: AppBar(title: Text(s.scanQrCode), actions: [
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
+          title: Text(s.scanQrCode),
+          actions: [
           if (isMobile())
             IconButton(onPressed: _open, icon: Icon(Icons.open_in_new)),
           IconButton(onPressed: _ok, icon: Icon(Icons.check)),

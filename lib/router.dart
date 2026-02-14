@@ -19,6 +19,7 @@ import 'generated/intl/messages.dart';
 import 'pages/accounts/manager.dart';
 import 'pages/accounts/multipay.dart';
 import 'pages/accounts/new_import.dart';
+import 'pages/accounts/restore.dart';
 import 'pages/accounts/pay_uri.dart';
 import 'pages/accounts/rescan.dart';
 import 'pages/accounts/send.dart';
@@ -47,6 +48,7 @@ import 'pages/settings.dart';
 import 'pages/messages.dart';
 import 'pages/utils.dart';
 import 'store2.dart';
+import 'zipher_theme.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _accountNavigatorKey = GlobalKey<NavigatorState>();
@@ -60,7 +62,6 @@ final helpRouteMap = {
   "/broadcast_tx": "/transacting/report#transaction-sent",
   "/messages": "/messages",
   "/history": "/history",
-  "contacts": "/contacts",
 };
 
 final router = GoRouter(
@@ -197,29 +198,6 @@ final router = GoRouter(
         StatefulShellBranch(
           routes: [
             GoRoute(
-                path: '/contacts',
-                builder: (context, state) => ContactsPage(main: true),
-                routes: [
-                  GoRoute(
-                    path: 'add',
-                    builder: (context, state) => ContactAddPage(),
-                  ),
-                  GoRoute(
-                    path: 'edit',
-                    builder: (context, state) => ContactEditPage(
-                        int.parse(state.uri.queryParameters['id']!)),
-                  ),
-                  GoRoute(
-                    path: 'submit_tx',
-                    builder: (context, state) =>
-                        SubmitTxPage(txPlan: state.extra as String),
-                  ),
-                ]),
-          ],
-        ),
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
                 path: '/more',
                 builder: (context, state) => MorePage(),
                 routes: [
@@ -307,6 +285,26 @@ final router = GoRouter(
                     builder: (context, state) =>
                         SubmitTxPage(txPlan: state.extra as String),
                   ),
+                  GoRoute(
+                    path: 'contacts',
+                    builder: (context, state) => ContactsPage(main: true),
+                    routes: [
+                      GoRoute(
+                        path: 'add',
+                        builder: (context, state) => ContactAddPage(),
+                      ),
+                      GoRoute(
+                        path: 'edit',
+                        builder: (context, state) => ContactEditPage(
+                            int.parse(state.uri.queryParameters['id']!)),
+                      ),
+                      GoRoute(
+                        path: 'submit_tx',
+                        builder: (context, state) =>
+                            SubmitTxPage(txPlan: state.extra as String),
+                      ),
+                    ],
+                  ),
                 ]),
           ],
         ),
@@ -314,6 +312,7 @@ final router = GoRouter(
     ),
     GoRoute(path: '/decrypt_db', builder: (context, state) => DbLoginPage()),
     GoRoute(path: '/disclaimer', builder: (context, state) => DisclaimerPage()),
+    GoRoute(path: '/restore', builder: (context, state) => RestoreAccountPage()),
     GoRoute(
       path: '/splash',
       builder: (context, state) => SplashPage(),
@@ -391,39 +390,80 @@ class _ScaffoldBar extends State<ScaffoldBar> {
         canPop: location == '/account',
         onPopInvoked: _onPop,
         child: Scaffold(
+          backgroundColor: ZipherColors.bg,
           appBar: AppBar(
-            title: Text(aa.name),
-            centerTitle: true,
-            actions: [
-              IconButton(onPressed: help, icon: Icon(Icons.help)),
-              IconButton(onPressed: settings, icon: Icon(Icons.settings)),
-            ],
+            backgroundColor: ZipherColors.surface,
+            elevation: 0,
+            centerTitle: false,
+            title: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                  child: Image.asset('assets/zipher_logo.png', height: 28),
+                ),
+                const SizedBox(width: 10),
+                ZipherWidgets.brandText(fontSize: 18),
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: ZipherColors.cyan.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    aa.name,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: ZipherColors.cyan,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            actions: const [],
           ),
-          bottomNavigationBar: BottomNavigationBar(
-            type: BottomNavigationBarType.fixed,
-            items: [
-              BottomNavigationBarItem(
-                  icon: Icon(Icons.account_balance), label: s.balance),
-              BottomNavigationBarItem(
-                  icon: Icon(Icons.message), label: s.messages),
-              BottomNavigationBarItem(
-                  icon: Icon(Icons.view_list), label: s.history),
-              BottomNavigationBarItem(
-                  icon: Icon(Icons.contacts), label: s.contacts),
-              BottomNavigationBarItem(
-                  icon: Icon(Icons.more_horiz), label: s.more),
-            ],
-            currentIndex: widget.shell.currentIndex,
-            onTap: (index) {
-              widget.shell.goBranch(index);
-            },
+          bottomNavigationBar: Container(
+            decoration: const BoxDecoration(
+              color: ZipherColors.surface,
+              border:
+                  Border(top: BorderSide(color: ZipherColors.border, width: 1)),
+            ),
+            child: BottomNavigationBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              type: BottomNavigationBarType.fixed,
+              selectedItemColor: ZipherColors.cyan,
+              unselectedItemColor: ZipherColors.textMuted,
+              selectedFontSize: 11,
+              unselectedFontSize: 11,
+              items: [
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.home_outlined),
+                    activeIcon: Icon(Icons.home_rounded),
+                    label: 'Home'),
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.mail_outline_rounded),
+                    activeIcon: Icon(Icons.mail_rounded),
+                    label: 'Messages'),
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.access_time_outlined),
+                    activeIcon: Icon(Icons.access_time_filled),
+                    label: 'Activity'),
+                const BottomNavigationBarItem(
+                    icon: Icon(Icons.settings_outlined),
+                    activeIcon: Icon(Icons.settings_rounded),
+                    label: 'Settings'),
+              ],
+              currentIndex: widget.shell.currentIndex,
+              onTap: (index) {
+                widget.shell.goBranch(index);
+              },
+            ),
           ),
           body: ShowCaseWidget(builder: (context) => widget.shell),
         ));
-  }
-
-  help() {
-    launchUrl(Uri.https('ywallet.app'));
   }
 
   settings() {

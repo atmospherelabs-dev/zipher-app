@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import '../../accounts.dart';
 import '../../coin/coins.dart';
+import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
 import '../utils.dart';
 import 'budget.dart';
@@ -54,7 +55,11 @@ class _MarketQuotesState extends State<MarketQuotes> with WithLoadingAnimation {
         .map((i) => DropdownMenuItem(value: i, child: Text(i)))
         .toList();
     return Scaffold(
-      appBar: AppBar(title: Text(s.marketPrice)),
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+        backgroundColor: ZipherColors.surface,
+        title: Text(s.marketPrice),
+      ),
       body: wrapWithLoading(Stack(
         children: [
           if (quotes.isNotEmpty)
@@ -96,8 +101,8 @@ class _MarketQuotesState extends State<MarketQuotes> with WithLoadingAnimation {
                           Varset('close')),
                   color: ColorEncode(
                       encoder: (tuple) => tuple['close'] <= tuple['open']
-                          ? Colors.red
-                          : Colors.green),
+                          ? ZipherColors.red
+                          : ZipherColors.green),
                 )
               ],
               selections: {

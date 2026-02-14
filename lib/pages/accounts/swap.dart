@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../appsettings.dart';
+import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
 
 class SwapPage extends StatefulWidget {
@@ -25,7 +26,11 @@ class SwapState extends State<SwapPage> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(s.swapProviders), actions: [
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+        backgroundColor: ZipherColors.surface,
+        title: Text(s.swapProviders),
+        actions: [
         IconButton(
             onPressed: () => GoRouter.of(context).push('/account/swap/history'),
             icon: Icon(Icons.list)),

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../../appsettings.dart';
+import '../../zipher_theme.dart';
 import '../settings.dart';
 import '../widgets.dart';
 import '../../accounts.dart';
@@ -32,7 +33,9 @@ class _SweepState extends State<SweepPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+        backgroundColor: ZipherColors.bg,
         appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
           title: Text(s.sweep),
           actions: [IconButton(onPressed: ok, icon: Icon(Icons.check))],
         ),
@@ -43,7 +46,7 @@ class _SweepState extends State<SweepPage>
               child: FormBuilder(
                 key: formKey,
                 child: Column(children: [
-                  Divider(),
+                  Divider(color: ZipherColors.border),
                   Text(s.source, style: t.textTheme.titleLarge),
                   Gap(8),
                   Panel(
@@ -83,7 +86,7 @@ class _SweepState extends State<SweepPage>
                         controller: privateKeyController,
                         validator: _validTKey,
                       )),
-                  Divider(),
+                  Divider(color: ZipherColors.border),
                   Gap(8),
                   Text(s.destination, style: t.textTheme.titleLarge),
                   Gap(16),

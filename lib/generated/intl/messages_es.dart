@@ -261,7 +261,7 @@ class SEs extends S {
 
   @override
   String get disclaimer_2 =>
-      'Entiendo que YWallet no puede recuperar mi frase de semilla';
+      'Entiendo que Zipher no puede recuperar mi frase de semilla';
 
   @override
   String get disclaimer_3 =>
@@ -802,7 +802,7 @@ class SEs extends S {
   String get views => 'Vistas';
 
   @override
-  String get welcomeToYwallet => 'Bienvenido a YWallet';
+  String get welcomeToYwallet => 'Bienvenido a Zipher';
 
   @override
   String get wifi => 'WiFi';

@@ -8,6 +8,7 @@ import 'package:warp_api/warp_api.dart';
 import '../accounts.dart';
 import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
+import '../zipher_theme.dart';
 import 'utils.dart';
 
 class EncryptDbPage extends StatefulWidget {
@@ -25,7 +26,10 @@ class _EncryptDbState extends State<EncryptDbPage> with WithLoadingAnimation {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+        backgroundColor: ZipherColors.bg,
         appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
+          iconTheme: const IconThemeData(color: ZipherColors.cyan),
           title: Text(s.encryptDatabase),
           actions: [IconButton(onPressed: encrypt, icon: Icon(Icons.check))],
         ),

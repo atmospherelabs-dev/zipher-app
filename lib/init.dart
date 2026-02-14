@@ -17,6 +17,7 @@ import 'generated/intl/messages.dart';
 import 'main.dart';
 import 'pages/utils.dart';
 import 'router.dart';
+import 'zipher_theme.dart';
 
 Future<void> initCoins() async {
   final dbPath = await getDbPath();
@@ -73,8 +74,8 @@ void initNotifications() {
           channelKey: APP_NAME,
           channelName: APP_NAME,
           channelDescription: 'Notification channel for $APP_NAME',
-          defaultColor: Color(0xFFB3F0FF),
-          ledColor: Colors.white,
+          defaultColor: ZipherColors.cyan,
+          ledColor: ZipherColors.cyan,
         )
       ],
       debug: false);
@@ -90,17 +91,8 @@ class _AppState extends State<App> {
   Widget build(BuildContext context) {
     return Observer(builder: (context) {
       aaSequence.settingsSeqno;
-      final scheme = FlexScheme.values.byName(appSettings.palette.name);
-      final baseTheme = appSettings.palette.dark ? FlexThemeData.dark(scheme: scheme)
-      : FlexThemeData.light(scheme: scheme);
-      final theme = baseTheme.copyWith(
-        useMaterial3: true,
-        dataTableTheme: DataTableThemeData(
-          headingRowColor: MaterialStateColor.resolveWith(
-            (_) => baseTheme.highlightColor,
-          ),
-        ),
-      );
+      // Use Zipher dark theme by default
+      final theme = ZipherTheme.dark;
       return MaterialApp.router(
         locale: Locale(appSettings.language),
         title: APP_NAME,

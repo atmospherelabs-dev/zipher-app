@@ -11,6 +11,7 @@ import 'package:path/path.dart' as path;
 import 'package:share_plus/share_plus.dart';
 
 import '../../generated/intl/messages.dart';
+import '../../zipher_theme.dart';
 import '../utils.dart';
 import '../widgets.dart';
 
@@ -29,9 +30,12 @@ class _BatchBackupState extends State<BatchBackupPage> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
+      backgroundColor: ZipherColors.bg,
       appBar: AppBar(
-          title: Text(s.backupAllAccounts),
-          actions: [IconButton(onPressed: key, icon: Icon(Icons.key))]),
+        backgroundColor: ZipherColors.surface,
+        title: Text(s.backupAllAccounts),
+        actions: [IconButton(onPressed: key, icon: Icon(Icons.key))],
+      ),
       body: SingleChildScrollView(
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 16),
@@ -108,7 +112,7 @@ class _BatchBackupState extends State<BatchBackupPage> {
     final s = S.of(context);
     final tempDir = await getTemporaryDirectory();
     final path = isMobile()
-        ? await getTemporaryPath('YWallet.age')
+        ? await getTemporaryPath('Zipher.age')
         : await FilePicker.platform.saveFile(dialogTitle: s.fullBackup);
     if (path != null) {
       try {
@@ -177,7 +181,9 @@ class _KeygenState extends State<KeygenPage> with WithLoadingAnimation {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     return Scaffold(
+        backgroundColor: ZipherColors.bg,
         appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
           title: Text(s.keygen),
           actions: [
             IconButton(onPressed: _keygen, icon: Icon(Icons.refresh)),

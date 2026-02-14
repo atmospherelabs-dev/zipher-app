@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../../store2.dart';
+import '../../zipher_theme.dart';
 import '../utils.dart';
 import '../../accounts.dart';
 import '../../coin/coins.dart';
@@ -56,7 +57,9 @@ class _NewImportAccountState extends State<NewImportAccountPage>
   @override
   Widget build(BuildContext context) {
     return wrapWithLoading(Scaffold(
+      backgroundColor: ZipherColors.bg,
       appBar: AppBar(
+        backgroundColor: ZipherColors.surface,
         title: Text(s.newAccount),
         actions: [
           IconButton(onPressed: _onOK, icon: Icon(Icons.add)),
@@ -69,7 +72,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
             key: formKey,
             child: Column(
               children: [
-                Image.asset('assets/icon.png', height: 128),
+                Image.asset('assets/zipher_logo.png', height: 128),
                 Gap(16),
                 FormBuilderTextField(
                     name: 'name',

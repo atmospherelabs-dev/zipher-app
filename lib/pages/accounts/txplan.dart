@@ -7,6 +7,7 @@ import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../../appsettings.dart';
+import '../../zipher_theme.dart';
 import '../utils.dart';
 import '../../accounts.dart';
 import '../../coin/coins.dart';
@@ -31,7 +32,9 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
     final txplan = TxPlanWidget(widget.plan, report,
         signOnly: widget.signOnly, onSend: sendOrSign);
     return Scaffold(
+        backgroundColor: ZipherColors.bg,
         appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
           title: Text(s.txPlan),
           actions: [
             IconButton(
@@ -120,14 +123,14 @@ class TxPlanWidget extends StatelessWidget {
       Divider(
         height: 16,
         thickness: 2,
-        color: t.primaryColor,
+        color: ZipherColors.cyan,
       ),
       ListTile(
           visualDensity: VisualDensity.compact,
           title: Text(s.transparentInput),
           trailing: Text(
               amountToString2(report.transparent, digits: MAX_PRECISION),
-              style: TextStyle(color: t.primaryColor))),
+              style: TextStyle(color: ZipherColors.cyan))),
       ListTile(
           visualDensity: VisualDensity.compact,
           title: Text(s.saplingInput),
@@ -144,19 +147,19 @@ class TxPlanWidget extends StatelessWidget {
           title: Text(s.netSapling),
           trailing: Text(
               amountToString2(report.netSapling, digits: MAX_PRECISION),
-              style: TextStyle(color: t.primaryColor))),
+              style: TextStyle(color: ZipherColors.cyan))),
       if (supportsUA)
         ListTile(
             visualDensity: VisualDensity.compact,
             title: Text(s.netOrchard),
             trailing: Text(
                 amountToString2(report.netOrchard, digits: MAX_PRECISION),
-                style: TextStyle(color: t.primaryColor))),
+                style: TextStyle(color: ZipherColors.cyan))),
       ListTile(
           visualDensity: VisualDensity.compact,
           title: Text(s.fee),
           trailing: Text(amountToString2(report.fee, digits: MAX_PRECISION),
-              style: TextStyle(color: t.primaryColor))),
+              style: TextStyle(color: ZipherColors.cyan))),
       privacyToString(context, report.privacyLevel,
           canSend: !invalidPrivacy, onSend: onSend)!,
       Gap(16),
@@ -167,7 +170,7 @@ class TxPlanWidget extends StatelessWidget {
 
   TextStyle? _styleOfAddress(String address, ThemeData t) {
     final a = WarpApi.receiversOfAddress(aa.coin, address);
-    return a == 1 ? TextStyle(color: t.primaryColor) : null;
+    return a == 1 ? TextStyle(color: ZipherColors.cyan) : null;
   }
 }
 
@@ -187,7 +190,12 @@ Widget? privacyToString(BuildContext context, int privacyLevel,
   final m = S
       .of(context)
       .privacy(getPrivacyLevel(context, privacyLevel).toUpperCase());
-  final colors = [Colors.red, Colors.orange, Colors.yellow, Colors.green];
+  final colors = [
+    ZipherColors.cyan,
+    ZipherColors.purple,
+    ZipherColors.purple,
+    ZipherColors.green,
+  ];
   return getColoredButton(context, m, colors[privacyLevel],
       canSend: canSend, onSend: onSend);
 }

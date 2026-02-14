@@ -15,6 +15,7 @@ import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../../../accounts.dart';
+import '../../../zipher_theme.dart';
 import '../../../appsettings.dart';
 import '../../../generated/intl/messages.dart';
 import '../../widgets.dart';
@@ -65,7 +66,11 @@ class StealthExState extends State<StealthExPage> with WithLoadingAnimation {
     final sendToZEC = reversed ? from.currency == 'ZEC' : to.currency == 'ZEC';
     return wrapWithLoading(
       Scaffold(
-        appBar: AppBar(title: Text(s.stealthEx)),
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
+          title: Text(s.stealthEx),
+        ),
         body: Padding(
           padding: EdgeInsets.fromLTRB(16, 0, 16, 0),
           child: SingleChildScrollView(
@@ -235,7 +240,11 @@ class StealthExSummaryState extends State<StealthExSummaryPage>
     final reversed = swap.fromCurrency != 'zec';
     return wrapWithLoading(
       Scaffold(
-        appBar: AppBar(title: Text(s.stealthEx)),
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
+          title: Text(s.stealthEx),
+        ),
         body: SingleChildScrollView(
           child: Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 0),

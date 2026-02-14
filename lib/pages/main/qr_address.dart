@@ -1,5 +1,5 @@
 import 'package:carousel_slider/carousel_slider.dart';
-import 'package:flutter/material.dart' hide CarouselController;
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:gap/gap.dart';
@@ -9,6 +9,7 @@ import 'package:warp_api/warp_api.dart';
 
 import '../../accounts.dart';
 import '../../appsettings.dart';
+import '../../zipher_theme.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 import '../utils.dart';
@@ -33,7 +34,7 @@ class AddressCarouselState extends State<AddressCarousel> {
   List<int> addressModes = [];
   List<Widget> addresses = [];
   int index = 0;
-  final carouselController = CarouselController();
+  final carouselController = CarouselSliderController();
 
   @override
   void initState() {
@@ -73,7 +74,6 @@ class AddressCarouselState extends State<AddressCarousel> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Column(
       children: [
         CarouselSlider(
@@ -104,7 +104,7 @@ class AddressCarouselState extends State<AddressCarousel> {
                         EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
                     decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: theme.primaryColor
+                        color: ZipherColors.cyan
                             .withOpacity(kv.key == index ? 0.9 : 0.4)),
                   ),
                 ),
@@ -139,7 +139,6 @@ class QRAddressWidget extends StatefulWidget {
 class _QRAddressState extends State<QRAddressWidget> {
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context);
     final a = widget.amount ?? 0;
     final image = coins[aa.coin].image;
 
@@ -161,14 +160,32 @@ class _QRAddressState extends State<QRAddressWidget> {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(centerTrim(uri)),
-            Padding(padding: EdgeInsets.all(4)),
-            IconButton.outlined(onPressed: addressCopy, icon: Icon(Icons.copy)),
-            Padding(padding: EdgeInsets.all(4)),
-            IconButton.outlined(onPressed: qrCode, icon: Icon(Icons.qr_code)),
+            Text(centerTrim(uri),
+                style: const TextStyle(
+                    color: ZipherColors.textPrimary,
+                    fontFamily: 'Inter',
+                    fontSize: 14)),
+            Padding(padding: EdgeInsets.all(ZipherSpacing.xs)),
+            IconButton.outlined(
+                onPressed: addressCopy,
+                icon: Icon(Icons.copy, color: ZipherColors.cyan),
+                style: IconButton.styleFrom(
+                    foregroundColor: ZipherColors.cyan,
+                    side: const BorderSide(color: ZipherColors.border))),
+            Padding(padding: EdgeInsets.all(ZipherSpacing.xs)),
+            IconButton.outlined(
+                onPressed: qrCode,
+                icon: Icon(Icons.qr_code, color: ZipherColors.cyan),
+                style: IconButton.styleFrom(
+                    foregroundColor: ZipherColors.cyan,
+                    side: const BorderSide(color: ZipherColors.border))),
           ],
         ),
-        Text(addressType, style: t.textTheme.labelSmall)
+        Text(addressType,
+            style: const TextStyle(
+                color: ZipherColors.textMuted,
+                fontFamily: 'Inter',
+                fontSize: 12))
       ]);
     });
   }

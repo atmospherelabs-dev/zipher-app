@@ -8,6 +8,7 @@ import 'package:warp_api/warp_api.dart';
 
 import '../../router.dart';
 import '../../accounts.dart';
+import '../../zipher_theme.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 import '../../store2.dart';
@@ -33,7 +34,11 @@ class _KeyToolState extends State<KeyToolPage> with WithLoadingAnimation {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-        appBar: AppBar(title: Text(s.keyTool), actions: [
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
+          title: Text(s.keyTool),
+          actions: [
           IconButton(onPressed: refresh, icon: Icon(Icons.refresh))
         ]),
         body: wrapWithLoading(Padding(

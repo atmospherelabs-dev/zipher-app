@@ -7,6 +7,7 @@ import 'package:warp_api/warp_api.dart';
 import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
 import '../store2.dart';
+import '../zipher_theme.dart';
 
 class DbLoginPage extends StatefulWidget {
   @override
@@ -21,7 +22,12 @@ class _DbLoginState extends State<DbLoginPage> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-        appBar: AppBar(title: Text(s.databasePassword)),
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
+          iconTheme: const IconThemeData(color: ZipherColors.cyan),
+          title: Text(s.databasePassword),
+        ),
         body: Padding(
           padding: EdgeInsets.all(16),
           child: FormBuilder(

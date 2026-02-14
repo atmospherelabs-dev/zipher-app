@@ -7,6 +7,7 @@ import 'package:warp_api/warp_api.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
 import '../../../accounts.dart';
+import '../../../zipher_theme.dart';
 import '../../../generated/intl/messages.dart';
 import '../../widgets.dart';
 
@@ -30,10 +31,10 @@ class SwapHistoryState extends State<SwapHistoryPage>
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    final p = t.colorScheme.primary;
     return wrapWithLoading(Scaffold(
+        backgroundColor: ZipherColors.bg,
         appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
           title: Text(s.history),
           actions: [
             IconButton(onPressed: clear, icon: Icon(Icons.clear_all)),
@@ -50,13 +51,13 @@ class SwapHistoryState extends State<SwapHistoryPage>
                       Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(swap.provider!, style: TextStyle(color: p)),
+                            Text(swap.provider!, style: TextStyle(color: ZipherColors.cyan)),
                             Text(swap.providerId!,
                                 style: TextStyle(fontWeight: FontWeight.bold)),
                             Text(timeago.format(DateTime.fromMillisecondsSinceEpoch(
                                     swap.timestamp * 1000))),
                           ]),
-                      Divider(),
+                      Divider(color: ZipherColors.border),
                       Row(
                         children: [
                           Text(swap.fromAmount!),
@@ -65,7 +66,7 @@ class SwapHistoryState extends State<SwapHistoryPage>
                         ],
                       ),
                       Text(swap.fromAddress!, overflow: TextOverflow.ellipsis),
-                      Divider(),
+                      Divider(color: ZipherColors.border),
                       Row(
                         children: [
                           Text(swap.toAmount!),
@@ -74,7 +75,7 @@ class SwapHistoryState extends State<SwapHistoryPage>
                         ],
                       ),
                       Text(swap.toAddress!, overflow: TextOverflow.ellipsis),
-                      Divider(),
+                      Divider(color: ZipherColors.border),
                       ElevatedButton(
                           onPressed: () => GoRouter.of(context).push(
                               '/account/swap/stealthex/details',

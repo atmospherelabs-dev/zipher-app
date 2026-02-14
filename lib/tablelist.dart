@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'appsettings.dart';
 import 'pages/utils.dart';
+import 'zipher_theme.dart';
 
 class SortSetting extends InheritedWidget {
   final config = ValueNotifier<SortConfig2?>(null);
@@ -187,7 +188,7 @@ class ListViewState<U, T extends TableListItemMetadata<U>>
                 ? widget.metadata.toListTile(
                     context, index ~/ 2, widget.items[index ~/ 2],
                     setState: setState)
-                : Divider(),
+                : const Divider(color: ZipherColors.border),
             childCount: widget.items.length * 2 - 1,
             semanticIndexCallback: (Widget widget, int index) =>
                 index.isEven ? index ~/ 2 : null,

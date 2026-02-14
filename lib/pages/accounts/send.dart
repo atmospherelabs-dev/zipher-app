@@ -10,6 +10,7 @@ import 'package:warp_api/warp_api.dart';
 import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../generated/intl/messages.dart';
+import '../../zipher_theme.dart';
 import '../settings.dart';
 import '../utils.dart';
 import '../widgets.dart';
@@ -91,26 +92,77 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
     final numReceivers = numPoolsOf(addressPools);
 
     return Scaffold(
+        backgroundColor: ZipherColors.bg,
         appBar: AppBar(
-          title: Text(s.send),
+          backgroundColor: ZipherColors.surface,
+          elevation: 0,
+          title: Text(s.send,
+              style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: ZipherColors.textPrimary)),
+          iconTheme: const IconThemeData(color: ZipherColors.cyan),
           actions: [
             IconButton(
               onPressed: _toggleCustom,
-              icon: Icon(Icons.tune),
+              icon: Icon(Icons.tune_outlined,
+                  color: custom
+                      ? ZipherColors.cyan
+                      : ZipherColors.textMuted),
             ),
-            IconButton(
-              onPressed: send,
-              icon: Icon(widget.single ? Icons.send : Icons.add),
-            )
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                gradient: ZipherColors.primaryGradient,
+                borderRadius: BorderRadius.circular(ZipherRadius.sm),
+              ),
+              child: IconButton(
+                onPressed: send,
+                icon: Icon(
+                  widget.single ? Icons.send_rounded : Icons.add,
+                  color: ZipherColors.textOnBrand,
+                  size: 20,
+                ),
+              ),
+            ),
           ],
         ),
         body: wrapWithLoading(SingleChildScrollView(
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.all(ZipherSpacing.md),
             child: FormBuilder(
               key: formKey,
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Spendable balance indicator
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(ZipherSpacing.md - 4),
+                    decoration: BoxDecoration(
+                      color: ZipherColors.surface,
+                      borderRadius: BorderRadius.circular(ZipherRadius.md),
+                      border: Border.all(color: ZipherColors.border),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Spendable',
+                            style: TextStyle(
+                                fontSize: 13, color: ZipherColors.textSecondary)),
+                        Text(
+                          amountToString2(spendable),
+                          style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: ZipherColors.green),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Gap(16),
+
+                  // Address input
                   InputTextQR(
                     _address,
                     key: addressKey,
@@ -126,7 +178,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                       onChanged: onChanged,
                     ),
                   ),
-                  Gap(8),
+                  const Gap(12),
                   if (numReceivers > 1 &&
                       custom &&
                       customSendSettings.recipientPools)
@@ -136,7 +188,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                         onChanged: (v) => setState(() => rp = v!),
                         radio: false,
                         pools: addressPools),
-                  Gap(8),
+                  const Gap(12),
                   if (widget.single &&
                       custom &&
                       customSendSettings.pools &&
@@ -147,7 +199,9 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                       balances: aa.poolBalances,
                       onChanged: (v) => setState(() => _pools = v!),
                     ),
-                  Gap(8),
+                  const Gap(12),
+
+                  // Amount
                   AmountPicker(
                     _amount,
                     key: amountKey,
@@ -156,14 +210,28 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                     canDeductFee: widget.single,
                     custom: custom,
                   ),
-                  Gap(8),
-                  if (isShielded && customSendSettings.memo)
+                  const Gap(12),
+
+                  // Memo (shielded only)
+                  if (isShielded && customSendSettings.memo) ...[
+                    Row(
+                      children: [
+                        const Icon(Icons.shield_outlined,
+                            size: 14, color: ZipherColors.purple),
+                        const SizedBox(width: 6),
+                        const Text('Shielded transaction — memo available',
+                            style: TextStyle(
+                                fontSize: 11, color: ZipherColors.purple)),
+                      ],
+                    ),
+                    const Gap(8),
                     InputMemo(
                       _memo,
                       key: memoKey,
                       onChanged: (v) => _memo = v!,
                       custom: custom,
                     ),
+                  ],
                 ],
               ),
             ),

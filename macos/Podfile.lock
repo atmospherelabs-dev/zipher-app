@@ -88,22 +88,22 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral/.symlinks/plugins/window_manager/macos
 
 SPEC CHECKSUMS:
-  app_links: 9028728e32c83a0831d9db8cf91c526d16cc5468
-  awesome_notifications: 7818a3dbad4836238a68df439c06981d9f0b276c
-  awesome_notifications_core: 1c16f7521b1757f6d39121289573aa3801ba0299
-  connectivity_plus: e74b9f74717d2d99d45751750e266e55912baeb5
-  file_selector_macos: 6280b52b459ae6c590af5d78fc35c7267a3c4b31
+  app_links: 10e0a0ab602ffaf34d142cd4862f29d34b303b2a
+  awesome_notifications: 428f5c15a700b117418aed09e29c21c5806fcf69
+  awesome_notifications_core: 43438f2e1b0e1dd9da81aaeb1b4af5ec0447af1a
+  connectivity_plus: 18d3c32514c886e046de60e9c13895109866c747
+  file_selector_macos: cc3858c981fe6889f364731200d6232dac1d812d
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
-  local_auth_darwin: 553ce4f9b16d3fdfeafce9cf042e7c9f77c1c391
-  mobile_scanner: 0e365ed56cad24f28c0fd858ca04edefb40dfac3
-  network_info_plus: e4d4efcc88f6cabc6e19147ffc223c371d191ab6
-  path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564
+  local_auth_darwin: 66e40372f1c29f383a314c738c7446e2f7fdadc3
+  mobile_scanner: 07710d6b9b2c220ae899de2d7ecf5d77ffa56333
+  network_info_plus: f4fbc7877ab7b3294500d9441dfa53cd54972d05
+  path_provider_foundation: 2b6b4c569c0fb62ec74538f866245ac84301af46
   ReachabilitySwift: 32793e867593cfc1177f5d16491e3a197d2fccda
-  screen_retriever: 4f97c103641aab8ce183fa5af3b87029df167936
-  share_plus: 3c787998077d6b31e839225a282e9e27edf99274
-  shared_preferences_foundation: 9e1978ff2562383bd5676f64ec4e9aa8fa06a6f7
-  url_launcher_macos: 0fba8ddabfc33ce0a9afe7c5fef5aab3d8d2d673
-  window_manager: 1d01fa7ac65a6e6f83b965471b1a7fdd3f06166c
+  screen_retriever: 59634572a57080243dd1bf715e55b6c54f241a38
+  share_plus: 76dd39142738f7a68dd57b05093b5e8193f220f7
+  shared_preferences_foundation: fcdcbc04712aee1108ac7fda236f363274528f78
+  url_launcher_macos: c82c93949963e55b228a30115bd219499a6fe404
+  window_manager: 3a1844359a6295ab1e47659b1a777e36773cd6e8
 
 PODFILE CHECKSUM: 0d3963a09fc94f580682bd88480486da345dc3f0
 

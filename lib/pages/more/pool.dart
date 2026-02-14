@@ -11,6 +11,7 @@ import 'package:warp_api/warp_api.dart';
 
 import '../../appsettings.dart';
 import '../../pages/widgets.dart';
+import '../../zipher_theme.dart';
 import '../../accounts.dart';
 import '../../generated/intl/messages.dart';
 import '../settings.dart';
@@ -44,9 +45,12 @@ class _PoolTransferState extends State<PoolTransferPage>
   Widget build(BuildContext context) {
     final spendable = aa.poolBalances.get(from);
     return Scaffold(
+      backgroundColor: ZipherColors.bg,
       appBar: AppBar(
-          title: Text(s.poolTransfer),
-          actions: [IconButton(onPressed: ok, icon: Icon(Icons.check))]),
+        backgroundColor: ZipherColors.surface,
+        title: Text(s.poolTransfer),
+        actions: [IconButton(onPressed: ok, icon: Icon(Icons.check))],
+      ),
       body: wrapWithLoading(
         SingleChildScrollView(
           child: FormBuilder(
@@ -142,7 +146,7 @@ class HorizontalBarChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = getPalette(Theme.of(context).primaryColor, values.length);
+    final palette = getPalette(ZipherColors.cyan, values.length);
 
     final sum = values.fold<double>(0, ((acc, v) => acc + v));
     final stacks = values.asMap().entries.map((e) {
@@ -155,7 +159,7 @@ class HorizontalBarChart extends StatelessWidget {
               child: Center(
                   child: Text(v,
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white))),
+                      style: const TextStyle(color: ZipherColors.textOnBrand))),
               color: color,
               height: height),
           flex: flex);

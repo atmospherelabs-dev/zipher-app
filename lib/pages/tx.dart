@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../accounts.dart';
+import '../zipher_theme.dart';
 import '../generated/intl/messages.dart';
 import '../appsettings.dart';
 import '../store2.dart';
@@ -135,7 +136,11 @@ class TxItem extends StatelessWidget {
     final theme = Theme.of(context);
     final contact = tx.contact?.isEmpty ?? true ? '?' : tx.contact!;
     final initial = contact[0];
-    final color = amountColor(context, tx.value);
+    final color = tx.value > 0
+        ? ZipherColors.green
+        : tx.value < 0
+            ? ZipherColors.red
+            : ZipherColors.textPrimary;
 
     final av = avatar(initial);
     final dateString = Text(humanizeDateTime(context, tx.timestamp));
@@ -187,7 +192,11 @@ class TransactionState extends State<TransactionPage> {
   Widget build(BuildContext context) {
     final n = aa.txs.items.length;
     return Scaffold(
-        appBar: AppBar(title: Text(s.transactionDetails), actions: [
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+            backgroundColor: ZipherColors.surface,
+            title: Text(s.transactionDetails),
+            actions: [
           IconButton(
               onPressed: idx > 0 ? prev : null, icon: Icon(Icons.chevron_left)),
           IconButton(

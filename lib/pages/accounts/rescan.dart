@@ -7,6 +7,7 @@ import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../../accounts.dart';
+import '../../zipher_theme.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 import '../../store2.dart';
@@ -27,7 +28,9 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     return Scaffold(
+      backgroundColor: ZipherColors.bg,
       appBar: AppBar(
+        backgroundColor: ZipherColors.surface,
         title: Text(s.rescan),
         actions: [
           IconButton(onPressed: _rescan, icon: Icon(Icons.check)),
@@ -60,7 +63,7 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
                   Gap(16),
                   DecoratedBox(
                       decoration: BoxDecoration(
-                          border: Border.all(color: Colors.red, width: 2)),
+                          border: Border.all(color: ZipherColors.red, width: 2)),
                       child: Padding(
                           padding: EdgeInsets.all(8),
                           child: Text(s.rescanWarning,
@@ -115,7 +118,11 @@ class _RewindState extends State<RewindPage> {
   Widget build(BuildContext context) {
     final today = DateTime.now();
     return Scaffold(
-      appBar: AppBar(title: Text(s.rewind), actions: [
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+        backgroundColor: ZipherColors.surface,
+        title: Text(s.rewind),
+        actions: [
         calendar
             ? IconButton(
                 onPressed: () => setState(() => calendar = false),
@@ -146,7 +153,8 @@ class _RewindState extends State<RewindPage> {
                       () => selected = index != selected ? index : null),
                 );
               },
-              separatorBuilder: (context, index) => Divider(),
+              separatorBuilder: (context, index) =>
+                  Divider(color: ZipherColors.border),
               itemCount: checkpoints.length),
     );
   }

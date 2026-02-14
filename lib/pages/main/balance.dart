@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 
 import '../../appsettings.dart';
+import '../../zipher_theme.dart';
 import '../../store2.dart';
 import '../../accounts.dart';
 import '../../coin/coins.dart';
@@ -31,10 +32,12 @@ class BalanceState extends State<BalanceWidget> {
     final mode = widget.mode;
 
     final color = mode == 0
-        ? t.colorScheme.secondary
+        ? ZipherColors.cyan
         : mode == 1
-            ? t.colorScheme.primaryContainer
-            : t.colorScheme.primary;
+            ? ZipherColors.cyan
+            : mode == 2
+                ? ZipherColors.purple
+                : ZipherColors.green;
 
     return Observer(builder: (context) {
       aaSequence.settingsSeqno;
@@ -74,8 +77,8 @@ class BalanceState extends State<BalanceWidget> {
                     decoration: InputDecoration(
                         label: Text('+ ${amountToString2(ob)}'),
                         border: OutlineInputBorder(
-                            borderSide: BorderSide(color: t.primaryColor),
-                            borderRadius: BorderRadius.circular(8))),
+                            borderSide: BorderSide(color: ZipherColors.cyan),
+                            borderRadius: BorderRadius.circular(ZipherRadius.sm))),
                     child: balanceWidget)
                 : balanceWidget,
             Padding(padding: EdgeInsets.all(4)),
