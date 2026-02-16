@@ -41,7 +41,7 @@ class _MorePageState extends State<MorePage> {
 
               // Title
               Text(
-                'Settings',
+                'More',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
@@ -60,13 +60,6 @@ class _MorePageState extends State<MorePage> {
                   subtitle: 'Currency, memo, server, sync',
                   onTap: () => GoRouter.of(context).push('/settings'),
                 ),
-              ]),
-              const Gap(16),
-
-              // ── Contacts ──
-              _sectionLabel('Address Book'),
-              const Gap(8),
-              _card([
                 _SettingsItem(
                   icon: Icons.people_outline_rounded,
                   iconColor: ZipherColors.cyan,
@@ -74,30 +67,6 @@ class _MorePageState extends State<MorePage> {
                   subtitle: 'Manage saved addresses',
                   onTap: () => _nav('/more/contacts'),
                 ),
-              ]),
-              const Gap(16),
-
-              // ── Advanced ──
-              _sectionLabel('Advanced'),
-              const Gap(8),
-              _card([
-                _SettingsItem(
-                  icon: Icons.build_outlined,
-                  label: 'Advanced Settings',
-                  subtitle: 'Keys, accounts, sync tools',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => _AdvancedSettingsPage(),
-                    ),
-                  ),
-                ),
-              ]),
-              const Gap(16),
-
-              // ── About ──
-              _sectionLabel('About'),
-              const Gap(8),
-              _card([
                 _SettingsItem(
                   icon: Icons.info_outline_rounded,
                   label: 'About Zipher',
@@ -111,9 +80,55 @@ class _MorePageState extends State<MorePage> {
                   },
                 ),
               ]),
+              const Gap(20),
+
+              // ── Security & Tools ──
+              _sectionLabel('Security & Tools'),
+              const Gap(8),
+              _card([
+                _SettingsItem(
+                  icon: Icons.key_rounded,
+                  iconColor: ZipherColors.orange,
+                  label: s.seedKeys,
+                  subtitle: 'Export seed phrase & keys',
+                  onTap: () => _navSecured('/more/backup'),
+                ),
+                _SettingsItem(
+                  icon: Icons.cleaning_services_outlined,
+                  label: s.sweep,
+                  subtitle: 'Import funds from a key',
+                  onTap: () => GoRouter.of(context).push('/more/sweep'),
+                ),
+                _SettingsItem(
+                  icon: Icons.sync_rounded,
+                  label: 'Recover Transactions',
+                  subtitle: 'Re-sync if balance looks wrong',
+                  onTap: () => GoRouter.of(context).push('/more/rescan'),
+                ),
+                _SettingsItem(
+                  icon: Icons.cloud_download_outlined,
+                  label: s.appData,
+                  subtitle: 'Backup & restore app data',
+                  onTap: () => _navSecured('/more/batch_backup'),
+                ),
+              ]),
+              const Gap(20),
+
+              // ── Danger Zone ──
+              _sectionLabel('Danger Zone'),
+              const Gap(8),
+              _card([
+                _SettingsItem(
+                  icon: Icons.restart_alt_rounded,
+                  iconColor: ZipherColors.red,
+                  label: 'Reset App',
+                  subtitle: 'Delete all data and start fresh',
+                  onTap: () => _resetApp(),
+                ),
+              ]),
 
               // Version footer
-              const Gap(32),
+              const Gap(40),
               Center(
                 child: Column(
                   children: [
@@ -174,8 +189,11 @@ class _MorePageState extends State<MorePage> {
   Widget _card(List<_SettingsItem> items) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
+        color: Colors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.05),
+        ),
       ),
       child: Column(
         children: [
@@ -197,146 +215,16 @@ class _MorePageState extends State<MorePage> {
   void _nav(String url) async {
     await GoRouter.of(context).push(url);
   }
-}
 
-// ═══════════════════════════════════════════════════════════
-// ADVANCED SETTINGS PAGE
-// ═══════════════════════════════════════════════════════════
-
-class _AdvancedSettingsPage extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
+  void _navSecured(String url) async {
     final s = S.of(context);
-
-    return Scaffold(
-      backgroundColor: ZipherColors.bg,
-      appBar: AppBar(
-        backgroundColor: ZipherColors.bg,
-        elevation: 0,
-        title: Text(
-          'ADVANCED',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: Colors.white.withValues(alpha: 0.6),
-          ),
-        ),
-        centerTitle: true,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: Colors.white.withValues(alpha: 0.5)),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Security ──
-            _sectionLabel('Security'),
-            const Gap(8),
-            _card(context, [
-              _SettingsItem(
-                icon: Icons.key_rounded,
-                iconColor: ZipherColors.orange,
-                label: s.seedKeys,
-                subtitle: 'Export seed phrase & keys',
-                onTap: () => _navSecured(context, '/more/backup'),
-              ),
-            ]),
-            const Gap(16),
-
-            // ── Tools ──
-            _sectionLabel('Tools'),
-            const Gap(8),
-            _card(context, [
-              _SettingsItem(
-                icon: Icons.cleaning_services_outlined,
-                label: s.sweep,
-                subtitle: 'Import funds from a key',
-                onTap: () => GoRouter.of(context).push('/more/sweep'),
-              ),
-              _SettingsItem(
-                icon: Icons.sync_rounded,
-                label: 'Recover Transactions',
-                subtitle: 'Re-sync if balance looks wrong',
-                onTap: () => GoRouter.of(context).push('/more/rescan'),
-              ),
-              _SettingsItem(
-                icon: Icons.cloud_download_outlined,
-                label: s.appData,
-                subtitle: 'Backup & restore app data',
-                onTap: () => _navSecured(context, '/more/batch_backup'),
-              ),
-            ]),
-
-            const Gap(28),
-
-            // ── Danger Zone ──
-            _sectionLabel('Danger Zone'),
-            const Gap(8),
-            InkWell(
-              onTap: () => _resetApp(context),
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(
-                  color: ZipherColors.red.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: ZipherColors.red.withValues(alpha: 0.1),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.restart_alt_rounded,
-                        size: 18,
-                        color: ZipherColors.red.withValues(alpha: 0.5)),
-                    const Gap(12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Reset App',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                              color: ZipherColors.red
-                                  .withValues(alpha: 0.7),
-                            ),
-                          ),
-                          const Gap(1),
-                          Text(
-                            'Delete all data and start fresh',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: ZipherColors.red
-                                  .withValues(alpha: 0.3),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const Gap(40),
-          ],
-        ),
-      ),
-    );
+    final auth = await authenticate(context, s.secured);
+    if (!auth) return;
+    if (mounted) GoRouter.of(context).push(url);
   }
 
-  void _resetApp(BuildContext context) async {
+  void _resetApp() async {
     final s = S.of(context);
-    // First confirmation
     final confirm1 = await showConfirmDialog(
       context,
       'Reset App',
@@ -345,7 +233,6 @@ class _AdvancedSettingsPage extends StatelessWidget {
     );
     if (!confirm1) return;
 
-    // Second confirmation
     final confirm2 = await showConfirmDialog(
       context,
       'Are you sure?',
@@ -354,7 +241,6 @@ class _AdvancedSettingsPage extends StatelessWidget {
     );
     if (!confirm2) return;
 
-    // Wipe everything
     try {
       for (final c in coins) {
         await c.delete();
@@ -363,55 +249,10 @@ class _AdvancedSettingsPage extends StatelessWidget {
       await prefs.clear();
     } catch (_) {}
 
-    // Go back to welcome screen
-    if (context.mounted) {
-      GoRouter.of(context).go('/welcome');
-    }
+    if (mounted) GoRouter.of(context).go('/welcome');
   }
-
-  Widget _sectionLabel(String text) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.5,
-        color: Colors.white.withValues(alpha: 0.25),
-      ),
-    );
-  }
-
-  Widget _card(BuildContext context, List<_SettingsItem> items) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        children: [
-          for (int i = 0; i < items.length; i++) ...[
-            items[i],
-            if (i < items.length - 1)
-              Divider(
-                height: 1,
-                color: Colors.white.withValues(alpha: 0.04),
-                indent: 52,
-                endIndent: 16,
-              ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  void _navSecured(BuildContext context, String url) async {
-    final s = S.of(context);
-    final auth = await authenticate(context, s.secured);
-    if (!auth) return;
-    GoRouter.of(context).push(url);
-  }
-
 }
+
 
 // ═══════════════════════════════════════════════════════════
 // SETTINGS ITEM WIDGET

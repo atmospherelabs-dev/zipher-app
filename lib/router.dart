@@ -385,41 +385,84 @@ class _ScaffoldBar extends State<ScaffoldBar> {
         child: Scaffold(
           backgroundColor: ZipherColors.bg,
           bottomNavigationBar: Container(
-            decoration: const BoxDecoration(
-              color: ZipherColors.surface,
-              border:
-                  Border(top: BorderSide(color: ZipherColors.border, width: 1)),
+            decoration: BoxDecoration(
+              color: ZipherColors.bg.withValues(alpha: 0.85),
+              border: Border(
+                top: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  width: 0.5,
+                ),
+              ),
             ),
-            child: BottomNavigationBar(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              type: BottomNavigationBarType.fixed,
-              selectedItemColor: ZipherColors.cyan,
-              unselectedItemColor: ZipherColors.textMuted,
-              selectedFontSize: 11,
-              unselectedFontSize: 11,
-              items: [
-                const BottomNavigationBarItem(
-                    icon: Icon(Icons.home_outlined),
-                    activeIcon: Icon(Icons.home_rounded),
-                    label: 'Home'),
-                const BottomNavigationBarItem(
-                    icon: Icon(Icons.swap_horiz_outlined),
-                    activeIcon: Icon(Icons.swap_horiz_rounded),
-                    label: 'Swap'),
-                const BottomNavigationBarItem(
-                    icon: Icon(Icons.receipt_long_outlined),
-                    activeIcon: Icon(Icons.receipt_long_rounded),
-                    label: 'Activity'),
-                const BottomNavigationBarItem(
-                    icon: Icon(Icons.settings_outlined),
-                    activeIcon: Icon(Icons.settings_rounded),
-                    label: 'Settings'),
-              ],
-              currentIndex: widget.shell.currentIndex,
-              onTap: (index) {
-                widget.shell.goBranch(index);
-              },
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: List.generate(4, (i) {
+                    final isActive = widget.shell.currentIndex == i;
+                    const icons = [
+                      Icons.home_outlined,
+                      Icons.swap_horiz_outlined,
+                      Icons.receipt_long_outlined,
+                      Icons.more_horiz_rounded,
+                    ];
+                    const activeIcons = [
+                      Icons.home_rounded,
+                      Icons.swap_horiz_rounded,
+                      Icons.receipt_long_rounded,
+                      Icons.more_horiz_rounded,
+                    ];
+                    const labels = ['Home', 'Swap', 'Activity', 'More'];
+                    return Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => widget.shell.goBranch(i),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: isActive
+                                    ? ZipherColors.cyan
+                                        .withValues(alpha: 0.10)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                isActive ? activeIcons[i] : icons[i],
+                                size: 22,
+                                color: isActive
+                                    ? ZipherColors.cyan
+                                    : Colors.white
+                                        .withValues(alpha: 0.30),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              labels[i],
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: isActive
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                                color: isActive
+                                    ? ZipherColors.cyan
+                                    : Colors.white
+                                        .withValues(alpha: 0.30),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
             ),
           ),
           body: ShowCaseWidget(builder: (context) => widget.shell),

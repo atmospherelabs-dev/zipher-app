@@ -14,8 +14,8 @@ class ZipherColors {
   // Brand colors
   static const Color cyan = Color(0xFF00D4FF);
   static const Color cyanDark = Color(0xFF00A3CC);
-  static const Color green = Color(0xFF00FF41);
-  static const Color greenDark = Color(0xFF00CC34);
+  static const Color green = Color(0xFF10E06C);
+  static const Color greenDark = Color(0xFF0BBF5B);
   static const Color purple = Color(0xFFA855F7);
   static const Color purpleDark = Color(0xFF7C3AED);
   static const Color orange = Color(0xFFFF6B35);

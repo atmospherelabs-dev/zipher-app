@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:gap/gap.dart';
@@ -106,23 +107,27 @@ class _HomeState extends State<HomePageInner> {
             backgroundColor: ZipherColors.surface,
             child: Stack(
               children: [
-                // Radial gradient glow behind balance (Jupiter-style)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: 420,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        center: const Alignment(0.0, -1.0),
-                        radius: 1.3,
-                        colors: [
-                          ZipherColors.purple.withValues(alpha: 0.12),
-                          ZipherColors.cyan.withValues(alpha: 0.05),
-                          Colors.transparent,
-                        ],
-                        stops: const [0.0, 0.45, 1.0],
+                // Jupiter-style faisceau: wide diffuse top, narrows down
+                Positioned.fill(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: ImageFiltered(
+                      imageFilter: ui.ImageFilter.blur(
+                        sigmaX: 60,
+                        sigmaY: 30,
+                        tileMode: TileMode.decal,
+                      ),
+                      child: ClipRect(
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: 620,
+                          child: CustomPaint(
+                            painter: _BeamPainter(
+                              colorTop: ZipherColors.cyan.withValues(alpha: 0.16),
+                              colorMid: ZipherColors.purple.withValues(alpha: 0.10),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -136,19 +141,24 @@ class _HomeState extends State<HomePageInner> {
                     padding: EdgeInsets.fromLTRB(20, topPad + 14, 20, 0),
                     child: Row(
                       children: [
-                        // Zipher logo
+                        // Account avatar
                         Container(
                           width: 32,
                           height: 32,
                           decoration: BoxDecoration(
-                            color: ZipherColors.cyan.withValues(alpha: 0.12),
-                            shape: BoxShape.circle,
+                            color: ZipherColors.cyan.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(10),
                           ),
                           child: Center(
-                            child: Image.asset(
-                              'assets/zipher_logo.png',
-                              width: 20,
-                              height: 20,
+                            child: Text(
+                              (aa.name.isNotEmpty ? aa.name[0] : '?')
+                                  .toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: ZipherColors.cyan
+                                    .withValues(alpha: 0.7),
+                              ),
                             ),
                           ),
                         ),
@@ -422,8 +432,11 @@ class _HomeState extends State<HomePageInner> {
                             const EdgeInsets.symmetric(vertical: 40),
                         decoration: BoxDecoration(
                           color:
-                              Colors.white.withValues(alpha: 0.03),
+                              Colors.white.withValues(alpha: 0.04),
                           borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.05),
+                          ),
                         ),
                         child: Column(
                           children: [
@@ -580,10 +593,10 @@ class _BalanceBreakdown extends StatelessWidget {
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
+        color: Colors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.04),
+          color: Colors.white.withValues(alpha: 0.06),
         ),
       ),
       child: Column(
@@ -785,6 +798,48 @@ class _BalanceBreakdown extends StatelessWidget {
   }
 }
 
+// ─── Beam painter (wide top → narrow bottom trapezoid) ──────
+
+class _BeamPainter extends CustomPainter {
+  final Color colorTop;
+  final Color colorMid;
+
+  _BeamPainter({required this.colorTop, required this.colorMid});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // Trapezoid: 1/6 inset at top (dark edges visible), narrows to center
+    final inset = w / 6;
+    final path = Path()
+      ..moveTo(inset, 0)
+      ..lineTo(w - inset, 0)
+      ..lineTo(w * 0.57, h)
+      ..lineTo(w * 0.43, h)
+      ..close();
+
+    final paint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          colorTop,
+          colorMid,
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.45, 1.0],
+      ).createShader(Rect.fromLTWH(0, 0, w, h));
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BeamPainter old) =>
+      old.colorTop != colorTop || old.colorMid != colorMid;
+}
+
 // ─── Action button (rounded rectangle) ──────────────────────
 
 class _ActionButton extends StatelessWidget {
@@ -808,8 +863,11 @@ class _ActionButton extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.07),
+            color: Colors.white.withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.06),
+            ),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -916,10 +974,10 @@ class _TxRowState extends State<_TxRow> {
             padding:
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.03),
+              color: Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.04),
+                color: Colors.white.withValues(alpha: 0.05),
               ),
             ),
             child: Row(
@@ -1040,8 +1098,14 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
         maxHeight: MediaQuery.of(context).size.height * 0.6,
       ),
       decoration: BoxDecoration(
-        color: ZipherColors.surface,
+        color: ZipherColors.bg,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        border: Border(
+          top: BorderSide(
+            color: Colors.white.withValues(alpha: 0.06),
+            width: 0.5,
+          ),
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1051,7 +1115,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
             width: 36,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
+              color: Colors.white.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -1063,9 +1127,9 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                 Text(
                   'Accounts',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: FontWeight.w600,
-                    color: Colors.white.withValues(alpha: 0.8),
+                    color: Colors.white.withValues(alpha: 0.7),
                   ),
                 ),
                 const Spacer(),
@@ -1073,24 +1137,27 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                   onTap: _addAccount,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 5),
+                        horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: ZipherColors.cyan.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
+                      color: ZipherColors.cyan.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: ZipherColors.cyan.withValues(alpha: 0.08),
+                      ),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.add_rounded,
                             size: 14,
-                            color: ZipherColors.cyan.withValues(alpha: 0.7)),
-                        const Gap(4),
+                            color: ZipherColors.cyan.withValues(alpha: 0.6)),
+                        const Gap(5),
                         Text(
                           'Add',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
-                            color: ZipherColors.cyan.withValues(alpha: 0.7),
+                            color: ZipherColors.cyan.withValues(alpha: 0.6),
                           ),
                         ),
                       ],
@@ -1100,12 +1167,17 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
               ],
             ),
           ),
-          const Gap(12),
-          Divider(height: 1, color: Colors.white.withValues(alpha: 0.04)),
+          const Gap(14),
+          Divider(
+            height: 1,
+            color: Colors.white.withValues(alpha: 0.04),
+            indent: 20,
+            endIndent: 20,
+          ),
           Flexible(
             child: ListView.builder(
               shrinkWrap: true,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
               itemCount: accounts.length,
               itemBuilder: (context, index) {
                 final a = accounts[index];
@@ -1113,26 +1185,26 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                 final isEditing = _editingIndex == index;
 
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
+                  padding: const EdgeInsets.only(bottom: 6),
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
                       onTap: isEditing ? null : () => _switchTo(a),
                       onLongPress: () => _startEditing(index, a),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 14, vertical: 12),
                         decoration: BoxDecoration(
                           color: isActive
-                              ? ZipherColors.cyan.withValues(alpha: 0.06)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                          border: isActive
-                              ? Border.all(
-                                  color: ZipherColors.cyan
-                                      .withValues(alpha: 0.12))
-                              : null,
+                              ? Colors.white.withValues(alpha: 0.05)
+                              : Colors.white.withValues(alpha: 0.02),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isActive
+                                ? ZipherColors.cyan.withValues(alpha: 0.10)
+                                : Colors.white.withValues(alpha: 0.04),
+                          ),
                         ),
                         child: Row(
                           children: [
@@ -1142,8 +1214,8 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                               decoration: BoxDecoration(
                                 color: isActive
                                     ? ZipherColors.cyan
-                                        .withValues(alpha: 0.12)
-                                    : Colors.white.withValues(alpha: 0.05),
+                                        .withValues(alpha: 0.10)
+                                    : Colors.white.withValues(alpha: 0.04),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Center(
@@ -1154,9 +1226,9 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                                     fontWeight: FontWeight.w700,
                                     color: isActive
                                         ? ZipherColors.cyan
-                                            .withValues(alpha: 0.8)
+                                            .withValues(alpha: 0.7)
                                         : Colors.white
-                                            .withValues(alpha: 0.3),
+                                            .withValues(alpha: 0.25),
                                   ),
                                 ),
                               ),
@@ -1191,7 +1263,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                                             fontSize: 14,
                                             fontWeight: FontWeight.w500,
                                             color: Colors.white
-                                                .withValues(alpha: 0.85),
+                                                .withValues(alpha: 0.8),
                                           ),
                                         ),
                                         if (isActive)
@@ -1199,6 +1271,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                                             'Active',
                                             style: TextStyle(
                                               fontSize: 10,
+                                              fontWeight: FontWeight.w500,
                                               color: ZipherColors.green
                                                   .withValues(alpha: 0.5),
                                             ),
@@ -1210,29 +1283,46 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                               '${_accountBalance(a)} ZEC',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: Colors.white.withValues(alpha: 0.35),
+                                fontWeight: FontWeight.w500,
+                                color: Colors.white.withValues(alpha: 0.3),
                               ),
                             ),
                             if (isEditing) ...[
-                              const Gap(8),
+                              const Gap(10),
                               GestureDetector(
                                 onTap: () => _delete(a, index),
-                                child: Icon(
-                                  Icons.delete_outline_rounded,
-                                  size: 18,
-                                  color:
-                                      ZipherColors.red.withValues(alpha: 0.5),
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: ZipherColors.red
+                                        .withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    Icons.delete_outline_rounded,
+                                    size: 16,
+                                    color: ZipherColors.red
+                                        .withValues(alpha: 0.5),
+                                  ),
                                 ),
                               ),
                               const Gap(4),
                               GestureDetector(
                                 onTap: () =>
                                     setState(() => _editingIndex = null),
-                                child: Icon(
-                                  Icons.close_rounded,
-                                  size: 18,
-                                  color:
-                                      Colors.white.withValues(alpha: 0.25),
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white
+                                        .withValues(alpha: 0.04),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    Icons.close_rounded,
+                                    size: 16,
+                                    color: Colors.white
+                                        .withValues(alpha: 0.25),
+                                  ),
                                 ),
                               ),
                             ],
@@ -1245,7 +1335,17 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
               },
             ),
           ),
-          const Gap(12),
+          // Long press hint
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+            child: Text(
+              'Long press to rename or delete',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.white.withValues(alpha: 0.15),
+              ),
+            ),
+          ),
         ],
       ),
     );
