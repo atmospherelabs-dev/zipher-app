@@ -1369,6 +1369,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
       await aa.save(prefs);
     });
     aa.update(null);
+    contacts.fetchContacts();
     widget.onAccountChanged();
     Navigator.of(context).pop();
   }
@@ -1376,6 +1377,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
   void _addAccount() async {
     Navigator.of(context).pop();
     await GoRouter.of(context).push('/more/account_manager/new');
+    contacts.fetchContacts();
     widget.onAccountChanged();
   }
 
@@ -1418,7 +1420,8 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
       return;
     }
     final confirmed = await showConfirmDialog(
-        context, s.deleteAccount(a.name!), s.confirmDeleteAccount);
+        context, s.deleteAccount(a.name!), s.confirmDeleteAccount,
+        isDanger: true);
     if (confirmed) {
       WarpApi.deleteAccount(a.coin, a.id);
       setState(() {

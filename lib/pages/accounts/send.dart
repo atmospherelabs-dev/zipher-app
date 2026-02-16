@@ -654,9 +654,13 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
       _showError('Enter a recipient address');
       return;
     }
-    // Validate amount
-    if (_amountZat <= 0) {
-      _showError('Enter an amount');
+    // Validate amount (0 ZEC is allowed for memo-only transactions)
+    if (_amountZat < 0) {
+      _showError('Enter a valid amount');
+      return;
+    }
+    if (_amountZat == 0 && _memoText.isEmpty) {
+      _showError('Add a memo for 0 ZEC transactions');
       return;
     }
     if (_amountZat > _spendable) {
@@ -707,7 +711,34 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
 
   void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.error_outline_rounded,
+                size: 16,
+                color: ZipherColors.red.withValues(alpha: 0.8)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                msg,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.white.withValues(alpha: 0.85),
+                ),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: ZipherColors.surface,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(
+            color: ZipherColors.red.withValues(alpha: 0.15),
+          ),
+        ),
+        duration: const Duration(seconds: 3),
+      ),
     );
   }
 }

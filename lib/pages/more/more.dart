@@ -230,6 +230,7 @@ class _MorePageState extends State<MorePage> {
       'Reset App',
       'This will delete ALL accounts, keys, and settings. '
           'Make sure you have backed up your seed phrase before continuing.',
+      isDanger: true,
     );
     if (!confirm1) return;
 
@@ -238,6 +239,7 @@ class _MorePageState extends State<MorePage> {
       'Are you sure?',
       'This action is permanent and cannot be undone. '
           'All your data will be erased.',
+      isDanger: true,
     );
     if (!confirm2) return;
 

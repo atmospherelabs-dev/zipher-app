@@ -77,15 +77,82 @@ Future<bool> showMessageBox2(BuildContext context, String title, String content,
   final s = S.of(context);
   final confirm = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
-      builder: (context) =>
-          AlertDialog(title: Text(title), content: Text(content), actions: [
-            if (dismissable)
-              ElevatedButton.icon(
-                  onPressed: () => GoRouter.of(context).pop(),
-                  icon: Icon(Icons.check),
-                  label: Text(label ?? s.ok))
-          ]));
+      barrierDismissible: dismissable,
+      builder: (context) => Dialog(
+            backgroundColor: ZipherColors.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(
+                color: Colors.white.withValues(alpha: 0.06),
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: ZipherColors.cyan.withValues(alpha: 0.08),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.info_outline_rounded,
+                      size: 22,
+                      color: ZipherColors.cyan.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withValues(alpha: 0.85),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    content,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.white.withValues(alpha: 0.4),
+                      height: 1.4,
+                    ),
+                  ),
+                  if (dismissable) ...[
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: GestureDetector(
+                        onTap: () => GoRouter.of(context).pop(true),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: ZipherColors.cyan.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                            child: Text(
+                              label ?? s.ok,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: ZipherColors.cyan,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ));
   return confirm ?? false;
 }
 
@@ -313,27 +380,126 @@ extension ScopeFunctions<T> on T {
 }
 
 Future<bool> showConfirmDialog(
-    BuildContext context, String title, String body) async {
+    BuildContext context, String title, String body,
+    {bool isDanger = false}) async {
   final s = S.of(context);
-
-  void close(bool res) {
-    GoRouter.of(context).pop<bool>(res);
-  }
+  final accentColor = isDanger ? ZipherColors.red : ZipherColors.cyan;
 
   final confirmation = await showDialog<bool>(
           context: context,
-          barrierDismissible: false,
-          builder: (context) =>
-              AlertDialog(title: Text(title), content: Text(body), actions: [
-                ElevatedButton.icon(
-                    onPressed: () => close(false),
-                    icon: Icon(Icons.cancel),
-                    label: Text(s.cancel)),
-                ElevatedButton.icon(
-                    onPressed: () => close(true),
-                    icon: Icon(Icons.check),
-                    label: Text(s.ok)),
-              ])) ??
+          barrierDismissible: true,
+          builder: (context) => Dialog(
+                backgroundColor: ZipherColors.surface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.06),
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: accentColor.withValues(alpha: 0.08),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          isDanger
+                              ? Icons.warning_amber_rounded
+                              : Icons.help_outline_rounded,
+                          size: 22,
+                          color: accentColor.withValues(alpha: 0.6),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white.withValues(alpha: 0.85),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        body,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.white.withValues(alpha: 0.4),
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () =>
+                                  GoRouter.of(context).pop<bool>(false),
+                              child: Container(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                decoration: BoxDecoration(
+                                  color:
+                                      Colors.white.withValues(alpha: 0.04),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.white
+                                        .withValues(alpha: 0.05),
+                                  ),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    s.cancel,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.white
+                                          .withValues(alpha: 0.4),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () =>
+                                  GoRouter.of(context).pop<bool>(true),
+                              child: Container(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                decoration: BoxDecoration(
+                                  color:
+                                      accentColor.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    s.ok,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: accentColor,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              )) ??
       false;
   return confirmation;
 }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
@@ -37,11 +39,21 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   bool _skRevealed = false;
   bool _tskRevealed = false;
   bool _obscured = false;
+  int? _birthdayHeight;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadBirthday();
+  }
+
+  void _loadBirthday() async {
+    final prefs = await SharedPreferences.getInstance();
+    final h = prefs.getInt('birthday_${aa.coin}_${aa.id}');
+    if (h != null && mounted) {
+      setState(() => _birthdayHeight = h);
+    }
   }
 
   @override
@@ -149,7 +161,130 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     ),
                   ),
 
-                  const Gap(28),
+                  const Gap(20),
+
+                  // ═══════════════════════════════════
+                  // WALLET INFO
+                  // ═══════════════════════════════════
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.03),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.05),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.account_circle_outlined,
+                                size: 15,
+                                color:
+                                    Colors.white.withValues(alpha: 0.25)),
+                            const Gap(8),
+                            Text(
+                              'Account',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color:
+                                    Colors.white.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              '${backup.name ?? 'Unknown'} (#${backup.index})',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color:
+                                    Colors.white.withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Padding(
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 8),
+                          child: Divider(
+                            height: 1,
+                            color: Colors.white.withValues(alpha: 0.04),
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            Icon(Icons.backup_rounded,
+                                size: 15,
+                                color:
+                                    Colors.white.withValues(alpha: 0.25)),
+                            const Gap(8),
+                            Text(
+                              'Backup saved',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color:
+                                    Colors.white.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              backup.saved ? 'Yes' : 'No',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: backup.saved
+                                    ? ZipherColors.green
+                                        .withValues(alpha: 0.6)
+                                    : ZipherColors.orange
+                                        .withValues(alpha: 0.6),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_birthdayHeight != null) ...[
+                          Padding(
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 8),
+                            child: Divider(
+                              height: 1,
+                              color:
+                                  Colors.white.withValues(alpha: 0.04),
+                            ),
+                          ),
+                          Row(
+                            children: [
+                              Icon(Icons.cake_outlined,
+                                  size: 15,
+                                  color: Colors.white
+                                      .withValues(alpha: 0.25)),
+                              const Gap(8),
+                              Text(
+                                'Birthday',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white
+                                      .withValues(alpha: 0.3),
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                'Block $_birthdayHeight',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.white
+                                      .withValues(alpha: 0.5),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+
+                  const Gap(24),
 
                   // ═══════════════════════════════════
                   // VIEWING KEYS (safe, always visible)
@@ -264,8 +399,16 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                           accentColor: ZipherColors.orange,
                           icon: Icons.shield_rounded,
                           revealed: _seedRevealed,
-                          onToggleReveal: () => setState(
-                              () => _seedRevealed = !_seedRevealed),
+                          onToggleReveal: () {
+                            setState(
+                                () => _seedRevealed = !_seedRevealed);
+                            if (_seedRevealed && !widget.backup.saved) {
+                              WarpApi.setBackupReminder(
+                                  aa.coin, aa.id, true);
+                              // Reload active account so aa.saved updates
+                              setActiveAccount(aa.coin, aa.id);
+                            }
+                          },
                           onShowQR: () => _showQR(context, backup.seed!,
                               '${s.seed} of ${backup.name}'),
                         ),
