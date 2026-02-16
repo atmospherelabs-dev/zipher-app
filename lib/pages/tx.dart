@@ -22,7 +22,7 @@ const _cipherScanBase = 'https://cipherscan.app';
 
 void _openOnCipherScan(String txId) {
   launchUrl(
-    Uri.parse('$_cipherScanBase/transaction/$txId'),
+    Uri.parse('$_cipherScanBase/tx/$txId'),
     mode: LaunchMode.externalApplication,
   );
 }

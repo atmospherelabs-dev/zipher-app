@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../../appsettings.dart';
 import '../../zipher_theme.dart';
+import '../../store2.dart';
 import '../utils.dart';
 import '../../accounts.dart';
-import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 
 class TxPlanPage extends StatefulWidget {
@@ -29,42 +27,505 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
   @override
   Widget build(BuildContext context) {
     final report = WarpApi.transactionReport(aa.coin, widget.plan);
-    final txplan = TxPlanWidget(widget.plan, report,
-        signOnly: widget.signOnly, onSend: sendOrSign);
+    final outputs = report.outputs ?? [];
+    final totalAmount =
+        outputs.fold<int>(0, (sum, o) => sum + o.amount);
+    final fee = report.fee;
+    final privacyLevel = report.privacyLevel;
+    final invalidPrivacy = privacyLevel < appSettings.minPrivacyLevel;
+    final canSend = aa.canPay && !invalidPrivacy;
+
     return Scaffold(
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
         backgroundColor: ZipherColors.bg,
-        appBar: AppBar(
-          backgroundColor: ZipherColors.surface,
-          title: Text(s.txPlan),
-          actions: [
-            IconButton(
-              onPressed: () => exportRaw(context),
-              icon: Icon(MdiIcons.snowflake),
+        elevation: 0,
+        title: Text(
+          'CONFIRM',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.5,
+            color: Colors.white.withValues(alpha: 0.6),
+          ),
+        ),
+        centerTitle: true,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_rounded,
+              color: Colors.white.withValues(alpha: 0.5)),
+          onPressed: () => GoRouter.of(context).pop(),
+        ),
+      ),
+      body: wrapWithLoading(
+        Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  children: [
+                    const Gap(16),
+
+                    // ── Hero: logo + arrow badge + amount ──
+                    _buildHero(totalAmount),
+                    const Gap(28),
+
+                    // ── Recipients ──
+                    ...outputs.map((o) => _buildRecipient(o)),
+
+                    // ── Details card ──
+                    _buildDetails(fee, privacyLevel),
+                    const Gap(16),
+
+                    // ── Privacy warning ──
+                    if (invalidPrivacy)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: ZipherColors.orange.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded,
+                                size: 18,
+                                color: ZipherColors.orange
+                                    .withValues(alpha: 0.7)),
+                            const Gap(10),
+                            Expanded(
+                              child: Text(
+                                s.privacyLevelTooLow,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: ZipherColors.orange
+                                      .withValues(alpha: 0.7),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    const Gap(32),
+                  ],
+                ),
+              ),
             ),
-            if (aa.canPay && !txplan.invalidPrivacy)
-              IconButton(
-                onPressed: () => sendOrSign(context),
-                icon: widget.signOnly
-                    ? FaIcon(FontAwesomeIcons.signature)
-                    : Icon(Icons.send),
-              )
+
+            // ── Send button ──
+            _buildSendButton(canSend),
           ],
         ),
-        body: wrapWithLoading(SingleChildScrollView(child: txplan)));
+      ),
+    );
   }
 
-  send(BuildContext context) {
+  // ═══════════════════════════════════════════════════════════
+  // HERO
+  // ═══════════════════════════════════════════════════════════
+
+  Widget _buildHero(int totalAmount) {
+    final fiatStr = _fiatAmount(totalAmount);
+
+    return Column(
+      children: [
+        // Zcash logo with send arrow badge (matching TX detail style)
+        SizedBox(
+          width: 64,
+          height: 64,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Image.asset('assets/zcash_logo.png',
+                      width: 42, height: 42, fit: BoxFit.contain),
+                ),
+              ),
+              Positioned(
+                right: -2,
+                bottom: -2,
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: ZipherColors.cyan,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: ZipherColors.bg,
+                      width: 2.5,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.north_east_rounded,
+                    size: 12,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Gap(18),
+
+        // "You're Sending" label
+        Text(
+          'You\'re Sending',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Colors.white.withValues(alpha: 0.4),
+          ),
+        ),
+        const Gap(8),
+
+        // Amount + ZEC on same line
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              amountToString2(totalAmount),
+              style: const TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const Gap(6),
+            Text(
+              'ZEC',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.white.withValues(alpha: 0.3),
+              ),
+            ),
+          ],
+        ),
+
+        // USD value
+        if (fiatStr != null) ...[
+          const Gap(4),
+          Text(
+            fiatStr,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.white.withValues(alpha: 0.25),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // RECIPIENT
+  // ═══════════════════════════════════════════════════════════
+
+  Widget _buildRecipient(TxOutput output) {
+    final addr = output.address ?? '';
+
+    // Check if address matches a contact
+    final contactName = _findContactName(addr);
+    final truncated = addr.length > 16
+        ? '${addr.substring(0, 8)}...${addr.substring(addr.length - 6)}'
+        : addr;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: ZipherColors.cyan.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: contactName != null
+                    ? Text(
+                        contactName[0].toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: ZipherColors.cyan.withValues(alpha: 0.7),
+                        ),
+                      )
+                    : Icon(
+                        Icons.person_outline_rounded,
+                        size: 18,
+                        color: ZipherColors.cyan.withValues(alpha: 0.5),
+                      ),
+              ),
+            ),
+            const Gap(12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'To',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withValues(alpha: 0.25),
+                    ),
+                  ),
+                  const Gap(2),
+                  if (contactName != null) ...[
+                    Text(
+                      contactName,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white.withValues(alpha: 0.8),
+                      ),
+                    ),
+                    const Gap(1),
+                    Text(
+                      truncated,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontFamily: 'monospace',
+                        color: Colors.white.withValues(alpha: 0.2),
+                      ),
+                    ),
+                  ] else
+                    Text(
+                      truncated,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontFamily: 'monospace',
+                        color: Colors.white.withValues(alpha: 0.6),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // DETAILS CARD
+  // ═══════════════════════════════════════════════════════════
+
+  Widget _buildDetails(int fee, int privacyLevel) {
+    final privacyLabel = _privacyLabel(privacyLevel);
+    final privacyColor = _privacyColor(privacyLevel);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        children: [
+          _detailRow('Network fee', amountToString2(fee, digits: 5) + ' ZEC'),
+          const Gap(10),
+          Divider(
+            height: 1,
+            color: Colors.white.withValues(alpha: 0.04),
+          ),
+          const Gap(10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Privacy',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.white.withValues(alpha: 0.35),
+                ),
+              ),
+              Row(
+                children: [
+                  Icon(
+                    privacyLevel >= 3
+                        ? Icons.shield_rounded
+                        : Icons.shield_outlined,
+                    size: 14,
+                    color: privacyColor.withValues(alpha: 0.7),
+                  ),
+                  const Gap(6),
+                  Text(
+                    privacyLabel,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: privacyColor.withValues(alpha: 0.8),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.white.withValues(alpha: 0.35),
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: Colors.white.withValues(alpha: 0.7),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // SEND BUTTON
+  // ═══════════════════════════════════════════════════════════
+
+  Widget _buildSendButton(bool canSend) {
+    final label = widget.signOnly ? 'Sign Transaction' : 'Send';
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+        child: SizedBox(
+          width: double.infinity,
+          child: Material(
+            color: Colors.transparent,
+            child: IgnorePointer(
+              ignoring: !canSend,
+              child: Opacity(
+                opacity: canSend ? 1.0 : 0.4,
+                child: InkWell(
+                  onTap: () => _sendOrSign(context),
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      color: ZipherColors.cyan.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          widget.signOnly
+                              ? Icons.draw_rounded
+                              : Icons.send_rounded,
+                          size: 20,
+                          color: ZipherColors.cyan.withValues(alpha: 0.9),
+                        ),
+                        const Gap(10),
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color:
+                                ZipherColors.cyan.withValues(alpha: 0.9),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // HELPERS
+  // ═══════════════════════════════════════════════════════════
+
+  String? _fiatAmount(int zat) {
+    final price = marketPrice.price;
+    if (price == null) return null;
+    final fiat = zat / ZECUNIT * price;
+    return '\$${fiat.toStringAsFixed(2)} USD';
+  }
+
+  String? _findContactName(String address) {
+    for (final c in contacts.contacts) {
+      if (c.address == address) return c.name;
+    }
+    return null;
+  }
+
+  String _privacyLabel(int level) {
+    switch (level) {
+      case 0:
+        return 'Very Low';
+      case 1:
+        return 'Low';
+      case 2:
+        return 'Medium';
+      case 3:
+        return 'Fully Private';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  Color _privacyColor(int level) {
+    switch (level) {
+      case 0:
+        return ZipherColors.red;
+      case 1:
+        return ZipherColors.orange;
+      case 2:
+        return ZipherColors.cyan;
+      case 3:
+        return ZipherColors.purple;
+      default:
+        return Colors.white;
+    }
+  }
+
+  Future<void> _sendOrSign(BuildContext context) async {
+    if (widget.signOnly) {
+      await _sign(context);
+    } else {
+      _send(context);
+    }
+  }
+
+  void _send(BuildContext context) {
     GoRouter.of(context).go('/${widget.tab}/submit_tx', extra: widget.plan);
   }
 
-  exportRaw(BuildContext context) {
-    GoRouter.of(context).go('/account/export_raw_tx', extra: widget.plan);
-  }
-
-  Future<void> sendOrSign(BuildContext context) async =>
-      widget.signOnly ? sign(context) : await send(context);
-
-  sign(BuildContext context) async {
+  Future<void> _sign(BuildContext context) async {
     try {
       await load(() async {
         final txBin = await WarpApi.signOnly(aa.coin, aa.id, widget.plan);
@@ -76,103 +537,9 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
   }
 }
 
-class TxPlanWidget extends StatelessWidget {
-  final String plan;
-  final TxReport report;
-  final bool signOnly;
-  final Future<void> Function(BuildContext context)? onSend;
-
-  TxPlanWidget(this.plan, this.report, {required this.signOnly, this.onSend});
-
-  // factory TxPlanWidget.fromPlan(String plan, {bool signOnly = false}) {
-  //   final report = WarpApi.transactionReport(aa.coin, plan);
-  //   return TxPlanWidget(plan, report, signOnly: signOnly);
-  // }
-
-  get invalidPrivacy => report.privacyLevel < appSettings.minPrivacyLevel;
-
-  @override
-  Widget build(BuildContext context) {
-    final s = S.of(context);
-    final t = Theme.of(context);
-    final c = coins[aa.coin];
-    final supportsUA = c.supportsUA;
-    final rows = report.outputs!.map((e) {
-      final style = _styleOfAddress(e.address!, t);
-      return DataRow(cells: [
-        DataCell(Text('${centerTrim(e.address!)}', style: style)),
-        DataCell(Text('${poolToString(s, e.pool)}', style: style)),
-        DataCell(Text('${amountToString2(e.amount, digits: MAX_PRECISION)}',
-            style: style)),
-      ]);
-    }).toList();
-
-    return Column(children: [
-      Row(children: [
-        Expanded(
-            child: DataTable(
-                headingRowHeight: 32,
-                columnSpacing: 32,
-                columns: [
-                  DataColumn(label: Text(s.address)),
-                  DataColumn(label: Text(s.pool)),
-                  DataColumn(label: Expanded(child: Text(s.amount))),
-                ],
-                rows: rows))
-      ]),
-      Divider(
-        height: 16,
-        thickness: 2,
-        color: ZipherColors.cyan,
-      ),
-      ListTile(
-          visualDensity: VisualDensity.compact,
-          title: Text(s.transparentInput),
-          trailing: Text(
-              amountToString2(report.transparent, digits: MAX_PRECISION),
-              style: TextStyle(color: ZipherColors.cyan))),
-      ListTile(
-          visualDensity: VisualDensity.compact,
-          title: Text(s.saplingInput),
-          trailing:
-              Text(amountToString2(report.sapling, digits: MAX_PRECISION))),
-      if (supportsUA)
-        ListTile(
-            visualDensity: VisualDensity.compact,
-            title: Text(s.orchardInput),
-            trailing:
-                Text(amountToString2(report.orchard, digits: MAX_PRECISION))),
-      ListTile(
-          visualDensity: VisualDensity.compact,
-          title: Text(s.netSapling),
-          trailing: Text(
-              amountToString2(report.netSapling, digits: MAX_PRECISION),
-              style: TextStyle(color: ZipherColors.cyan))),
-      if (supportsUA)
-        ListTile(
-            visualDensity: VisualDensity.compact,
-            title: Text(s.netOrchard),
-            trailing: Text(
-                amountToString2(report.netOrchard, digits: MAX_PRECISION),
-                style: TextStyle(color: ZipherColors.cyan))),
-      ListTile(
-          visualDensity: VisualDensity.compact,
-          title: Text(s.fee),
-          trailing: Text(amountToString2(report.fee, digits: MAX_PRECISION),
-              style: TextStyle(color: ZipherColors.cyan))),
-      privacyToString(context, report.privacyLevel,
-          canSend: !invalidPrivacy, onSend: onSend)!,
-      Gap(16),
-      if (invalidPrivacy)
-        Text(s.privacyLevelTooLow, style: t.textTheme.bodyLarge),
-    ]);
-  }
-
-  TextStyle? _styleOfAddress(String address, ThemeData t) {
-    final a = WarpApi.receiversOfAddress(aa.coin, address);
-    return a == 1 ? TextStyle(color: ZipherColors.cyan) : null;
-  }
-}
+// ═══════════════════════════════════════════════════════════
+// HELPERS (kept for backward compatibility)
+// ═══════════════════════════════════════════════════════════
 
 String poolToString(S s, int pool) {
   switch (pool) {

@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:YWallet/main.dart';
+import 'package:YWallet/main.dart' hide ZECUNIT;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
@@ -12,6 +12,7 @@ import 'package:warp_api/warp_api.dart';
 import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../generated/intl/messages.dart';
+import '../../store2.dart';
 import '../../zipher_theme.dart';
 import '../scan.dart';
 import '../utils.dart';
@@ -197,11 +198,20 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Image.asset('assets/zcash_small.png',
-                        width: 28, height: 28,
-                        color: Colors.white.withValues(alpha: 0.85),
-                        colorBlendMode: BlendMode.srcIn),
-                    const Gap(6),
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.08),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Image.asset('assets/zcash_logo.png',
+                            width: 22, height: 22,
+                            fit: BoxFit.contain),
+                      ),
+                    ),
+                    const Gap(8),
                     Text(
                       amountToString2(_totalBal),
                       style: const TextStyle(
@@ -260,10 +270,10 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
           onChanged: (v) => _onAddress(v),
           builder: (field) {
             return Container(
-              height: 48,
+              height: 52,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.04),
-                borderRadius: BorderRadius.circular(12),
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(14),
               ),
               child: Row(
                 children: [
@@ -275,11 +285,12 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                         color: Colors.white.withValues(alpha: 0.85),
                       ),
                       decoration: InputDecoration(
-                        hintText: 'Zcash Address',
+                        hintText: 'Zcash address or payment URI',
                         hintStyle: TextStyle(
                           fontSize: 14,
                           color: Colors.white.withValues(alpha: 0.18),
                         ),
+                        filled: false,
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
                         focusedBorder: InputBorder.none,
@@ -334,35 +345,65 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Amount',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: Colors.white.withValues(alpha: 0.4),
-          ),
+        Row(
+          children: [
+            Text(
+              'Amount',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.white.withValues(alpha: 0.4),
+              ),
+            ),
+            const Spacer(),
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _amountZat = _spendable;
+                  _deductFee = true;
+                  _amountController.text = amountToString2(_spendable);
+                });
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: ZipherColors.cyan.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'MAX',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: ZipherColors.cyan.withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
         const Gap(8),
         Container(
-          height: 48,
+          height: 56,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.04),
-            borderRadius: BorderRadius.circular(12),
+            color: Colors.white.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(14),
           ),
           child: TextField(
             controller: _amountController,
             keyboardType:
                 const TextInputType.numberWithOptions(decimal: true),
             style: TextStyle(
-              fontSize: 16,
+              fontSize: 18,
               fontWeight: FontWeight.w600,
               color: Colors.white.withValues(alpha: 0.9),
             ),
             decoration: InputDecoration(
-              hintText: 'ZEC',
+              hintText: '0.00',
               hintStyle: TextStyle(
-                fontSize: 16,
-                color: Colors.white.withValues(alpha: 0.18),
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.white.withValues(alpha: 0.15),
               ),
               prefixIcon: Padding(
                 padding: const EdgeInsets.only(left: 14, right: 8),
@@ -373,11 +414,18 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
               ),
               prefixIconConstraints:
                   const BoxConstraints(minWidth: 0, minHeight: 0),
+              suffixText: 'ZEC',
+              suffixStyle: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.white.withValues(alpha: 0.25),
+              ),
+              filled: false,
               border: InputBorder.none,
               enabledBorder: InputBorder.none,
               focusedBorder: InputBorder.none,
               contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             ),
             onChanged: (v) {
               try {
@@ -387,6 +435,17 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
             },
           ),
         ),
+        if (_amountZat > 0 && marketPrice.price != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 4),
+            child: Text(
+              '\$${(_amountZat / ZECUNIT * marketPrice.price!).toStringAsFixed(2)} USD',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white.withValues(alpha: 0.25),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -404,8 +463,8 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.03),
-          borderRadius: BorderRadius.circular(12),
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
           children: [
@@ -441,8 +500,8 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
         const Gap(8),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.04),
-            borderRadius: BorderRadius.circular(12),
+            color: Colors.white.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(14),
           ),
           child: Column(
             children: [
@@ -459,6 +518,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                     fontSize: 14,
                     color: Colors.white.withValues(alpha: 0.15),
                   ),
+                  filled: false,
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
@@ -493,27 +553,40 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
   // ═══════════════════════════════════════════════════════════
 
   Widget _buildReview() {
+    final label = widget.single ? 'Review' : 'Add Recipient';
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
         child: SizedBox(
           width: double.infinity,
-          height: 52,
-          child: ElevatedButton(
-            onPressed: _review,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: ZipherColors.cyan,
-              foregroundColor: ZipherColors.bg,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-              elevation: 0,
-            ),
-            child: Text(
-              widget.single ? 'Review' : 'Add Recipient',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _review,
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: ZipherColors.cyan.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.send_rounded,
+                        size: 20,
+                        color: ZipherColors.cyan.withValues(alpha: 0.9)),
+                    const Gap(10),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: ZipherColors.cyan.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

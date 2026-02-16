@@ -77,7 +77,7 @@ class _HomeState extends State<HomePageInner> {
               fiatBalance != null ? _formatFiat(fiatBalance) : null;
 
           final txs = aa.txs.items;
-          final recentTxs = txs.length > 3 ? txs.sublist(0, 3) : txs;
+          final recentTxs = txs.length > 5 ? txs.sublist(0, 5) : txs;
 
           return RefreshIndicator(
             onRefresh: _onRefresh,
@@ -189,7 +189,7 @@ class _HomeState extends State<HomePageInner> {
                         setState(() => _balanceHidden = !_balanceHidden),
                     behavior: HitTestBehavior.opaque,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                      padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
                       child: Column(
                         children: [
                           // Balance display
@@ -292,12 +292,12 @@ class _HomeState extends State<HomePageInner> {
                 // Action buttons
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+                    padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
                     child: Row(
                       children: [
                         Expanded(
                           child: _ActionButton(
-                            icon: Icons.arrow_downward_rounded,
+                            icon: Icons.move_to_inbox_rounded,
                             label: 'Receive',
                             onTap: () => GoRouter.of(context)
                                 .push('/account/pay_uri'),
@@ -306,7 +306,7 @@ class _HomeState extends State<HomePageInner> {
                         const Gap(12),
                         Expanded(
                           child: _ActionButton(
-                            icon: Icons.arrow_upward_rounded,
+                            icon: Icons.send_rounded,
                             label: 'Send',
                             onTap: () => _send(false),
                           ),
@@ -340,7 +340,7 @@ class _HomeState extends State<HomePageInner> {
                 // Activity header
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+                    padding: const EdgeInsets.fromLTRB(20, 32, 20, 0),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [

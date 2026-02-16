@@ -76,13 +76,14 @@ class _PaymentURIState extends State<PaymentURIPage> {
             children: [
               const Gap(12),
 
-              // Shielded address card (primary)
+              // Shielded address card (primary — purple accent)
               _AddressCard(
                 label: 'Shielded Address',
                 hint: 'Recommended for privacy',
                 address: shielded,
                 truncated: _truncate(shielded),
                 icon: Icons.shield_outlined,
+                accentColor: ZipherColors.purple,
                 primary: true,
                 onCopy: () => _copy(shielded),
                 onQR: () => _showQR(shielded, 'Shielded Address'),
@@ -90,7 +91,7 @@ class _PaymentURIState extends State<PaymentURIPage> {
 
               const Gap(12),
 
-              // Transparent address card (secondary)
+              // Transparent address card (secondary — cyan accent)
               if (transparent.isNotEmpty)
                 _AddressCard(
                   label: 'Transparent Address',
@@ -98,6 +99,7 @@ class _PaymentURIState extends State<PaymentURIPage> {
                   address: transparent,
                   truncated: _truncate(transparent),
                   icon: Icons.visibility_outlined,
+                  accentColor: ZipherColors.cyan,
                   primary: false,
                   onCopy: () => _copy(transparent),
                   onQR: () => _showQR(transparent, 'Transparent Address'),
@@ -215,6 +217,7 @@ class _AddressCard extends StatelessWidget {
   final String address;
   final String truncated;
   final IconData icon;
+  final Color accentColor;
   final bool primary;
   final VoidCallback onCopy;
   final VoidCallback onQR;
@@ -225,6 +228,7 @@ class _AddressCard extends StatelessWidget {
     required this.address,
     required this.truncated,
     required this.icon,
+    required this.accentColor,
     required this.primary,
     required this.onCopy,
     required this.onQR,
@@ -232,14 +236,16 @@ class _AddressCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final alpha = primary ? 0.07 : 0.04;
     final textAlpha = primary ? 0.9 : 0.5;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: alpha),
+        color: accentColor.withValues(alpha: primary ? 0.06 : 0.03),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: accentColor.withValues(alpha: primary ? 0.12 : 0.06),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -249,7 +255,7 @@ class _AddressCard extends StatelessWidget {
             children: [
               Icon(icon,
                   size: 18,
-                  color: Colors.white.withValues(alpha: textAlpha * 0.7)),
+                  color: accentColor.withValues(alpha: 0.7)),
               const Gap(8),
               Expanded(
                 child: Text(
@@ -292,7 +298,7 @@ class _AddressCard extends StatelessWidget {
             hint,
             style: TextStyle(
               fontSize: 11,
-              color: Colors.white.withValues(alpha: textAlpha * 0.35),
+              color: accentColor.withValues(alpha: 0.4),
             ),
           ),
         ],

@@ -117,9 +117,10 @@ Future<void> showSnackBar(String msg) async {
 }
 
 void openTxInExplorer(String txId) {
-  final settings = CoinSettingsExtension.load(aa.coin);
-  final url = settings.resolveBlockExplorer(aa.coin);
-  launchUrl(Uri.parse("$url/$txId"), mode: LaunchMode.inAppWebView);
+  launchUrl(
+    Uri.parse('https://cipherscan.app/tx/$txId'),
+    mode: LaunchMode.externalApplication,
+  );
 }
 
 String? addressValidator(String? v) {
