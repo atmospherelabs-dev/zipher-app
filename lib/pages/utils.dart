@@ -916,7 +916,7 @@ class PoolBitSet {
 }
 
 List<Account> getAllAccounts() =>
-    coins.expand((c) => WarpApi.getAccountList(c.coin)).toList();
+    WarpApi.getAccountList(activeCoin.coin).toList();
 
 void showLocalNotification({required int id, String? title, String? body}) {
   AwesomeNotifications().createNotification(

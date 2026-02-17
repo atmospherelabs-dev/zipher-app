@@ -324,7 +324,10 @@ final router = GoRouter(
       ],
     ),
     GoRoute(path: '/decrypt_db', builder: (context, state) => DbLoginPage()),
-    GoRoute(path: '/disclaimer', builder: (context, state) => DisclaimerPage()),
+    GoRoute(path: '/disclaimer', builder: (context, state) {
+      final mode = (state.extra as String?) ?? 'restore';
+      return DisclaimerPage(mode: mode);
+    }),
     GoRoute(path: '/restore', builder: (context, state) => RestoreAccountPage()),
     GoRoute(
       path: '/splash',
@@ -388,6 +391,10 @@ class ScaffoldBar extends StatefulWidget {
 }
 
 class _ScaffoldBar extends State<ScaffoldBar> {
+  int _knownCoin = aa.coin;
+  int _knownId = aa.id;
+  final Set<int> _staleTabs = {};
+
   @override
   Widget build(BuildContext context) {
     final router = GoRouter.of(context);
@@ -437,7 +444,20 @@ class _ScaffoldBar extends State<ScaffoldBar> {
                     return Expanded(
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onTap: () => widget.shell.goBranch(i),
+                        onTap: () {
+                          // Detect account change since last tap
+                          if (aa.coin != _knownCoin || aa.id != _knownId) {
+                            _knownCoin = aa.coin;
+                            _knownId = aa.id;
+                            _staleTabs.addAll([0, 1, 2, 3]);
+                          }
+                          final isCurrentTab = i == widget.shell.currentIndex;
+                          final isStale = _staleTabs.remove(i);
+                          widget.shell.goBranch(
+                            i,
+                            initialLocation: isCurrentTab || isStale,
+                          );
+                        },
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [

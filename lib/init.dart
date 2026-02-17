@@ -23,9 +23,8 @@ import 'zipher_theme.dart';
 Future<void> initCoins() async {
   final dbPath = await getDbPath();
   Directory(dbPath).createSync(recursive: true);
-  for (var coin in coins) {
-    coin.init(dbPath);
-  }
+  // Only initialize the active coin (mainnet or testnet)
+  activeCoin.init(dbPath);
   // Initialize the app-level DB and migrate any old SharedPreferences data
   await SentMemosDb.database;
   await SentMemosDb.migrateFromSharedPrefs();

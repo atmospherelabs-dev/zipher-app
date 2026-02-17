@@ -12,23 +12,6 @@ import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
 
 class BackupPage extends StatefulWidget {
-  late final Backup backup;
-  late final String primary;
-
-  BackupPage() {
-    backup = WarpApi.getBackup(aa.coin, aa.id);
-    if (backup.seed != null)
-      primary = backup.seed!;
-    else if (backup.sk != null)
-      primary = backup.sk!;
-    else if (backup.uvk != null)
-      primary = backup.uvk!;
-    else if (backup.fvk != null)
-      primary = backup.fvk!;
-    else
-      throw 'Account has no key';
-  }
-
   @override
   State<StatefulWidget> createState() => _BackupState();
 }
@@ -41,11 +24,41 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   bool _obscured = false;
   int? _birthdayHeight;
 
+  Backup? _backup;
+  String? _primary;
+  String? _loadError;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadBackup();
     _loadBirthday();
+  }
+
+  void _loadBackup() {
+    try {
+      final backup = WarpApi.getBackup(aa.coin, aa.id);
+      String primary;
+      if (backup.seed != null)
+        primary = backup.seed!;
+      else if (backup.sk != null)
+        primary = backup.sk!;
+      else if (backup.uvk != null)
+        primary = backup.uvk!;
+      else if (backup.fvk != null)
+        primary = backup.fvk!;
+      else {
+        setState(() => _loadError = 'Account has no key');
+        return;
+      }
+      setState(() {
+        _backup = backup;
+        _primary = primary;
+      });
+    } catch (e) {
+      setState(() => _loadError = 'Could not load backup: $e');
+    }
   }
 
   void _loadBirthday() async {
@@ -76,7 +89,68 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final backup = widget.backup;
+
+    if (_loadError != null) {
+      return Scaffold(
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+          backgroundColor: ZipherColors.bg,
+          elevation: 0,
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back_rounded,
+                color: Colors.white.withValues(alpha: 0.5)),
+            onPressed: () => GoRouter.of(context).pop(),
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.error_outline_rounded,
+                    size: 40, color: ZipherColors.orange.withValues(alpha: 0.4)),
+                const Gap(16),
+                Text(
+                  _loadError!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withValues(alpha: 0.4),
+                    height: 1.4,
+                  ),
+                ),
+                const Gap(20),
+                GestureDetector(
+                  onTap: _loadBackup,
+                  child: Text(
+                    'Tap to retry',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: ZipherColors.cyan.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_backup == null) {
+      return Scaffold(
+        backgroundColor: ZipherColors.bg,
+        body: Center(
+          child: CircularProgressIndicator(
+            color: ZipherColors.cyan,
+            strokeWidth: 2,
+          ),
+        ),
+      );
+    }
+
+    final backup = _backup!;
 
     return Scaffold(
       backgroundColor: ZipherColors.bg,
@@ -402,7 +476,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                           onToggleReveal: () {
                             setState(
                                 () => _seedRevealed = !_seedRevealed);
-                            if (_seedRevealed && !widget.backup.saved) {
+                            if (_seedRevealed && !_backup!.saved) {
                               WarpApi.setBackupReminder(
                                   aa.coin, aa.id, true);
                               // Reload active account so aa.saved updates

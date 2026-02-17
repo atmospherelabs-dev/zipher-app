@@ -22,6 +22,7 @@ import '../appsettings.dart';
 import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
 import '../settings.pb.dart';
+import '../init.dart';
 import '../store2.dart';
 import '../zipher_theme.dart';
 
@@ -39,29 +40,47 @@ class _SplashState extends State<SplashPage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future(() async {
-        GetIt.I.registerSingleton<S>(S.of(context));
-        if (!appSettings.hasMemo()) appSettings.memo = s.sendFrom(APP_NAME);
-        _initProver();
-        // await _setupMempool();
-        final applinkUri = await _registerURLHandler();
-        final quickAction = await _registerQuickActions();
-        _initWallets();
-        await _restoreActive();
-        initSyncListener();
-        // _initForegroundTask();
-        _initBackgroundSync();
-        _initAccel();
-        final protectOpen = appSettings.protectOpen;
-        if (protectOpen) {
-          await authBarrier(context);
+        try {
+          if (!GetIt.I.isRegistered<S>()) {
+            GetIt.I.registerSingleton<S>(S.of(context));
+          }
+          if (!appSettings.hasMemo()) appSettings.memo = s.sendFrom(APP_NAME);
+          // Reset active account so stale mainnet data doesn't leak into testnet
+          aa = nullAccount;
+          _initProver();
+          // Ensure active coin paths are set (needed after testnet toggle)
+          await initCoins();
+          // await _setupMempool();
+          final applinkUri = await _registerURLHandler();
+          final quickAction = await _registerQuickActions();
+          _initWallets();
+          await _restoreActive();
+          initSyncListener();
+          // _initForegroundTask();
+          await _initBackgroundSync();
+          _initAccel();
+          final protectOpen = appSettings.protectOpen;
+          if (protectOpen) {
+            await authBarrier(context);
+          }
+          appStore.initialized = true;
+          // If no account exists (e.g. first time on testnet), go to welcome
+          if (aa.id == 0) {
+            GoRouter.of(context).go('/welcome');
+          } else if (applinkUri != null)
+            handleUri(applinkUri);
+          else if (quickAction != null)
+            handleQuickAction(context, quickAction);
+          else
+            GoRouter.of(context).go('/account');
+        } catch (e, st) {
+          logger.e('Splash init error: $e\n$st');
+          // Still try to navigate even if something fails
+          if (mounted) {
+            appStore.initialized = true;
+            GoRouter.of(context).go('/welcome');
+          }
         }
-        appStore.initialized = true;
-        if (applinkUri != null)
-          handleUri(applinkUri);
-        else if (quickAction != null)
-          handleQuickAction(context, quickAction);
-        else
-          GoRouter.of(context).go('/account');
       });
     });
   }
@@ -94,17 +113,16 @@ class _SplashState extends State<SplashPage> {
       Future.microtask(() {
         final s = S.of(this.context);
         List<ShortcutItem> shortcuts = [];
-        for (var c in coins) {
-          final ticker = c.ticker;
-          shortcuts.add(ShortcutItem(
-              type: '${c.coin}.receive',
-              localizedTitle: s.receive(ticker),
-              icon: 'receive'));
-          shortcuts.add(ShortcutItem(
-              type: '${c.coin}.send',
-              localizedTitle: s.sendCointicker(ticker),
-              icon: 'send'));
-        }
+        final c = activeCoin;
+        final ticker = c.ticker;
+        shortcuts.add(ShortcutItem(
+            type: '${c.coin}.receive',
+            localizedTitle: s.receive(ticker),
+            icon: 'receive'));
+        shortcuts.add(ShortcutItem(
+            type: '${c.coin}.send',
+            localizedTitle: s.sendCointicker(ticker),
+            icon: 'send'));
         quickActions.setShortcutItems(shortcuts);
       });
     }
@@ -119,9 +137,10 @@ class _SplashState extends State<SplashPage> {
   }
 
   void _initWallets() {
-    for (var c in coins) {
-      final coin = c.coin;
-      _setProgress(0.5 + 0.1 * coin, 'Initializing ${c.ticker}');
+    final c = activeCoin;
+    final coin = c.coin;
+    _setProgress(0.5, 'Initializing ${c.ticker}');
+    try {
       WarpApi.setDbPasswd(coin, appStore.dbPassword);
       WarpApi.initWallet(coin, c.dbFullPath);
       final p = WarpApi.getProperty(coin, 'settings');
@@ -133,6 +152,8 @@ class _SplashState extends State<SplashPage> {
       try {
         WarpApi.migrateData(c.coin);
       } catch (_) {} // do not fail on network exception
+    } catch (e) {
+      logger.e('initWallets error: $e');
     }
   }
 
@@ -155,25 +176,28 @@ class _SplashState extends State<SplashPage> {
     progressKey.currentState!.setValue(progress, message);
   }
 
-  _initBackgroundSync() {
+  Future<void> _initBackgroundSync() async {
     if (!isMobile()) return;
-    logger.d('${appSettings.backgroundSync}');
-
-    Workmanager().initialize(
-      backgroundSyncDispatcher,
-    );
-    if (appSettings.backgroundSync != 0)
-      Workmanager().registerPeriodicTask(
-        'sync',
-        'background-sync',
-        constraints: Constraints(
-          networkType: appSettings.backgroundSync == 1
-              ? NetworkType.unmetered
-              : NetworkType.connected,
-        ),
+    try {
+      logger.d('${appSettings.backgroundSync}');
+      await Workmanager().initialize(
+        backgroundSyncDispatcher,
       );
-    else
-      Workmanager().cancelAll();
+      if (appSettings.backgroundSync != 0)
+        await Workmanager().registerPeriodicTask(
+          'sync',
+          'background-sync',
+          constraints: Constraints(
+            networkType: appSettings.backgroundSync == 1
+                ? NetworkType.unmetered
+                : NetworkType.connected,
+          ),
+        );
+      else
+        await Workmanager().cancelAll();
+    } catch (e) {
+      logger.e('Background sync init failed: $e');
+    }
   }
 }
 
@@ -241,11 +265,13 @@ class _LoadProgressState extends State<LoadProgress>
               // Brand name
               ZipherWidgets.brandText(fontSize: 32),
               const SizedBox(height: ZipherSpacing.sm),
-              const Text(
-                'Private Zcash Wallet',
+              Text(
+                isTestnet ? 'Testnet Mode' : 'Private Zcash Wallet',
                 style: TextStyle(
                   fontSize: 14,
-                  color: ZipherColors.textSecondary,
+                  color: isTestnet
+                      ? ZipherColors.orange
+                      : ZipherColors.textSecondary,
                 ),
               ),
               const SizedBox(height: ZipherSpacing.xxl),
@@ -289,7 +315,9 @@ bool setActiveAccountOf(int coin) {
 
 void handleUri(Uri uri) {
   final scheme = uri.scheme;
-  final coinDef = coins.firstWhere((c) => c.currency == scheme);
+  // Only handle URIs for the active network
+  final coinDef = coins.where((c) => c.currency == scheme).firstOrNull;
+  if (coinDef == null) return;
   final coin = coinDef.coin;
   if (setActiveAccountOf(coin)) {
     SendContext? sc = SendContext.fromPaymentURI(uri.toString());
@@ -328,8 +356,12 @@ void handleQuickAction(BuildContext context, String quickAction) {
 void backgroundSyncDispatcher() {
   if (!appStore.initialized) return;
   Workmanager().executeTask((task, inputData) async {
-    logger.i("Native called background task: $task");
-    await syncStatus2.sync(false, auto: true);
+    try {
+      logger.i("Native called background task: $task");
+      await syncStatus2.sync(false, auto: true);
+    } catch (e) {
+      logger.e('Background sync error: $e');
+    }
     return true;
   });
 }

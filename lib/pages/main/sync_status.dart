@@ -18,8 +18,12 @@ class SyncStatusState extends State<SyncStatusWidget> {
   void initState() {
     super.initState();
     Future(() async {
-      await syncStatus2.update();
-      await startAutoSync();
+      try {
+        await syncStatus2.update();
+        await startAutoSync();
+      } catch (e) {
+        logger.e('Sync status init error: $e');
+      }
     });
   }
 

@@ -45,13 +45,14 @@ class ActiveAccount2 extends _ActiveAccount2 with _$ActiveAccount2 {
       super.external, super.saved);
 
   static ActiveAccount2? fromPrefs(SharedPreferences prefs) {
-    final coin = prefs.getInt('coin') ?? 0;
+    final coin = prefs.getInt('coin') ?? activeCoin.coin;
     var id = prefs.getInt('account') ?? 0;
-    if (WarpApi.checkAccount(coin, id)) return ActiveAccount2.fromId(coin, id);
-    for (var c in coins) {
-      final id = WarpApi.getFirstAccount(c.coin);
-      if (id > 0) return ActiveAccount2.fromId(c.coin, id);
-    }
+    // Only restore accounts for the currently active network
+    if (coin == activeCoin.coin && WarpApi.checkAccount(coin, id))
+      return ActiveAccount2.fromId(coin, id);
+    // Fallback: find first account on the active coin
+    final fallbackId = WarpApi.getFirstAccount(activeCoin.coin);
+    if (fallbackId > 0) return ActiveAccount2.fromId(activeCoin.coin, fallbackId);
     return null;
   }
 

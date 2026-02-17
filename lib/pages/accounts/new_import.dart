@@ -29,7 +29,7 @@ class NewImportAccountPage extends StatefulWidget {
 class _NewImportAccountState extends State<NewImportAccountPage>
     with WithLoadingAnimation {
   late final s = S.of(context);
-  int coin = 0;
+  int coin = activeCoin.coin;
   final _nameController = TextEditingController();
   final _keyController = TextEditingController();
   final _indexController = TextEditingController(text: '0');

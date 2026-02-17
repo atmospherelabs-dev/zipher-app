@@ -3,7 +3,10 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:warp_api/warp_api.dart';
 
+import '../../accounts.dart';
+import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 import '../../zipher_theme.dart';
 import '../../src/version.dart';
@@ -287,6 +290,8 @@ class _InfoCard extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════
 
 class DisclaimerPage extends StatefulWidget {
+  final String mode; // 'create' or 'restore'
+  const DisclaimerPage({this.mode = 'restore'});
   @override
   State<StatefulWidget> createState() => _DisclaimerState();
 }
@@ -307,86 +312,85 @@ class _DisclaimerState extends State<DisclaimerPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Gap(16),
+              const Gap(12),
+              // Back button — minimal
               IconButton(
                 onPressed: () => GoRouter.of(context).pop(),
-                icon: const Icon(Icons.arrow_back_ios_new,
-                    color: ZipherColors.cyan, size: 20),
-                style: IconButton.styleFrom(
-                  backgroundColor: ZipherColors.surface,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
+                icon: Icon(Icons.arrow_back_rounded,
+                    color: Colors.white.withValues(alpha: 0.5), size: 22),
               ),
-              const Gap(32),
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: ZipherColors.orange.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(Icons.security_outlined,
-                    color: ZipherColors.orange, size: 28),
-              ),
-              const Gap(20),
-              const Text(
+              const Gap(24),
+              // Title
+              Text(
                 'Self-Custody',
                 style: TextStyle(
-                  fontSize: 28,
+                  fontSize: 26,
                   fontWeight: FontWeight.w700,
-                  color: ZipherColors.textPrimary,
+                  color: Colors.white.withValues(alpha: 0.9),
                   letterSpacing: -0.5,
                 ),
               ),
               const Gap(8),
               Text(
-                'Before restoring your wallet, please acknowledge the following.',
+                widget.mode == 'create'
+                    ? 'Before creating your wallet, please acknowledge:'
+                    : 'Before restoring, please acknowledge:',
                 style: TextStyle(
-                  fontSize: 15,
-                  color: ZipherColors.textSecondary,
+                  fontSize: 14,
+                  color: Colors.white.withValues(alpha: 0.35),
                   height: 1.4,
                 ),
               ),
               const Gap(32),
               _DisclaimerTile(
                 accepted: _accepted[0],
-                icon: Icons.vpn_key_outlined,
                 text: s.disclaimer_1,
                 onChanged: (v) => setState(() => _accepted[0] = v),
               ),
-              const Gap(12),
+              const Gap(10),
               _DisclaimerTile(
                 accepted: _accepted[1],
-                icon: Icons.warning_amber_outlined,
                 text: s.disclaimer_2,
                 onChanged: (v) => setState(() => _accepted[1] = v),
               ),
-              const Gap(12),
+              const Gap(10),
               _DisclaimerTile(
                 accepted: _accepted[2],
-                icon: Icons.visibility_outlined,
                 text: s.disclaimer_3,
                 onChanged: (v) => setState(() => _accepted[2] = v),
               ),
               const Spacer(),
               SizedBox(
                 width: double.infinity,
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 200),
-                  opacity: _allAccepted ? 1.0 : 0.35,
-                  child: IgnorePointer(
-                    ignoring: !_allAccepted,
-                    child: ZipherWidgets.gradientButton(
-                      label: 'Continue',
-                      icon: Icons.arrow_forward,
-                      onPressed: _accept,
-                    ),
-                  ),
-                ),
+                child: _creating
+                    ? Center(
+                        child: SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: CircularProgressIndicator(
+                            color: ZipherColors.cyan,
+                            strokeWidth: 2,
+                          ),
+                        ),
+                      )
+                    : AnimatedOpacity(
+                        duration: const Duration(milliseconds: 200),
+                        opacity: _allAccepted ? 1.0 : 0.3,
+                        child: IgnorePointer(
+                          ignoring: !_allAccepted,
+                          child: ZipherWidgets.gradientButton(
+                            label: widget.mode == 'create'
+                                ? 'Create Wallet'
+                                : 'Continue',
+                            icon: widget.mode == 'create'
+                                ? Icons.add_rounded
+                                : Icons.arrow_forward_rounded,
+                            onPressed: _accept,
+                          ),
+                        ),
+                      ),
               ),
-              const Gap(32),
+              const Gap(28),
             ],
           ),
         ),
@@ -394,22 +398,52 @@ class _DisclaimerState extends State<DisclaimerPage> {
     );
   }
 
+  bool _creating = false;
+
   void _accept() async {
+    final prefs = await SharedPreferences.getInstance();
     appSettings.disclaimer = true;
-    await appSettings.save(await SharedPreferences.getInstance());
-    if (mounted) GoRouter.of(context).push('/restore');
+    await appSettings.save(prefs);
+
+    if (widget.mode == 'create') {
+      setState(() => _creating = true);
+      try {
+        final coin = activeCoin.coin;
+        final name = isTestnet ? 'Testnet' : 'Main';
+        final account = await WarpApi.newAccount(coin, name, '', 0);
+        if (account >= 0) {
+          setActiveAccount(coin, account);
+          await aa.save(prefs);
+          try {
+            await WarpApi.skipToLastHeight(coin);
+          } catch (e) {
+            logger.e('skipToLastHeight error: $e');
+          }
+          if (mounted) GoRouter.of(context).go('/account');
+        }
+      } catch (e) {
+        logger.e('Create wallet error: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error creating wallet: $e')),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _creating = false);
+      }
+    } else {
+      if (mounted) GoRouter.of(context).push('/restore');
+    }
   }
 }
 
 class _DisclaimerTile extends StatelessWidget {
   final bool accepted;
-  final IconData icon;
   final String text;
   final ValueChanged<bool> onChanged;
 
   const _DisclaimerTile({
     required this.accepted,
-    required this.icon,
     required this.text,
     required this.onChanged,
   });
@@ -420,34 +454,38 @@ class _DisclaimerTile extends StatelessWidget {
       onTap: () => onChanged(!accepted),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           color: accepted
-              ? ZipherColors.green.withValues(alpha: 0.08)
-              : ZipherColors.surface,
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
+              ? ZipherColors.green.withValues(alpha: 0.05)
+              : Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: accepted ? ZipherColors.green : ZipherColors.border,
-            width: 1.5,
+            color: accepted
+                ? ZipherColors.green.withValues(alpha: 0.2)
+                : Colors.white.withValues(alpha: 0.05),
           ),
         ),
         child: Row(
           children: [
             AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              width: 24,
-              height: 24,
+              width: 22,
+              height: 22,
               decoration: BoxDecoration(
-                color: accepted ? ZipherColors.green : Colors.transparent,
-                borderRadius: BorderRadius.circular(7),
+                color: accepted
+                    ? ZipherColors.green
+                    : Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(6),
                 border: Border.all(
-                  color:
-                      accepted ? ZipherColors.green : ZipherColors.textMuted,
-                  width: 1.5,
+                  color: accepted
+                      ? ZipherColors.green
+                      : Colors.white.withValues(alpha: 0.12),
                 ),
               ),
               child: accepted
-                  ? const Icon(Icons.check, size: 16, color: Colors.white)
+                  ? const Icon(Icons.check_rounded,
+                      size: 14, color: Colors.white)
                   : null,
             ),
             const Gap(14),
@@ -457,8 +495,8 @@ class _DisclaimerTile extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 14,
                   color: accepted
-                      ? ZipherColors.textPrimary
-                      : ZipherColors.textSecondary,
+                      ? Colors.white.withValues(alpha: 0.8)
+                      : Colors.white.withValues(alpha: 0.4),
                   height: 1.4,
                 ),
               ),

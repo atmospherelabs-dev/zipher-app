@@ -132,8 +132,15 @@ abstract class _SyncStatus2 with Store {
     } on String catch (e) {
       logger.d(e);
       connected = false;
+    } catch (e) {
+      logger.e('Sync update error: $e');
+      connected = false;
     }
-    syncedHeight = WarpApi.getDbHeight(aa.coin).height;
+    try {
+      syncedHeight = WarpApi.getDbHeight(aa.coin).height;
+    } catch (e) {
+      logger.e('getDbHeight error: $e');
+    }
   }
 
   @action
@@ -199,6 +206,8 @@ abstract class _SyncStatus2 with Store {
     } on String catch (e) {
       logger.d(e);
       showSnackBar(e);
+    } catch (e) {
+      logger.e('Sync error: $e');
     } finally {
       syncing = false;
       eta.end();
@@ -316,8 +325,12 @@ abstract class _MarketPrice with Store {
 
   @action
   Future<void> update() async {
-    final c = coins[aa.coin];
-    price = await getFxRate(c.currency, appSettings.currency);
+    try {
+      final c = coins[aa.coin];
+      price = await getFxRate(c.currency, appSettings.currency);
+    } catch (e) {
+      logger.d('Market price update error: $e');
+    }
   }
 
   int? lastChartUpdateTime;

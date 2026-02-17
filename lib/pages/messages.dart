@@ -11,6 +11,7 @@ import 'package:warp_api/data_fb_generated.dart';
 import '../store2.dart';
 import '../accounts.dart';
 import '../appsettings.dart';
+import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
 import '../tablelist.dart';
 import 'avatar.dart';
@@ -68,13 +69,49 @@ Map<String, String>? _contactCache;
 
 Map<String, String> _getAddrToContact() {
   if (_contactCache != null) return _contactCache!;
-  final contacts = WarpApi.getContacts(aa.coin);
   final map = <String, String>{};
-  for (final c in contacts) {
-    if (c.address != null && c.name != null && c.name!.isNotEmpty) {
-      map[c.address!] = c.name!;
+  try {
+    final contacts = WarpApi.getContacts(aa.coin);
+    for (final c in contacts) {
+      if (c.address != null && c.name != null && c.name!.isNotEmpty) {
+        map[c.address!] = c.name!;
+      }
     }
-  }
+  } catch (_) {}
+
+  // Also map other wallet accounts' address variants to their name.
+  // This merges conversations when a contact replies with a different
+  // address variant (e.g. diversified or different UA type) than the one
+  // stored in the contacts list.
+  try {
+    final accounts = WarpApi.getAccountList(activeCoin.coin);
+    for (final acct in accounts) {
+      if (acct.id == aa.id) continue; // skip current account
+      final acctAddr = acct.address ?? '';
+      // Use the contact name if this account already matches a contact,
+      // otherwise fall back to the account name.
+      String? displayName;
+      if (acctAddr.isNotEmpty && map.containsKey(acctAddr)) {
+        displayName = map[acctAddr];
+      }
+      displayName ??= acct.name;
+      if (displayName == null || displayName.isEmpty) continue;
+      // Add the account's primary address
+      if (acctAddr.isNotEmpty) {
+        map.putIfAbsent(acctAddr, () => displayName!);
+      }
+      // Add all UA-type variants (1=sapling, 6=orchard, 7=unified)
+      for (final uaType in [1, 6, 7]) {
+        try {
+          final addr = WarpApi.getAddress(aa.coin, acct.id, uaType);
+          if (addr.isNotEmpty) {
+            map.putIfAbsent(addr, () => displayName!);
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+
   _contactCache = map;
   return map;
 }
@@ -2218,8 +2255,37 @@ class _ComposeMessagePageState extends State<ComposeMessagePage> {
 // HELPERS
 // ═══════════════════════════════════════════════════════════
 
+/// Collect the current account's own addresses so we can detect self-conversations.
+Set<String> _getOwnAddresses() {
+  final own = <String>{};
+  try {
+    // Current diversified address
+    if (aa.diversifiedAddress.isNotEmpty) own.add(aa.diversifiedAddress);
+    // All UA types (1=sapling, 6=orchard, 7=unified, etc.)
+    for (final uaType in [1, 6, 7]) {
+      try {
+        final addr = WarpApi.getAddress(aa.coin, aa.id, uaType);
+        if (addr.isNotEmpty) own.add(addr);
+      } catch (_) {}
+    }
+    // Also check all accounts on this coin (in case of rotated/old addresses)
+    try {
+      final accounts = WarpApi.getAccountList(activeCoin.coin);
+      for (final acct in accounts) {
+        if (acct.address != null && acct.address!.isNotEmpty) {
+          own.add(acct.address!);
+        }
+      }
+    } catch (_) {}
+  } catch (_) {}
+  return own;
+}
+
 List<_Conversation> _groupIntoConversations(List<ZMessage> allMessages) {
   _invalidateContactCache();
+
+  // Collect own addresses for self-conversation detection
+  final ownAddresses = _getOwnAddresses();
 
   // Merge cached outgoing messages that the Rust sync hasn't picked up yet.
   // Dedup by clean body text only — recipient can differ (contact name vs address).
@@ -2288,6 +2354,39 @@ List<_Conversation> _groupIntoConversations(List<ZMessage> allMessages) {
       unreadCount: unread,
     );
   }).toList();
+
+  // Filter out self-conversations: threads where we sent messages to
+  // ourselves.  These already appear in the Activity feed, so showing
+  // them as a "conversation" is confusing.
+  //
+  // Detection uses two methods:
+  //  1. Direct address match against known own addresses.
+  //  2. Transaction-value heuristic: when we send a memo to ourselves,
+  //     the net value is just the fee (~0.00001 ZEC).  For a real send
+  //     the net value is at least MIN_MEMO_AMOUNT (0.0001 ZEC) + fee.
+  //     This catches self-sends to old diversified addresses that are
+  //     no longer in _getOwnAddresses() (e.g. after a wallet reset).
+  final memoThreshold = MIN_MEMO_AMOUNT / ZECUNIT; // 0.0001 ZEC
+  conversations.removeWhere((c) {
+    if (c.isAnonymous) return false; // keep Memo Inbox
+    if (c.contactName != null) return false; // keep named contacts
+    // Only consider conversations where ALL messages are outgoing
+    if (!c.messages.every((m) => !m.incoming)) return false;
+
+    // Method 1: address is directly recognized as our own
+    final addr = c.address;
+    if (addr.isNotEmpty && ownAddresses.contains(addr)) return true;
+
+    // Method 2: check if the associated transactions have near-zero net
+    // value, which means the funds came back to us (self-send).
+    final txIds = c.messages.map((m) => m.txId).where((id) => id > 0).toSet();
+    if (txIds.isEmpty) return false;
+    return txIds.every((txId) {
+      final tx = aa.txs.items.where((t) => t.id == txId).firstOrNull;
+      if (tx == null) return false;
+      return tx.value.abs() < memoThreshold;
+    });
+  });
 
   // Sort: pin Memo Inbox at top when it has unread items,
   // otherwise sort all by last message timestamp.

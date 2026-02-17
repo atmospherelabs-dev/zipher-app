@@ -23,6 +23,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   initializeReflectable();
   await restoreSettings();
+  await loadTestnetPref();
   await initCoins();
   await restoreWindow();
   initNotifications();
@@ -31,6 +32,11 @@ void main() async {
   print("db path $dbPath");
   await recoverDb(prefs, dbPath);
   runApp(App());
+}
+
+Future<void> loadTestnetPref() async {
+  final prefs = await SharedPreferences.getInstance();
+  isTestnet = prefs.getBool('testnet') ?? false;
 }
 
 Future<void> restoreSettings() async {
@@ -42,7 +48,7 @@ Future<void> recoverDb(SharedPreferences prefs, String dbPath) async {
   final backupPath = prefs.getString('backup');
   if (backupPath == null) return;
   await prefs.remove('backup');
-  for (var c in coins) {
+  for (var c in [activeCoin]) {
     await c.delete();
   }
   final dbDir = await getDbPath();

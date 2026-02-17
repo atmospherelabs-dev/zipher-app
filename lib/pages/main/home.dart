@@ -12,6 +12,7 @@ import '../../generated/intl/messages.dart';
 import '../../appsettings.dart';
 import '../../store2.dart';
 import '../../accounts.dart';
+import '../../coin/coins.dart';
 import '../../zipher_theme.dart';
 import '../accounts/send.dart';
 import '../scan.dart';
@@ -48,8 +49,12 @@ class _HomeState extends State<HomePageInner> {
   @override
   void initState() {
     super.initState();
-    syncStatus2.update();
-    Future(marketPrice.update);
+    try {
+      syncStatus2.update();
+      Future(marketPrice.update);
+    } catch (e) {
+      logger.e('Home init error: $e');
+    }
   }
 
   String _formatFiat(double x) => '\$${x.toStringAsFixed(2)}';
@@ -135,10 +140,51 @@ class _HomeState extends State<HomePageInner> {
                 CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
+                // Testnet banner
+                if (isTestnet)
+                  SliverToBoxAdapter(
+                    child: Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.fromLTRB(20, topPad + 6, 20, 6),
+                      decoration: BoxDecoration(
+                        color: ZipherColors.orange.withValues(alpha: 0.15),
+                        border: Border(
+                          bottom: BorderSide(
+                            color: ZipherColors.orange.withValues(alpha: 0.3),
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.science_outlined,
+                              size: 14, color: ZipherColors.orange),
+                          const Gap(6),
+                          Text(
+                            'TESTNET MODE',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.2,
+                              color: ZipherColors.orange,
+                            ),
+                          ),
+                          const Gap(6),
+                          Text(
+                            '• TAZ have no real value',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: ZipherColors.orange.withValues(alpha: 0.6),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 // Header: logo + "Main" … QR scan
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.fromLTRB(20, topPad + 14, 20, 0),
+                    padding: EdgeInsets.fromLTRB(20, isTestnet ? 10 : topPad + 14, 20, 0),
                     child: Row(
                       children: [
                         // Account avatar

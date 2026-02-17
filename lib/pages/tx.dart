@@ -236,7 +236,7 @@ class TxPageState extends State<TxPage> {
             syncStatus2.changed;
             final txs = aa.txs.items;
 
-            if (txs.isEmpty) return _EmptyActivity();
+            if (txs.isEmpty) return _EmptyActivity(topPad: topPad);
 
             // Group txs by month
             final groups = <String, List<_IndexedTx>>{};
@@ -252,14 +252,23 @@ class TxPageState extends State<TxPage> {
               itemBuilder: (context, i) {
                 if (i == 0) {
                   return Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-                    child: Text(
-                      'Activity',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white.withValues(alpha: 0.9),
-                      ),
+                    padding: const EdgeInsets.fromLTRB(8, 8, 20, 4),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.arrow_back_rounded,
+                              color: Colors.white.withValues(alpha: 0.7)),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                        Text(
+                          'Activity',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white.withValues(alpha: 0.9),
+                          ),
+                        ),
+                      ],
                     ),
                   );
                 }
@@ -329,14 +338,40 @@ class _IndexedTx {
 // ─── Empty state ────────────────────────────────────────────
 
 class _EmptyActivity extends StatelessWidget {
+  final double topPad;
+  const _EmptyActivity({this.topPad = 0});
+
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+    return Column(
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(8, topPad + 8, 20, 0),
+          child: Row(
+            children: [
+              IconButton(
+                icon: Icon(Icons.arrow_back_rounded,
+                    color: Colors.white.withValues(alpha: 0.7)),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              Text(
+                'Activity',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.9),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
             Container(
               width: 64,
               height: 64,
@@ -370,6 +405,9 @@ class _EmptyActivity extends StatelessWidget {
           ],
         ),
       ),
+    ),
+        ),
+      ],
     );
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:YWallet/appsettings.dart';
 import 'package:flutter/material.dart';
@@ -6,13 +7,18 @@ import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:warp_api/warp_api.dart';
 
 import '../../accounts.dart';
+import '../../init.dart';
 import '../../zipher_theme.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 import '../../src/version.dart';
+import '../settings.dart';
+import '../../settings.pb.dart';
 import '../utils.dart';
+import '../../store2.dart';
 
 // ═══════════════════════════════════════════════════════════
 // SETTINGS HUB (bottom tab)
@@ -119,6 +125,21 @@ class _MorePageState extends State<MorePage> {
                   onTap: () => _navSecured('/more/batch_backup'),
                 ),
               ]),
+              const Gap(20),
+
+              // ── Developer ──
+              _sectionLabel('Developer'),
+              const Gap(8),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.05),
+                  ),
+                ),
+                child: _TestnetToggle(),
+              ),
               const Gap(20),
 
               // ── Danger Zone ──
@@ -266,6 +287,145 @@ class _MorePageState extends State<MorePage> {
 // ═══════════════════════════════════════════════════════════
 // SETTINGS ITEM WIDGET
 // ═══════════════════════════════════════════════════════════
+
+class _TestnetToggle extends StatefulWidget {
+  @override
+  State<_TestnetToggle> createState() => _TestnetToggleState();
+}
+
+class _TestnetToggleState extends State<_TestnetToggle> {
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: ZipherColors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.science_outlined,
+                  size: 16, color: ZipherColors.orange),
+            ),
+            const Gap(12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Testnet Mode',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white.withValues(alpha: 0.85),
+                    ),
+                  ),
+                  const Gap(1),
+                  Text(
+                    isTestnet
+                        ? 'Using Zcash testnet (TAZ)'
+                        : 'Switch to testnet for testing',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isTestnet
+                          ? ZipherColors.orange.withValues(alpha: 0.7)
+                          : Colors.white.withValues(alpha: 0.25),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _switching
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: ZipherColors.orange,
+                    ),
+                  )
+                : Switch.adaptive(
+                    value: isTestnet,
+                    activeColor: ZipherColors.orange,
+                    onChanged: (v) => _toggleTestnet(v),
+                  ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _switching = false;
+
+  void _toggleTestnet(bool enable) async {
+    final confirmed = await showConfirmDialog(
+      context,
+      '${enable ? "Enable" : "Disable"} Testnet',
+      enable
+          ? 'Switch to Zcash testnet. Testnet coins (TAZ) have no real value. '
+              'Your mainnet wallet is preserved.'
+          : 'Switch back to mainnet. Your testnet data is preserved.',
+    );
+    if (!confirmed) return;
+
+    setState(() => _switching = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('testnet', enable);
+      isTestnet = enable;
+
+      // Initialize the active coin's DB paths
+      await initCoins();
+
+      // Initialize the native wallet for the active coin
+      final c = activeCoin;
+      final coin = c.coin;
+      WarpApi.setDbPasswd(coin, appStore.dbPassword);
+      WarpApi.initWallet(coin, c.dbFullPath);
+      final p = WarpApi.getProperty(coin, 'settings');
+      final settings = p.isNotEmpty
+          ? CoinSettings.fromBuffer(base64Decode(p))
+          : CoinSettings();
+      final url = resolveURL(c, settings);
+      WarpApi.updateLWD(coin, url);
+      try { WarpApi.migrateData(coin); } catch (_) {}
+
+      // Find or create an account on the target network
+      var accountId = WarpApi.getFirstAccount(coin);
+      if (accountId <= 0) {
+        // Auto-create a wallet for this network
+        final name = enable ? 'Testnet' : 'Main';
+        accountId = await WarpApi.newAccount(coin, name, '', 0);
+        try { await WarpApi.skipToLastHeight(coin); } catch (_) {}
+      }
+
+      if (accountId > 0) {
+        setActiveAccount(coin, accountId);
+        await aa.save(prefs);
+      }
+
+      if (mounted) {
+        // Navigate to home with fresh state
+        GoRouter.of(context).go('/account');
+      }
+    } catch (e) {
+      logger.e('Testnet toggle error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error switching network: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _switching = false);
+    }
+  }
+}
 
 class _SettingsItem extends StatelessWidget {
   final IconData icon;
