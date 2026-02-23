@@ -457,27 +457,29 @@ class ZipherTheme {
 
 /// Reusable Zipher widgets
 class ZipherWidgets {
-  /// Gradient text (Zi=cyan, pher=green style)
+  /// Brand wordmark: cyan Z + white IPHER
   static Widget brandText({double fontSize = 24}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'Zi',
+          'Z',
           style: TextStyle(
             fontSize: fontSize,
             fontWeight: FontWeight.w700,
             color: ZipherColors.cyan,
             fontFamily: 'Inter',
+            letterSpacing: 2,
           ),
         ),
         Text(
-          'pher',
+          'IPHER',
           style: TextStyle(
             fontSize: fontSize,
             fontWeight: FontWeight.w700,
-            color: ZipherColors.green,
+            color: Colors.white,
             fontFamily: 'Inter',
+            letterSpacing: 2,
           ),
         ),
       ],

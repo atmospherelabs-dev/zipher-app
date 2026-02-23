@@ -1,11 +1,10 @@
 import 'dart:io';
 
 import 'package:showcaseview/showcaseview.dart';
-import 'package:warp_api/data_fb_generated.dart';
 
-import 'pages/accounts/swap.dart';
 import 'pages/accounts/swap/history.dart';
-import 'pages/accounts/swap/stealthex.dart';
+import 'pages/swap.dart';
+import 'pages/swap_status.dart';
 import 'pages/more/cold.dart';
 import 'settings.pb.dart';
 import 'package:flutter/material.dart';
@@ -44,7 +43,6 @@ import 'pages/showqr.dart';
 import 'pages/splash.dart';
 import 'pages/welcome.dart';
 import 'pages/settings.dart';
-import 'pages/swap_placeholder.dart';
 import 'pages/utils.dart';
 import 'store2.dart';
 import 'zipher_theme.dart';
@@ -95,21 +93,12 @@ final router = GoRouter(
                     ]),
                 GoRoute(
                   path: 'swap',
-                  builder: (context, state) => SwapPage(),
+                  builder: (context, state) => NearSwapPage(),
                   routes: [
                     GoRoute(
                       path: 'history',
                       builder: (context, state) => SwapHistoryPage(),
                     ),
-                    GoRoute(
-                        path: 'stealthex',
-                        builder: (context, state) => StealthExPage(),
-                        routes: [
-                          GoRoute(
-                              path: 'details',
-                              builder: (context, state) =>
-                                  StealthExSummaryPage(state.extra as SwapT)),
-                        ]),
                   ],
                 ),
                 GoRoute(
@@ -174,7 +163,15 @@ final router = GoRouter(
           routes: [
             GoRoute(
                 path: '/swap',
-                builder: (context, state) => SwapPlaceholderPage(),
+                builder: (context, state) => NearSwapPage(),
+                routes: [
+                  GoRoute(
+                    path: 'status',
+                    builder: (context, state) => SwapStatusPage(
+                      depositAddress: state.extra as String,
+                    ),
+                  ),
+                ],
             ),
           ],
         ),

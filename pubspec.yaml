@@ -113,7 +113,7 @@ flutter_icons:
   android: true
   ios: true
   remove_alpha_ios: true
-  image_path: "assets/zipher_logo.png"
+  image_path: "assets/zipher-app.png"
 
 flutter_native_splash:
   color_dark: "#0A0E2A"
@@ -155,6 +155,8 @@ flutter:
     - assets/zcash_small.png
     - assets/zcash_logo.svg
     - assets/zcash_logo.png
+    - assets/tokens/
+    - assets/chains/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware.
