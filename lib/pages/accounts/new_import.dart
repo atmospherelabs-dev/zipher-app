@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
+import '../../services/secure_key_store.dart';
 import '../../store2.dart';
 import '../../zipher_theme.dart';
 import '../utils.dart';
@@ -60,11 +61,14 @@ class _NewImportAccountState extends State<NewImportAccountPage>
     _loadParentSeed();
   }
 
-  void _loadParentSeed() {
+  void _loadParentSeed() async {
     try {
       final backup = WarpApi.getBackup(aa.coin, aa.id);
-      if (backup.seed != null && backup.seed!.isNotEmpty) {
-        _parentSeed = backup.seed;
+      // Check Keychain first, then DB fallback
+      final kcSeed = await SecureKeyStore.getSeed(aa.coin, aa.id);
+      final seedValue = kcSeed ?? backup.seed;
+      if (seedValue != null && seedValue.isNotEmpty) {
+        _parentSeed = seedValue;
         _parentName = backup.name ?? 'Main';
         // Find the next available index
         final accounts = getAllAccounts();
@@ -72,13 +76,15 @@ class _NewImportAccountState extends State<NewImportAccountPage>
         for (final a in accounts) {
           try {
             final b = WarpApi.getBackup(a.coin, a.id);
-            if (b.seed == _parentSeed && b.index >= maxIdx) {
+            final aSeed = await SecureKeyStore.getSeed(a.coin, a.id) ?? b.seed;
+            if (aSeed == _parentSeed && b.index >= maxIdx) {
               maxIdx = b.index + 1;
             }
           } catch (_) {}
         }
         _nextIndex = maxIdx;
       }
+      if (mounted) setState(() {});
     } catch (_) {}
   }
 
@@ -759,7 +765,17 @@ class _NewImportAccountState extends State<NewImportAccountPage>
         return;
       }
 
-      setActiveAccount(coin, account);
+      // Move seed from DB to Keychain (only if it has one)
+      final backup = WarpApi.getBackup(coin, account);
+      if (backup.seed != null) {
+        await SecureKeyStore.storeSeed(
+            coin, account, backup.seed!, backup.index);
+        WarpApi.loadKeysFromSeed(
+            coin, account, backup.seed!, backup.index);
+        WarpApi.clearAccountSecrets(coin, account);
+      }
+      setActiveAccount(coin, account,
+          canPayOverride: backup.seed != null ? true : null);
       final prefs = await SharedPreferences.getInstance();
       await aa.save(prefs);
       final count = WarpApi.countAccounts(coin);

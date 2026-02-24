@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:YWallet/router.dart';
+import 'package:YWallet/services/secure_key_store.dart';
 import 'package:app_links/app_links.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
@@ -54,7 +56,9 @@ class _SplashState extends State<SplashPage> {
           final applinkUri = await _registerURLHandler();
           final quickAction = await _registerQuickActions();
           _initWallets();
+          await _migrateSeedsToKeychain();
           await _restoreActive();
+          await _loadKeysFromKeychain();
           initSyncListener();
           // _initForegroundTask();
           await _initBackgroundSync();
@@ -157,14 +161,76 @@ class _SplashState extends State<SplashPage> {
     }
   }
 
+  /// One-time migration: move seeds from SQLite DB to platform Keychain
+  Future<void> _migrateSeedsToKeychain() async {
+    _setProgress(0.6, 'Securing keys...');
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('seed_migration_done') == true) return;
+
+    // Verify keystore health before migrating
+    if (!await SecureKeyStore.isKeystoreHealthy()) {
+      logger.e('Keystore unhealthy — skipping migration, keys stay in DB');
+      return;
+    }
+
+    final coin = activeCoin.coin;
+    try {
+      final accounts = WarpApi.getAccountList(coin);
+      for (final acct in accounts) {
+        final backup = WarpApi.getBackup(coin, acct.id);
+        if (backup.seed == null) continue; // already migrated or view-only
+
+        // Store seed in Keychain
+        await SecureKeyStore.storeSeed(
+            coin, acct.id, backup.seed!, backup.index);
+
+        // Verify the write succeeded
+        final verify = await SecureKeyStore.getSeed(coin, acct.id);
+        if (verify != backup.seed) {
+          logger.e('Keychain verification failed for $coin/${acct.id} — '
+              'will retry next launch');
+          return; // don't set flag, retry next launch
+        }
+
+        // Clear secrets from SQLite
+        WarpApi.clearAccountSecrets(coin, acct.id);
+        logger.i('Migrated seed for account ${acct.id} to Keychain');
+      }
+      await prefs.setBool('seed_migration_done', true);
+      logger.i('Seed migration complete');
+    } catch (e) {
+      logger.e('Seed migration error (will retry): $e');
+    }
+  }
+
+  /// Load spending keys from Keychain seeds into the Rust runtime cache.
+  /// Runs key derivation in an Isolate to avoid blocking the UI.
+  Future<void> _loadKeysFromKeychain() async {
+    _setProgress(0.7, 'Unlocking wallet...');
+    final coin = activeCoin.coin;
+    try {
+      final accounts = WarpApi.getAccountList(coin);
+      for (final acct in accounts) {
+        final seed = await SecureKeyStore.getSeed(coin, acct.id);
+        if (seed == null) continue; // view-only account
+        final index = await SecureKeyStore.getIndex(coin, acct.id);
+        await compute(_deriveKeysIsolate, _DeriveParams(coin, acct.id, seed, index));
+      }
+    } catch (e) {
+      logger.e('Key loading error: $e');
+    }
+  }
+
   Future<void> _restoreActive() async {
     _setProgress(0.8, 'Load Active Account');
     final prefs = await SharedPreferences.getInstance();
     final a = ActiveAccount2.fromPrefs(prefs);
-    a?.let((a) {
-      setActiveAccount(a.coin, a.id);
+    if (a != null) {
+      // Use async variant to load keys from Keychain and set canPay
+      final hasSeed = await SecureKeyStore.hasSeed(a.coin, a.id);
+      setActiveAccount(a.coin, a.id, canPayOverride: hasSeed ? true : null);
       aa.update(syncStatus2.latestHeight);
-    });
+    }
   }
 
   _initAccel() {
@@ -364,4 +430,33 @@ void backgroundSyncDispatcher() {
     }
     return true;
   });
+}
+
+class _DeriveParams {
+  final int coin;
+  final int account;
+  final String seed;
+  final int index;
+  _DeriveParams(this.coin, this.account, this.seed, this.index);
+}
+
+void _deriveKeysIsolate(_DeriveParams p) {
+  WarpApi.loadKeysFromSeed(p.coin, p.account, p.seed, p.index);
+}
+
+/// Re-derive keys for all accounts that have seeds in the Keychain.
+/// Called from the lifecycle observer when the app resumes.
+Future<void> reloadKeysFromKeychain() async {
+  final coin = activeCoin.coin;
+  try {
+    final accounts = WarpApi.getAccountList(coin);
+    for (final acct in accounts) {
+      final seed = await SecureKeyStore.getSeed(coin, acct.id);
+      if (seed == null) continue;
+      final index = await SecureKeyStore.getIndex(coin, acct.id);
+      await compute(_deriveKeysIsolate, _DeriveParams(coin, acct.id, seed, index));
+    }
+  } catch (e) {
+    logger.e('Reload keys error: $e');
+  }
 }

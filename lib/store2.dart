@@ -39,8 +39,15 @@ void initSyncListener() {
       final progress = Progress(e);
       syncStatus2.setProgress(progress);
       final b = progress.balances?.unpack();
-      if (b != null) aa.poolBalances = b;
-      logger.d(progress.balances);
+      if (b != null) {
+        final newTotal = b.transparent + b.sapling + b.orchard;
+        final oldTotal = aa.poolBalances.transparent +
+            aa.poolBalances.sapling +
+            aa.poolBalances.orchard;
+        if (newTotal > 0 || oldTotal == 0) {
+          aa.poolBalances = b;
+        }
+      }
     }
   });
 }

@@ -1920,6 +1920,52 @@ class NativeLibrary {
   late final _use_gpuPtr =
       _lookup<ffi.NativeFunction<ffi.Void Function(bool)>>('use_gpu');
   late final _use_gpu = _use_gpuPtr.asFunction<void Function(int)>();
+
+  CResult_u8 load_keys_from_seed(
+    int coin,
+    int account,
+    ffi.Pointer<ffi.Char> seed,
+    int index,
+  ) {
+    return _load_keys_from_seed(
+      coin,
+      account,
+      seed,
+      index,
+    );
+  }
+
+  late final _load_keys_from_seedPtr = _lookup<
+      ffi.NativeFunction<
+          CResult_u8 Function(ffi.Uint8, ffi.Uint32, ffi.Pointer<ffi.Char>,
+              ffi.Uint32)>>('load_keys_from_seed');
+  late final _load_keys_from_seed = _load_keys_from_seedPtr
+      .asFunction<CResult_u8 Function(int, int, ffi.Pointer<ffi.Char>, int)>();
+
+  CResult_u8 clear_account_secrets(
+    int coin,
+    int account,
+  ) {
+    return _clear_account_secrets(
+      coin,
+      account,
+    );
+  }
+
+  late final _clear_account_secretsPtr =
+      _lookup<ffi.NativeFunction<CResult_u8 Function(ffi.Uint8, ffi.Uint32)>>(
+          'clear_account_secrets');
+  late final _clear_account_secrets =
+      _clear_account_secretsPtr.asFunction<CResult_u8 Function(int, int)>();
+
+  CResult_u8 wipe_key_cache() {
+    return _wipe_key_cache();
+  }
+
+  late final _wipe_key_cachePtr =
+      _lookup<ffi.NativeFunction<CResult_u8 Function()>>('wipe_key_cache');
+  late final _wipe_key_cache =
+      _wipe_key_cachePtr.asFunction<CResult_u8 Function()>();
 }
 
 final class CResult_u8 extends ffi.Struct {

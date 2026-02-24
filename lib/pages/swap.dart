@@ -315,6 +315,11 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                   // Confirm button
                   GestureDetector(
                     onTap: () async {
+                      final protectSend = appSettings.protectSend;
+                      if (protectSend) {
+                        final authed = await authBarrier(ctx, dismissable: true);
+                        if (!authed) return;
+                      }
                       logger.i('[Swap] Confirm tapped, closing sheet...');
                       Navigator.pop(ctx);
                       await Future.delayed(const Duration(milliseconds: 300));

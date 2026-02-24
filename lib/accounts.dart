@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tuple/tuple.dart';
@@ -10,6 +11,7 @@ import 'package:mobx/mobx.dart';
 import 'package:warp_api/warp_api.dart';
 
 import 'pages/utils.dart';
+import 'services/secure_key_store.dart';
 
 part 'accounts.g.dart';
 
@@ -29,15 +31,45 @@ abstract class _AASequence with Store {
   int settingsSeqno = 0;
 }
 
-void setActiveAccount(int coin, int id) {
+void setActiveAccount(int coin, int id, {bool? canPayOverride}) {
   coinSettings = CoinSettingsExtension.load(coin);
-  aa = ActiveAccount2.fromId(coin, id);
+  aa = ActiveAccount2.fromId(coin, id, canPayOverride: canPayOverride);
   coinSettings.account = id;
   coinSettings.save(coin);
   aa.updateDivisified();
   aa.update(null);
   loadOutgoingMemos(coin: coin, accountId: id);
   aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+}
+
+/// Async variant that also loads spending keys from Keychain into the
+/// Rust runtime cache and sets canPay correctly.
+Future<void> setActiveAccountAsync(int coin, int id) async {
+  final hasSeed = await SecureKeyStore.hasSeed(coin, id);
+  if (hasSeed) {
+    final seed = await SecureKeyStore.getSeed(coin, id);
+    if (seed != null) {
+      final index = await SecureKeyStore.getIndex(coin, id);
+      try {
+        await compute(_loadKeysIsolate, _LoadKeysParams(coin, id, seed, index));
+      } catch (e) {
+        logger.e('Failed to load keys for $coin/$id: $e');
+      }
+    }
+  }
+  setActiveAccount(coin, id, canPayOverride: hasSeed ? true : null);
+}
+
+class _LoadKeysParams {
+  final int coin;
+  final int account;
+  final String seed;
+  final int index;
+  _LoadKeysParams(this.coin, this.account, this.seed, this.index);
+}
+
+void _loadKeysIsolate(_LoadKeysParams p) {
+  WarpApi.loadKeysFromSeed(p.coin, p.account, p.seed, p.index);
 }
 
 class ActiveAccount2 extends _ActiveAccount2 with _$ActiveAccount2 {
@@ -61,10 +93,10 @@ class ActiveAccount2 extends _ActiveAccount2 with _$ActiveAccount2 {
     await prefs.setInt('account', id);
   }
 
-  factory ActiveAccount2.fromId(int coin, int id) {
+  factory ActiveAccount2.fromId(int coin, int id, {bool? canPayOverride}) {
     if (id == 0) return nullAccount;
     final backup = WarpApi.getBackup(coin, id);
-    final canPay = backup.sk != null;
+    final canPay = canPayOverride ?? (backup.sk != null);
     return ActiveAccount2(
         coin, id, backup.name!, backup.seed, canPay, false, backup.saved);
   }

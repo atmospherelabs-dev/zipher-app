@@ -99,7 +99,9 @@ class _HomeState extends State<HomePageInner> {
         );
       }
       if (mounted) setState(() {});
-    } catch (_) {}
+    } catch (e) {
+      logger.e('[Home] Error loading swap data: $e');
+    }
   }
 
   Future<void> _pollSwapStatuses() async {
@@ -126,7 +128,9 @@ class _HomeState extends State<HomePageInner> {
             _swapPollTimer?.cancel();
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        logger.e('[Home] Swap status poll error: $e');
+      }
     }
   }
 
@@ -308,23 +312,29 @@ class _HomeState extends State<HomePageInner> {
                         const Spacer(),
                         // QR scan shortcut
                         GestureDetector(
-                          onTap: () => GoRouter.of(context).push(
-                            '/scan',
-                            extra: ScanQRContext((code) {
-                              try {
-                                final sc = SendContext.fromPaymentURI(code);
-                                GoRouter.of(context).push(
-                                  '/account/quick_send',
-                                  extra: sc,
-                                );
-                              } catch (_) {
-                                GoRouter.of(context).push(
-                                  '/account/quick_send',
-                                );
-                              }
-                              return true;
-                            }),
-                          ),
+                          onTap: () async {
+                            if (appSettings.protectSend) {
+                              final authed = await authBarrier(context, dismissable: true);
+                              if (!authed) return;
+                            }
+                            GoRouter.of(context).push(
+                              '/scan',
+                              extra: ScanQRContext((code) {
+                                try {
+                                  final sc = SendContext.fromPaymentURI(code);
+                                  GoRouter.of(context).push(
+                                    '/account/quick_send',
+                                    extra: sc,
+                                  );
+                                } catch (_) {
+                                  GoRouter.of(context).push(
+                                    '/account/quick_send',
+                                  );
+                                }
+                                return true;
+                              }),
+                            );
+                          },
                           child: Container(
                             width: 36,
                             height: 36,

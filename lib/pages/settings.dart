@@ -280,6 +280,39 @@ class _SettingsState extends State<SettingsPage> {
                 ),
               ],
 
+              // ── Security ──
+              const Gap(24),
+              _sectionLabel('Security'),
+              const Gap(8),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Column(
+                  children: [
+                    _securityToggle(
+                      icon: Icons.lock_rounded,
+                      label: 'Require auth for Send & Swap',
+                      subtitle: 'Biometric or device PIN before sending or swapping funds',
+                      value: appSettings.protectSend,
+                      onChanged: (v) => setState(() => appSettings.protectSend = v),
+                    ),
+                    Divider(height: 1, color: Colors.white.withValues(alpha: 0.04),
+                        indent: 52, endIndent: 16),
+                    _securityToggle(
+                      icon: Icons.shield_rounded,
+                      label: 'Require auth on App Open',
+                      subtitle: 'Authenticate every time you open Zipher',
+                      value: appSettings.protectOpen,
+                      onChanged: (v) => setState(() => appSettings.protectOpen = v),
+                    ),
+                  ],
+                ),
+              ),
+              const Gap(6),
+              _hint('Uses Face ID, Touch ID, or device passcode'),
+
               const Gap(40),
             ],
           ),
@@ -496,6 +529,56 @@ class _SettingsState extends State<SettingsPage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _securityToggle({
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Icon(icon, size: 18,
+              color: value
+                  ? ZipherColors.cyan.withValues(alpha: 0.7)
+                  : Colors.white.withValues(alpha: 0.2)),
+          const Gap(14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white.withValues(alpha: 0.85),
+                )),
+                const Gap(2),
+                Text(subtitle, style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.white.withValues(alpha: 0.25),
+                )),
+              ],
+            ),
+          ),
+          const Gap(12),
+          SizedBox(
+            height: 28,
+            child: Switch.adaptive(
+              value: value,
+              onChanged: onChanged,
+              activeColor: ZipherColors.cyan,
+              activeTrackColor: ZipherColors.cyan.withValues(alpha: 0.3),
+              inactiveThumbColor: Colors.white.withValues(alpha: 0.3),
+              inactiveTrackColor: Colors.white.withValues(alpha: 0.08),
+            ),
+          ),
+        ],
       ),
     );
   }

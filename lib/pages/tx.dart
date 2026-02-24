@@ -50,7 +50,9 @@ Future<void> _fetchShieldAmount(String txId, VoidCallback? onLoaded) async {
         onLoaded?.call();
       }
     }
-  } catch (_) {}
+  } catch (e) {
+    logger.e('[Activity] Shield amount fetch error: $e');
+  }
 }
 
 // ─── Helpers ────────────────────────────────────────────────
@@ -265,7 +267,9 @@ class TxPageState extends State<TxPage> {
         );
       }
       if (mounted) setState(() {});
-    } catch (_) {}
+    } catch (e) {
+      logger.e('[Activity] Error loading swap data: $e');
+    }
   }
 
   Future<void> _pollSwapStatuses() async {
@@ -291,7 +295,9 @@ class TxPageState extends State<TxPage> {
             _swapPollTimer?.cancel();
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        logger.e('[Activity] Swap status poll error: $e');
+      }
     }
   }
 

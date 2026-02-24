@@ -7,6 +7,7 @@ import 'package:warp_api/warp_api.dart';
 
 import '../../accounts.dart';
 import '../../coin/coins.dart';
+import '../../services/secure_key_store.dart';
 import '../../store2.dart';
 import '../../zipher_theme.dart';
 
@@ -427,7 +428,11 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
         });
         return;
       }
-      setActiveAccount(coin, account);
+      // Store seed in Keychain, load keys, then clear from DB
+      await SecureKeyStore.storeSeed(coin, account, seed, 0);
+      WarpApi.loadKeysFromSeed(coin, account, seed, 0);
+      WarpApi.clearAccountSecrets(coin, account);
+      setActiveAccount(coin, account, canPayOverride: true);
       final prefs = await SharedPreferences.getInstance();
       await aa.save(prefs);
 

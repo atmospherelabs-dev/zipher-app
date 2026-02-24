@@ -6990,6 +6990,7 @@ dependencies = [
  "zcash_params",
  "zcash_primitives 0.10.2 (git+https://github.com/hhanh00/librustzcash.git?rev=03bd6b436b95ffa6f41c76475a5ccc7250a77599)",
  "zcash_proofs",
+ "zeroize",
  "zip",
  "zstd-sys",
 ]

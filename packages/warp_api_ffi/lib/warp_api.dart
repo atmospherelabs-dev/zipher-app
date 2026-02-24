@@ -800,6 +800,19 @@ class WarpApi {
             warp_api_lib.zip_dbs(toNative(passwd), toNative(tempDir))),
         null);
   }
+
+  static void loadKeysFromSeed(int coin, int account, String seed, int index) {
+    unwrapResultU8(
+        warp_api_lib.load_keys_from_seed(coin, account, toNative(seed), index));
+  }
+
+  static void clearAccountSecrets(int coin, int account) {
+    unwrapResultU8(warp_api_lib.clear_account_secrets(coin, account));
+  }
+
+  static void wipeKeyCache() {
+    unwrapResultU8(warp_api_lib.wipe_key_cache());
+  }
 }
 
 String signOnlyIsolateFn(SignOnlyParams params) {

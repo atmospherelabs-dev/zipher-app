@@ -8,6 +8,7 @@ import 'package:warp_api/warp_api.dart';
 import '../../accounts.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
+import '../../services/secure_key_store.dart';
 import '../../zipher_theme.dart';
 import '../../src/version.dart';
 import '../../appsettings.dart';
@@ -412,7 +413,15 @@ class _DisclaimerState extends State<DisclaimerPage> {
         final name = isTestnet ? 'Testnet' : 'Main';
         final account = await WarpApi.newAccount(coin, name, '', 0);
         if (account >= 0) {
-          setActiveAccount(coin, account);
+          // Move seed from DB to Keychain
+          final backup = WarpApi.getBackup(coin, account);
+          if (backup.seed != null) {
+            await SecureKeyStore.storeSeed(
+                coin, account, backup.seed!, backup.index);
+            WarpApi.loadKeysFromSeed(coin, account, backup.seed!, backup.index);
+            WarpApi.clearAccountSecrets(coin, account);
+          }
+          setActiveAccount(coin, account, canPayOverride: true);
           await aa.save(prefs);
           try {
             await WarpApi.skipToLastHeight(coin);

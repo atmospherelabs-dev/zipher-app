@@ -8,6 +8,7 @@ import 'package:warp_api/warp_api.dart';
 
 import '../../router.dart';
 import '../../accounts.dart';
+import '../../services/secure_key_store.dart';
 import '../../zipher_theme.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
@@ -22,13 +23,24 @@ class KeyToolPage extends StatefulWidget {
 }
 
 class _KeyToolState extends State<KeyToolPage> with WithLoadingAnimation {
-  late final seed = aa.seed!;
+  String seed = '';
   List<KeyPackT> keys = [];
   final formKey = GlobalKey<FormBuilderState>();
   bool shielded = false;
   int account = 0;
   bool external = true;
   int address = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSeed();
+  }
+
+  void _loadSeed() async {
+    final kcSeed = await SecureKeyStore.getSeed(aa.coin, aa.id);
+    if (mounted) setState(() => seed = kcSeed ?? aa.seed ?? '');
+  }
 
   @override
   Widget build(BuildContext context) {

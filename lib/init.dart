@@ -15,6 +15,7 @@ import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'coin/coins.dart';
 import 'generated/intl/messages.dart';
 import 'main.dart';
+import 'pages/splash.dart';
 import 'pages/utils.dart';
 import 'router.dart';
 import 'sent_memos_db.dart';
@@ -89,7 +90,32 @@ class App extends StatefulWidget {
   State<StatefulWidget> createState() => _AppState();
 }
 
-class _AppState extends State<App> {
+class _AppState extends State<App> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      // Wipe in-memory key cache on app termination
+      try {
+        WarpApi.wipeKeyCache();
+      } catch (_) {}
+    } else if (state == AppLifecycleState.resumed) {
+      // Re-derive spending keys when app comes back to foreground
+      reloadKeysFromKeychain();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Observer(builder: (context) {

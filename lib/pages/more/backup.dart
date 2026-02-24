@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
@@ -8,6 +10,7 @@ import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../../accounts.dart';
+import '../../services/secure_key_store.dart';
 import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
 
@@ -23,6 +26,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   bool _tskRevealed = false;
   bool _obscured = false;
   int? _birthdayHeight;
+  bool _verificationPassed = false;
 
   Backup? _backup;
   String? _primary;
@@ -36,11 +40,19 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
     _loadBirthday();
   }
 
-  void _loadBackup() {
+  String? _keychainSeed;
+
+  void _loadBackup() async {
     try {
       final backup = WarpApi.getBackup(aa.coin, aa.id);
+
+      // Read seed from Keychain (post-migration it won't be in the DB)
+      final kcSeed = await SecureKeyStore.getSeed(aa.coin, aa.id);
+
       String primary;
-      if (backup.seed != null)
+      if (kcSeed != null)
+        primary = kcSeed;
+      else if (backup.seed != null)
         primary = backup.seed!;
       else if (backup.sk != null)
         primary = backup.sk!;
@@ -52,11 +64,14 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
         setState(() => _loadError = 'Account has no key');
         return;
       }
+      if (!mounted) return;
       setState(() {
         _backup = backup;
         _primary = primary;
+        _keychainSeed = kcSeed;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loadError = 'Could not load backup: $e');
     }
   }
@@ -461,31 +476,90 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       ],
 
                       // Seed Phrase (most dangerous, last)
-                      if (backup.seed != null) ...[
+                      if ((_keychainSeed ?? backup.seed) != null) ...[
                         const Gap(12),
-                        _KeyCard(
-                          label: 'Seed Phrase',
-                          description:
-                              'Master key — derives ALL accounts and keys. If lost, funds are unrecoverable. If stolen, everything is compromised.',
-                          value: backup.index != 0
-                              ? '${backup.seed!} [${backup.index}]'
-                              : backup.seed!,
-                          accentColor: ZipherColors.orange,
-                          icon: Icons.shield_rounded,
-                          revealed: _seedRevealed,
-                          onToggleReveal: () {
-                            setState(
-                                () => _seedRevealed = !_seedRevealed);
-                            if (_seedRevealed && !_backup!.saved) {
-                              WarpApi.setBackupReminder(
-                                  aa.coin, aa.id, true);
-                              // Reload active account so aa.saved updates
-                              setActiveAccount(aa.coin, aa.id);
-                            }
-                          },
-                          onShowQR: () => _showQR(context, backup.seed!,
-                              '${s.seed} of ${backup.name}'),
-                        ),
+                        Builder(builder: (ctx) {
+                          final seedValue = _keychainSeed ?? backup.seed!;
+                          return _KeyCard(
+                            label: 'Seed Phrase',
+                            description:
+                                'Master key — derives ALL accounts and keys. If lost, funds are unrecoverable. If stolen, everything is compromised.',
+                            value: backup.index != 0
+                                ? '$seedValue [${backup.index}]'
+                                : seedValue,
+                            accentColor: ZipherColors.orange,
+                            icon: Icons.shield_rounded,
+                            revealed: _seedRevealed,
+                            onToggleReveal: () {
+                              setState(
+                                  () => _seedRevealed = !_seedRevealed);
+                              if (_seedRevealed && !_backup!.saved) {
+                                WarpApi.setBackupReminder(
+                                    aa.coin, aa.id, true);
+                                setActiveAccount(aa.coin, aa.id);
+                              }
+                            },
+                            onShowQR: () => _showQR(context, seedValue,
+                                '${s.seed} of ${backup.name}'),
+                          );
+                        }),
+
+                        // Verify Backup button
+                        if (_seedRevealed && !_verificationPassed) ...[
+                          const Gap(16),
+                          GestureDetector(
+                            onTap: () => _startVerification(
+                                (_keychainSeed ?? backup.seed)!),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              decoration: BoxDecoration(
+                                gradient: ZipherColors.primaryGradient,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.quiz_rounded, size: 18,
+                                      color: ZipherColors.textOnBrand),
+                                  const Gap(8),
+                                  Text('Verify Backup', style: TextStyle(
+                                    fontSize: 14, fontWeight: FontWeight.w700,
+                                    color: ZipherColors.textOnBrand,
+                                  )),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+
+                        // Verified badge
+                        if (_verificationPassed) ...[
+                          const Gap(16),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            decoration: BoxDecoration(
+                              color: ZipherColors.green.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: ZipherColors.green.withValues(alpha: 0.15),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.check_circle_rounded, size: 18,
+                                    color: ZipherColors.green.withValues(alpha: 0.7)),
+                                const Gap(8),
+                                Text('Backup Verified', style: TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w600,
+                                  color: ZipherColors.green.withValues(alpha: 0.7),
+                                )),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ],
                   ],
@@ -497,8 +571,171 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
     );
   }
 
+  void _startVerification(String seed) {
+    final words = seed.trim().split(RegExp(r'\s+'));
+    if (words.length < 6) return;
+
+    final rng = math.Random();
+    final indices = <int>{};
+    while (indices.length < 3) {
+      indices.add(rng.nextInt(words.length));
+    }
+    final sortedIndices = indices.toList()..sort();
+
+    final controllers = List.generate(3, (_) => TextEditingController());
+    final focusNodes = List.generate(3, (_) => FocusNode());
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: ZipherColors.bg,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              border: Border(
+                top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
+              ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Gap(10),
+                    Container(
+                      width: 36, height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const Gap(20),
+                    Icon(Icons.quiz_rounded, size: 28,
+                        color: ZipherColors.cyan.withValues(alpha: 0.5)),
+                    const Gap(12),
+                    Text('Verify Your Seed', style: TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w700,
+                      color: Colors.white.withValues(alpha: 0.9),
+                    )),
+                    const Gap(6),
+                    Text(
+                      'Enter the requested words to confirm you saved your seed phrase.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.white.withValues(alpha: 0.35),
+                        height: 1.4,
+                      ),
+                    ),
+                    const Gap(24),
+                    for (int i = 0; i < 3; i++) ...[
+                      if (i > 0) const Gap(12),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: TextField(
+                          controller: controllers[i],
+                          focusNode: focusNodes[i],
+                          autofocus: i == 0,
+                          textInputAction: i < 2 ? TextInputAction.next : TextInputAction.done,
+                          onSubmitted: (_) {
+                            if (i < 2) focusNodes[i + 1].requestFocus();
+                          },
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.white.withValues(alpha: 0.85),
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'Word #${sortedIndices[i] + 1}',
+                            labelStyle: TextStyle(
+                              fontSize: 13,
+                              color: Colors.white.withValues(alpha: 0.3),
+                            ),
+                            filled: false,
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 14),
+                          ),
+                        ),
+                      ),
+                    ],
+                    const Gap(24),
+                    GestureDetector(
+                      onTap: () {
+                        bool allCorrect = true;
+                        for (int i = 0; i < 3; i++) {
+                          if (controllers[i].text.trim().toLowerCase() !=
+                              words[sortedIndices[i]].toLowerCase()) {
+                            allCorrect = false;
+                            break;
+                          }
+                        }
+                        Navigator.pop(ctx);
+                        for (final c in controllers) c.dispose();
+                        for (final f in focusNodes) f.dispose();
+
+                        if (allCorrect) {
+                          setState(() => _verificationPassed = true);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Text('Backup verified successfully!'),
+                              backgroundColor: ZipherColors.green.withValues(alpha: 0.8),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Text('Incorrect words. Please check your seed phrase and try again.'),
+                              backgroundColor: ZipherColors.red.withValues(alpha: 0.8),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                              duration: const Duration(seconds: 3),
+                            ),
+                          );
+                        }
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        decoration: BoxDecoration(
+                          gradient: ZipherColors.primaryGradient,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Center(
+                          child: Text('Verify', style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w700,
+                            color: ZipherColors.textOnBrand,
+                          )),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   bool _hasSpendingKeys(Backup b) =>
-      b.seed != null || b.sk != null || b.tsk != null;
+      _keychainSeed != null || b.seed != null || b.sk != null || b.tsk != null;
 
   Widget _sectionHeader(
       String title, String subtitle, IconData icon, Color color,
