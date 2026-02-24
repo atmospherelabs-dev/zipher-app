@@ -57,3 +57,8 @@ jniLibs/
 .flatpak-builder/
 build-dir/
 lib/src/version.dart
+
+# Native compiled libraries
+*.a
+.cargo/
+missing.arb
