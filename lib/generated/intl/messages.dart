@@ -1607,11 +1607,11 @@ abstract class S {
   /// **'Views'**
   String get views;
 
-  /// No description provided for @welcomeToYwallet.
+  /// No description provided for @welcomeToZipher.
   ///
   /// In en, this message translates to:
   /// **'Welcome to Zipher'**
-  String get welcomeToYwallet;
+  String get welcomeToZipher;
 
   /// No description provided for @wifi.
   ///

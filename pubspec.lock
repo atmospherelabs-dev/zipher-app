@@ -105,14 +105,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.1"
-  bubble:
-    dependency: "direct main"
-    description:
-      name: bubble
-      sha256: "65b992b8f8ba2e7e2871190cbdfaa0818b6de2f340bef37cb5ee1b61debe0226"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.2.1"
   build:
     dependency: transitive
     description:
@@ -266,14 +258,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.2.4"
-  console:
-    dependency: transitive
-    description:
-      name: console
-      sha256: e04e7824384c5b39389acdd6dc7d33f3efe6b232f6f16d7626f194f6a01ad69a
-      url: "https://pub.dev"
-    source: hosted
-    version: "4.1.0"
   convert:
     dependency: transitive
     description:
@@ -386,70 +370,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.1.0+1"
-  file_selector:
-    dependency: "direct main"
-    description:
-      name: file_selector
-      sha256: "5019692b593455127794d5718304ff1ae15447dea286cdda9f0db2a796a1b828"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.3"
-  file_selector_android:
-    dependency: transitive
-    description:
-      name: file_selector_android
-      sha256: "77f23eb5916fd0875946720d1f286f809a28a867d4882db6ac2cf053e2d5f7c6"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.5.1+6"
-  file_selector_ios:
-    dependency: transitive
-    description:
-      name: file_selector_ios
-      sha256: "94b98ad950b8d40d96fee8fa88640c2e4bd8afcdd4817993bd04e20310f45420"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.5.3+1"
-  file_selector_linux:
-    dependency: transitive
-    description:
-      name: file_selector_linux
-      sha256: "54cbbd957e1156d29548c7d9b9ec0c0ebb6de0a90452198683a7d23aed617a33"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.9.3+2"
-  file_selector_macos:
-    dependency: transitive
-    description:
-      name: file_selector_macos
-      sha256: "271ab9986df0c135d45c3cdb6bd0faa5db6f4976d3e4b437cf7d0f258d941bfc"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.9.4+2"
-  file_selector_platform_interface:
-    dependency: transitive
-    description:
-      name: file_selector_platform_interface
-      sha256: a3994c26f10378a039faa11de174d7b78eb8f79e4dd0af2a451410c1a5c3f66b
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.6.2"
-  file_selector_web:
-    dependency: transitive
-    description:
-      name: file_selector_web
-      sha256: c4c0ea4224d97a60a7067eca0c8fd419e708ff830e0c83b11a48faf566cec3e7
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.9.4+2"
-  file_selector_windows:
-    dependency: transitive
-    description:
-      name: file_selector_windows
-      sha256: "320fcfb6f33caa90f0b58380489fc5ac05d99ee94b61aa96ec2bff0ba81d3c2b"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.9.3+4"
   fixnum:
     dependency: transitive
     description:
@@ -705,14 +625,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "11.1.4"
-  graphic:
-    dependency: "direct main"
-    description:
-      name: graphic
-      sha256: af3a5a967d95ce2c2c9f7dee83c21f8bd6e6a458341820920cf15c0311cdaddc
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.6.0"
   graphs:
     dependency: transitive
     description:
@@ -977,14 +889,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.7.0"
-  msix:
-    dependency: "direct dev"
-    description:
-      name: msix
-      sha256: edde648a8133bf301883c869d19d127049683037c65ff64173ba526ac7a8af2f
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.16.9"
   mustache_template:
     dependency: "direct main"
     description:
@@ -1041,14 +945,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.9.1"
-  path_drawing:
-    dependency: transitive
-    description:
-      name: path_drawing
-      sha256: bbb1934c0cbb03091af082a6389ca2080345291ef07a5fa6d6e078ba8682f977
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.1"
   path_parsing:
     dependency: transitive
     description:
@@ -1258,14 +1154,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.27.7"
-  screen_retriever:
-    dependency: transitive
-    description:
-      name: screen_retriever
-      sha256: "6ee02c8a1158e6dae7ca430da79436e3b1c9563c8cf02f524af997c201ac2b90"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.9"
   sensors_plus:
     dependency: "direct main"
     description:
@@ -1718,14 +1606,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.5.4"
-  window_manager:
-    dependency: "direct main"
-    description:
-      name: window_manager
-      sha256: "8699323b30da4cdbe2aa2e7c9de567a6abd8a97d9a5c850a3c86dcd0b34bbfbf"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.3.9"
   workmanager:
     dependency: "direct main"
     description:

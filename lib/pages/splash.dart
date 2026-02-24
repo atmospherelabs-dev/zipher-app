@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:YWallet/router.dart';
-import 'package:YWallet/services/secure_key_store.dart';
+import 'package:zipher/router.dart';
+import 'package:zipher/services/secure_key_store.dart';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -97,39 +97,30 @@ class _SplashState extends State<SplashPage> {
   Future<Uri?> _registerURLHandler() async {
     _setProgress(0.3, 'Register Payment URI handlers');
     return await registerURLHandler();
-
-    // TODO
-    // if (Platform.isWindows) {
-    //   for (var c in coins) {
-    //     registerProtocolHandler(c.currency, arguments: ['%s']);
-    //   }
-    // }
   }
 
   Future<String?> _registerQuickActions() async {
     _setProgress(0.4, 'Register App Launcher actions');
     String? launchPage;
-    if (isMobile()) {
-      final quickActions = QuickActions();
-      await quickActions.initialize((quick_action) {
-        launchPage = quick_action;
-      });
-      Future.microtask(() {
-        final s = S.of(this.context);
-        List<ShortcutItem> shortcuts = [];
-        final c = activeCoin;
-        final ticker = c.ticker;
-        shortcuts.add(ShortcutItem(
-            type: '${c.coin}.receive',
-            localizedTitle: s.receive(ticker),
-            icon: 'receive'));
-        shortcuts.add(ShortcutItem(
-            type: '${c.coin}.send',
-            localizedTitle: s.sendCointicker(ticker),
-            icon: 'send'));
-        quickActions.setShortcutItems(shortcuts);
-      });
-    }
+    final quickActions = QuickActions();
+    await quickActions.initialize((quick_action) {
+      launchPage = quick_action;
+    });
+    Future.microtask(() {
+      final s = S.of(this.context);
+      List<ShortcutItem> shortcuts = [];
+      final c = activeCoin;
+      final ticker = c.ticker;
+      shortcuts.add(ShortcutItem(
+          type: '${c.coin}.receive',
+          localizedTitle: s.receive(ticker),
+          icon: 'receive'));
+      shortcuts.add(ShortcutItem(
+          type: '${c.coin}.send',
+          localizedTitle: s.sendCointicker(ticker),
+          icon: 'send'));
+      quickActions.setShortcutItems(shortcuts);
+    });
     return launchPage;
   }
 
@@ -234,7 +225,7 @@ class _SplashState extends State<SplashPage> {
   }
 
   _initAccel() {
-    if (isMobile()) accelerometerEvents.listen(handleAccel);
+    accelerometerEvents.listen(handleAccel);
   }
 
   void _setProgress(double progress, String message) {
@@ -243,7 +234,6 @@ class _SplashState extends State<SplashPage> {
   }
 
   Future<void> _initBackgroundSync() async {
-    if (!isMobile()) return;
     try {
       logger.d('${appSettings.backgroundSync}');
       await Workmanager().initialize(
@@ -393,7 +383,6 @@ void handleUri(Uri uri) {
 }
 
 Future<Uri?> registerURLHandler() async {
-  if (Platform.isLinux) return null;
   final _appLinks = AppLinks();
 
   subUniLinks = _appLinks.uriLinkStream.listen((uri) {

@@ -802,7 +802,7 @@ class SEs extends S {
   String get views => 'Vistas';
 
   @override
-  String get welcomeToYwallet => 'Bienvenido a Zipher';
+  String get welcomeToZipher => 'Bienvenido a Zipher';
 
   @override
   String get wifi => 'WiFi';

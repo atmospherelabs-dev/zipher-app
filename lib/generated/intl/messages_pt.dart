@@ -802,7 +802,7 @@ class SPt extends S {
   String get views => 'Visualizações';
 
   @override
-  String get welcomeToYwallet => 'Bem-vindo ao Zipher';
+  String get welcomeToZipher => 'Bem-vindo ao Zipher';
 
   @override
   String get wifi => 'Wi-Fi';

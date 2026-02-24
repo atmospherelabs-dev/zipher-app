@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:YWallet/main.dart';
+import 'package:zipher/main.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:binary/binary.dart';
 import 'package:collection/collection.dart';
@@ -12,8 +12,6 @@ import 'package:decimal/decimal.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_form_builder/flutter_form_builder.dart';
-import 'package:form_builder_validators/form_builder_validators.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -293,49 +291,6 @@ Future<bool> authBarrier(BuildContext context,
 }
 
 Future<bool> authenticate(BuildContext context, String reason) async {
-  final s = S.of(context);
-  if (!isMobile()) {
-    if (appStore.dbPassword.isEmpty) return true;
-    final formKey = GlobalKey<FormBuilderState>();
-    final passwdController = TextEditingController();
-    final authed = await showAdaptiveDialog<bool>(
-            context: context,
-            builder: (context) {
-              return AlertDialog.adaptive(
-                title: Text(s.pleaseAuthenticate),
-                content: Card(
-                    child: FormBuilder(
-                        key: formKey,
-                        child: FormBuilderTextField(
-                          name: 'passwd',
-                          decoration:
-                              InputDecoration(label: Text(s.databasePassword)),
-                          controller: passwdController,
-                          validator: FormBuilderValidators.compose([
-                            FormBuilderValidators.required(),
-                            (v) => v != appStore.dbPassword
-                                ? s.invalidPassword
-                                : null,
-                          ]),
-                          obscureText: true,
-                        ))),
-                actions: [
-                  IconButton(
-                      onPressed: () => GoRouter.of(context).pop(false),
-                      icon: Icon(Icons.cancel)),
-                  IconButton(
-                      onPressed: () {
-                        if (formKey.currentState!.validate())
-                          GoRouter.of(context).pop(true);
-                      },
-                      icon: Icon(Icons.check)),
-                ],
-              );
-            }) ??
-        false;
-    return authed;
-  }
-
   final localAuth = LocalAuthentication();
   try {
     final bool didAuthenticate = await localAuth.authenticate(
@@ -373,34 +328,23 @@ double getScreenSize(BuildContext context) {
 }
 
 Future<FilePickerResult?> pickFile() async {
-  if (isMobile()) {
-    await FilePicker.platform.clearTemporaryFiles();
-  }
+  await FilePicker.platform.clearTemporaryFiles();
   final result = await FilePicker.platform.pickFiles();
   return result;
 }
 
 Future<void> saveFileBinary(
     List<int> data, String filename, String title) async {
-  if (isMobile()) {
-    final context = rootNavigatorKey.currentContext!;
-    Size size = MediaQuery.of(context).size;
-    final tempDir = await getTempPath();
-    final path = p.join(tempDir, filename);
-    final xfile = XFile(path);
-    final file = File(path);
-    await file.writeAsBytes(data);
-    await Share.shareXFiles([xfile],
-        subject: title,
-        sharePositionOrigin: Rect.fromLTWH(0, 0, size.width, size.height / 2));
-  } else {
-    final fn = await FilePicker.platform
-        .saveFile(dialogTitle: title, fileName: filename);
-    if (fn != null) {
-      final file = File(fn);
-      await file.writeAsBytes(data);
-    }
-  }
+  final context = rootNavigatorKey.currentContext!;
+  Size size = MediaQuery.of(context).size;
+  final tempDir = await getTempPath();
+  final path = p.join(tempDir, filename);
+  final xfile = XFile(path);
+  final file = File(path);
+  await file.writeAsBytes(data);
+  await Share.shareXFiles([xfile],
+      subject: title,
+      sharePositionOrigin: Rect.fromLTWH(0, 0, size.width, size.height / 2));
 }
 
 int getSpendable(int pools, PoolBalanceT balances) {
@@ -601,28 +545,15 @@ String getPrivacyLevel(BuildContext context, int level) {
 bool isMobile() => Platform.isAndroid || Platform.isIOS;
 
 Future<String> getDataPath() async {
-  String? home;
-  if (Platform.isAndroid)
-    home = (await getApplicationDocumentsDirectory()).parent.path;
-  if (Platform.isWindows) home = Platform.environment['LOCALAPPDATA'];
-  if (Platform.isLinux)
-    home =
-        Platform.environment['XDG_DATA_HOME'] ?? Platform.environment['HOME'];
-  if (Platform.isMacOS) home = (await getApplicationSupportDirectory()).path;
-  if (Platform.isIOS) home = (await getApplicationDocumentsDirectory()).path;
-  final h = home ?? "";
-  return h;
+  if (Platform.isAndroid) {
+    return (await getApplicationDocumentsDirectory()).parent.path;
+  }
+  return (await getApplicationDocumentsDirectory()).path;
 }
 
 Future<String> getTempPath() async {
-  if (isMobile()) {
-    final d = await getTemporaryDirectory();
-    return d.path;
-  }
-  final dataPath = await getDataPath();
-  final tempPath = p.join(dataPath, "tmp");
-  Directory(tempPath).createSync(recursive: true);
-  return tempPath;
+  final d = await getTemporaryDirectory();
+  return d.path;
 }
 
 Future<String> getDbPath() async {

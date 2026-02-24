@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:showcaseview/showcaseview.dart';
 
 import 'pages/accounts/swap/history.dart';
@@ -9,12 +7,9 @@ import 'pages/more/cold.dart';
 import 'settings.pb.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/warp_api.dart';
 
 import 'accounts.dart';
-import 'coin/coins.dart';
 import 'pages/accounts/manager.dart';
-import 'pages/accounts/multipay.dart';
 import 'pages/accounts/new_import.dart';
 import 'pages/accounts/restore.dart';
 import 'pages/accounts/pay_uri.dart';
@@ -22,22 +17,16 @@ import 'pages/accounts/rescan.dart';
 import 'pages/accounts/send.dart';
 import 'pages/accounts/submit.dart';
 import 'pages/accounts/txplan.dart';
-import 'pages/dblogin.dart';
-import 'pages/encrypt.dart';
 import 'pages/main/home.dart';
 import 'pages/more/about.dart';
 import 'pages/more/backup.dart';
 import 'pages/more/batch.dart';
-import 'pages/more/budget.dart';
-import 'pages/more/coin.dart';
 import 'pages/more/contacts.dart';
 import 'pages/more/keytool.dart';
 import 'pages/more/memos.dart';
 import 'pages/more/more.dart';
-import 'pages/more/pool.dart';
 import 'pages/more/sweep.dart';
 import 'pages/tx.dart';
-import 'pages/more/quotes.dart';
 import 'pages/scan.dart';
 import 'pages/showqr.dart';
 import 'pages/splash.dart';
@@ -52,8 +41,6 @@ final _accountNavigatorKey = GlobalKey<NavigatorState>();
 
 final helpRouteMap = {
   "/account": "/accounts",
-  "/account/multi_pay": "/multipay",
-  "/account/multi_pay/new": "/multipay",
   "/txplan": "/transacting/report",
   "/submit_tx": "/transacting/report#transaction-sent",
   "/broadcast_tx": "/transacting/report#transaction-sent",
@@ -81,15 +68,6 @@ final router = GoRouter(
                 return null;
               },
               routes: [
-                GoRoute(
-                    path: 'multi_pay',
-                    builder: (context, state) => MultiPayPage(),
-                    routes: [
-                      GoRoute(
-                          path: 'new',
-                          builder: (context, state) =>
-                              QuickSendPage(single: false)),
-                    ]),
                 GoRoute(
                   path: 'swap',
                   builder: (context, state) => NearSwapPage(),
@@ -225,10 +203,6 @@ final router = GoRouter(
                     builder: (context, state) => BatchBackupPage(),
                   ),
                   GoRoute(
-                    path: 'coins',
-                    builder: (context, state) => CoinControlPage(),
-                  ),
-                  GoRoute(
                     path: 'backup',
                     builder: (context, state) => BackupPage(),
                     routes: [
@@ -245,18 +219,6 @@ final router = GoRouter(
                   GoRoute(
                     path: 'rewind',
                     builder: (context, state) => RewindPage(),
-                  ),
-                  GoRoute(
-                    path: 'budget',
-                    builder: (context, state) => BudgetPage(),
-                  ),
-                  GoRoute(
-                    path: 'market',
-                    builder: (context, state) => MarketQuotes(),
-                  ),
-                  GoRoute(
-                    path: 'transfer',
-                    builder: (context, state) => PoolTransferPage(),
                   ),
                   GoRoute(
                     path: 'keytool',
@@ -315,7 +277,6 @@ final router = GoRouter(
         ),
       ],
     ),
-    GoRoute(path: '/decrypt_db', builder: (context, state) => DbLoginPage()),
     GoRoute(path: '/disclaimer', builder: (context, state) {
       final mode = (state.extra as String?) ?? 'restore';
       return DisclaimerPage(mode: mode);
@@ -324,14 +285,6 @@ final router = GoRouter(
     GoRoute(
       path: '/splash',
       builder: (context, state) => SplashPage(),
-      redirect: (context, state) {
-        final c = coins.first;
-        if (isMobile()) return null; // db encryption is only for desktop
-        if (!File(c.dbFullPath).existsSync()) return null; // fresh install
-        if (WarpApi.decryptDb(c.dbFullPath, appStore.dbPassword))
-          return null; // not encrypted
-        return '/decrypt_db';
-      },
     ),
     GoRoute(
       path: '/welcome',
@@ -355,10 +308,6 @@ final router = GoRouter(
       parentNavigatorKey: rootNavigatorKey,
       builder: (context, state) =>
           QuickSendSettingsPage(state.extra as CustomSendSettings),
-    ),
-    GoRoute(
-      path: '/encrypt_db',
-      builder: (context, state) => EncryptDbPage(),
     ),
     GoRoute(
       path: '/scan',

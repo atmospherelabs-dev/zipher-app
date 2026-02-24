@@ -7,10 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:warp_api/warp_api.dart';
-import 'package:window_manager/window_manager.dart';
-import 'package:flex_color_scheme/flex_color_scheme.dart';
 
 import 'coin/coins.dart';
 import 'generated/intl/messages.dart';
@@ -29,45 +26,6 @@ Future<void> initCoins() async {
   // Initialize the app-level DB and migrate any old SharedPreferences data
   await SentMemosDb.database;
   await SentMemosDb.migrateFromSharedPrefs();
-}
-
-Future<void> restoreWindow() async {
-  if (isMobile()) return;
-  await windowManager.ensureInitialized();
-
-  final prefs = await SharedPreferences.getInstance();
-  final width = prefs.getDouble('width');
-  final height = prefs.getDouble('height');
-  final size = width != null && height != null ? Size(width, height) : null;
-  WindowOptions windowOptions = WindowOptions(
-    center: true,
-    size: size,
-    backgroundColor: Colors.transparent,
-    skipTaskbar: false,
-    titleBarStyle:
-        Platform.isMacOS ? TitleBarStyle.hidden : TitleBarStyle.normal,
-  );
-  windowManager.waitUntilReadyToShow(windowOptions, () async {
-    await windowManager.show();
-    await windowManager.focus();
-  });
-  windowManager.addListener(_OnWindow());
-}
-
-class _OnWindow extends WindowListener {
-  @override
-  void onWindowResized() async {
-    final s = await windowManager.getSize();
-    final prefs = await SharedPreferences.getInstance();
-    prefs.setDouble('width', s.width);
-    prefs.setDouble('height', s.height);
-  }
-
-  @override
-  void onWindowClose() async {
-    logger.d('Shutdown');
-    WarpApi.cancelSync();
-  }
 }
 
 void initNotifications() {

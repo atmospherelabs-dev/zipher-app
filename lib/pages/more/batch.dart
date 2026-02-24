@@ -289,15 +289,11 @@ class _BatchBackupState extends State<BatchBackupPage> {
   void _save() async {
     final s = S.of(context);
     final tempDir = await getTemporaryDirectory();
-    final savePath = isMobile()
-        ? await getTemporaryPath('Zipher.age')
-        : await FilePicker.platform.saveFile(dialogTitle: s.fullBackup);
+    final savePath = await getTemporaryPath('Zipher.age');
     if (savePath != null) {
       try {
         WarpApi.zipBackup(_backupKeyController.text, savePath, tempDir.path);
-        if (isMobile()) {
-          await shareFile(context, savePath, title: s.fullBackup);
-        }
+        await shareFile(context, savePath, title: s.fullBackup);
       } on String catch (e) {
         await showMessageBox2(context, s.error, e);
       }

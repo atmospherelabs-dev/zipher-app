@@ -797,7 +797,7 @@ class SEn extends S {
   String get views => 'Views';
 
   @override
-  String get welcomeToYwallet => 'Welcome to Zipher';
+  String get welcomeToZipher => 'Welcome to Zipher';
 
   @override
   String get wifi => 'WiFi';

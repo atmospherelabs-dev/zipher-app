@@ -25,7 +25,6 @@ void main() async {
   await restoreSettings();
   await loadTestnetPref();
   await initCoins();
-  await restoreWindow();
   initNotifications();
   final prefs = await SharedPreferences.getInstance();
   final dbPath = await getDbPath();

@@ -42,7 +42,7 @@ jobs:
           security import ./ios/certs/Certificates.p12 -P $KEY_PASSWORD -A -t cert -f pkcs12 -k $HOME/build.keychain
           security list-keychain -d user -s $HOME/build.keychain
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp ./ios/certs/YWallet_AppStore.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp ./ios/certs/Zipher_AppStore.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles"
       - name: Build flutter
         run: |
           export PATH=$PATH:$HOME/flutter/bin
@@ -55,7 +55,7 @@ jobs:
       - name: Upload xcarchive
         uses: actions/upload-artifact@v4
         with:
-          name: YWallet.xcarchive
+          name: Zipher.xcarchive
           path: ./build/ios/archive/Runner.xcarchive
           retention-days: 3
       - name: Archive Release
@@ -63,10 +63,10 @@ jobs:
         with:
           type: 'zip'
           directory: ./build/ios/archive
-          filename: 'ywallet.xcarchive.zip'
+          filename: 'zipher.xcarchive.zip'
           path: Runner.xcarchive
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: ./build/ios/archive/ywallet.xcarchive.zip
+          files: ./build/ios/archive/zipher.xcarchive.zip

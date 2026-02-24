@@ -61,8 +61,7 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
-          if (isMobile())
-            IconButton(
+          IconButton(
               onPressed: _open,
               icon: Icon(Icons.photo_library_outlined,
                   size: 20,

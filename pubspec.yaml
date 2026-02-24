@@ -1,4 +1,4 @@
-name: YWallet
+name: zipher
 description: Zipher - Private Zcash Wallet
 
 # The following line prevents the package from being accidentally published to
@@ -46,7 +46,6 @@ dependencies:
   shared_preferences: ^2.0.7
   shared_preferences_android:
   shared_preferences_ios:
-  window_manager: ^0.3.0
   flutter_markdown: ^0.6.6
   decimal: ^2.1.0
   binary: ^3.0.1
@@ -57,11 +56,9 @@ dependencies:
   flex_color_scheme: ^8.4.0
   another_flushbar: ^1.12.30
   timeago: ^3.5.0
-  graphic: ^2.2.1
   loading_animation_widget: ^1.2.0
   get_it: ^7.6.4
   rxdart: ^0.27.7
-  bubble: ^1.2.1
   share_plus: ^7.2.1
   path_provider: ^2.0.3
   file_picker: ^7.1.0
@@ -91,7 +88,6 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.3
   flutter_svg: ^2.0.9
-  file_selector: ^1.0.3
   sqflite: ^2.4.2
 
 dependency_overrides:
@@ -107,7 +103,6 @@ dev_dependencies:
   flutter_launcher_icons: ^0.13.1
   flutter_native_splash: ^2.2.16
   intl_utils: ^2.8.1
-  msix: ^3.16.7
   freezed: ^2.4.6
 
 flutter_icons:
@@ -138,23 +133,10 @@ flutter:
   assets:
     - assets/sapling-spend.params
     - assets/sapling-output.params
-    - assets/welcome.png
-    - assets/self-custody.png
-    - assets/icon.png
     - assets/about.md
-    - assets/wallet.svg
-    - assets/contacts.svg
-    - assets/multipay.svg
-    - assets/ycash.png
     - assets/zcash.png
-    - assets/success.mp3
-    - assets/fail.mp3
-    - assets/ding.mp3
-    - assets/ledger.png
-    - assets/stealthex.png
     - assets/zipher_logo.png
     - assets/zcash_small.png
-    - assets/zcash_logo.svg
     - assets/zcash_logo.png
     - assets/tokens/
     - assets/chains/
@@ -187,11 +169,3 @@ flutter:
 flutter_intl:
   enabled: true
 
-msix_config:
-  display_name: Ywallet
-  publisher_display_name: Parallax Scroll
-  identity_name: 38664ParallaxScroll.Ywallet
-  publisher: CN=DF596492-B1AD-4B42-9ECB-4E6208B6D8CD
-  #logo_path: assets\icon.png
-  store: true
-  capabilities: internetClient

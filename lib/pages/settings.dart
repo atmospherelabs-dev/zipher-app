@@ -243,8 +243,8 @@ class _SettingsState extends State<SettingsPage> {
               const Gap(6),
               _hint('Lightwalletd node used for syncing'),
 
-              // ── Background Sync (mobile only) ──
-              if (isMobile()) ...[
+              // ── Background Sync ──
+              ...[
                 const Gap(24),
                 _sectionLabel('Background Sync'),
                 const Gap(8),

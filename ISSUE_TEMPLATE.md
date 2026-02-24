@@ -2,8 +2,8 @@
 Describe your issue here.
 
 ### Your environment
-* version of YWallet
-* platform and version. Ex: Android 11, Windows 10, etc.
+* version of Zipher
+* platform and version (iOS / Android)
 * if you were upgrading, the previous version you had
 
 ### Steps to reproduce
