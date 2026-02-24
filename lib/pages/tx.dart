@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -9,11 +10,13 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../accounts.dart';
 import '../zipher_theme.dart';
 import '../generated/intl/messages.dart';
+import '../services/near_intents.dart';
 import '../store2.dart';
 import '../tablelist.dart';
 import 'utils.dart';
@@ -209,10 +212,22 @@ class TxPage extends StatefulWidget {
   State<StatefulWidget> createState() => TxPageState();
 }
 
+class _TxSwapEntry {
+  final StoredSwap swap;
+  NearSwapStatus? status;
+  _TxSwapEntry(this.swap, [this.status]);
+}
+
 class TxPageState extends State<TxPage> {
+  Map<String, _TxSwapEntry> _swapsByDepositAddr = {};
+  Timer? _swapPollTimer;
+  final _nearApi = NearIntentsService();
+  int _lastTxCount = -1;
+
   @override
   void initState() {
     super.initState();
+    _loadSwapsAndPoll();
     syncStatus2.latestHeight?.let((height) {
       Future(() async {
         final txListUpdated =
@@ -220,6 +235,64 @@ class TxPageState extends State<TxPage> {
         if (txListUpdated) aa.update(height);
       });
     });
+  }
+
+  @override
+  void dispose() {
+    _swapPollTimer?.cancel();
+    super.dispose();
+  }
+
+  void _reloadSwapsIfNeeded(int currentTxCount) {
+    if (currentTxCount != _lastTxCount) {
+      _lastTxCount = currentTxCount;
+      _loadSwapsAndPoll();
+    }
+  }
+
+  void _loadSwapsAndPoll() async {
+    try {
+      final lookupMap = await SwapStore.loadLookupMap();
+      _swapsByDepositAddr = lookupMap.map((k, v) => MapEntry(k, _TxSwapEntry(v)));
+      _swapPollTimer?.cancel();
+      final depositKeys = _swapsByDepositAddr.entries
+          .where((e) => e.key == e.value.swap.depositAddress)
+          .toList();
+      if (depositKeys.isNotEmpty) {
+        _pollSwapStatuses();
+        _swapPollTimer = Timer.periodic(
+          const Duration(seconds: 15), (_) => _pollSwapStatuses(),
+        );
+      }
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  Future<void> _pollSwapStatuses() async {
+    final depositEntries = _swapsByDepositAddr.entries
+        .where((e) => e.key == e.value.swap.depositAddress)
+        .toList();
+    for (final entry in depositEntries) {
+      if (entry.value.status != null && entry.value.status!.isTerminal) continue;
+      if (entry.value.swap.provider != 'near_intents') continue;
+      try {
+        final status = await _nearApi.getStatus(entry.key);
+        if (mounted) {
+          setState(() {
+            for (final e in _swapsByDepositAddr.values) {
+              if (e.swap.depositAddress == entry.value.swap.depositAddress) {
+                e.status = status;
+              }
+            }
+          });
+          if (depositEntries
+              .where((e) => e.value.swap.provider == 'near_intents')
+              .every((e) => e.value.status?.isTerminal == true)) {
+            _swapPollTimer?.cancel();
+          }
+        }
+      } catch (_) {}
+    }
   }
 
   @override
@@ -235,6 +308,7 @@ class TxPageState extends State<TxPage> {
             aaSequence.settingsSeqno;
             syncStatus2.changed;
             final txs = aa.txs.items;
+            _reloadSwapsIfNeeded(txs.length);
 
             if (txs.isEmpty) return _EmptyActivity(topPad: topPad);
 
@@ -318,9 +392,13 @@ class TxPageState extends State<TxPage> {
         } on StateError {
           message = null;
         }
+        final swapEntry = _swapsByDepositAddr[itx.tx.address]
+            ?? _swapsByDepositAddr[itx.tx.fullTxId]
+            ?? _swapsByDepositAddr[itx.tx.txId];
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: _TxRow(tx: itx.tx, message: message, index: itx.index),
+          child: _TxRow(tx: itx.tx, message: message, index: itx.index,
+              swapInfo: swapEntry?.swap, swapStatus: swapEntry?.status),
         );
       }
       cursor += entry.value.length;
@@ -418,9 +496,12 @@ class _TxRow extends StatefulWidget {
   final Tx tx;
   final ZMessage? message;
   final int index;
+  final StoredSwap? swapInfo;
+  final NearSwapStatus? swapStatus;
 
   const _TxRow(
-      {required this.tx, required this.message, required this.index});
+      {required this.tx, required this.message, required this.index,
+       this.swapInfo, this.swapStatus});
 
   @override
   State<_TxRow> createState() => _TxRowState();
@@ -429,28 +510,52 @@ class _TxRow extends StatefulWidget {
 class _TxRowState extends State<_TxRow> {
   Tx get tx => widget.tx;
   int get index => widget.index;
+  StoredSwap? get swapInfo => widget.swapInfo;
+  NearSwapStatus? get swapStatus => widget.swapStatus;
 
   @override
   Widget build(BuildContext context) {
     final isReceive = tx.value > 0;
     final privacy = _classifyTx(tx);
+    final isSwapDeposit = swapInfo != null && !isReceive;
 
     // Label: "Received", "Sent", "Shielded" (for self-transfers)
-    final bool isShielding = _isShielding(tx);
+    final bool isShielding = !isSwapDeposit && _isShielding(tx);
     final memo = tx.memo ?? '';
-    final bool isMessage = memo.startsWith('\u{1F6E1}') ||
+    final bool isMessage = !isSwapDeposit &&
+        (memo.startsWith('\u{1F6E1}') ||
         memo.startsWith('🛡') ||
-        (!isReceive && getOutgoingMemo(tx.fullTxId) != null);
+        (!isReceive && getOutgoingMemo(tx.fullTxId) != null));
 
     final String label;
-    if (isShielding) {
+    final String? swapStatusLabel;
+    if (isSwapDeposit) {
+      label = 'Swap → ${swapInfo!.toCurrency}';
+      if (swapStatus == null || swapStatus!.isPending) {
+        swapStatusLabel = 'Pending';
+      } else if (swapStatus!.isProcessing) {
+        swapStatusLabel = 'Processing';
+      } else if (swapStatus!.isSuccess) {
+        swapStatusLabel = 'Completed';
+      } else if (swapStatus!.isFailed) {
+        swapStatusLabel = 'Failed';
+      } else if (swapStatus!.isRefunded) {
+        swapStatusLabel = 'Refunded';
+      } else {
+        swapStatusLabel = swapStatus!.status;
+      }
+    } else if (isShielding) {
       label = 'Shielded';
+      swapStatusLabel = null;
     } else if (isMessage) {
       label = isReceive ? 'Message received' : 'Message sent';
+      swapStatusLabel = null;
     } else if (isReceive) {
       label = 'Received';
+      swapStatusLabel = null;
     } else {
       label = 'Sent';
+      swapStatusLabel = null;
     }
 
     final dateStr = _humanDate(tx.timestamp);
@@ -465,7 +570,9 @@ class _TxRowState extends State<_TxRow> {
     }
 
     final String amountStr;
-    if (isShielding && shieldedAmount != null) {
+    if (isSwapDeposit) {
+      amountStr = '${swapInfo!.toAmount} ${swapInfo!.toCurrency}';
+    } else if (isShielding && shieldedAmount != null) {
       amountStr = '${decimalToString(shieldedAmount)} ZEC';
     } else if (isShielding) {
       amountStr = '···';
@@ -475,14 +582,16 @@ class _TxRowState extends State<_TxRow> {
 
     final amountColor = isReceive
         ? ZipherColors.green
-        : isShielding
-            ? ZipherColors.purple.withValues(alpha: 0.7)
-            : ZipherColors.red;
+        : isSwapDeposit
+            ? ZipherColors.cyan.withValues(alpha: 0.8)
+            : isShielding
+                ? ZipherColors.purple.withValues(alpha: 0.7)
+                : ZipherColors.red;
 
     final fiatValue = isShielding && shieldedAmount != null
         ? shieldedAmount
         : tx.value.abs();
-    final fiat = _fiatStr(fiatValue);
+    final fiat = isSwapDeposit ? '' : _fiatStr(fiatValue);
 
     // For message transactions, extract a clean memo preview
     final String? memoPreview;
@@ -498,7 +607,19 @@ class _TxRowState extends State<_TxRow> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: GestureDetector(
-        onTap: () => gotoTx(context, index),
+        onTap: () {
+          if (isSwapDeposit && swapInfo!.provider == 'near_intents') {
+            GoRouter.of(context).push('/swap/status', extra: {
+              'depositAddress': swapInfo!.depositAddress,
+              'fromCurrency': swapInfo!.fromCurrency,
+              'fromAmount': swapInfo!.fromAmount,
+              'toCurrency': swapInfo!.toCurrency,
+              'toAmount': swapInfo!.toAmount,
+            });
+          } else {
+            gotoTx(context, index);
+          }
+        },
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
           decoration: BoxDecoration(
@@ -529,30 +650,36 @@ class _TxRowState extends State<_TxRow> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
-                      color: isShielding
-                          ? ZipherColors.purple.withValues(alpha: 0.10)
-                          : isMessage
-                              ? ZipherColors.purple.withValues(alpha: 0.08)
-                              : Colors.white.withValues(alpha: 0.06),
+                      color: isSwapDeposit
+                          ? ZipherColors.cyan.withValues(alpha: 0.10)
+                          : isShielding
+                              ? ZipherColors.purple.withValues(alpha: 0.10)
+                              : isMessage
+                                  ? ZipherColors.purple.withValues(alpha: 0.08)
+                                  : Colors.white.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          isShielding
-                              ? Icons.shield_rounded
-                              : isMessage
-                                  ? (isReceive
-                                      ? Icons.chat_bubble_rounded
-                                      : Icons.send_rounded)
-                                  : isReceive
-                                      ? Icons.south_west_rounded
-                                      : Icons.north_east_rounded,
+                          isSwapDeposit
+                              ? Icons.swap_horiz_rounded
+                              : isShielding
+                                  ? Icons.shield_rounded
+                                  : isMessage
+                                      ? (isReceive
+                                          ? Icons.chat_bubble_rounded
+                                          : Icons.send_rounded)
+                                      : isReceive
+                                          ? Icons.south_west_rounded
+                                          : Icons.north_east_rounded,
                           size: 10,
-                          color: (isShielding || isMessage)
-                              ? ZipherColors.purple.withValues(alpha: 0.7)
-                              : Colors.white.withValues(alpha: 0.5),
+                          color: isSwapDeposit
+                              ? ZipherColors.cyan.withValues(alpha: 0.7)
+                              : (isShielding || isMessage)
+                                  ? ZipherColors.purple.withValues(alpha: 0.7)
+                                  : Colors.white.withValues(alpha: 0.5),
                         ),
                         const Gap(3),
                         Text(
@@ -560,14 +687,59 @@ class _TxRowState extends State<_TxRow> {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: (isShielding || isMessage)
-                                ? ZipherColors.purple.withValues(alpha: 0.7)
-                                : Colors.white.withValues(alpha: 0.5),
+                            color: isSwapDeposit
+                                ? ZipherColors.cyan.withValues(alpha: 0.7)
+                                : (isShielding || isMessage)
+                                    ? ZipherColors.purple.withValues(alpha: 0.7)
+                                    : Colors.white.withValues(alpha: 0.5),
                           ),
                         ),
                       ],
                     ),
                   ),
+                  if (isSwapDeposit && swapStatusLabel != null) ...[
+                    const Gap(6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: (swapStatus?.isSuccess == true)
+                            ? ZipherColors.green.withValues(alpha: 0.10)
+                            : (swapStatus?.isFailed == true || swapStatus?.isRefunded == true)
+                                ? ZipherColors.red.withValues(alpha: 0.10)
+                                : ZipherColors.orange.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 5, height: 5,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: (swapStatus?.isSuccess == true)
+                                  ? ZipherColors.green
+                                  : (swapStatus?.isFailed == true || swapStatus?.isRefunded == true)
+                                      ? ZipherColors.red
+                                      : ZipherColors.orange,
+                            ),
+                          ),
+                          const Gap(4),
+                          Text(
+                            swapStatusLabel!,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: (swapStatus?.isSuccess == true)
+                                  ? ZipherColors.green.withValues(alpha: 0.8)
+                                  : (swapStatus?.isFailed == true || swapStatus?.isRefunded == true)
+                                      ? ZipherColors.red.withValues(alpha: 0.8)
+                                      : ZipherColors.orange.withValues(alpha: 0.8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const Spacer(),
                   Text(
                     dateStr,

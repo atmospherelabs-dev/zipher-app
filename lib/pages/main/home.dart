@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
@@ -14,6 +15,7 @@ import '../../store2.dart';
 import '../../accounts.dart';
 import '../../coin/coins.dart';
 import '../../zipher_theme.dart';
+import '../../services/near_intents.dart';
 import '../accounts/send.dart';
 import '../scan.dart';
 import '../tx.dart' show getShieldAmount;
@@ -43,8 +45,18 @@ DateTime? lastShieldSubmit;
 /// Set to true when a shield flow is started, so submit page knows to mark it.
 bool shieldPending = false;
 
+class _SwapEntry {
+  final StoredSwap swap;
+  NearSwapStatus? status;
+  _SwapEntry(this.swap, [this.status]);
+}
+
 class _HomeState extends State<HomePageInner> {
   bool _balanceHidden = false;
+  Map<String, _SwapEntry> _swapsByDepositAddr = {};
+  Timer? _swapPollTimer;
+  final _nearApi = NearIntentsService();
+  int _lastTxCount = -1;
 
   @override
   void initState() {
@@ -52,8 +64,69 @@ class _HomeState extends State<HomePageInner> {
     try {
       syncStatus2.update();
       Future(marketPrice.update);
+      _loadSwapsAndPoll();
     } catch (e) {
       logger.e('Home init error: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _swapPollTimer?.cancel();
+    super.dispose();
+  }
+
+  void _reloadSwapsIfNeeded(int currentTxCount) {
+    if (currentTxCount != _lastTxCount) {
+      _lastTxCount = currentTxCount;
+      _loadSwapsAndPoll();
+    }
+  }
+
+  void _loadSwapsAndPoll() async {
+    try {
+      final lookupMap = await SwapStore.loadLookupMap();
+      _swapsByDepositAddr = lookupMap.map((k, v) => MapEntry(k, _SwapEntry(v)));
+      _swapPollTimer?.cancel();
+      // Only poll using actual deposit addresses (not txId keys)
+      final depositKeys = _swapsByDepositAddr.entries
+          .where((e) => e.key == e.value.swap.depositAddress)
+          .toList();
+      if (depositKeys.isNotEmpty) {
+        _pollSwapStatuses();
+        _swapPollTimer = Timer.periodic(
+          const Duration(seconds: 15), (_) => _pollSwapStatuses(),
+        );
+      }
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  Future<void> _pollSwapStatuses() async {
+    final depositEntries = _swapsByDepositAddr.entries
+        .where((e) => e.key == e.value.swap.depositAddress)
+        .toList();
+    for (final entry in depositEntries) {
+      if (entry.value.status != null && entry.value.status!.isTerminal) continue;
+      if (entry.value.swap.provider != 'near_intents') continue;
+      try {
+        final status = await _nearApi.getStatus(entry.key);
+        if (mounted) {
+          // Update status on ALL map entries for this swap (address + txId keys)
+          setState(() {
+            for (final e in _swapsByDepositAddr.values) {
+              if (e.swap.depositAddress == entry.value.swap.depositAddress) {
+                e.status = status;
+              }
+            }
+          });
+          if (depositEntries
+              .where((e) => e.value.swap.provider == 'near_intents')
+              .every((e) => e.value.status?.isTerminal == true)) {
+            _swapPollTimer?.cancel();
+          }
+        }
+      } catch (_) {}
     }
   }
 
@@ -105,6 +178,7 @@ class _HomeState extends State<HomePageInner> {
 
           final txs = aa.txs.items;
           final recentTxs = txs.length > 5 ? txs.sublist(0, 5) : txs;
+          _reloadSwapsIfNeeded(txs.length);
 
           return RefreshIndicator(
             onRefresh: _onRefresh,
@@ -510,8 +584,17 @@ class _HomeState extends State<HomePageInner> {
                         const EdgeInsets.fromLTRB(20, 8, 20, 32),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
-                        (context, index) =>
-                            _TxRow(tx: recentTxs[index], index: index),
+                        (context, index) {
+                          final tx = recentTxs[index];
+                          final entry = _swapsByDepositAddr[tx.address]
+                              ?? _swapsByDepositAddr[tx.fullTxId]
+                              ?? _swapsByDepositAddr[tx.txId];
+                          return _TxRow(
+                            tx: recentTxs[index], index: index,
+                            swapInfo: entry?.swap,
+                            swapStatus: entry?.status,
+                          );
+                        },
                         childCount: recentTxs.length,
                       ),
                     ),
@@ -941,7 +1024,9 @@ class _ActionButton extends StatelessWidget {
 class _TxRow extends StatefulWidget {
   final Tx tx;
   final int index;
-  const _TxRow({required this.tx, required this.index});
+  final StoredSwap? swapInfo;
+  final NearSwapStatus? swapStatus;
+  const _TxRow({required this.tx, required this.index, this.swapInfo, this.swapStatus});
 
   @override
   State<_TxRow> createState() => _TxRowState();
@@ -950,35 +1035,62 @@ class _TxRow extends StatefulWidget {
 class _TxRowState extends State<_TxRow> {
   Tx get tx => widget.tx;
   int get index => widget.index;
+  StoredSwap? get swapInfo => widget.swapInfo;
+  NearSwapStatus? get swapStatus => widget.swapStatus;
 
   @override
   Widget build(BuildContext context) {
     final isIncoming = tx.value > 0;
     final memo = tx.memo ?? '';
+    final isSwapDeposit = swapInfo != null && !isIncoming;
+
     // Detect shielding: self-transfer (no address) or our auto-shield memo
-    final isShielding = (tx.value <= 0 &&
+    final isShielding = !isSwapDeposit &&
+        ((tx.value <= 0 &&
             (tx.address == null || tx.address!.isEmpty)) ||
-        memo.contains('Auto-shield');
+        memo.contains('Auto-shield'));
 
     // Check for message content: raw memo or outgoing cache
-    final bool isMessage = memo.startsWith('\u{1F6E1}') ||
+    final bool isMessage = !isSwapDeposit &&
+        (memo.startsWith('\u{1F6E1}') ||
         memo.startsWith('🛡') ||
-        (!isIncoming && getOutgoingMemo(tx.fullTxId) != null);
+        (!isIncoming && getOutgoingMemo(tx.fullTxId) != null));
     final String? messageBody = isMessage
         ? (memo.isNotEmpty ? parseMemoBody(memo) : getOutgoingMemo(tx.fullTxId))
         : null;
 
     final String label;
-    if (isShielding) {
+    final String? swapStatusLabel;
+    if (isSwapDeposit) {
+      label = 'Swap → ${swapInfo!.toCurrency}';
+      if (swapStatus == null || swapStatus!.isPending) {
+        swapStatusLabel = 'Pending';
+      } else if (swapStatus!.isProcessing) {
+        swapStatusLabel = 'Processing';
+      } else if (swapStatus!.isSuccess) {
+        swapStatusLabel = 'Completed';
+      } else if (swapStatus!.isFailed) {
+        swapStatusLabel = 'Failed';
+      } else if (swapStatus!.isRefunded) {
+        swapStatusLabel = 'Refunded';
+      } else {
+        swapStatusLabel = swapStatus!.status;
+      }
+    } else if (isShielding) {
       label = 'Shielded';
+      swapStatusLabel = null;
     } else if (isMessage && messageBody != null && messageBody.isNotEmpty) {
       label = messageBody;
+      swapStatusLabel = null;
     } else if (memo.isNotEmpty && !isMessage) {
       label = memo;
+      swapStatusLabel = null;
     } else if (isIncoming) {
       label = 'Received';
+      swapStatusLabel = null;
     } else {
       label = 'Sent';
+      swapStatusLabel = null;
     }
 
     final timeStr = timeago.format(tx.timestamp);
@@ -995,7 +1107,9 @@ class _TxRowState extends State<_TxRow> {
     }
 
     final String amountStr;
-    if (isShielding && shieldedAmount != null) {
+    if (isSwapDeposit) {
+      amountStr = '${swapInfo!.toAmount} ${swapInfo!.toCurrency}';
+    } else if (isShielding && shieldedAmount != null) {
       amountStr = '${decimalToString(shieldedAmount)} ZEC';
     } else if (isShielding) {
       amountStr = '···';
@@ -1005,18 +1119,22 @@ class _TxRowState extends State<_TxRow> {
 
     final amountColor = isIncoming
         ? ZipherColors.green
-        : isShielding
-            ? ZipherColors.purple.withValues(alpha: 0.7)
-            : Colors.white.withValues(alpha: 0.6);
+        : isSwapDeposit
+            ? ZipherColors.cyan.withValues(alpha: 0.8)
+            : isShielding
+                ? ZipherColors.purple.withValues(alpha: 0.7)
+                : Colors.white.withValues(alpha: 0.6);
 
     // Fiat
     final price = marketPrice.price;
     final fiatValue = isShielding && shieldedAmount != null
         ? shieldedAmount
         : tx.value.abs();
-    final fiat = price != null
-        ? '\$${(fiatValue * price).toStringAsFixed(2)}'
-        : '';
+    final fiat = isSwapDeposit
+        ? ''
+        : price != null
+            ? '\$${(fiatValue * price).toStringAsFixed(2)}'
+            : '';
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
@@ -1025,7 +1143,19 @@ class _TxRowState extends State<_TxRow> {
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: () => GoRouter.of(context).push('/more/history/details?index=$index'),
+          onTap: () {
+            if (isSwapDeposit && swapInfo!.provider == 'near_intents') {
+              GoRouter.of(context).push('/swap/status', extra: {
+                'depositAddress': swapInfo!.depositAddress,
+                'fromCurrency': swapInfo!.fromCurrency,
+                'fromAmount': swapInfo!.fromAmount,
+                'toCurrency': swapInfo!.toCurrency,
+                'toAmount': swapInfo!.toAmount,
+              });
+            } else {
+              GoRouter.of(context).push('/more/history/details?index=$index');
+            }
+          },
           child: Container(
             padding:
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1042,29 +1172,35 @@ class _TxRowState extends State<_TxRow> {
                   width: 34,
                   height: 34,
                   decoration: BoxDecoration(
-                    color: isShielding
-                        ? ZipherColors.purple.withValues(alpha: 0.10)
-                        : isMessage
-                            ? ZipherColors.purple.withValues(alpha: 0.08)
-                            : Colors.white.withValues(alpha: 0.06),
+                    color: isSwapDeposit
+                        ? ZipherColors.cyan.withValues(alpha: 0.10)
+                        : isShielding
+                            ? ZipherColors.purple.withValues(alpha: 0.10)
+                            : isMessage
+                                ? ZipherColors.purple.withValues(alpha: 0.08)
+                                : Colors.white.withValues(alpha: 0.06),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
-                    isShielding
-                        ? Icons.shield_rounded
-                        : isMessage
-                            ? (isIncoming
-                                ? Icons.chat_bubble_rounded
-                                : Icons.send_rounded)
-                            : isIncoming
-                                ? Icons.south_west_rounded
-                                : Icons.north_east_rounded,
+                    isSwapDeposit
+                        ? Icons.swap_horiz_rounded
+                        : isShielding
+                            ? Icons.shield_rounded
+                            : isMessage
+                                ? (isIncoming
+                                    ? Icons.chat_bubble_rounded
+                                    : Icons.send_rounded)
+                                : isIncoming
+                                    ? Icons.south_west_rounded
+                                    : Icons.north_east_rounded,
                     size: 16,
-                    color: isShielding
-                        ? ZipherColors.purple.withValues(alpha: 0.6)
-                        : isMessage
-                            ? ZipherColors.purple.withValues(alpha: 0.5)
-                            : Colors.white.withValues(alpha: 0.4),
+                    color: isSwapDeposit
+                        ? ZipherColors.cyan.withValues(alpha: 0.7)
+                        : isShielding
+                            ? ZipherColors.purple.withValues(alpha: 0.6)
+                            : isMessage
+                                ? ZipherColors.purple.withValues(alpha: 0.5)
+                                : Colors.white.withValues(alpha: 0.4),
                   ),
                 ),
                 const Gap(12),
@@ -1083,13 +1219,51 @@ class _TxRowState extends State<_TxRow> {
                         ),
                       ),
                       const Gap(2),
-                      Text(
-                        timeStr,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.white.withValues(alpha: 0.25),
+                      if (isSwapDeposit && swapStatusLabel != null)
+                        Row(
+                          children: [
+                            Container(
+                              width: 6, height: 6,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: (swapStatus?.isSuccess == true)
+                                    ? ZipherColors.green
+                                    : (swapStatus?.isFailed == true || swapStatus?.isRefunded == true)
+                                        ? ZipherColors.red
+                                        : ZipherColors.orange,
+                              ),
+                            ),
+                            const Gap(5),
+                            Text(
+                              swapStatusLabel!,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: (swapStatus?.isSuccess == true)
+                                    ? ZipherColors.green.withValues(alpha: 0.7)
+                                    : (swapStatus?.isFailed == true || swapStatus?.isRefunded == true)
+                                        ? ZipherColors.red.withValues(alpha: 0.7)
+                                        : ZipherColors.orange.withValues(alpha: 0.7),
+                              ),
+                            ),
+                            const Gap(6),
+                            Text(
+                              timeStr,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.white.withValues(alpha: 0.2),
+                              ),
+                            ),
+                          ],
+                        )
+                      else
+                        Text(
+                          timeStr,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white.withValues(alpha: 0.25),
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),

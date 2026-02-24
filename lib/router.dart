@@ -32,7 +32,7 @@ import 'pages/more/budget.dart';
 import 'pages/more/coin.dart';
 import 'pages/more/contacts.dart';
 import 'pages/more/keytool.dart';
-import 'pages/messages.dart';
+import 'pages/more/memos.dart';
 import 'pages/more/more.dart';
 import 'pages/more/pool.dart';
 import 'pages/more/sweep.dart';
@@ -59,7 +59,6 @@ final helpRouteMap = {
   "/broadcast_tx": "/transacting/report#transaction-sent",
   "/swap": "/swap",
   "/more/history": "/history",
-  "/messages": "/messages",
 };
 
 final router = GoRouter(
@@ -167,31 +166,23 @@ final router = GoRouter(
                 routes: [
                   GoRoute(
                     path: 'status',
-                    builder: (context, state) => SwapStatusPage(
-                      depositAddress: state.extra as String,
-                    ),
+                    builder: (context, state) {
+                      final extra = state.extra;
+                      if (extra is String) {
+                        return SwapStatusPage(depositAddress: extra);
+                      }
+                      final map = extra as Map<String, dynamic>;
+                      return SwapStatusPage(
+                        depositAddress: map['depositAddress'] as String,
+                        fromCurrency: map['fromCurrency'] as String?,
+                        fromAmount: map['fromAmount'] as String?,
+                        toCurrency: map['toCurrency'] as String?,
+                        toAmount: map['toAmount'] as String?,
+                      );
+                    },
                   ),
                 ],
             ),
-          ],
-        ),
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
-                path: '/messages',
-                builder: (context, state) => MessagesPage(),
-                routes: [
-                  GoRoute(
-                    path: 'thread',
-                    builder: (context, state) => ConversationPage(
-                      conversationKey: state.extra as String,
-                    ),
-                  ),
-                  GoRoute(
-                    path: 'compose',
-                    builder: (context, state) => ComposeMessagePage(),
-                  ),
-                ]),
           ],
         ),
         StatefulShellBranch(
@@ -283,6 +274,10 @@ final router = GoRouter(
                     path: 'submit_tx',
                     builder: (context, state) =>
                         SubmitTxPage(txPlan: state.extra as String),
+                  ),
+                  GoRoute(
+                    path: 'memos',
+                    builder: (context, state) => const MemoInboxPage(),
                   ),
                   GoRoute(
                     path: 'history',
@@ -423,21 +418,19 @@ class _ScaffoldBar extends State<ScaffoldBar> {
                 padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: List.generate(4, (i) {
+                  children: List.generate(3, (i) {
                     final isActive = widget.shell.currentIndex == i;
                     const icons = [
                       Icons.home_outlined,
                       Icons.swap_horiz_outlined,
-                      Icons.chat_bubble_outline_rounded,
                       Icons.more_horiz_rounded,
                     ];
                     const activeIcons = [
                       Icons.home_rounded,
                       Icons.swap_horiz_rounded,
-                      Icons.chat_bubble_rounded,
                       Icons.more_horiz_rounded,
                     ];
-                    const labels = ['Home', 'Swap', 'Messages', 'More'];
+                    const labels = ['Home', 'Swap', 'More'];
                     return Expanded(
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
@@ -446,7 +439,7 @@ class _ScaffoldBar extends State<ScaffoldBar> {
                           if (aa.coin != _knownCoin || aa.id != _knownId) {
                             _knownCoin = aa.coin;
                             _knownId = aa.id;
-                            _staleTabs.addAll([0, 1, 2, 3]);
+                            _staleTabs.addAll([0, 1, 2]);
                           }
                           final isCurrentTab = i == widget.shell.currentIndex;
                           final isStale = _staleTabs.remove(i);
@@ -471,7 +464,7 @@ class _ScaffoldBar extends State<ScaffoldBar> {
                               ),
                               child: Icon(
                                 isActive ? activeIcons[i] : icons[i],
-                                size: 22,
+                                size: 24,
                                 color: isActive
                                     ? ZipherColors.cyan
                                     : Colors.white
@@ -482,7 +475,7 @@ class _ScaffoldBar extends State<ScaffoldBar> {
                             Text(
                               labels[i],
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 11,
                                 fontWeight: isActive
                                     ? FontWeight.w600
                                     : FontWeight.w400,

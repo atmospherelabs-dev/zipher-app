@@ -6,10 +6,22 @@ import 'package:gap/gap.dart';
 
 import '../services/near_intents.dart';
 import '../zipher_theme.dart';
+import 'utils.dart';
 
 class SwapStatusPage extends StatefulWidget {
   final String depositAddress;
-  const SwapStatusPage({required this.depositAddress});
+  final String? fromCurrency;
+  final String? fromAmount;
+  final String? toCurrency;
+  final String? toAmount;
+
+  const SwapStatusPage({
+    required this.depositAddress,
+    this.fromCurrency,
+    this.fromAmount,
+    this.toCurrency,
+    this.toAmount,
+  });
 
   @override
   State<SwapStatusPage> createState() => _SwapStatusPageState();
@@ -21,10 +33,18 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
   String? _error;
   Timer? _pollTimer;
   bool _loading = true;
+  StoredSwap? _storedSwap;
+
+  String? get _from => _storedSwap?.fromCurrency ?? widget.fromCurrency;
+  String? get _fromAmt => _storedSwap?.fromAmount ?? widget.fromAmount;
+  String? get _to => _storedSwap?.toCurrency ?? widget.toCurrency;
+  String? get _toAmt => _storedSwap?.toAmount ?? widget.toAmount;
 
   @override
   void initState() {
     super.initState();
+    logger.i('[SwapStatus] initState: depositAddr=${widget.depositAddress}');
+    _loadStoredSwap();
     _checkStatus();
     _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) => _checkStatus());
   }
@@ -33,6 +53,14 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
   void dispose() {
     _pollTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadStoredSwap() async {
+    try {
+      final map = await SwapStore.loadByDepositAddress();
+      final swap = map[widget.depositAddress];
+      if (swap != null && mounted) setState(() => _storedSwap = swap);
+    } catch (_) {}
   }
 
   Future<void> _checkStatus() async {
@@ -109,18 +137,21 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
                         color: Colors.white.withValues(alpha: 0.3),
                       ),
                     ),
-                    const Gap(32),
+                    const Gap(24),
 
-                    // ── Info cards ──
-                    _infoCard('Deposit Address', widget.depositAddress),
-                    if (_status?.txHashIn != null) ...[
-                      const Gap(10),
+                    // ── Swap summary card ──
+                    if (_from != null && _to != null)
+                      _swapSummaryCard(),
+
+                    const Gap(12),
+
+                    // ── TX hashes (only when available) ──
+                    if (_status?.txHashIn != null)
                       _infoCard('Deposit TX', _status!.txHashIn!),
-                    ],
-                    if (_status?.txHashOut != null) ...[
+                    if (_status?.txHashIn != null && _status?.txHashOut != null)
                       const Gap(10),
+                    if (_status?.txHashOut != null)
                       _infoCard('Destination TX', _status!.txHashOut!),
-                    ],
 
                     if (_error != null) ...[
                       const Gap(16),
@@ -138,10 +169,10 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
                       ),
                     ],
 
-                    const Gap(32),
+                    const Gap(24),
 
-                    // ── Polling indicator ──
-                    if (!(_status?.isTerminal ?? false))
+                    // ── Safe to leave hint ──
+                    if (!(_status?.isTerminal ?? false)) ...[
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -159,12 +190,108 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
                           )),
                         ],
                       ),
+                      const Gap(16),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: ZipherColors.cyan.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: ZipherColors.cyan.withValues(alpha: 0.08)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.info_outline_rounded, size: 14,
+                                color: ZipherColors.cyan.withValues(alpha: 0.5)),
+                            const Gap(8),
+                            Flexible(
+                              child: Text(
+                                'You can safely leave this screen. Your swap will continue in the background.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: ZipherColors.cyan.withValues(alpha: 0.5),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
 
                     const Gap(32),
                   ],
                 ),
               ),
             ),
+    );
+  }
+
+  // ─── Swap summary card ────────────────────────────────────
+
+  Widget _swapSummaryCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+      ),
+      child: Row(
+        children: [
+          // From side
+          CurrencyIcon(symbol: _from!, size: 32),
+          const Gap(10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Sent', style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w500,
+                  color: Colors.white.withValues(alpha: 0.25),
+                )),
+                const Gap(2),
+                Text(
+                  _fromAmt != null ? '$_fromAmt $_from' : _from!,
+                  style: TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600,
+                    color: Colors.white.withValues(alpha: 0.8),
+                  ),
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Icon(Icons.arrow_forward_rounded, size: 18,
+                color: Colors.white.withValues(alpha: 0.15)),
+          ),
+          // To side
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text('Receiving', style: TextStyle(
+                  fontSize: 11, fontWeight: FontWeight.w500,
+                  color: Colors.white.withValues(alpha: 0.25),
+                )),
+                const Gap(2),
+                Text(
+                  _toAmt != null ? '$_toAmt $_to' : _to!,
+                  style: TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600,
+                    color: ZipherColors.cyan.withValues(alpha: 0.8),
+                  ),
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const Gap(10),
+          CurrencyIcon(symbol: _to!, size: 32),
+        ],
+      ),
     );
   }
 
@@ -261,23 +388,19 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
   // ─── Helpers ───────────────────────────────────────────────
 
   String _humanLabel(String status) {
-    switch (status) {
-      case 'PENDING':
-      case 'PENDING_DEPOSIT': return 'Awaiting Deposit';
-      case 'PROCESSING':
-      case 'CONFIRMING': return 'Processing';
-      case 'SUCCESS':
-      case 'COMPLETED': return 'Completed';
-      case 'REFUNDED': return 'Refunded';
-      case 'FAILED':
-      case 'EXPIRED': return 'Failed';
-      default: return status;
-    }
+    final s = _status;
+    if (s == null || s.isPending) return 'Deposit Sent';
+    if (s.isProcessing) return 'Processing Swap';
+    if (s.isSuccess) return 'Swap Complete';
+    if (s.isRefunded) return 'Refunded';
+    return 'Swap Failed';
   }
 
   String _description() {
     final s = _status;
-    if (s == null || s.isPending) return 'Waiting for your deposit to be confirmed on-chain.';
+    if (s == null || s.isPending) {
+      return 'Your deposit has been sent and is waiting for on-chain confirmation.';
+    }
     if (s.isProcessing) return 'Your swap is being processed. This may take a few minutes.';
     if (s.isSuccess) return 'Swap completed successfully!';
     if (s.isRefunded) return 'The swap could not be completed. Funds have been refunded.';

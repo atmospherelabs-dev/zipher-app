@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 const _baseUrl = 'https://1click.chaindefuser.com/v0';
 const _quoteWaitingTimeMs = 3000;
@@ -314,6 +315,15 @@ class TokenIcon extends StatelessWidget {
     'GNO': 'gno', 'FRAX': 'frax', 'WIF': 'wif', 'WNEAR': 'wnear',
     'ZEC': 'zec', 'XMR': 'xmr',
     '\$WIF': 'wif', 'XBTC': 'xbtc', 'MATIC': 'matic',
+    // Batch 2
+    'AURORA': 'aurora', 'BOME': 'bome', 'BRETT': 'brett', 'CFI': 'cfi',
+    'COW': 'cow', 'EURE': 'eure', 'GBPE': 'gbpe', 'GMX': 'gmx',
+    'HAPI': 'hapi', 'INX': 'inx', 'KNC': 'knc', 'MELANIA': 'melania',
+    'MOG': 'mog', 'OKB': 'okb', 'PENGU': 'pengu', 'SAFE': 'safe',
+    'SPX': 'spx', 'TURBO': 'turbo', 'WETH': 'weth',
+    // Aliases (wrapped/pegged variants)
+    'SUSDC': 'susdc', 'USDCX': 'usdcx', 'USDF': 'usdf',
+    'USAD': 'usad', 'XDAI': 'xdai',
   };
 
   static const _chainToAsset = {
@@ -442,5 +452,145 @@ class TokenIcon extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Lightweight icon that only needs a currency symbol (e.g. "ZEC", "ETH").
+class CurrencyIcon extends StatelessWidget {
+  final String symbol;
+  final double size;
+  const CurrencyIcon({super.key, required this.symbol, this.size = 36});
+
+  @override
+  Widget build(BuildContext context) {
+    final sym = symbol.toUpperCase();
+    final assetKey = TokenIcon._symbolToAsset[sym];
+    return ClipOval(
+      child: assetKey != null
+          ? Image.asset(
+              'assets/tokens/$assetKey.png',
+              width: size, height: size, fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _fallback(sym),
+            )
+          : _fallback(sym),
+    );
+  }
+
+  Widget _fallback(String sym) {
+    final hue = (sym.hashCode % 360).abs().toDouble();
+    final color = HSLColor.fromAHSL(1, hue, 0.5, 0.3).toColor();
+    return Container(
+      width: size, height: size,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      child: Center(
+        child: Text(
+          sym.substring(0, math.min(sym.length, 2)),
+          style: TextStyle(
+            fontSize: size * 0.35, fontWeight: FontWeight.w700,
+            color: Colors.white.withValues(alpha: 0.8),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Local swap storage (SharedPreferences — avoids native FFI crash)
+// ---------------------------------------------------------------------------
+
+class StoredSwap {
+  final String provider;
+  final String depositAddress;
+  final int timestamp;
+  final String fromCurrency;
+  final String fromAmount;
+  final String toCurrency;
+  final String toAmount;
+  final String toAddress;
+  final String? txId;
+
+  StoredSwap({
+    required this.provider,
+    required this.depositAddress,
+    required this.timestamp,
+    required this.fromCurrency,
+    required this.fromAmount,
+    required this.toCurrency,
+    required this.toAmount,
+    required this.toAddress,
+    this.txId,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'provider': provider,
+    'depositAddress': depositAddress,
+    'timestamp': timestamp,
+    'fromCurrency': fromCurrency,
+    'fromAmount': fromAmount,
+    'toCurrency': toCurrency,
+    'toAmount': toAmount,
+    'toAddress': toAddress,
+    if (txId != null) 'txId': txId,
+  };
+
+  factory StoredSwap.fromJson(Map<String, dynamic> json) => StoredSwap(
+    provider: json['provider'] ?? '',
+    depositAddress: json['depositAddress'] ?? '',
+    timestamp: json['timestamp'] ?? 0,
+    fromCurrency: json['fromCurrency'] ?? '',
+    fromAmount: json['fromAmount'] ?? '',
+    toCurrency: json['toCurrency'] ?? '',
+    toAmount: json['toAmount'] ?? '',
+    toAddress: json['toAddress'] ?? '',
+    txId: json['txId'],
+  );
+}
+
+class SwapStore {
+  static const _key = 'zipher_swaps';
+
+  static Future<List<StoredSwap>> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_key) ?? [];
+    return raw.map((s) {
+      try { return StoredSwap.fromJson(jsonDecode(s)); }
+      catch (_) { return null; }
+    }).whereType<StoredSwap>().toList();
+  }
+
+  static Future<void> save(StoredSwap swap) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_key) ?? [];
+    raw.insert(0, jsonEncode(swap.toJson()));
+    await prefs.setStringList(_key, raw);
+  }
+
+  static Future<void> clear() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key);
+  }
+
+  static Future<Map<String, StoredSwap>> loadByDepositAddress() async {
+    final swaps = await load();
+    final map = <String, StoredSwap>{};
+    for (final s in swaps) {
+      if (s.depositAddress.isNotEmpty) map[s.depositAddress] = s;
+    }
+    return map;
+  }
+
+  /// Build lookup maps keyed by deposit address, txId, and short txId
+  static Future<Map<String, StoredSwap>> loadLookupMap() async {
+    final swaps = await load();
+    final map = <String, StoredSwap>{};
+    for (final s in swaps) {
+      if (s.depositAddress.isNotEmpty) map[s.depositAddress] = s;
+      if (s.txId != null && s.txId!.isNotEmpty) {
+        map[s.txId!] = s;
+        if (s.txId!.length > 8) map[s.txId!.substring(0, 8)] = s;
+      }
+    }
+    return map;
   }
 }

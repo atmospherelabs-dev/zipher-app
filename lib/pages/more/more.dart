@@ -61,12 +61,6 @@ class _MorePageState extends State<MorePage> {
               const Gap(8),
               _card([
                 _SettingsItem(
-                  icon: Icons.tune_rounded,
-                  label: 'Preferences',
-                  subtitle: 'Currency, memo, server, sync',
-                  onTap: () => GoRouter.of(context).push('/settings'),
-                ),
-                _SettingsItem(
                   icon: Icons.receipt_long_rounded,
                   iconColor: ZipherColors.cyan,
                   label: 'Activity',
@@ -74,11 +68,24 @@ class _MorePageState extends State<MorePage> {
                   onTap: () => _nav('/more/history'),
                 ),
                 _SettingsItem(
+                  icon: Icons.all_inbox_rounded,
+                  iconColor: ZipherColors.purple,
+                  label: 'Memos',
+                  subtitle: 'Received transaction memos',
+                  onTap: () => _nav('/more/memos'),
+                ),
+                _SettingsItem(
                   icon: Icons.people_outline_rounded,
                   iconColor: ZipherColors.cyan,
                   label: s.contacts,
                   subtitle: 'Manage saved addresses',
                   onTap: () => _nav('/more/contacts'),
+                ),
+                _SettingsItem(
+                  icon: Icons.tune_rounded,
+                  label: 'Preferences',
+                  subtitle: 'Currency, memo, server, sync',
+                  onTap: () => GoRouter.of(context).push('/settings'),
                 ),
                 _SettingsItem(
                   icon: Icons.info_outline_rounded,

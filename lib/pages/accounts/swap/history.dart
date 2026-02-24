@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
-import '../../../accounts.dart';
 import '../../../zipher_theme.dart';
 import '../../../generated/intl/messages.dart';
+import '../../../services/near_intents.dart';
 import '../../utils.dart';
 
 class SwapHistoryPage extends StatefulWidget {
@@ -18,13 +16,13 @@ class SwapHistoryPage extends StatefulWidget {
 class SwapHistoryState extends State<SwapHistoryPage>
     with WithLoadingAnimation {
   late S s = S.of(context);
-  List<SwapT> history = [];
+  List<StoredSwap> history = [];
 
   @override
   void initState() {
     super.initState();
     Future(() => load(() async {
-          history = WarpApi.listSwaps(aa.coin);
+          history = await SwapStore.load();
         }));
   }
 
@@ -145,7 +143,7 @@ class SwapHistoryState extends State<SwapHistoryPage>
 
   // ─── Swap card ─────────────────────────────────────────────
 
-  Widget _buildSwapCard(SwapT swap) {
+  Widget _buildSwapCard(StoredSwap swap) {
     final ts = DateTime.fromMillisecondsSinceEpoch(swap.timestamp * 1000);
     final when = timeago.format(ts);
     final isNear = swap.provider == 'near_intents';
@@ -171,7 +169,7 @@ class SwapHistoryState extends State<SwapHistoryPage>
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  isNear ? 'NEAR Intents' : (swap.provider ?? 'Unknown'),
+                  isNear ? 'NEAR Intents' : swap.provider,
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
@@ -195,15 +193,13 @@ class SwapHistoryState extends State<SwapHistoryPage>
           // From → To
           Row(
             children: [
-              // From side
               Expanded(child: _tokenColumn(
                 label: 'Sent',
-                amount: swap.fromAmount ?? '?',
-                symbol: swap.fromCurrency ?? '?',
-                address: swap.fromAddress,
+                amount: swap.fromAmount,
+                symbol: swap.fromCurrency,
+                address: swap.depositAddress,
               )),
 
-              // Arrow
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
                 child: Icon(Icons.arrow_forward_rounded,
@@ -211,25 +207,29 @@ class SwapHistoryState extends State<SwapHistoryPage>
                     color: Colors.white.withValues(alpha: 0.15)),
               ),
 
-              // To side
               Expanded(child: _tokenColumn(
                 label: 'Received',
-                amount: swap.toAmount ?? '?',
-                symbol: swap.toCurrency ?? '?',
+                amount: swap.toAmount,
+                symbol: swap.toCurrency,
                 address: swap.toAddress,
                 alignEnd: true,
               )),
             ],
           ),
 
-          // Status check for near_intents
-          if (isNear && swap.providerId != null) ...[
+          if (isNear && swap.depositAddress.isNotEmpty) ...[
             const Gap(12),
             Divider(height: 1, color: Colors.white.withValues(alpha: 0.04)),
             const Gap(10),
             GestureDetector(
               onTap: () => GoRouter.of(context)
-                  .push('/swap/status', extra: swap.providerId),
+                  .push('/swap/status', extra: {
+                    'depositAddress': swap.depositAddress,
+                    'fromCurrency': swap.fromCurrency,
+                    'fromAmount': swap.fromAmount,
+                    'toCurrency': swap.toCurrency,
+                    'toAmount': swap.toAmount,
+                  }),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -307,7 +307,7 @@ class SwapHistoryState extends State<SwapHistoryPage>
     final confirmed = await showConfirmDialog(
         context, s.confirm, s.confirmClearSwapHistory);
     if (confirmed) {
-      WarpApi.clearSwapHistory(aa.coin);
+      await SwapStore.clear();
       setState(() => history = []);
     }
   }

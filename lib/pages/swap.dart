@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:YWallet/pages/utils.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:warp_api/data_fb_generated.dart';
@@ -35,17 +37,24 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
   NearToken? _zecToken;
   List<NearToken> _swappableTokens = [];
   NearToken? _selectedToken;
-  NearQuoteResponse? _quote;
   String? _error;
   bool _loadingTokens = true;
   bool _loadingQuote = false;
   int _slippageBps = 100;
   Timer? _debounce;
 
+  // Price estimate (always computed client-side from USD prices)
+  double _estimatedOutput = 0;
+  double _rate = 0;
+  String _cachedTAddr = '';
+
   int get _spendableZat {
     final b = WarpApi.getPoolBalances(aa.coin, aa.id, appSettings.anchorOffset, false).unpack();
     return b.transparent + b.sapling + b.orchard;
   }
+
+  NearToken get _originToken => _direction == SwapDirection.fromZec ? _zecToken! : _selectedToken!;
+  NearToken get _destToken => _direction == SwapDirection.fromZec ? _selectedToken! : _zecToken!;
 
   @override
   void initState() {
@@ -72,6 +81,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
         _selectedToken = swappable.isNotEmpty ? swappable.first : null;
         _loadingTokens = false;
       });
+      _updateEstimate();
     } catch (e) {
       setState(() {
         _error = e.toString();
@@ -85,84 +95,38 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
       _direction = _direction == SwapDirection.fromZec
           ? SwapDirection.intoZec
           : SwapDirection.fromZec;
-      _quote = null;
       _error = null;
     });
+    _updateEstimate();
   }
 
   void _onAmountChanged(String _) {
     _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 800), _fetchDryQuote);
+    _debounce = Timer(const Duration(milliseconds: 300), _updateEstimate);
   }
 
-  Future<void> _fetchDryQuote() async {
+  void _updateEstimate() {
+    if (_zecToken == null || _selectedToken == null) return;
     final amountStr = _amountController.text.trim();
-    if (amountStr.isEmpty || _zecToken == null || _selectedToken == null) return;
+    final parsed = double.tryParse(amountStr) ?? 0;
 
-    final parsed = double.tryParse(amountStr);
-    if (parsed == null || parsed <= 0) return;
+    final op = _originToken.price ?? 0;
+    final dp = _destToken.price ?? 0;
 
-    final addrText = _addressController.text.trim();
-    final hasAddress = addrText.isNotEmpty;
-
-    if (!hasAddress) {
-      _showPriceEstimate(parsed);
+    if (parsed <= 0 || op == 0 || dp == 0) {
+      setState(() { _estimatedOutput = 0; _rate = 0; });
       return;
     }
 
-    setState(() { _loadingQuote = true; _error = null; });
-
-    try {
-      final originToken = _direction == SwapDirection.fromZec ? _zecToken! : _selectedToken!;
-      final amountBigInt = _toBigInt(parsed, originToken.decimals);
-
-      final tAddr = WarpApi.getAddress(aa.coin, aa.id, 1);
-      final refund = _direction == SwapDirection.fromZec ? tAddr : addrText;
-      final recipient = _direction == SwapDirection.fromZec ? addrText : tAddr;
-
-      final quote = await _nearApi.getQuote(
-        dry: true,
-        originAsset: originToken.assetId,
-        destinationAsset: (_direction == SwapDirection.fromZec ? _selectedToken! : _zecToken!).assetId,
-        amount: amountBigInt,
-        refundTo: refund,
-        recipient: recipient,
-        slippageBps: _slippageBps,
-      );
-
-      if (mounted) setState(() { _quote = quote; _loadingQuote = false; });
-    } on NearIntentsException catch (e) {
-      if (mounted) setState(() { _error = e.message; _quote = null; _loadingQuote = false; });
-    } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _quote = null; _loadingQuote = false; });
-    }
-  }
-
-  void _showPriceEstimate(double inputAmount) {
-    final originToken = _direction == SwapDirection.fromZec ? _zecToken! : _selectedToken!;
-    final destToken = _direction == SwapDirection.fromZec ? _selectedToken! : _zecToken!;
-    if (originToken.price == null || destToken.price == null ||
-        originToken.price == 0 || destToken.price == 0) {
-      setState(() { _quote = null; _error = null; _loadingQuote = false; });
-      return;
-    }
-    final estOutput = inputAmount * originToken.price! / destToken.price!;
-    final estOutBigInt = _toBigInt(estOutput, destToken.decimals);
-    final estInBigInt = _toBigInt(inputAmount, originToken.decimals);
     setState(() {
-      _quote = NearQuoteResponse(
-        depositAddress: '',
-        amountIn: estInBigInt,
-        amountOut: estOutBigInt,
-        deadline: '',
-        raw: {'estimate': true},
-      );
-      _loadingQuote = false;
-      _error = null;
+      _rate = op / dp;
+      _estimatedOutput = parsed * _rate;
     });
   }
 
-  Future<void> _confirmSwap() async {
+  // ─── Get Quote & Show Confirmation ────────────────────────
+
+  Future<void> _getQuote() async {
     final amountStr = _amountController.text.trim();
     if (amountStr.isEmpty || _zecToken == null || _selectedToken == null) return;
 
@@ -172,8 +136,9 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
       return;
     }
 
-    if (_direction == SwapDirection.fromZec && _addressController.text.trim().isEmpty) {
-      setState(() => _error = 'Enter recipient address on destination chain');
+    final addr = _addressController.text.trim();
+    if (_direction == SwapDirection.fromZec && addr.isEmpty) {
+      setState(() => _error = 'Enter recipient address');
       return;
     }
 
@@ -181,7 +146,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
       final sendZat = stringToAmount(amountStr);
       if (sendZat > _spendableZat) {
         final missing = (sendZat - _spendableZat) / ZECUNIT;
-        setState(() => _error = 'Insufficient ZEC balance (need ${missing.toStringAsFixed(8)} more)');
+        setState(() => _error = 'Insufficient ZEC (need ${missing.toStringAsFixed(8)} more)');
         return;
       }
     }
@@ -189,38 +154,309 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
     setState(() { _loadingQuote = true; _error = null; });
 
     try {
-      final originToken = _direction == SwapDirection.fromZec ? _zecToken! : _selectedToken!;
-      final destToken = _direction == SwapDirection.fromZec ? _selectedToken! : _zecToken!;
-      final amountBigInt = _toBigInt(parsed, originToken.decimals);
-
+      final amountBigInt = _toBigInt(parsed, _originToken.decimals);
       final tAddr = WarpApi.getAddress(aa.coin, aa.id, 1);
-      final refund = _direction == SwapDirection.fromZec ? tAddr : _addressController.text.trim();
-      final recipient = _direction == SwapDirection.fromZec
-          ? _addressController.text.trim()
-          : tAddr;
+      _cachedTAddr = tAddr;
+      final refund = _direction == SwapDirection.fromZec ? tAddr : addr;
+      final recipient = _direction == SwapDirection.fromZec ? addr : tAddr;
+
+      logger.i('[Swap] getQuote: origin=${_originToken.assetId} dest=${_destToken.assetId} '
+          'amount=$amountBigInt refund=$refund recipient=$recipient slippage=$_slippageBps');
 
       final quote = await _nearApi.getQuote(
         dry: false,
-        originAsset: originToken.assetId,
-        destinationAsset: destToken.assetId,
+        originAsset: _originToken.assetId,
+        destinationAsset: _destToken.assetId,
         amount: amountBigInt,
         refundTo: refund,
         recipient: recipient,
         slippageBps: _slippageBps,
       );
 
-      setState(() { _quote = quote; _loadingQuote = false; });
-      if (!mounted) return;
+      logger.i('[Swap] Quote received: depositAddr=${quote.depositAddress} '
+          'amountIn=${quote.amountIn} amountOut=${quote.amountOut}');
 
-      if (_direction == SwapDirection.fromZec) {
-        await _executeZecSend(quote, amountStr);
-      } else {
-        _showDepositInfo(quote, amountStr);
-      }
+      if (!mounted) return;
+      setState(() => _loadingQuote = false);
+      _showConfirmationSheet(quote, amountStr, parsed);
     } on NearIntentsException catch (e) {
+      logger.e('[Swap] Quote NearIntentsException: ${e.message}');
       if (mounted) setState(() { _error = e.message; _loadingQuote = false; });
     } catch (e) {
+      logger.e('[Swap] Quote error: $e');
       if (mounted) setState(() { _error = e.toString(); _loadingQuote = false; });
+    }
+  }
+
+  // ─── Confirmation Bottom Sheet (Zashi-style) ──────────────
+
+  void _showConfirmationSheet(NearQuoteResponse quote, String amountStr, double amountDouble) {
+    final origin = _originToken;
+    final dest = _destToken;
+    final amountIn = quote.amountIn.toDouble() / math.pow(10, origin.decimals);
+    final amountOut = quote.amountOut.toDouble() / math.pow(10, dest.decimals);
+    final usdIn = origin.price != null ? amountIn * origin.price! : 0.0;
+    final usdOut = dest.price != null ? amountOut * dest.price! : 0.0;
+    final slippageUsd = usdOut * _slippageBps / 10000;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Container(
+          decoration: BoxDecoration(
+            color: ZipherColors.bg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            border: Border(
+              top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Gap(10),
+                  Container(
+                    width: 36, height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const Gap(20),
+
+                  Text('Swap Now', style: TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.w700,
+                    color: Colors.white.withValues(alpha: 0.9),
+                  )),
+                  const Gap(24),
+
+                  // Two token cards side by side
+                  Row(
+                    children: [
+                      Expanded(child: _confirmTokenCard(
+                        token: origin,
+                        amount: amountIn,
+                        usd: usdIn,
+                        color: ZipherColors.cyan,
+                      )),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Icon(Icons.arrow_forward_rounded, size: 16,
+                            color: Colors.white.withValues(alpha: 0.2)),
+                      ),
+                      Expanded(child: _confirmTokenCard(
+                        token: dest,
+                        amount: amountOut,
+                        usd: usdOut,
+                        color: ZipherColors.purple,
+                      )),
+                    ],
+                  ),
+                  const Gap(20),
+
+                  // Details
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.03),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      children: [
+                        _detailRow('Swap from', 'Zipher'),
+                        _sheetDivider(),
+                        _detailRow('Swap to', centerTrim(_addressController.text.trim(), length: 16)),
+                        _sheetDivider(),
+                        _detailRow('Slippage', '${(_slippageBps / 100).toStringAsFixed(1)}%'),
+                        if (quote.deadline.isNotEmpty) ...[
+                          _sheetDivider(),
+                          _detailRow('Expires', _fmtDeadline(quote.deadline)),
+                        ],
+                        _sheetDivider(),
+                        _detailRow('Total Amount',
+                          '${amountIn.toStringAsFixed(8)} ${origin.symbol}',
+                          subtitle: '\$${usdIn.toStringAsFixed(2)}',
+                          bold: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Gap(12),
+
+                  // Slippage warning
+                  if (slippageUsd > 0.01)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.info_outline_rounded, size: 14,
+                              color: Colors.white.withValues(alpha: 0.2)),
+                          const Gap(8),
+                          Expanded(
+                            child: Text(
+                              'You could receive up to \$${slippageUsd.toStringAsFixed(2)} less based on the ${(_slippageBps / 100).toStringAsFixed(1)}% slippage you set.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.white.withValues(alpha: 0.3),
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // Confirm button
+                  GestureDetector(
+                    onTap: () async {
+                      logger.i('[Swap] Confirm tapped, closing sheet...');
+                      Navigator.pop(ctx);
+                      await Future.delayed(const Duration(milliseconds: 300));
+                      logger.i('[Swap] Sheet closed, executing swap...');
+                      _executeSwap(quote, amountStr);
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      decoration: BoxDecoration(
+                        gradient: ZipherColors.primaryGradient,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Center(
+                        child: Text('Confirm', style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.w700,
+                          color: ZipherColors.textOnBrand,
+                        )),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _confirmTokenCard({
+    required NearToken token,
+    required double amount,
+    required double usd,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        children: [
+          TokenIcon(token: token, size: 32, showChainBadge: true),
+          const Gap(8),
+          Text(token.symbol, style: TextStyle(
+            fontSize: 14, fontWeight: FontWeight.w700,
+            color: Colors.white.withValues(alpha: 0.9),
+          )),
+          Text(_chainDisplayName(token.blockchain), style: TextStyle(
+            fontSize: 10, color: Colors.white.withValues(alpha: 0.3),
+          )),
+          const Gap(8),
+          Text(
+            amount.toStringAsFixed(amount < 1 ? 6 : 4),
+            style: TextStyle(
+              fontSize: 18, fontWeight: FontWeight.w600,
+              color: Colors.white.withValues(alpha: 0.85),
+            ),
+          ),
+          Text(
+            '\$${usd.toStringAsFixed(2)}',
+            style: TextStyle(
+              fontSize: 11, color: Colors.white.withValues(alpha: 0.3),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, String value, {String? subtitle, bool bold = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyle(
+            fontSize: 12,
+            fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
+            color: Colors.white.withValues(alpha: bold ? 0.7 : 0.35),
+          )),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(value, style: TextStyle(
+                fontSize: 12,
+                fontWeight: bold ? FontWeight.w600 : FontWeight.w500,
+                color: Colors.white.withValues(alpha: bold ? 0.9 : 0.65),
+              )),
+              if (subtitle != null)
+                Text(subtitle, style: TextStyle(
+                  fontSize: 10, color: Colors.white.withValues(alpha: 0.25),
+                )),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sheetDivider() => Divider(height: 1, color: Colors.white.withValues(alpha: 0.04));
+
+  // ─── Execute Swap ────────────────────────────────────────
+
+  Map<String, dynamic> _statusExtra(NearQuoteResponse quote, String amountStr) {
+    final origin = _originToken;
+    final dest = _destToken;
+    final outDouble = quote.amountOut.toDouble() / math.pow(10, dest.decimals);
+    return {
+      'depositAddress': quote.depositAddress,
+      'fromCurrency': origin.symbol,
+      'fromAmount': amountStr,
+      'toCurrency': dest.symbol,
+      'toAmount': outDouble.toStringAsFixed(8),
+    };
+  }
+
+  void _executeSwap(NearQuoteResponse quote, String amountStr) async {
+    logger.i('[Swap] _executeSwap: direction=$_direction depositAddr=${quote.depositAddress}');
+    if (_direction == SwapDirection.fromZec) {
+      _executeZecSend(quote, amountStr);
+    } else {
+      try {
+        logger.i('[Swap] intoZec: storing swap...');
+        await _storeSwap(quote, amountStr);
+        logger.i('[Swap] intoZec: swap stored OK');
+      } catch (e, st) {
+        logger.e('[Swap] intoZec store error: $e\n$st');
+      }
+      try {
+        logger.i('[Swap] intoZec: about to navigate, mounted=$mounted');
+        if (mounted) {
+          GoRouter.of(context).push('/swap/status', extra: _statusExtra(quote, amountStr));
+          logger.i('[Swap] intoZec: navigation dispatched');
+        }
+      } catch (e, st) {
+        logger.e('[Swap] intoZec nav error: $e\n$st');
+      }
     }
   }
 
@@ -228,61 +464,79 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
     load(() async {
       try {
         final depositAddr = quote.depositAddress;
+        logger.i('[Swap] Starting ZEC send: amount=$amountStr to=$depositAddr');
+
+        final amountZat = stringToAmount(amountStr);
+        logger.i('[Swap] Amount in zat: $amountZat');
+
         final recipient = Recipient(RecipientObjectBuilder(
           address: depositAddr,
-          amount: stringToAmount(amountStr),
+          amount: amountZat,
         ).toBytes());
+
+        logger.i('[Swap] Calling prepareTx: coin=${aa.coin} id=${aa.id} pools=7');
         final txPlan = await WarpApi.prepareTx(
           aa.coin, aa.id, [recipient], 7,
           coinSettings.replyUa, appSettings.anchorOffset, coinSettings.feeT,
         );
+        logger.i('[Swap] prepareTx OK, plan length=${txPlan.length}');
 
-        if (!mounted) return;
-        final result = await GoRouter.of(context).push<String>(
-          '/account/txplan?tab=swap',
-          extra: txPlan,
-        );
+        logger.i('[Swap] Calling signAndBroadcast...');
+        final txIdJson = await WarpApi.signAndBroadcast(aa.coin, aa.id, txPlan);
+        logger.i('[Swap] signAndBroadcast OK: $txIdJson');
+        final txId = jsonDecode(txIdJson);
 
-        if (result != null && result.isNotEmpty) {
-          try {
-            await _nearApi.submitDeposit(txHash: result, depositAddress: depositAddr);
-          } catch (_) {}
-          _storeSwap(quote, amountStr);
-          if (mounted) GoRouter.of(context).push('/swap/status', extra: depositAddr);
+        logger.i('[Swap] Notifying NEAR Intents about deposit...');
+        try {
+          await _nearApi.submitDeposit(txHash: txId, depositAddress: depositAddr);
+          logger.i('[Swap] NEAR deposit notification sent');
+        } catch (e) {
+          logger.w('[Swap] NEAR deposit notification failed: $e');
         }
+
+        logger.i('[Swap] Navigating to /swap/status...');
+        if (mounted) {
+          GoRouter.of(context).push('/swap/status', extra: _statusExtra(quote, amountStr));
+          logger.i('[Swap] Navigation dispatched');
+        }
+
+        logger.i('[Swap] Storing swap record...');
+        await _storeSwap(quote, amountStr, txId: txId);
+        logger.i('[Swap] Swap record stored OK');
       } on String catch (e) {
+        logger.e('[Swap] String error: $e');
         if (mounted) showMessageBox2(context, 'Error', e);
+      } catch (e, st) {
+        logger.e('[Swap] Unexpected error: $e\n$st');
+        if (mounted) showMessageBox2(context, 'Error', e.toString());
       }
     });
   }
 
-  void _showDepositInfo(NearQuoteResponse quote, String amountStr) {
-    _storeSwap(quote, amountStr);
-    GoRouter.of(context).push('/swap/status', extra: quote.depositAddress);
-  }
+  Future<void> _storeSwap(NearQuoteResponse quote, String amountStr, {String? txId}) async {
+    final origin = _originToken;
+    final dest = _destToken;
+    final outDouble = quote.amountOut.toDouble() / math.pow(10, dest.decimals);
 
-  void _storeSwap(NearQuoteResponse quote, String amountStr) {
-    final originToken = _direction == SwapDirection.fromZec ? _zecToken! : _selectedToken!;
-    final destToken = _direction == SwapDirection.fromZec ? _selectedToken! : _zecToken!;
-    final outDouble = quote.amountOut.toDouble() / math.pow(10, destToken.decimals);
-
-    final swap = SwapT(
+    final swap = StoredSwap(
       provider: 'near_intents',
-      providerId: quote.depositAddress,
+      depositAddress: quote.depositAddress,
       timestamp: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      fromCurrency: originToken.symbol,
+      fromCurrency: origin.symbol,
       fromAmount: amountStr,
-      fromAddress: quote.depositAddress,
-      toCurrency: destToken.symbol,
+      toCurrency: dest.symbol,
       toAmount: outDouble.toStringAsFixed(8),
       toAddress: _direction == SwapDirection.fromZec
           ? _addressController.text.trim()
-          : WarpApi.getAddress(aa.coin, aa.id, 1),
+          : _cachedTAddr,
+      txId: txId,
     );
-    WarpApi.storeSwap(aa.coin, aa.id, swap);
+    await SwapStore.save(swap);
   }
 
-  // ─── Build ─────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // BUILD
+  // ═══════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -317,22 +571,15 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                   color: ZipherColors.red.withValues(alpha: 0.5)),
             ),
             const Gap(20),
-            Text(
-              'Could not load tokens',
-              style: TextStyle(
-                fontSize: 16, fontWeight: FontWeight.w600,
-                color: Colors.white.withValues(alpha: 0.8),
-              ),
-            ),
+            Text('Could not load tokens', style: TextStyle(
+              fontSize: 16, fontWeight: FontWeight.w600,
+              color: Colors.white.withValues(alpha: 0.8),
+            )),
             const Gap(8),
             Text(
               _error ?? 'Check your connection and try again.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.white.withValues(alpha: 0.3),
-                height: 1.5,
-              ),
+              style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.3), height: 1.5),
             ),
             const Gap(24),
             GestureDetector(
@@ -360,9 +607,6 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
   }
 
   Widget _buildBody(double topPad) {
-    final fromToken = _direction == SwapDirection.fromZec ? _zecToken! : _selectedToken;
-    final toToken = _direction == SwapDirection.fromZec ? _selectedToken : _zecToken!;
-
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -395,13 +639,10 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
             ),
             const Gap(24),
 
-            // ── You send ──
-            _buildAmountCard(
-              label: 'You send',
-              token: fromToken,
-              isInput: true,
-            ),
-            const Gap(2),
+            // ── From ──
+            _buildFromSection(),
+
+            const Gap(12),
 
             // ── Flip button ──
             Center(
@@ -410,59 +651,40 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                 child: Container(
                   width: 36, height: 36,
                   decoration: BoxDecoration(
-                    color: ZipherColors.bg,
+                    color: Colors.white.withValues(alpha: 0.05),
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                   ),
                   child: Icon(Icons.swap_vert_rounded, size: 18,
                       color: ZipherColors.cyan.withValues(alpha: 0.7)),
                 ),
               ),
             ),
-            const Gap(2),
 
-            // ── You receive ──
-            _buildAmountCard(
-              label: 'You receive',
-              token: toToken,
-              isInput: false,
-            ),
+            const Gap(12),
+
+            // ── To ──
+            _buildToSection(),
+
             const Gap(16),
 
-            // ── Address field ──
-            if (_direction == SwapDirection.fromZec) ...[
-              _buildAddressCard(
-                label: 'Recipient address',
-                hint: 'Enter ${_selectedToken?.blockchain ?? ''} address',
-              ),
-              const Gap(16),
-            ],
-            if (_direction == SwapDirection.intoZec) ...[
-              _buildAddressCard(
-                label: 'Refund address',
-                hint: 'Your ${_selectedToken?.blockchain ?? ''} address',
-              ),
-              const Gap(16),
-            ],
+            // ── Slippage + Rate ──
+            _buildSlippageAndRate(),
 
-            // ── Slippage ──
-            _buildSlippage(),
-            const Gap(16),
+            const Gap(20),
 
-            // ── Quote summary ──
-            if (_quote != null) ...[
-              _buildQuoteSummary(fromToken, toToken),
-              const Gap(16),
-            ],
+            // ── Address ──
+            _buildAddressCard(),
+
+            const Gap(20),
 
             // ── Error ──
             if (_error != null) ...[
               _buildError(),
-              const Gap(16),
+              const Gap(20),
             ],
 
-            // ── Confirm button ──
-            _buildConfirmButton(),
+            // ── Get a quote button ──
+            _buildQuoteButton(),
             const Gap(32),
           ],
         ),
@@ -470,135 +692,180 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
     );
   }
 
-  // ─── Amount card ───────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // FROM section
+  // ═══════════════════════════════════════════════════════════
 
-  Widget _buildAmountCard({
-    required String label,
-    required NearToken? token,
-    required bool isInput,
-  }) {
-    final showBalance = isInput && _direction == SwapDirection.fromZec;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(label, style: TextStyle(
-                fontSize: 12, fontWeight: FontWeight.w500,
-                color: Colors.white.withValues(alpha: 0.25),
-              )),
-              const Spacer(),
-              if (showBalance)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Balance: ${amountToString2(_spendableZat)} ZEC',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.white.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    const Gap(6),
-                    GestureDetector(
-                      onTap: () {
-                        final maxZec = _spendableZat / ZECUNIT;
-                        final fee = 0.00001;
-                        final maxSend = maxZec - fee;
-                        if (maxSend <= 0) return;
-                        _amountController.text = maxSend.toStringAsFixed(8);
-                        _onAmountChanged('');
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: ZipherColors.cyan.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: ZipherColors.cyan.withValues(alpha: 0.15)),
-                        ),
-                        child: Text('MAX', style: TextStyle(
-                          fontSize: 10, fontWeight: FontWeight.w700,
-                          color: ZipherColors.cyan.withValues(alpha: 0.6),
-                          letterSpacing: 0.5,
-                        )),
-                      ),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-          const Gap(12),
-          Row(
-            children: [
-              Expanded(
-                child: isInput
-                    ? TextField(
-                        controller: _amountController,
-                        onChanged: _onAmountChanged,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        style: TextStyle(
-                          fontSize: 28, fontWeight: FontWeight.w600,
-                          color: Colors.white.withValues(alpha: 0.9),
-                        ),
-                        decoration: InputDecoration(
-                          hintText: '0.0',
-                          hintStyle: TextStyle(
-                            fontSize: 28, fontWeight: FontWeight.w600,
-                            color: Colors.white.withValues(alpha: 0.10),
-                          ),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          filled: false,
-                          contentPadding: EdgeInsets.zero,
-                          isDense: true,
-                        ),
-                      )
-                    : Text(
-                        _quoteOutputDisplay(token),
-                        style: TextStyle(
-                          fontSize: 28, fontWeight: FontWeight.w600,
-                          color: Colors.white.withValues(alpha: _quote != null ? 0.9 : 0.10),
-                        ),
-                      ),
+  Widget _buildFromSection() {
+    final isZecFrom = _direction == SwapDirection.fromZec;
+    final token = isZecFrom ? _zecToken! : _selectedToken;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('From', style: TextStyle(
+              fontSize: 14, fontWeight: FontWeight.w500,
+              color: Colors.white.withValues(alpha: 0.4),
+            )),
+            const Spacer(),
+            if (isZecFrom) ...[
+              Text(
+                'Spendable: ${amountToString2(_spendableZat)}',
+                style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.3)),
               ),
-              const Gap(12),
-              _buildTokenPill(token, isInput),
+              const Gap(8),
+              GestureDetector(
+                onTap: () {
+                  final maxZec = _spendableZat / ZECUNIT;
+                  final fee = 0.00001;
+                  final maxSend = maxZec - fee;
+                  if (maxSend <= 0) return;
+                  _amountController.text = maxSend.toStringAsFixed(8);
+                  _onAmountChanged('');
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: ZipherColors.cyan.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text('MAX', style: TextStyle(
+                    fontSize: 11, fontWeight: FontWeight.w600,
+                    color: ZipherColors.cyan.withValues(alpha: 0.6),
+                  )),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const Gap(8),
+        Container(
+          height: 56,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              const Gap(6),
+              _buildTokenPill(token, isZecSide: isZecFrom),
+              Expanded(
+                child: TextField(
+                  controller: _amountController,
+                  onChanged: _onAmountChanged,
+                  textAlign: TextAlign.right,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w600,
+                    color: Colors.white.withValues(alpha: 0.9),
+                  ),
+                  decoration: InputDecoration(
+                    hintText: '0.00',
+                    hintStyle: TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w600,
+                      color: Colors.white.withValues(alpha: 0.15),
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+                  ),
+                ),
+              ),
             ],
           ),
-        ],
-      ),
+        ),
+        if (_inputUsd > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, right: 4),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                '\$${_inputUsd.toStringAsFixed(2)}',
+                style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.25)),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
-  String _quoteOutputDisplay(NearToken? token) {
-    if (_loadingQuote) return '...';
-    if (_quote == null || token == null) return '0.0';
-    final out = _quote!.amountOut.toDouble() / math.pow(10, token.decimals);
-    return out.toStringAsFixed(token.decimals > 6 ? 6 : token.decimals);
+  double get _inputUsd {
+    final parsed = double.tryParse(_amountController.text.trim()) ?? 0;
+    if (parsed <= 0 || _originToken.price == null) return 0;
+    return parsed * _originToken.price!;
   }
 
-  // ─── Token pill ────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // TO section
+  // ═══════════════════════════════════════════════════════════
 
-  Widget _buildTokenPill(NearToken? token, bool isInput) {
-    final isZecSide = (isInput && _direction == SwapDirection.fromZec) ||
-        (!isInput && _direction == SwapDirection.intoZec);
+  Widget _buildToSection() {
+    final isZecTo = _direction == SwapDirection.intoZec;
+    final token = isZecTo ? _zecToken! : _selectedToken;
+    final outputUsd = _destToken.price != null ? _estimatedOutput * _destToken.price! : 0.0;
 
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('To', style: TextStyle(
+          fontSize: 14, fontWeight: FontWeight.w500,
+          color: Colors.white.withValues(alpha: 0.4),
+        )),
+        const Gap(8),
+        Container(
+          height: 56,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              const Gap(6),
+              _buildTokenPill(token, isZecSide: isZecTo),
+              const Spacer(),
+              Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: Text(
+                  _estimatedOutput > 0
+                      ? _estimatedOutput.toStringAsFixed(_estimatedOutput < 1 ? 6 : 4)
+                      : '0.00',
+                  style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w600,
+                    color: Colors.white.withValues(alpha: _estimatedOutput > 0 ? 0.9 : 0.15),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (outputUsd > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, right: 4),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                '\$${outputUsd.toStringAsFixed(2)}',
+                style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.25)),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Token pill
+  // ═══════════════════════════════════════════════════════════
+
+  Widget _buildTokenPill(NearToken? token, {required bool isZecSide}) {
     return GestureDetector(
       onTap: isZecSide ? null : _showTokenPicker,
       child: Container(
         padding: const EdgeInsets.fromLTRB(6, 6, 12, 6),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.06),
+          color: Colors.white.withValues(alpha: isZecSide ? 0.0 : 0.06),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -612,8 +879,6 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                   color: Colors.white.withValues(alpha: 0.08),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.help_outline, size: 14,
-                    color: Colors.white.withValues(alpha: 0.3)),
               ),
             const Gap(8),
             Text(
@@ -634,7 +899,9 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
     );
   }
 
-  // ─── Token picker bottom sheet ─────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // Token picker
+  // ═══════════════════════════════════════════════════════════
 
   void _showTokenPicker() {
     final searchController = TextEditingController();
@@ -650,7 +917,8 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                 ? _swappableTokens
                 : _swappableTokens.where((t) =>
                     t.symbol.toLowerCase().contains(query) ||
-                    t.blockchain.toLowerCase().contains(query)).toList();
+                    t.blockchain.toLowerCase().contains(query) ||
+                    _chainDisplayName(t.blockchain).toLowerCase().contains(query)).toList();
             return Container(
               constraints: BoxConstraints(
                 maxHeight: MediaQuery.of(context).size.height * 0.7,
@@ -674,14 +942,11 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                     ),
                   ),
                   const Gap(16),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Text('SELECT ASSET', style: TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w600,
-                      letterSpacing: 1.2,
-                      color: Colors.white.withValues(alpha: 0.7),
-                    )),
-                  ),
+                  Text('SELECT ASSET', style: TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600,
+                    letterSpacing: 1.2,
+                    color: Colors.white.withValues(alpha: 0.7),
+                  )),
                   const Gap(14),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -694,19 +959,13 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                       child: TextField(
                         controller: searchController,
                         onChanged: (_) => setModalState(() {}),
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.white.withValues(alpha: 0.85),
-                        ),
+                        style: TextStyle(fontSize: 14, color: Colors.white.withValues(alpha: 0.85)),
                         decoration: InputDecoration(
                           hintText: 'Search by name or ticker...',
                           hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.2)),
                           prefixIcon: Icon(Icons.search_rounded, size: 18,
                               color: Colors.white.withValues(alpha: 0.2)),
                           border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          filled: false,
                           contentPadding: const EdgeInsets.symmetric(vertical: 12),
                           isDense: true,
                         ),
@@ -730,9 +989,9 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                             child: InkWell(
                               borderRadius: BorderRadius.circular(12),
                               onTap: () {
-                                setState(() { _selectedToken = t; _quote = null; });
+                                setState(() { _selectedToken = t; });
                                 Navigator.pop(ctx);
-                                if (_amountController.text.trim().isNotEmpty) _fetchDryQuote();
+                                _updateEstimate();
                               },
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -782,213 +1041,161 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
     );
   }
 
-  // ─── Address card ──────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // Address card
+  // ═══════════════════════════════════════════════════════════
 
-  Widget _buildAddressCard({required String label, required String hint}) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 8, 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: TextStyle(
-            fontSize: 12, fontWeight: FontWeight.w500,
-            color: Colors.white.withValues(alpha: 0.25),
-          )),
-          const Gap(4),
-          Row(
+  Widget _buildAddressCard() {
+    final label = _direction == SwapDirection.fromZec ? 'Recipient address' : 'Refund address';
+    final chain = _selectedToken?.blockchain ?? '';
+    final hint = _direction == SwapDirection.fromZec
+        ? '${_chainDisplayName(chain)} address'
+        : 'Your ${_chainDisplayName(chain)} address';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(
+          fontSize: 14, fontWeight: FontWeight.w500,
+          color: Colors.white.withValues(alpha: 0.4),
+        )),
+        const Gap(8),
+        Container(
+          height: 52,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
             children: [
               Expanded(
                 child: TextField(
                   controller: _addressController,
-                  onChanged: (_) => _onAmountChanged(''),
                   style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.white.withValues(alpha: 0.8),
+                    fontSize: 14,
+                    color: Colors.white.withValues(alpha: 0.85),
                   ),
                   decoration: InputDecoration(
                     hintText: hint,
-                    hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.12)),
+                    hintStyle: TextStyle(
+                      fontSize: 14,
+                      color: Colors.white.withValues(alpha: 0.18),
+                    ),
+                    filled: false,
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
-                    filled: false,
-                    contentPadding: EdgeInsets.zero,
-                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
                   ),
                 ),
               ),
-              GestureDetector(
-                onTap: () {
-                  GoRouter.of(context).push(
-                    '/scan',
-                    extra: ScanQRContext((code) {
-                      _addressController.text = code;
-                      return true;
-                    }),
-                  );
-                },
-                child: Container(
-                  width: 34, height: 34,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.04),
-                    shape: BoxShape.circle,
+              _iconBtn(Icons.content_paste_rounded, () async {
+                final data = await Clipboard.getData(Clipboard.kTextPlain);
+                if (data?.text != null && data!.text!.isNotEmpty) {
+                  _addressController.text = data.text!;
+                }
+              }),
+              _iconBtn(Icons.qr_code_rounded, () {
+                GoRouter.of(context).push(
+                  '/scan',
+                  extra: ScanQRContext((code) {
+                    _addressController.text = code;
+                    return true;
+                  }),
+                );
+              }),
+              const Gap(4),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _iconBtn(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Icon(icon, size: 20,
+            color: Colors.white.withValues(alpha: 0.3)),
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Slippage + Rate (inline like Zashi)
+  // ═══════════════════════════════════════════════════════════
+
+  Widget _buildSlippageAndRate() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Text('Slippage tolerance', style: TextStyle(
+              fontSize: 12, fontWeight: FontWeight.w500,
+              color: Colors.white.withValues(alpha: 0.3),
+            )),
+            const Spacer(),
+            for (final bps in [50, 100, 200])
+              Padding(
+                padding: const EdgeInsets.only(left: 6),
+                child: GestureDetector(
+                  onTap: () => setState(() => _slippageBps = bps),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: _slippageBps == bps
+                          ? ZipherColors.cyan.withValues(alpha: 0.10)
+                          : Colors.white.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: _slippageBps == bps
+                            ? ZipherColors.cyan.withValues(alpha: 0.20)
+                            : Colors.white.withValues(alpha: 0.05),
+                      ),
+                    ),
+                    child: Text(
+                      '${(bps / 100).toStringAsFixed(1)}%',
+                      style: TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w600,
+                        color: _slippageBps == bps
+                            ? ZipherColors.cyan.withValues(alpha: 0.7)
+                            : Colors.white.withValues(alpha: 0.3),
+                      ),
+                    ),
                   ),
-                  child: Icon(Icons.qr_code_scanner_rounded, size: 16,
-                      color: Colors.white.withValues(alpha: 0.3)),
+                ),
+              ),
+          ],
+        ),
+        if (_rate > 0) ...[
+          const Gap(12),
+          Row(
+            children: [
+              Text('Rate', style: TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w500,
+                color: Colors.white.withValues(alpha: 0.3),
+              )),
+              const Spacer(),
+              Text(
+                '1 ${_originToken.symbol} = ${_rate.toStringAsFixed(_rate < 1 ? 6 : 4)} ${_destToken.symbol}',
+                style: TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w500,
+                  color: Colors.white.withValues(alpha: 0.6),
                 ),
               ),
             ],
           ),
         ],
-      ),
-    );
-  }
-
-  String _chainDisplayName(String chain) {
-    const names = {
-      'eth': 'Ethereum', 'btc': 'Bitcoin', 'sol': 'Solana', 'arb': 'Arbitrum',
-      'base': 'Base', 'bsc': 'Binance Smart Chain', 'tron': 'Tron',
-      'near': 'NEAR', 'pol': 'Polygon', 'op': 'Optimism', 'avax': 'Avalanche',
-      'gnosis': 'Gnosis', 'sui': 'Sui', 'ton': 'TON', 'stellar': 'Stellar',
-      'doge': 'Dogecoin', 'xrp': 'XRP Ledger', 'ltc': 'Litecoin',
-      'bch': 'Bitcoin Cash', 'cardano': 'Cardano', 'aptos': 'Aptos',
-      'starknet': 'Starknet', 'bera': 'Berachain', 'aleo': 'Aleo',
-      'monad': 'Monad', 'xlayer': 'X Layer', 'plasma': 'Plasma',
-    };
-    return names[chain.toLowerCase()] ?? chain;
-  }
-
-  // ─── Slippage ──────────────────────────────────────────────
-
-  Widget _buildSlippage() {
-    return Row(
-      children: [
-        Text('Slippage', style: TextStyle(
-          fontSize: 12, fontWeight: FontWeight.w500,
-          color: Colors.white.withValues(alpha: 0.25),
-        )),
-        const Spacer(),
-        for (final bps in [50, 100, 200])
-          Padding(
-            padding: const EdgeInsets.only(left: 6),
-            child: GestureDetector(
-              onTap: () => setState(() => _slippageBps = bps),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: _slippageBps == bps
-                      ? ZipherColors.cyan.withValues(alpha: 0.10)
-                      : Colors.white.withValues(alpha: 0.04),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: _slippageBps == bps
-                        ? ZipherColors.cyan.withValues(alpha: 0.20)
-                        : Colors.white.withValues(alpha: 0.05),
-                  ),
-                ),
-                child: Text(
-                  '${(bps / 100).toStringAsFixed(1)}%',
-                  style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w600,
-                    color: _slippageBps == bps
-                        ? ZipherColors.cyan.withValues(alpha: 0.7)
-                        : Colors.white.withValues(alpha: 0.3),
-                  ),
-                ),
-              ),
-            ),
-          ),
       ],
     );
   }
 
-  // ─── Quote summary ────────────────────────────────────────
-
-  Widget _buildQuoteSummary(NearToken? fromToken, NearToken? toToken) {
-    if (_quote == null || fromToken == null || toToken == null) return const SizedBox();
-
-    final originToken = _direction == SwapDirection.fromZec ? _zecToken! : _selectedToken!;
-    final destToken = _direction == SwapDirection.fromZec ? _selectedToken! : _zecToken!;
-
-    final amountIn = _quote!.amountIn.toDouble() / math.pow(10, originToken.decimals);
-    final amountOut = _quote!.amountOut.toDouble() / math.pow(10, destToken.decimals);
-    final rate = amountIn > 0 ? amountOut / amountIn : 0.0;
-    final isEstimate = _quote!.raw['estimate'] == true;
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: ZipherColors.cyan.withValues(alpha: 0.08)),
-      ),
-      child: Column(
-        children: [
-          if (isEstimate) ...[
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text('Price estimate · enter address for exact quote',
-                style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic,
-                    color: Colors.white.withValues(alpha: 0.2))),
-            ),
-            _divider(),
-          ],
-          _row('Rate', '1 ${originToken.symbol} ≈ ${rate.toStringAsFixed(6)} ${destToken.symbol}'),
-          _divider(),
-          _row('You send', '${amountIn.toStringAsFixed(8)} ${originToken.symbol}'),
-          _divider(),
-          _row('You receive', '≈ ${amountOut.toStringAsFixed(6)} ${destToken.symbol}'),
-          if (!isEstimate) ...[
-            _divider(),
-            _row('Slippage', '${(_slippageBps / 100).toStringAsFixed(1)}%'),
-          ],
-          if (_quote!.deadline.isNotEmpty) ...[
-            _divider(),
-            _row('Expires', _fmtDeadline(_quote!.deadline)),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _row(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(
-            fontSize: 12, color: Colors.white.withValues(alpha: 0.3),
-          )),
-          Flexible(
-            child: Text(value, style: TextStyle(
-              fontSize: 12, fontWeight: FontWeight.w500,
-              color: Colors.white.withValues(alpha: 0.7),
-            ), textAlign: TextAlign.end),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _divider() => Divider(height: 1, color: Colors.white.withValues(alpha: 0.04));
-
-  String _fmtDeadline(String iso) {
-    try {
-      final dt = DateTime.parse(iso);
-      final diff = dt.difference(DateTime.now().toUtc());
-      if (diff.isNegative) return 'Expired';
-      if (diff.inMinutes > 60) return '${diff.inHours}h ${diff.inMinutes % 60}m';
-      return '${diff.inMinutes}m';
-    } catch (_) { return iso; }
-  }
-
-  // ─── Error banner ──────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // Error banner
+  // ═══════════════════════════════════════════════════════════
 
   Widget _buildError() {
     return Container(
@@ -1015,45 +1222,89 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
     );
   }
 
-  // ─── Confirm button ────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // "Get a quote" button
+  // ═══════════════════════════════════════════════════════════
 
-  Widget _buildConfirmButton() {
-    final enabled = _amountController.text.trim().isNotEmpty &&
-        _selectedToken != null && !_loadingQuote;
+  Widget _buildQuoteButton() {
+    final hasAmount = _amountController.text.trim().isNotEmpty;
+    final hasAddress = _addressController.text.trim().isNotEmpty;
+    final enabled = hasAmount && hasAddress && _selectedToken != null && !_loadingQuote;
 
-    final label = _loadingQuote
-        ? 'Getting quote...'
-        : _direction == SwapDirection.fromZec
-            ? 'Swap ZEC → ${_selectedToken?.symbol ?? ''}'
-            : 'Swap ${_selectedToken?.symbol ?? ''} → ZEC';
-
-    return GestureDetector(
-      onTap: enabled ? _confirmSwap : null,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          gradient: enabled ? ZipherColors.primaryGradient : null,
-          color: enabled ? null : Colors.white.withValues(alpha: 0.04),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Center(
-          child: _loadingQuote
-              ? SizedBox(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? _getQuote : null,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(
+            color: enabled
+                ? ZipherColors.cyan.withValues(alpha: 0.12)
+                : Colors.white.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (_loadingQuote)
+                SizedBox(
                   width: 18, height: 18,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: enabled ? ZipherColors.textOnBrand : Colors.white.withValues(alpha: 0.2),
+                    color: ZipherColors.cyan.withValues(alpha: 0.6),
                   ),
                 )
-              : Text(label, style: TextStyle(
-                  fontSize: 15, fontWeight: FontWeight.w600,
-                  color: enabled
-                      ? ZipherColors.textOnBrand
-                      : Colors.white.withValues(alpha: 0.15),
-                )),
+              else ...[
+                Icon(Icons.swap_horiz_rounded,
+                    size: 20,
+                    color: enabled
+                        ? ZipherColors.cyan.withValues(alpha: 0.9)
+                        : Colors.white.withValues(alpha: 0.15)),
+                const Gap(10),
+                Text(
+                  'Get a quote',
+                  style: TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w600,
+                    color: enabled
+                        ? ZipherColors.cyan.withValues(alpha: 0.9)
+                        : Colors.white.withValues(alpha: 0.15),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Helpers
+  // ═══════════════════════════════════════════════════════════
+
+  String _chainDisplayName(String chain) {
+    const names = {
+      'eth': 'Ethereum', 'btc': 'Bitcoin', 'sol': 'Solana', 'arb': 'Arbitrum',
+      'base': 'Base', 'bsc': 'Binance Smart Chain', 'tron': 'Tron',
+      'near': 'NEAR', 'pol': 'Polygon', 'op': 'Optimism', 'avax': 'Avalanche',
+      'gnosis': 'Gnosis', 'sui': 'Sui', 'ton': 'TON', 'stellar': 'Stellar',
+      'doge': 'Dogecoin', 'xrp': 'XRP Ledger', 'ltc': 'Litecoin',
+      'bch': 'Bitcoin Cash', 'cardano': 'Cardano', 'aptos': 'Aptos',
+      'starknet': 'Starknet', 'bera': 'Berachain', 'aleo': 'Aleo',
+      'monad': 'Monad', 'xlayer': 'X Layer', 'plasma': 'Plasma',
+    };
+    return names[chain.toLowerCase()] ?? chain;
+  }
+
+  String _fmtDeadline(String iso) {
+    try {
+      final dt = DateTime.parse(iso);
+      final diff = dt.difference(DateTime.now().toUtc());
+      if (diff.isNegative) return 'Expired';
+      if (diff.inMinutes > 60) return '${diff.inHours}h ${diff.inMinutes % 60}m';
+      return '${diff.inMinutes}m';
+    } catch (_) { return iso; }
   }
 }
