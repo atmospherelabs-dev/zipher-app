@@ -6,7 +6,6 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
-import 'package:flutter_palette/flutter_palette.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
 import 'package:gap/gap.dart';
@@ -22,6 +21,7 @@ import '../appsettings.dart';
 import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
 import '../store2.dart';
+import '../zipher_theme.dart';
 import 'scan.dart';
 import 'utils.dart';
 
@@ -35,25 +35,51 @@ class Panel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InputDecorator(
-        decoration:
-            InputDecoration(label: Text(title), border: OutlineInputBorder()),
-        child: text != null
-            ? Row(children: [
-                Expanded(child: SelectableText(text!, maxLines: maxLines)),
+    return Container(
+      padding: const EdgeInsets.all(ZipherSpacing.md),
+      decoration: BoxDecoration(
+        color: ZipherColors.surface,
+        borderRadius: BorderRadius.circular(ZipherRadius.md),
+        border: Border.all(color: ZipherColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: ZipherColors.textMuted)),
+          const SizedBox(height: 6),
+          if (text != null)
+            Row(children: [
+              Expanded(
+                child: SelectableText(text!,
+                    maxLines: maxLines,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        fontFamily: 'monospace',
+                        color: ZipherColors.textPrimary)),
+              ),
+              SizedBox(
+                  width: 36,
+                  child: IconButton(
+                      onPressed: () => _copy(context),
+                      icon: const Icon(Icons.copy,
+                          size: 16, color: ZipherColors.cyan))),
+              if (save)
                 SizedBox(
-                    width: 40,
+                    width: 36,
                     child: IconButton(
-                        onPressed: () => _copy(context),
-                        icon: Icon(Icons.copy))),
-                if (save)
-                  SizedBox(
-                      width: 40,
-                      child: IconButton(
-                          onPressed: () => _save(context),
-                          icon: Icon(Icons.save))),
-              ])
-            : child);
+                        onPressed: () => _save(context),
+                        icon: const Icon(Icons.save,
+                            size: 16, color: ZipherColors.cyan))),
+            ])
+          else if (child != null)
+            child!,
+        ],
+      ),
+    );
   }
 
   _copy(BuildContext context) {
@@ -76,21 +102,20 @@ class LoadingWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!loading) return child;
-    final t = Theme.of(context);
     final size = MediaQuery.of(context).size;
     return Stack(
       children: [
         Container(
             height: size.height,
             width: size.width,
-            color: t.colorScheme.surface),
+            color: ZipherColors.bg),
         Opacity(opacity: 0.4, child: child),
         Container(
           height: size.height - 200,
           child: Align(
               alignment: Alignment.center,
               child: LoadingAnimationWidget.hexagonDots(
-                  color: t.colorScheme.primary, size: 100)),
+                  color: ZipherColors.cyan, size: 100)),
         )
       ],
     );
@@ -122,21 +147,27 @@ class RecipientWidget extends StatelessWidget {
     final s = S.of(context);
     final t = Theme.of(context);
     final select = selected ?? false;
-    return Card(
-        color: select ? t.primaryColor : null,
-        child: Padding(
-          padding: EdgeInsets.all(8),
-          child: Column(
-            children: [
-              if (recipient.replyTo)
-                Text(s.includeReplyTo, style: t.textTheme.labelSmall),
-              MessageContentWidget(
-                  recipient.address!, message, recipient.memo!),
-              Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(amountToString2(recipient.amount))),
-            ],
-          ),
+    return Container(
+        padding: const EdgeInsets.all(ZipherSpacing.md - 4),
+        decoration: BoxDecoration(
+          color: select ? ZipherColors.cyan.withValues(alpha: 0.15) : ZipherColors.surface,
+          borderRadius: BorderRadius.circular(ZipherRadius.md),
+          border: Border.all(
+              color: select ? ZipherColors.cyan.withValues(alpha: 0.4) : ZipherColors.border),
+        ),
+        child: Column(
+          children: [
+            if (recipient.replyTo)
+              Text(s.includeReplyTo, style: t.textTheme.labelSmall),
+            MessageContentWidget(
+                recipient.address!, message, recipient.memo!),
+            Align(
+                alignment: Alignment.centerRight,
+                child: Text(amountToString2(recipient.amount),
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: ZipherColors.textPrimary))),
+          ],
         ));
   }
 }
@@ -147,17 +178,28 @@ class MosaicWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    final palette = getPalette(t.colorScheme.inversePrimary, buttons.length);
     return ListView.builder(
         itemBuilder: (BuildContext context, int index) {
           final button = buttons[index];
-          return ListTile(
-            leading: SizedBox(width: 40, child: button.icon),
-            title: Text(button.text, style: t.textTheme.headlineSmall),
-            tileColor: palette.colors[index].toColor(),
-            trailing: Icon(Icons.chevron_right),
-            onTap: () => _onMenu(context, button),
+          return Container(
+            margin: const EdgeInsets.symmetric(
+                horizontal: ZipherSpacing.md, vertical: ZipherSpacing.xs),
+            decoration: BoxDecoration(
+              color: ZipherColors.surface,
+              borderRadius: BorderRadius.circular(ZipherRadius.md),
+              border: Border.all(color: ZipherColors.border),
+            ),
+            child: ListTile(
+              leading: SizedBox(width: 40, child: button.icon),
+              title: Text(button.text,
+                  style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: ZipherColors.textPrimary)),
+              trailing: const Icon(Icons.chevron_right,
+                  color: ZipherColors.textMuted),
+              onTap: () => _onMenu(context, button),
+            ),
           );
         },
         itemCount: buttons.length);
@@ -208,15 +250,17 @@ class MediumTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context);
     return Container(
-        padding: EdgeInsets.all(8),
+        padding: const EdgeInsets.symmetric(
+            horizontal: ZipherSpacing.md, vertical: ZipherSpacing.sm),
         decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            color: t.colorScheme.primary),
+            borderRadius: BorderRadius.circular(ZipherRadius.sm),
+            gradient: ZipherColors.primaryGradient),
         child: Text(title,
-            style:
-                t.textTheme.bodyLarge!.copyWith(color: t.colorScheme.surface)));
+            style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: ZipherColors.textOnBrand)));
   }
 }
 
@@ -337,20 +381,20 @@ class PoolSelectionState extends State<PoolSelection> {
               value: 0,
               label: Text(
                 '${amountToString2(widget.balances.transparent)}',
-                style: txtStyle.apply(color: Colors.red),
+                style: txtStyle.apply(color: ZipherColors.cyan),
               )),
           ButtonSegment(
               value: 1,
               label: Text(
                 '${amountToString2(widget.balances.sapling)}',
-                style: txtStyle.apply(color: Colors.orange),
+                style: txtStyle.apply(color: ZipherColors.purple),
               )),
           if (aa.hasUA)
             ButtonSegment(
                 value: 2,
                 label: Text(
                   '${amountToString2(widget.balances.orchard)}',
-                  style: txtStyle.apply(color: Colors.green),
+                  style: txtStyle.apply(color: ZipherColors.green),
                 )),
         ],
         selected: field.value!,
@@ -661,44 +705,52 @@ class Jumbotron extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    final cs = t.colorScheme;
     final Color color;
+    final Color bgColor;
     switch (severity) {
       case Severity.Error:
-        color = Colors.red;
+        color = ZipherColors.red;
+        bgColor = ZipherColors.red.withValues(alpha: 0.1);
         break;
       case Severity.Warning:
-        color = Colors.orange;
+        color = ZipherColors.orange;
+        bgColor = ZipherColors.orange.withValues(alpha: 0.1);
         break;
       default:
-        color = cs.primary;
+        color = ZipherColors.cyan;
+        bgColor = ZipherColors.cyan.withValues(alpha: 0.1);
         break;
     }
     return Stack(
       children: [
         Align(
           child: Container(
-            padding: EdgeInsets.all(16),
-            margin: EdgeInsetsDirectional.all(15),
+            padding: const EdgeInsets.all(ZipherSpacing.lg),
+            margin: const EdgeInsets.all(ZipherSpacing.md),
             decoration: BoxDecoration(
-                color: cs.primary,
-                border: Border.all(color: color, width: 4),
-                borderRadius: BorderRadius.all(Radius.circular(32))),
+                color: bgColor,
+                border: Border.all(color: color, width: 2),
+                borderRadius: BorderRadius.circular(ZipherRadius.xl)),
             child: SelectableText(message,
-                style:
-                    t.textTheme.headlineMedium!.copyWith(color: cs.onPrimary)),
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: ZipherColors.textPrimary)),
           ),
         ),
         if (title != null)
           Align(
             alignment: Alignment.topCenter,
-            child: DecoratedBox(
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: ZipherSpacing.md, vertical: ZipherSpacing.sm),
               decoration: BoxDecoration(
-                  border: Border.all(color: color, width: 4), color: color),
-              child: Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Text(title!, style: TextStyle(color: cs.onPrimary))),
+                  color: color,
+                  borderRadius: BorderRadius.circular(ZipherRadius.sm)),
+              child: Text(title!,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: ZipherColors.textOnBrand)),
             ),
           )
       ],
@@ -781,12 +833,12 @@ class HorizontalBarChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = getPalette(Theme.of(context).primaryColor, values.length);
+    final poolColors = [ZipherColors.cyan, ZipherColors.purple, ZipherColors.green];
 
     final sum = values.fold<double>(0, ((acc, v) => acc + v));
     final stacks = values.asMap().entries.map((e) {
       final i = e.key;
-      final color = palette[i];
+      final color = i < poolColors.length ? poolColors[i] : ZipherColors.textMuted;
       final v = NumberFormat.compact().format(values[i]);
       final flex = sum != 0 ? max((values[i] / sum * 100).round(), 1) : 1;
       return Flexible(
@@ -794,15 +846,28 @@ class HorizontalBarChart extends StatelessWidget {
               child: Center(
                   child: Text(v,
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white))),
-              color: color,
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: ZipherColors.textOnBrand))),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: i == 0
+                    ? const BorderRadius.horizontal(left: Radius.circular(6))
+                    : i == values.length - 1
+                        ? const BorderRadius.horizontal(right: Radius.circular(6))
+                        : null,
+              ),
               height: height),
           flex: flex);
     }).toList();
 
-    return IntrinsicHeight(
-        child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch, children: stacks));
+    return ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: IntrinsicHeight(
+            child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: stacks)));
   }
 }
 

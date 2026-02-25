@@ -6,6 +6,7 @@ import 'package:gap/gap.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../generated/intl/messages.dart';
+import '../zipher_theme.dart';
 import 'utils.dart';
 
 class ShowQRPage extends StatelessWidget {
@@ -17,17 +18,22 @@ class ShowQRPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(title), actions: [
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+        backgroundColor: ZipherColors.bg,
+        iconTheme: const IconThemeData(color: ZipherColors.cyan),
+        title: Text(title, style: const TextStyle(color: ZipherColors.textSecondary)),
+        actions: [
         IconButton(
           onPressed: () {
             Clipboard.setData(ClipboardData(text: text));
             showSnackBar(s.textCopiedToClipboard(title));
           },
-          icon: Icon(Icons.copy),
+          icon: Icon(Icons.copy, color: ZipherColors.text60),
         ),
         IconButton(
           onPressed: () => saveQRImage(text, title),
-          icon: Icon(Icons.save),
+          icon: Icon(Icons.save, color: ZipherColors.text60),
         ),
       ]),
       body: Center(

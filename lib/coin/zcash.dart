@@ -5,7 +5,7 @@ import 'coin.dart';
 class ZcashCoin extends CoinBase {
   int coin = 0;
   String name = "Zcash";
-  String app = "ZWallet";
+  String app = "Zipher";
   String symbol = "\u24E9";
   String currency = "zcash";
   int coinIndex = 133;
@@ -34,6 +34,7 @@ class ZcashCoin extends CoinBase {
   bool supportsLedger = true;
   List<double> weights = [0.05, 0.25, 2.50];
   List<String> blockExplorers = [
+    "https://cipherscan.app/tx",
     "https://blockchair.com/zcash/transaction",
     "https://zecblockexplorer.com/tx"
   ];

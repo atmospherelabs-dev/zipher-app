@@ -262,7 +262,7 @@ class SFr extends S {
 
   @override
   String get disclaimer_2 =>
-      'Je comprends que YWallet ne puisse pas récupérer ma phrase de graine';
+      'Je comprends que Zipher ne puisse pas récupérer ma phrase de graine';
 
   @override
   String get disclaimer_3 =>
@@ -805,7 +805,7 @@ class SFr extends S {
   String get views => 'Vues';
 
   @override
-  String get welcomeToYwallet => 'Bienvenue sur YWallet';
+  String get welcomeToZipher => 'Bienvenue sur Zipher';
 
   @override
   String get wifi => 'Wi-Fi';

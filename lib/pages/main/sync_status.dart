@@ -4,6 +4,7 @@ import 'package:timeago/timeago.dart' as timeago;
 
 import '../../generated/intl/messages.dart';
 import '../../store2.dart';
+import '../../zipher_theme.dart';
 import '../utils.dart';
 
 class SyncStatusWidget extends StatefulWidget {
@@ -17,8 +18,12 @@ class SyncStatusState extends State<SyncStatusWidget> {
   void initState() {
     super.initState();
     Future(() async {
-      await syncStatus2.update();
-      await startAutoSync();
+      try {
+        await syncStatus2.update();
+        await startAutoSync();
+      } catch (e) {
+        logger.e('Sync status init error: $e');
+      }
     });
   }
 
@@ -29,7 +34,7 @@ class SyncStatusState extends State<SyncStatusWidget> {
     if (latestHeight == null) return '';
 
     if (syncStatus2.paused) return s.syncPaused;
-    if (!syncStatus2.syncing) return syncedHeight.toString();
+    if (!syncStatus2.syncing) return '';
 
     final timestamp = syncStatus2.timestamp?.let(timeago.format) ?? s.na;
     final downloadedSize = syncStatus2.downloadedSize;
@@ -43,12 +48,12 @@ class SyncStatusState extends State<SyncStatusWidget> {
 
     switch (display) {
       case 0:
-        return '$syncedHeight / $latestHeight';
+        return 'Syncing $syncedHeight / $latestHeight';
       case 1:
         final m = syncStatus2.isRescan ? s.rescan : s.catchup;
-        return '$m $percent %';
+        return '$m $percent%';
       case 2:
-        return remaining != null ? '$remaining...' : '';
+        return remaining != null ? '$remaining remaining' : '';
       case 3:
         return timestamp;
       case 4:
@@ -63,35 +68,71 @@ class SyncStatusState extends State<SyncStatusWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context);
+    final syncing = syncStatus2.syncing;
+    final connected = syncStatus2.connected;
+
+    // Hidden when fully synced and connected — clean Phantom-style
+    if (!syncing && connected) return const SizedBox.shrink();
 
     final syncedHeight = syncStatus2.syncedHeight;
     final text = getSyncText(syncedHeight);
-    final syncing = syncStatus2.syncing;
-    final syncStyle = syncing
-        ? t.textTheme.bodySmall!
-        : t.textTheme.bodyMedium!.apply(color: t.primaryColor);
-    final Widget inner = GestureDetector(
-        onTap: _onSync,
-        child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-                color: t.colorScheme.surface,
-                padding: EdgeInsets.all(8),
-                child: Text(text, style: syncStyle))));
     final value = syncStatus2.eta.progress?.let((x) => x.toDouble() / 100.0);
-    return SizedBox(
-      height: 50,
-      child: Stack(
-        children: <Widget>[
-          if (value != null)
-            SizedBox.expand(
-              child: LinearProgressIndicator(
-                value: value,
-              ),
+
+    return GestureDetector(
+      onTap: _onSync,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                if (!connected)
+                  Icon(Icons.cloud_off_outlined,
+                      size: 14,
+                      color: ZipherColors.red.withValues(alpha: 0.8))
+                else
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      color: ZipherColors.text40,
+                    ),
+                  ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      color: !connected
+                          ? ZipherColors.red.withValues(alpha: 0.8)
+                          : ZipherColors.text40,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          Center(child: inner),
-        ],
+            // Subtle progress bar
+            if (syncing && value != null) ...[
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: SizedBox(
+                  height: 2,
+                  child: LinearProgressIndicator(
+                    value: value.clamp(0, 1),
+                    backgroundColor: ZipherColors.cyan.withValues(alpha: 0.15),
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                        ZipherColors.cyan),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

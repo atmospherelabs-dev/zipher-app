@@ -3,16 +3,22 @@ import 'package:flutter/services.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
+import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
+import '../../zipher_theme.dart';
 import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../generated/intl/messages.dart';
 import '../../store2.dart';
 import '../scan.dart';
 import '../utils.dart';
+
+// ═══════════════════════════════════════════════════════════
+// CONTACTS LIST PAGE
+// ═══════════════════════════════════════════════════════════
 
 class ContactsPage extends StatefulWidget {
   final bool main;
@@ -32,22 +38,145 @@ class _ContactsState extends State<ContactsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: ZipherColors.bg,
       appBar: AppBar(
-        title: Text(s.contacts),
+        backgroundColor: ZipherColors.bg,
+        elevation: 0,
+        title: Text(
+          'CONTACTS',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.5,
+            color: ZipherColors.text60,
+          ),
+        ),
+        centerTitle: true,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_rounded,
+              color: ZipherColors.text60),
+          onPressed: () => GoRouter.of(context).pop(),
+        ),
         actions: [
-          if (selected) IconButton(onPressed: _edit, icon: Icon(Icons.edit)),
           if (selected)
-            IconButton(onPressed: _delete, icon: Icon(Icons.delete)),
-          // TODO: use coinsettings.contactsSaved flag
-          IconButton(onPressed: _save, icon: Icon(Icons.save)),
-          IconButton(onPressed: _add, icon: Icon(Icons.add)),
+            IconButton(
+              onPressed: _edit,
+              icon: Icon(Icons.edit_rounded,
+                  size: 20,
+                  color: ZipherColors.text40),
+            ),
+          if (selected)
+            IconButton(
+              onPressed: _delete,
+              icon: Icon(Icons.delete_outline_rounded,
+                  size: 20,
+                  color: ZipherColors.red.withValues(alpha: 0.6)),
+            ),
+          IconButton(
+            onPressed: _add,
+            icon: Icon(Icons.person_add_alt_1_rounded,
+                size: 20,
+                color: ZipherColors.cyan.withValues(alpha: 0.7)),
+          ),
         ],
       ),
-      body: ContactList(
-        key: listKey,
-        onSelect: widget.main ? _copyToClipboard : (v) => _select(v!),
-        onLongSelect: (v) => setState(() => selected = v != null),
-      ),
+      body: Observer(builder: (context) {
+        final c = contacts.contacts;
+        if (c.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.people_outline_rounded,
+                    size: 48,
+                    color: ZipherColors.cardBgElevated),
+                const Gap(16),
+                Text(
+                  'No contacts yet',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: ZipherColors.text20,
+                  ),
+                ),
+                const Gap(8),
+                Text(
+                  'Tap + to add your first contact',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: ZipherColors.text10,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        return Column(
+          children: [
+            Expanded(
+              child: ContactList(
+                key: listKey,
+                onSelect: widget.main ? _copyToClipboard : (v) => _select(v!),
+                onLongSelect: (v) => setState(() => selected = v != null),
+              ),
+            ),
+            // Backup to chain banner
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: GestureDetector(
+                  onTap: _save,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: ZipherColors.purple.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.cloud_upload_outlined,
+                            size: 18,
+                            color: ZipherColors.purple
+                                .withValues(alpha: 0.5)),
+                        const Gap(12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Backup contacts on-chain',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: ZipherColors.purple
+                                      .withValues(alpha: 0.7),
+                                ),
+                              ),
+                              const Gap(2),
+                              Text(
+                                'Encrypt & store on the blockchain so they sync with your seed',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.white
+                                      .withValues(alpha: 0.2),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.chevron_right_rounded,
+                            size: 16,
+                            color: ZipherColors.purple
+                                .withValues(alpha: 0.3)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      }),
     );
   }
 
@@ -74,18 +203,18 @@ class _ContactsState extends State<ContactsPage> {
         aa.id,
         coinSettings.receipientPools,
         appSettings.anchorOffset,
-        fee); // save to Orchard
+        fee);
     GoRouter.of(context).push('/account/txplan?tab=contacts', extra: txPlan);
   }
 
   _add() {
-    GoRouter.of(context).push('/contacts/add');
+    GoRouter.of(context).push('/more/contacts/add');
   }
 
   _edit() {
     final c = listKey.currentState!.selectedContact!;
     final id = c.id;
-    GoRouter.of(context).push('/contacts/edit?id=$id');
+    GoRouter.of(context).push('/more/contacts/edit?id=$id');
   }
 
   _delete() async {
@@ -98,6 +227,10 @@ class _ContactsState extends State<ContactsPage> {
     contacts.fetchContacts();
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// CONTACT LIST WIDGET
+// ═══════════════════════════════════════════════════════════
 
 class ContactList extends StatefulWidget {
   final int? initialSelect;
@@ -116,26 +249,131 @@ class ContactListState extends State<ContactList> {
   Widget build(BuildContext context) {
     return Observer(builder: (context) {
       final c = contacts.contacts;
-      return ListView.separated(
-        itemBuilder: (context, index) => ContactItem(
-          c[index].unpack(),
-          selected: selected == index,
-          onLongPress: () {
-            final v = selected != index ? index : null;
-            widget.onLongSelect?.call(v);
-            selected = v;
-            setState(() {});
-          },
-          onPress: () => widget.onSelect?.call(index),
-        ),
-        separatorBuilder: (context, index) => Divider(),
+      return ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         itemCount: c.length,
+        itemBuilder: (context, index) {
+          final contact = c[index].unpack();
+          final isSelected = selected == index;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _ContactCard(
+              contact: contact,
+              selected: isSelected,
+              onPress: () => widget.onSelect?.call(index),
+              onLongPress: () {
+                final v = selected != index ? index : null;
+                widget.onLongSelect?.call(v);
+                selected = v;
+                setState(() {});
+              },
+            ),
+          );
+        },
       );
     });
   }
 
   Contact? get selectedContact => selected?.let((s) => contacts.contacts[s]);
 }
+
+class _ContactCard extends StatelessWidget {
+  final ContactT contact;
+  final bool selected;
+  final VoidCallback? onPress;
+  final VoidCallback? onLongPress;
+
+  const _ContactCard({
+    required this.contact,
+    this.selected = false,
+    this.onPress,
+    this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final addr = contact.address ?? '';
+    final truncated = addr.length > 20
+        ? '${addr.substring(0, 10)}...${addr.substring(addr.length - 10)}'
+        : addr;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPress,
+        onLongPress: onLongPress,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: selected
+                ? ZipherColors.cyan.withValues(alpha: 0.08)
+                : ZipherColors.cardBg,
+            borderRadius: BorderRadius.circular(14),
+            border: selected
+                ? Border.all(
+                    color: ZipherColors.cyan.withValues(alpha: 0.15))
+                : null,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: ZipherColors.cyan.withValues(alpha: 0.08),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    (contact.name ?? '?')[0].toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: ZipherColors.cyan.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ),
+              ),
+              const Gap(14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      contact.name ?? '',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: ZipherColors.text90,
+                      ),
+                    ),
+                    const Gap(2),
+                    Text(
+                      truncated,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                        color: ZipherColors.text20,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded,
+                  size: 18,
+                  color: ZipherColors.text10),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CONTACT ITEM (for backward compat)
+// ═══════════════════════════════════════════════════════════
 
 class ContactItem extends StatelessWidget {
   final ContactT contact;
@@ -146,17 +384,18 @@ class ContactItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    return ListTile(
-      title: Text(contact.name!, style: t.textTheme.headlineSmall),
-      subtitle: Text(contact.address!),
-      onTap: onPress,
-      onLongPress: onLongPress,
+    return _ContactCard(
+      contact: contact,
       selected: selected ?? false,
-      selectedTileColor: t.colorScheme.inversePrimary,
+      onPress: onPress,
+      onLongPress: onLongPress,
     );
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// EDIT CONTACT
+// ═══════════════════════════════════════════════════════════
 
 class ContactEditPage extends StatefulWidget {
   final int id;
@@ -180,30 +419,134 @@ class _ContactEditState extends State<ContactEditPage> {
   }
 
   @override
+  void dispose() {
+    nameController.dispose();
+    addressController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-        appBar: AppBar(
-          title: Text(s.editContact),
-          actions: [IconButton(onPressed: _save, icon: Icon(Icons.check))],
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+        backgroundColor: ZipherColors.bg,
+        elevation: 0,
+        title: Text(
+          'EDIT CONTACT',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.5,
+            color: ZipherColors.text60,
+          ),
         ),
-        body: SingleChildScrollView(
-            child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: FormBuilder(
-                    key: formKey,
-                    child: Column(children: [
-                      FormBuilderTextField(
-                          name: 'name',
-                          decoration: InputDecoration(label: Text(s.name)),
-                          controller: nameController),
-                      FormBuilderTextField(
-                        name: 'address',
-                        decoration: InputDecoration(label: Text(s.address)),
-                        controller: addressController,
-                        maxLines: 10,
-                      ),
-                    ])))));
+        centerTitle: true,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_rounded,
+              color: ZipherColors.text60),
+          onPressed: () => GoRouter.of(context).pop(),
+        ),
+        actions: [
+          IconButton(
+            onPressed: _save,
+            icon: Icon(Icons.check_rounded,
+                size: 22,
+                color: ZipherColors.cyan.withValues(alpha: 0.8)),
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: FormBuilder(
+          key: formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Name',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: ZipherColors.text40,
+                ),
+              ),
+              const Gap(8),
+              Container(
+                decoration: BoxDecoration(
+                  color: ZipherColors.borderSubtle,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: FormBuilderTextField(
+                  name: 'name',
+                  controller: nameController,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: ZipherColors.text90,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: s.name,
+                    hintStyle: TextStyle(
+                      fontSize: 14,
+                      color: ZipherColors.text20,
+                    ),
+                    filled: false,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    errorBorder: InputBorder.none,
+                    focusedErrorBorder: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                  ),
+                ),
+              ),
+              const Gap(20),
+              Text(
+                'Address',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: ZipherColors.text40,
+                ),
+              ),
+              const Gap(8),
+              Container(
+                decoration: BoxDecoration(
+                  color: ZipherColors.borderSubtle,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: FormBuilderTextField(
+                  name: 'address',
+                  controller: addressController,
+                  maxLines: 5,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontFamily: 'monospace',
+                    color: ZipherColors.text90,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: s.address,
+                    hintStyle: TextStyle(
+                      fontSize: 13,
+                      color: ZipherColors.text20,
+                    ),
+                    filled: false,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    errorBorder: InputBorder.none,
+                    focusedErrorBorder: InputBorder.none,
+                    contentPadding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   _save() {
@@ -213,6 +556,10 @@ class _ContactEditState extends State<ContactEditPage> {
     GoRouter.of(context).pop();
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// ADD CONTACT
+// ═══════════════════════════════════════════════════════════
 
 class ContactAddPage extends StatefulWidget {
   @override
@@ -225,46 +572,162 @@ class _ContactAddState extends State<ContactAddPage> {
   final addressController = TextEditingController();
 
   @override
+  void dispose() {
+    nameController.dispose();
+    addressController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-        appBar: AppBar(
-          title: Text(s.addContact),
-          actions: [
-            IconButton(onPressed: add, icon: Icon(Icons.add)),
-          ],
-        ),
-        body: SingleChildScrollView(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: FormBuilder(
-              key: formKey,
-              child: Column(
-                children: [
-                  FormBuilderTextField(
-                    name: 'name',
-                    decoration: InputDecoration(label: Text(s.name)),
-                    controller: nameController,
-                    validator: FormBuilderValidators.required(),
-                  ),
-                  Row(children: [
-                    Expanded(
-                        child: FormBuilderTextField(
-                      name: 'address',
-                      decoration: InputDecoration(label: Text(s.address)),
-                      controller: addressController,
-                      validator: addressValidator,
-                      minLines: 5,
-                      maxLines: 5,
-                    )),
-                    IconButton.outlined(
-                        onPressed: _qr, icon: Icon(Icons.qr_code)),
-                  ]),
-                ],
-              ),
-            ),
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+        backgroundColor: ZipherColors.bg,
+        elevation: 0,
+        title: Text(
+          'ADD CONTACT',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.5,
+            color: ZipherColors.text60,
           ),
-        ));
+        ),
+        centerTitle: true,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_rounded,
+              color: ZipherColors.text60),
+          onPressed: () => GoRouter.of(context).pop(),
+        ),
+        actions: [
+          IconButton(
+            onPressed: _add,
+            icon: Icon(Icons.check_rounded,
+                size: 22,
+                color: ZipherColors.cyan.withValues(alpha: 0.8)),
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: FormBuilder(
+          key: formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Name',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: ZipherColors.text40,
+                ),
+              ),
+              const Gap(8),
+              Container(
+                decoration: BoxDecoration(
+                  color: ZipherColors.borderSubtle,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: FormBuilderTextField(
+                  name: 'name',
+                  controller: nameController,
+                  validator: FormBuilderValidators.required(),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: ZipherColors.text90,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Contact name',
+                    hintStyle: TextStyle(
+                      fontSize: 14,
+                      color: ZipherColors.text20,
+                    ),
+                    filled: false,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    errorBorder: InputBorder.none,
+                    focusedErrorBorder: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                  ),
+                ),
+              ),
+              const Gap(20),
+              Text(
+                'Address',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: ZipherColors.text40,
+                ),
+              ),
+              const Gap(8),
+              Container(
+                decoration: BoxDecoration(
+                  color: ZipherColors.borderSubtle,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: FormBuilderTextField(
+                        name: 'address',
+                        controller: addressController,
+                        validator: addressValidator,
+                        minLines: 3,
+                        maxLines: 5,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontFamily: 'monospace',
+                          color: ZipherColors.text90,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: 'Zcash address',
+                          hintStyle: TextStyle(
+                            fontSize: 13,
+                            color: ZipherColors.text20,
+                          ),
+                          filled: false,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          errorBorder: InputBorder.none,
+                          focusedErrorBorder: InputBorder.none,
+                          contentPadding:
+                              const EdgeInsets.fromLTRB(16, 14, 8, 14),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10, right: 8),
+                      child: GestureDetector(
+                        onTap: _qr,
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: ZipherColors.cardBgElevated,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(Icons.qr_code_rounded,
+                              size: 18,
+                              color: ZipherColors.text40),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   _qr() async {
@@ -272,7 +735,7 @@ class _ContactAddState extends State<ContactAddPage> {
         await scanQRCode(context, validator: addressValidator);
   }
 
-  add() async {
+  _add() async {
     final form = formKey.currentState!;
     if (form.validate()) {
       WarpApi.storeContact(

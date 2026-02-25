@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../generated/intl/messages.dart';
 import '../../router.dart';
+import '../../zipher_theme.dart';
 import '../scan.dart';
 import '../utils.dart';
 import '../widgets.dart';
@@ -16,7 +17,9 @@ abstract class AnimatedQRScanPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+        backgroundColor: ZipherColors.bg,
         appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
           title: Text(title),
           actions: [
             IconButton(
@@ -71,7 +74,11 @@ class SignedTxPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-        appBar: AppBar(title: Text(s.signedTx), actions: [
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+          backgroundColor: ZipherColors.surface,
+          title: Text(s.signedTx),
+          actions: [
           IconButton(onPressed: () => export(context), icon: Icon(Icons.save))
         ]),
         body: AnimatedQR.init(s.signedTx, s.scanSignedTx, txBin));

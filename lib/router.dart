@@ -1,66 +1,55 @@
-import 'dart:io';
+import 'dart:ui';
 
 import 'package:showcaseview/showcaseview.dart';
-import 'package:warp_api/data_fb_generated.dart';
 
-import 'pages/accounts/swap.dart';
 import 'pages/accounts/swap/history.dart';
-import 'pages/accounts/swap/stealthex.dart';
+import 'pages/faucet.dart';
+import 'pages/swap.dart';
+import 'pages/swap_status.dart';
 import 'pages/more/cold.dart';
 import 'settings.pb.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:warp_api/warp_api.dart';
 
 import 'accounts.dart';
 import 'coin/coins.dart';
-import 'generated/intl/messages.dart';
 import 'pages/accounts/manager.dart';
-import 'pages/accounts/multipay.dart';
 import 'pages/accounts/new_import.dart';
+import 'pages/accounts/restore.dart';
 import 'pages/accounts/pay_uri.dart';
 import 'pages/accounts/rescan.dart';
 import 'pages/accounts/send.dart';
 import 'pages/accounts/submit.dart';
 import 'pages/accounts/txplan.dart';
-import 'pages/dblogin.dart';
-import 'pages/encrypt.dart';
 import 'pages/main/home.dart';
 import 'pages/more/about.dart';
 import 'pages/more/backup.dart';
 import 'pages/more/batch.dart';
-import 'pages/more/budget.dart';
-import 'pages/more/coin.dart';
 import 'pages/more/contacts.dart';
 import 'pages/more/keytool.dart';
+import 'pages/more/memos.dart';
 import 'pages/more/more.dart';
-import 'pages/more/pool.dart';
 import 'pages/more/sweep.dart';
 import 'pages/tx.dart';
-import 'pages/more/quotes.dart';
 import 'pages/scan.dart';
 import 'pages/showqr.dart';
 import 'pages/splash.dart';
 import 'pages/welcome.dart';
 import 'pages/settings.dart';
-import 'pages/messages.dart';
 import 'pages/utils.dart';
 import 'store2.dart';
+import 'zipher_theme.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _accountNavigatorKey = GlobalKey<NavigatorState>();
 
 final helpRouteMap = {
   "/account": "/accounts",
-  "/account/multi_pay": "/multipay",
-  "/account/multi_pay/new": "/multipay",
   "/txplan": "/transacting/report",
   "/submit_tx": "/transacting/report#transaction-sent",
   "/broadcast_tx": "/transacting/report#transaction-sent",
-  "/messages": "/messages",
-  "/history": "/history",
-  "contacts": "/contacts",
+  "/swap": "/swap",
+  "/more/history": "/history",
 };
 
 final router = GoRouter(
@@ -84,31 +73,13 @@ final router = GoRouter(
               },
               routes: [
                 GoRoute(
-                    path: 'multi_pay',
-                    builder: (context, state) => MultiPayPage(),
-                    routes: [
-                      GoRoute(
-                          path: 'new',
-                          builder: (context, state) =>
-                              QuickSendPage(single: false)),
-                    ]),
-                GoRoute(
                   path: 'swap',
-                  builder: (context, state) => SwapPage(),
+                  builder: (context, state) => NearSwapPage(),
                   routes: [
                     GoRoute(
                       path: 'history',
                       builder: (context, state) => SwapHistoryPage(),
                     ),
-                    GoRoute(
-                        path: 'stealthex',
-                        builder: (context, state) => StealthExPage(),
-                        routes: [
-                          GoRoute(
-                              path: 'details',
-                              builder: (context, state) =>
-                                  StealthExSummaryPage(state.extra as SwapT)),
-                        ]),
                   ],
                 ),
                 GoRoute(
@@ -117,6 +88,7 @@ final router = GoRouter(
                     state.extra as String,
                     tab: state.uri.queryParameters['tab']!,
                     signOnly: state.uri.queryParameters['sign'] != null,
+                    isShield: state.uri.queryParameters['shield'] != null,
                   ),
                 ),
                 GoRoute(
@@ -171,50 +143,32 @@ final router = GoRouter(
         StatefulShellBranch(
           routes: [
             GoRoute(
-                path: '/messages',
-                builder: (context, state) => MessagePage(),
+                path: '/swap',
+                builder: (context, state) => ValueListenableBuilder<bool>(
+                  valueListenable: testnetNotifier,
+                  builder: (_, isTest, __) =>
+                      isTest ? FaucetPage() : NearSwapPage(),
+                ),
                 routes: [
                   GoRoute(
-                      path: 'details',
-                      builder: (context, state) => MessageItemPage(
-                          int.parse(state.uri.queryParameters["index"]!))),
-                ]),
-          ],
-        ),
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
-                path: '/history',
-                builder: (context, state) => TxPage(),
-                routes: [
-                  GoRoute(
-                      path: 'details',
-                      builder: (context, state) => TransactionPage(
-                          int.parse(state.uri.queryParameters["index"]!))),
-                ]),
-          ],
-        ),
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
-                path: '/contacts',
-                builder: (context, state) => ContactsPage(main: true),
-                routes: [
-                  GoRoute(
-                    path: 'add',
-                    builder: (context, state) => ContactAddPage(),
+                    path: 'status',
+                    builder: (context, state) {
+                      final extra = state.extra;
+                      if (extra is String) {
+                        return SwapStatusPage(depositAddress: extra);
+                      }
+                      final map = extra as Map<String, dynamic>;
+                      return SwapStatusPage(
+                        depositAddress: map['depositAddress'] as String,
+                        fromCurrency: map['fromCurrency'] as String?,
+                        fromAmount: map['fromAmount'] as String?,
+                        toCurrency: map['toCurrency'] as String?,
+                        toAmount: map['toAmount'] as String?,
+                      );
+                    },
                   ),
-                  GoRoute(
-                    path: 'edit',
-                    builder: (context, state) => ContactEditPage(
-                        int.parse(state.uri.queryParameters['id']!)),
-                  ),
-                  GoRoute(
-                    path: 'submit_tx',
-                    builder: (context, state) =>
-                        SubmitTxPage(txPlan: state.extra as String),
-                  ),
-                ]),
+                ],
+            ),
           ],
         ),
         StatefulShellBranch(
@@ -257,10 +211,6 @@ final router = GoRouter(
                     builder: (context, state) => BatchBackupPage(),
                   ),
                   GoRoute(
-                    path: 'coins',
-                    builder: (context, state) => CoinControlPage(),
-                  ),
-                  GoRoute(
                     path: 'backup',
                     builder: (context, state) => BackupPage(),
                     routes: [
@@ -279,18 +229,6 @@ final router = GoRouter(
                     builder: (context, state) => RewindPage(),
                   ),
                   GoRoute(
-                    path: 'budget',
-                    builder: (context, state) => BudgetPage(),
-                  ),
-                  GoRoute(
-                    path: 'market',
-                    builder: (context, state) => MarketQuotes(),
-                  ),
-                  GoRoute(
-                    path: 'transfer',
-                    builder: (context, state) => PoolTransferPage(),
-                  ),
-                  GoRoute(
                     path: 'keytool',
                     builder: (context, state) => KeyToolPage(),
                   ),
@@ -307,24 +245,54 @@ final router = GoRouter(
                     builder: (context, state) =>
                         SubmitTxPage(txPlan: state.extra as String),
                   ),
+                  GoRoute(
+                    path: 'memos',
+                    builder: (context, state) => const MemoInboxPage(),
+                  ),
+                  GoRoute(
+                    path: 'history',
+                    builder: (context, state) => TxPage(),
+                    routes: [
+                      GoRoute(
+                        path: 'details',
+                        builder: (context, state) => TransactionPage(
+                            int.parse(state.uri.queryParameters["index"]!)),
+                      ),
+                    ],
+                  ),
+                  GoRoute(
+                    path: 'contacts',
+                    builder: (context, state) => ContactsPage(main: true),
+                    routes: [
+                      GoRoute(
+                        path: 'add',
+                        builder: (context, state) => ContactAddPage(),
+                      ),
+                      GoRoute(
+                        path: 'edit',
+                        builder: (context, state) => ContactEditPage(
+                            int.parse(state.uri.queryParameters['id']!)),
+                      ),
+                      GoRoute(
+                        path: 'submit_tx',
+                        builder: (context, state) =>
+                            SubmitTxPage(txPlan: state.extra as String),
+                      ),
+                    ],
+                  ),
                 ]),
           ],
         ),
       ],
     ),
-    GoRoute(path: '/decrypt_db', builder: (context, state) => DbLoginPage()),
-    GoRoute(path: '/disclaimer', builder: (context, state) => DisclaimerPage()),
+    GoRoute(path: '/disclaimer', builder: (context, state) {
+      final mode = (state.extra as String?) ?? 'restore';
+      return DisclaimerPage(mode: mode);
+    }),
+    GoRoute(path: '/restore', builder: (context, state) => RestoreAccountPage()),
     GoRoute(
       path: '/splash',
       builder: (context, state) => SplashPage(),
-      redirect: (context, state) {
-        final c = coins.first;
-        if (isMobile()) return null; // db encryption is only for desktop
-        if (!File(c.dbFullPath).existsSync()) return null; // fresh install
-        if (WarpApi.decryptDb(c.dbFullPath, appStore.dbPassword))
-          return null; // not encrypted
-        return '/decrypt_db';
-      },
     ),
     GoRoute(
       path: '/welcome',
@@ -350,10 +318,6 @@ final router = GoRouter(
           QuickSendSettingsPage(state.extra as CustomSendSettings),
     ),
     GoRoute(
-      path: '/encrypt_db',
-      builder: (context, state) => EncryptDbPage(),
-    ),
-    GoRoute(
       path: '/scan',
       builder: (context, state) => ScanQRCodePage(state.extra as ScanQRContext),
     ),
@@ -376,9 +340,13 @@ class ScaffoldBar extends StatefulWidget {
 }
 
 class _ScaffoldBar extends State<ScaffoldBar> {
+  int _knownCoin = aa.coin;
+  int _knownId = aa.id;
+  bool _knownTestnet = isTestnet;
+  final Set<int> _staleTabs = {};
+
   @override
   Widget build(BuildContext context) {
-    final s = S.of(context);
     final router = GoRouter.of(context);
     final RouteMatch lastMatch =
         router.routerDelegate.currentConfiguration.last;
@@ -391,39 +359,108 @@ class _ScaffoldBar extends State<ScaffoldBar> {
         canPop: location == '/account',
         onPopInvoked: _onPop,
         child: Scaffold(
-          appBar: AppBar(
-            title: Text(aa.name),
-            centerTitle: true,
-            actions: [
-              IconButton(onPressed: help, icon: Icon(Icons.help)),
-              IconButton(onPressed: settings, icon: Icon(Icons.settings)),
-            ],
+          backgroundColor: ZipherColors.bg,
+          bottomNavigationBar: ClipRect(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              child: Container(
+            decoration: BoxDecoration(
+              color: ZipherColors.bg.withValues(alpha: 0.80),
+              border: Border(
+                top: BorderSide(
+                  color: ZipherColors.borderSubtle,
+                  width: 0.5,
+                ),
+              ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: List.generate(3, (i) {
+                    final isActive = widget.shell.currentIndex == i;
+                    final icons = [
+                      Icons.home_outlined,
+                      isTestnet ? Icons.water_drop_outlined : Icons.swap_horiz_outlined,
+                      Icons.more_horiz_rounded,
+                    ];
+                    final activeIcons = [
+                      Icons.home_rounded,
+                      isTestnet ? Icons.water_drop_rounded : Icons.swap_horiz_rounded,
+                      Icons.more_horiz_rounded,
+                    ];
+                    final labels = ['Home', isTestnet ? 'Faucet' : 'Swap', 'More'];
+                    return Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          // Detect account or network change since last tap
+                          if (aa.coin != _knownCoin || aa.id != _knownId) {
+                            _knownCoin = aa.coin;
+                            _knownId = aa.id;
+                            _staleTabs.addAll([0, 1, 2]);
+                          }
+                          if (isTestnet != _knownTestnet) {
+                            _knownTestnet = isTestnet;
+                            _staleTabs.addAll([0, 1, 2]);
+                          }
+                          final isCurrentTab = i == widget.shell.currentIndex;
+                          final isStale = _staleTabs.remove(i);
+                          widget.shell.goBranch(
+                            i,
+                            initialLocation: isCurrentTab || isStale,
+                          );
+                        },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: isActive
+                                    ? ZipherColors.cyan
+                                        .withValues(alpha: 0.10)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                isActive ? activeIcons[i] : icons[i],
+                                size: 24,
+                                color: isActive
+                                    ? ZipherColors.cyan
+                                    : ZipherColors.text20,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              labels[i],
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: isActive
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                                color: isActive
+                                    ? ZipherColors.cyan
+                                    : ZipherColors.text20,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ),
           ),
-          bottomNavigationBar: BottomNavigationBar(
-            type: BottomNavigationBarType.fixed,
-            items: [
-              BottomNavigationBarItem(
-                  icon: Icon(Icons.account_balance), label: s.balance),
-              BottomNavigationBarItem(
-                  icon: Icon(Icons.message), label: s.messages),
-              BottomNavigationBarItem(
-                  icon: Icon(Icons.view_list), label: s.history),
-              BottomNavigationBarItem(
-                  icon: Icon(Icons.contacts), label: s.contacts),
-              BottomNavigationBarItem(
-                  icon: Icon(Icons.more_horiz), label: s.more),
-            ],
-            currentIndex: widget.shell.currentIndex,
-            onTap: (index) {
-              widget.shell.goBranch(index);
-            },
+          ),
           ),
           body: ShowCaseWidget(builder: (context) => widget.shell),
         ));
-  }
-
-  help() {
-    launchUrl(Uri.https('ywallet.app'));
   }
 
   settings() {
@@ -442,6 +479,14 @@ class PlaceHolderPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(appBar: AppBar(title: Text(title)), body: child);
+    return Scaffold(
+      backgroundColor: ZipherColors.bg,
+      body: Column(
+        children: [
+          ZipherWidgets.pageHeader(context, title),
+          if (child != null) Expanded(child: child!),
+        ],
+      ),
+    );
   }
 }

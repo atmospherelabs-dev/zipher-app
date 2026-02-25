@@ -262,7 +262,7 @@ class SPt extends S {
 
   @override
   String get disclaimer_2 =>
-      'Eu entendo que o YWallet não pode recuperar minha semente';
+      'Eu entendo que o Zipher não pode recuperar minha semente';
 
   @override
   String get disclaimer_3 =>
@@ -802,7 +802,7 @@ class SPt extends S {
   String get views => 'Visualizações';
 
   @override
-  String get welcomeToYwallet => 'Bem-vindo ao YWallet';
+  String get welcomeToZipher => 'Bem-vindo ao Zipher';
 
   @override
   String get wifi => 'Wi-Fi';

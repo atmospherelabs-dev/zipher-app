@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../generated/intl/messages.dart';
+import '../zipher_theme.dart';
 import 'utils.dart';
 
 class ScanQRCodePage extends StatefulWidget {
@@ -32,6 +33,7 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
   void dispose() {
     ss?.cancel();
     ss = null;
+    controller.dispose();
     super.dispose();
   }
 
@@ -39,26 +41,129 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     return Scaffold(
-        appBar: AppBar(title: Text(s.scanQrCode), actions: [
-          if (isMobile())
-            IconButton(onPressed: _open, icon: Icon(Icons.open_in_new)),
-          IconButton(onPressed: _ok, icon: Icon(Icons.check)),
-        ]),
-        body: FormBuilder(
-            key: formKey,
-            child: Column(children: [
-              Expanded(
-                child: MobileScanner(
-                  onDetect: _onScan,
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+        backgroundColor: ZipherColors.bg,
+        elevation: 0,
+        title: Text(
+          'SCAN',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.5,
+            color: ZipherColors.text60,
+          ),
+        ),
+        centerTitle: true,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_rounded,
+              color: ZipherColors.text60),
+          onPressed: () => GoRouter.of(context).pop(),
+        ),
+        actions: [
+          IconButton(
+              onPressed: _open,
+              icon: Icon(Icons.photo_library_outlined,
+                  size: 20,
+                  color: ZipherColors.text40),
+              tooltip: 'Open from gallery',
+            ),
+          IconButton(
+            onPressed: _ok,
+            icon: Icon(Icons.check_rounded,
+                size: 22,
+                color: ZipherColors.cyan.withValues(alpha: 0.8)),
+            tooltip: 'Confirm',
+          ),
+        ],
+      ),
+      body: FormBuilder(
+        key: formKey,
+        child: Column(
+          children: [
+            Expanded(
+              child: Stack(
+                children: [
+                  MobileScanner(
+                    onDetect: _onScan,
+                  ),
+                  // Viewfinder overlay
+                  Center(
+                    child: Container(
+                      width: 240,
+                      height: 240,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: ZipherColors.cyan.withValues(alpha: 0.4),
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Manual input area
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              decoration: BoxDecoration(
+                color: ZipherColors.bg,
+                border: Border(
+                  top: BorderSide(
+                    color: ZipherColors.borderSubtle,
+                  ),
                 ),
               ),
-              Gap(16),
-              FormBuilderTextField(
-                  name: 'qr',
-                  decoration: InputDecoration(label: Text(s.qr)),
-                  controller: controller,
-                  validator: widget.validator),
-            ])));
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Or paste manually',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: ZipherColors.text40,
+                    ),
+                  ),
+                  const Gap(8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: ZipherColors.cardBg,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: FormBuilderTextField(
+                      name: 'qr',
+                      controller: controller,
+                      validator: widget.validator,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: ZipherColors.text90,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: s.qr,
+                        hintStyle: TextStyle(
+                          fontSize: 14,
+                          color: ZipherColors.text20,
+                        ),
+                        filled: false,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        errorBorder: InputBorder.none,
+                        focusedErrorBorder: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 14),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   _onScan(BarcodeCapture capture) {
@@ -111,7 +216,12 @@ class _MultiQRReaderState extends State<MultiQRReader> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        LinearProgressIndicator(value: value, minHeight: 40),
+        LinearProgressIndicator(
+          value: value,
+          minHeight: 4,
+          backgroundColor: ZipherColors.cardBg,
+          valueColor: AlwaysStoppedAnimation<Color>(ZipherColors.cyan),
+        ),
         Expanded(
           child: MobileScanner(
             onDetect: _onScan,

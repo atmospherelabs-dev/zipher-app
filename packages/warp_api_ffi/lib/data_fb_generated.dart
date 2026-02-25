@@ -3796,9 +3796,11 @@ class Backup {
   String? get tsk => const fb.StringReader().vTableGetNullable(_bc, _bcOffset, 16);
   bool get saved => const fb.BoolReader().vTableGet(_bc, _bcOffset, 18, false);
 
+  // SECURITY: seed, sk, fvk, uvk, tsk intentionally excluded from toString.
+  // If flatc regenerates this file, re-apply this redaction.
   @override
   String toString() {
-    return 'Backup{name: ${name}, seed: ${seed}, index: ${index}, sk: ${sk}, fvk: ${fvk}, uvk: ${uvk}, tsk: ${tsk}, saved: ${saved}}';
+    return 'Backup{name: ${name}, index: ${index}, saved: ${saved}}';
   }
 
   BackupT unpack() => BackupT(
@@ -3863,9 +3865,11 @@ class BackupT implements fb.Packable {
     return fbBuilder.endTable();
   }
 
+  // SECURITY: seed, sk, fvk, uvk, tsk intentionally excluded from toString.
+  // If flatc regenerates this file, re-apply this redaction.
   @override
   String toString() {
-    return 'BackupT{name: ${name}, seed: ${seed}, index: ${index}, sk: ${sk}, fvk: ${fvk}, uvk: ${uvk}, tsk: ${tsk}, saved: ${saved}}';
+    return 'BackupT{name: ${name}, index: ${index}, saved: ${saved}}';
   }
 }
 

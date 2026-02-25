@@ -613,10 +613,6 @@ class WarpApi {
     return unwrapResultString(warp_api_lib.get_t_addr(coin, id));
   }
 
-  static String getSK(int coin, int id) {
-    return unwrapResultString(warp_api_lib.get_sk(coin, id));
-  }
-
   static void updateAccountName(int coin, int id, String name) {
     warp_api_lib.update_account_name(coin, id, toNative(name));
   }
@@ -799,6 +795,19 @@ class WarpApi {
         (_) => unwrapResultString(
             warp_api_lib.zip_dbs(toNative(passwd), toNative(tempDir))),
         null);
+  }
+
+  static void loadKeysFromSeed(int coin, int account, String seed, int index) {
+    unwrapResultU8(
+        warp_api_lib.load_keys_from_seed(coin, account, toNative(seed), index));
+  }
+
+  static void clearAccountSecrets(int coin, int account) {
+    unwrapResultU8(warp_api_lib.clear_account_secrets(coin, account));
+  }
+
+  static void wipeKeyCache() {
+    unwrapResultU8(warp_api_lib.wipe_key_cache());
   }
 }
 

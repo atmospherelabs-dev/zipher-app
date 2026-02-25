@@ -7,62 +7,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:warp_api/warp_api.dart';
-import 'package:window_manager/window_manager.dart';
-import 'package:flex_color_scheme/flex_color_scheme.dart';
 
 import 'coin/coins.dart';
 import 'generated/intl/messages.dart';
 import 'main.dart';
+import 'pages/splash.dart';
 import 'pages/utils.dart';
 import 'router.dart';
+import 'sent_memos_db.dart';
+import 'zipher_theme.dart';
 
 Future<void> initCoins() async {
   final dbPath = await getDbPath();
   Directory(dbPath).createSync(recursive: true);
-  for (var coin in coins) {
-    coin.init(dbPath);
-  }
-}
-
-Future<void> restoreWindow() async {
-  if (isMobile()) return;
-  await windowManager.ensureInitialized();
-
-  final prefs = await SharedPreferences.getInstance();
-  final width = prefs.getDouble('width');
-  final height = prefs.getDouble('height');
-  final size = width != null && height != null ? Size(width, height) : null;
-  WindowOptions windowOptions = WindowOptions(
-    center: true,
-    size: size,
-    backgroundColor: Colors.transparent,
-    skipTaskbar: false,
-    titleBarStyle:
-        Platform.isMacOS ? TitleBarStyle.hidden : TitleBarStyle.normal,
-  );
-  windowManager.waitUntilReadyToShow(windowOptions, () async {
-    await windowManager.show();
-    await windowManager.focus();
-  });
-  windowManager.addListener(_OnWindow());
-}
-
-class _OnWindow extends WindowListener {
-  @override
-  void onWindowResized() async {
-    final s = await windowManager.getSize();
-    final prefs = await SharedPreferences.getInstance();
-    prefs.setDouble('width', s.width);
-    prefs.setDouble('height', s.height);
-  }
-
-  @override
-  void onWindowClose() async {
-    logger.d('Shutdown');
-    WarpApi.cancelSync();
-  }
+  // Only initialize the active coin (mainnet or testnet)
+  activeCoin.init(dbPath);
+  // Initialize the app-level DB and migrate any old SharedPreferences data
+  await SentMemosDb.database;
+  await SentMemosDb.migrateFromSharedPrefs();
 }
 
 void initNotifications() {
@@ -73,8 +36,8 @@ void initNotifications() {
           channelKey: APP_NAME,
           channelName: APP_NAME,
           channelDescription: 'Notification channel for $APP_NAME',
-          defaultColor: Color(0xFFB3F0FF),
-          ledColor: Colors.white,
+          defaultColor: ZipherColors.cyan,
+          ledColor: ZipherColors.cyan,
         )
       ],
       debug: false);
@@ -85,22 +48,38 @@ class App extends StatefulWidget {
   State<StatefulWidget> createState() => _AppState();
 }
 
-class _AppState extends State<App> {
+class _AppState extends State<App> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      // Wipe in-memory key cache on app termination
+      try {
+        WarpApi.wipeKeyCache();
+      } catch (_) {}
+    } else if (state == AppLifecycleState.resumed) {
+      // Re-derive spending keys when app comes back to foreground
+      reloadKeysFromKeychain();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Observer(builder: (context) {
       aaSequence.settingsSeqno;
-      final scheme = FlexScheme.values.byName(appSettings.palette.name);
-      final baseTheme = appSettings.palette.dark ? FlexThemeData.dark(scheme: scheme)
-      : FlexThemeData.light(scheme: scheme);
-      final theme = baseTheme.copyWith(
-        useMaterial3: true,
-        dataTableTheme: DataTableThemeData(
-          headingRowColor: MaterialStateColor.resolveWith(
-            (_) => baseTheme.highlightColor,
-          ),
-        ),
-      );
+      // Use Zipher dark theme by default
+      final theme = ZipherTheme.dark;
       return MaterialApp.router(
         locale: Locale(appSettings.language),
         title: APP_NAME,

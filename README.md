@@ -1,76 +1,44 @@
-# YWallet
+# Zipher
 
-> The fastest, most advanced, shielded wallet for Zcash
+> A privacy-first Zcash wallet by [Cipherscan](https://cipherscan.app)
 
-## Main Features
+Zipher is a fast, shielded Zcash wallet built for simplicity and privacy. It is a fork of [YWallet](https://github.com/nickyee/ywallet) by Hanh Huynh Huu, with a redesigned UI, streamlined features, and tighter integration with the Cipherscan block explorer.
 
-- Warp Sync: **PROCESSES ~10 000 BLOCKS PER SECOND** (1) 
-- **Transparent** and **Shielded** Address support (2)
-- Scalable Design: Supports **hundreds of thousands of transactions and received notes**
-- **Low Requirements**: Android 7.0+, 2 GB of RAM
+## Features
 
-## Other Features
+- **Warp Sync** — processes ~10,000 blocks per second
+- **Encrypted Messaging** — send private memos via shielded transactions, permanently stored on chain
+- **Shielded by Default** — fully private transactions with automatic shielding
+- **Multi-Account** — manage multiple wallets from a single app
+- **Privacy Health Bar** — see your privacy status at a glance
+- **Contact Book** — save addresses and message contacts directly
+- **Coin Control** — view and manage individual notes
+- **Cold Wallet** — prepare unsigned transactions for offline signing
+- **Fiat Conversion** — display balances in 70+ currencies
+- **QR Scanner** — scan addresses and payment URIs
 
-- *Multi-account*
-- *Watch only account* from **viewing key**
-- Import seed phrase (**ZIP 32 compliant**) or secret key (**Zcashd standard**)
-- One touch transparent account shielding
-- **Automatic shielding** above configurable threshold
-- Transparent Shielding in Payments 
-- Snap (i.e. **diversified**) addresses 
-- Show equivalent in **Fiat currencies** (USD, EUR, JPY, RMB, etc.)
-- Display and select notes (**Coin Control**)
-- Specify spending amount in Fiat or ZEC
-- Prepare **UNSIGNED transactions** for cold storage spending
-- **Broadcast raw transactions**
-- **Multiple recipient** payments
-- *Transaction History*
-- **Memo**
-- *Auto Split Notes*
-- Account *Balance History*
-- Largest Past *Payees Chart*
-- **Wallet P/L Charts and Reports**
-- *Contact Address Book*
-- **Color and Dark/Light Themes**
-- Customizable anchor offset
-- **QR code scanner support**
-- **Localization** in English, Spanish, French, Chinese, (more to come)
-- *Fluent and Responsive UI*
+## Privacy
 
-# Privacy Features
-
-- No data upload
-- **All information recoverable from seed phrase or secret key**
+- No data collection, no analytics, no tracking
+- All data recoverable from seed phrase or secret key
 - Customizable `lightwalletd` server URL
+- Shielded pool used by default for all operations
 
-(1): Tested on OnePlus 7T - Snapdragon 855+
-(2): Primary Shielded - Transparent Balance cannot be directly spent
+## Built With
 
-# Top 10 Features
+- [Flutter](https://flutter.dev) — cross-platform UI
+- [Warp Sync Engine](https://github.com/nickyee/ywallet) — Rust-based sync by Hanh Huynh Huu
+- [librustzcash](https://github.com/zcash/librustzcash) — Zcash protocol libraries
 
-## 10. Themes and custom server
-The app comes with several themes both in dark and light mode. And it lets you customize your own theme.
-If you run your own instance of lightwalletd, you can connect to it specifically.
+## Requirements
 
-## 9. Multi Pay
-I have used this feature only a few times but when I did, it was a huge time saver.
-If you need to pay several people, you can make a single transaction with several recipients. Without multi-pay, you’d have to wait for confirmations once you run out of spare notes.
+- iOS 16.4+
+- Android 7.0+ / 2 GB RAM
 
-## 8. Launcher Integration
-The wallet has launcher shortcuts for sending and receiving when you press on the app icon. On iOS, if you scan a payment URI, it will offer to open the wallet and jump to the “send” page.
+## Credits
 
-## 7. Contacts
-I created contacts for my most commonly used addresses. They are saved on the blockchain in a private memo and therefore will never be lost.
-## 6. Control of Send and Received Notes
-The app shows you the individual notes that you received and you can choose to exclude some of them from spending. Moreover, when you make a payment you can split a large note into smaller ones in order to give more notes to your recipient.
-## 5. Your balance is shown in detail
-The “send” page has a breakdown of your balance. It shows the amount that hasn’t received enough confirmations yet, the balance you excluded from spending, the amount in your transparent address, etc. If you choose to, you can spend under confirmed notes or your transparent balance but it won’t be done by default since it may hurt your privacy.
-There is no “why can’t I use my money” surprise.
-## 4. Price Chart and Wallet P/L
-I often want to quickly check the market price of ZEC vs fiat. The home page shows the current market price and the valuation of the account in fiat. If I want to look at the history, I swipe to the Price Chart. The app offers ~70 different reference currencies both in fiat and crypto.
-## 3. Multi Account
-The wallet can hold several accounts with different seeds, secret keys, or viewing keys. This allows me to have an account per type of fund. For instance, one of the accounts is watch-only and has all the functionalities of a regular account except direct spending.
-## 2. Cold Wallet
-Speaking of watch-only accounts, it is possible to spend from them using the companion tool. After confirming the transfer, the wallet creates an unsigned transaction file. I transfer it by USB OTG and sign it on my offline laptop. Finally, I bring it back to YWallet for broadcasting.
-## 1. Sync speed
-Finally, the wallet is currently the fastest by far and scales well to large accounts with thousands of notes and transactions. Also, it starts quickly and synchronizes in seconds. I don’t have to think about keeping it in sync.
+Zipher is built on top of YWallet's Warp sync engine and Rust backend, created by **Hanh Huynh Huu**. The original project is licensed under MIT and we are grateful for his incredible work on making Zcash wallets fast and accessible.
+
+## License
+
+[MIT](LICENSE.md) — Original copyright Hanh Huynh Huu, 2023
