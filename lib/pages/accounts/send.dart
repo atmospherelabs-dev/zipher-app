@@ -17,6 +17,7 @@ import '../../zipher_theme.dart';
 import '../scan.dart';
 import '../utils.dart';
 import '../widgets.dart';
+import 'split.dart';
 
 class SendContext {
   final String address;
@@ -710,6 +711,17 @@ style: TextStyle(
 
   void _onAddress(String? v) {
     if (v == null) return;
+    // Detect multi-output ZIP-321 URI and redirect to Split page
+    if (isMultiOutputUri(v)) {
+      final payments = parseZip321Uri(v);
+      if (payments != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          GoRouter.of(context)
+              .pushReplacement('/account/split', extra: payments);
+        });
+        return;
+      }
+    }
     final puri = WarpApi.decodePaymentURI(aa.coin, v);
     if (puri != null) {
       final sc = SendContext(puri.address!, _pools, Amount(puri.amount, false),

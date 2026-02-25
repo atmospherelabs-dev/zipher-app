@@ -19,6 +19,7 @@ import 'pages/accounts/restore.dart';
 import 'pages/accounts/pay_uri.dart';
 import 'pages/accounts/rescan.dart';
 import 'pages/accounts/send.dart';
+import 'pages/accounts/split.dart';
 import 'pages/accounts/submit.dart';
 import 'pages/accounts/txplan.dart';
 import 'pages/main/home.dart';
@@ -135,6 +136,12 @@ final router = GoRouter(
                 GoRoute(
                   path: 'pay_uri',
                   builder: (context, state) => PaymentURIPage(),
+                ),
+                GoRoute(
+                  path: 'split',
+                  builder: (context, state) => SplitBillPage(
+                    prefilled: state.extra as List<Zip321Payment>?,
+                  ),
                 ),
               ],
             ),

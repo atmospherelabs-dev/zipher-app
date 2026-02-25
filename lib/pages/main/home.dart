@@ -17,6 +17,7 @@ import '../../coin/coins.dart';
 import '../../zipher_theme.dart';
 import '../../services/near_intents.dart';
 import '../accounts/send.dart';
+import '../accounts/split.dart';
 import '../scan.dart';
 import '../tx.dart' show getShieldAmount;
 import '../utils.dart';
@@ -320,6 +321,15 @@ class _HomeState extends State<HomePageInner> {
                             GoRouter.of(context).push(
                               '/scan',
                               extra: ScanQRContext((code) {
+                                // Check for multi-output ZIP-321 URI (e.g. CipherPay invoice)
+                                final multiPayments = parseZip321Uri(code);
+                                if (multiPayments != null && multiPayments.length > 1) {
+                                  GoRouter.of(context).push(
+                                    '/account/split',
+                                    extra: multiPayments,
+                                  );
+                                  return true;
+                                }
                                 try {
                                   final sc = SendContext.fromPaymentURI(code);
                                   GoRouter.of(context).push(
@@ -490,12 +500,20 @@ class _HomeState extends State<HomePageInner> {
                                 .push('/account/pay_uri'),
                           ),
                         ),
-                        const Gap(12),
+                        const Gap(10),
                         Expanded(
                           child: _ActionButton(
                             icon: Icons.send_rounded,
                             label: 'Send',
                             onTap: () => _send(false),
+                          ),
+                        ),
+                        const Gap(10),
+                        Expanded(
+                          child: _ActionButton(
+                            icon: Icons.call_split_rounded,
+                            label: 'Split',
+                            onTap: () => _splitBill(),
                           ),
                         ),
                       ],
@@ -630,6 +648,14 @@ class _HomeState extends State<HomePageInner> {
     }
     final c = custom ? 1 : 0;
     GoRouter.of(context).push('/account/quick_send?custom=$c');
+  }
+
+  void _splitBill() async {
+    if (appSettings.protectSend) {
+      final authed = await authBarrier(context, dismissable: true);
+      if (!authed) return;
+    }
+    GoRouter.of(context).push('/account/split');
   }
 
   void _backup() {
