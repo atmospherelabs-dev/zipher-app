@@ -50,7 +50,7 @@ bool shieldPending = false;
 class _SwapEntry {
   final StoredSwap swap;
   NearSwapStatus? status;
-  _SwapEntry(this.swap, [this.status]);
+  _SwapEntry(this.swap);
 }
 
 class _HomeState extends State<HomePageInner> {
@@ -254,7 +254,7 @@ class _HomeState extends State<HomePageInner> {
                             '• TAZ have no real value',
                             style: TextStyle(
                               fontSize: 10,
-                              color: ZipherColors.orange.withValues(alpha: 0.6),
+                              color: ZipherColors.orange.withValues(alpha: 0.9),
                             ),
                           ),
                         ],
@@ -452,7 +452,7 @@ class _HomeState extends State<HomePageInner> {
                               'Tap to reveal',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: ZipherColors.text20,
+                                color: ZipherColors.text40,
                               ),
                             ),
                           ],
@@ -626,7 +626,7 @@ class _HomeState extends State<HomePageInner> {
             ),
             Icon(Icons.chevron_right_rounded,
                 size: 18,
-                color: ZipherColors.orange.withValues(alpha: 0.5)),
+                color: ZipherColors.orange.withValues(alpha: 0.7)),
           ],
         ),
       ),
@@ -739,9 +739,7 @@ class _BalanceBreakdown extends StatelessWidget {
                     Icon(
                       Icons.shield_rounded,
                       size: 15,
-                      color: isFullyShielded
-                          ? ZipherColors.purple.withValues(alpha: 0.7)
-                          : ZipherColors.purple.withValues(alpha: 0.5),
+                      color: ZipherColors.purple.withValues(alpha: 0.85),
                     ),
                     const Gap(8),
                     Text(
@@ -758,7 +756,7 @@ class _BalanceBreakdown extends StatelessWidget {
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: isFullyShielded
-                            ? ZipherColors.purple.withValues(alpha: 0.7)
+                            ? ZipherColors.purple
                             : ZipherColors.text60,
                       ),
                     ),
@@ -780,7 +778,7 @@ class _BalanceBreakdown extends StatelessWidget {
                       Icon(
                         Icons.visibility_outlined,
                         size: 15,
-                        color: ZipherColors.orange.withValues(alpha: 0.6),
+                        color: ZipherColors.orange.withValues(alpha: 0.8),
                       ),
                       const Gap(8),
                       Text(
@@ -797,8 +795,7 @@ class _BalanceBreakdown extends StatelessWidget {
                           height: 12,
                           child: CircularProgressIndicator(
                             strokeWidth: 1.5,
-                            color:
-                                ZipherColors.purple.withValues(alpha: 0.5),
+                            color: ZipherColors.purple,
                           ),
                         ),
                         const Gap(8),
@@ -807,8 +804,7 @@ class _BalanceBreakdown extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
-                            color: ZipherColors.purple
-                                .withValues(alpha: 0.6),
+                            color: ZipherColors.purple,
                           ),
                         ),
                       ] else ...[
@@ -867,7 +863,7 @@ class _BalanceBreakdown extends StatelessWidget {
                           Icons.check_circle_outline_rounded,
                           size: 13,
                           color:
-                              ZipherColors.purple.withValues(alpha: 0.45),
+                              ZipherColors.purple.withValues(alpha: 0.85),
                         ),
                         const Gap(6),
                         Text(
@@ -875,8 +871,7 @@ class _BalanceBreakdown extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
-                            color: ZipherColors.purple
-                                .withValues(alpha: 0.45),
+                            color: ZipherColors.text40,
                           ),
                         ),
                       ],
@@ -1117,7 +1112,7 @@ class _TxRowState extends State<_TxRow> {
         : isSwapDeposit
             ? ZipherColors.cyan.withValues(alpha: 0.8)
             : isShielding
-                ? ZipherColors.purple.withValues(alpha: 0.7)
+                ? ZipherColors.purple
                 : ZipherColors.text60;
 
     // Fiat
@@ -1192,9 +1187,9 @@ class _TxRowState extends State<_TxRow> {
                     color: isSwapDeposit
                         ? ZipherColors.cyan.withValues(alpha: 0.7)
                         : isShielding
-                            ? ZipherColors.purple.withValues(alpha: 0.6)
+                            ? ZipherColors.purple.withValues(alpha: 0.85)
                             : isMessage
-                                ? ZipherColors.purple.withValues(alpha: 0.5)
+                                ? ZipherColors.purple.withValues(alpha: 0.85)
                                 : ZipherColors.text40,
                   ),
                 ),
@@ -1230,7 +1225,7 @@ class _TxRowState extends State<_TxRow> {
                             ),
                             const Gap(5),
                             Text(
-                              swapStatusLabel!,
+                              swapStatusLabel,
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
@@ -1238,7 +1233,7 @@ class _TxRowState extends State<_TxRow> {
                                     ? ZipherColors.green.withValues(alpha: 0.7)
                                     : (swapStatus?.isFailed == true || swapStatus?.isRefunded == true)
                                         ? ZipherColors.red.withValues(alpha: 0.7)
-                                        : ZipherColors.orange.withValues(alpha: 0.7),
+                                        : ZipherColors.orange.withValues(alpha: 0.9),
                               ),
                             ),
                             const Gap(6),
@@ -1246,7 +1241,7 @@ class _TxRowState extends State<_TxRow> {
                               timeStr,
                               style: TextStyle(
                                 fontSize: 11,
-                                color: ZipherColors.text20,
+                                color: ZipherColors.text40,
                               ),
                             ),
                           ],
@@ -1256,7 +1251,7 @@ class _TxRowState extends State<_TxRow> {
                           timeStr,
                           style: TextStyle(
                             fontSize: 12,
-                            color: ZipherColors.text20,
+                            color: ZipherColors.text40,
                           ),
                         ),
                     ],
@@ -1282,7 +1277,7 @@ class _TxRowState extends State<_TxRow> {
                         fiat,
                         style: TextStyle(
                           fontSize: 11,
-                          color: ZipherColors.text20,
+                          color: ZipherColors.text40,
                         ),
                       ),
                     ],
@@ -1329,7 +1324,6 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final s = S.of(context);
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.6,
@@ -1387,14 +1381,14 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                       children: [
                         Icon(Icons.add_rounded,
                             size: 14,
-                            color: ZipherColors.cyan.withValues(alpha: 0.6)),
+                            color: ZipherColors.cyan.withValues(alpha: 0.7)),
                         const Gap(5),
                         Text(
                           'Add',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
-                            color: ZipherColors.cyan.withValues(alpha: 0.6),
+                            color: ZipherColors.cyan.withValues(alpha: 0.7),
                           ),
                         ),
                       ],
@@ -1574,7 +1568,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
               'Long press to rename or delete',
               style: TextStyle(
                 fontSize: 10,
-                color: ZipherColors.text10,
+                color: ZipherColors.text40,
               ),
             ),
           ),

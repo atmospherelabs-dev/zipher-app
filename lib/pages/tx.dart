@@ -10,7 +10,6 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../accounts.dart';
@@ -143,14 +142,15 @@ Color _privacyColor(_TxPrivacy p) {
   }
 }
 
-IconData _privacyIcon(_TxPrivacy p) {
+/// WCAG-compliant text color for privacy labels.
+Color _privacyTextColor(_TxPrivacy p) {
   switch (p) {
     case _TxPrivacy.private:
-      return Icons.shield_rounded;
+      return ZipherColors.purple;
     case _TxPrivacy.transparent:
-      return Icons.visibility_outlined;
+      return ZipherColors.cyan.withValues(alpha: 0.7);
     case _TxPrivacy.mixed:
-      return Icons.swap_vert_rounded;
+      return ZipherColors.orange.withValues(alpha: 0.9);
   }
 }
 
@@ -217,7 +217,7 @@ class TxPage extends StatefulWidget {
 class _TxSwapEntry {
   final StoredSwap swap;
   NearSwapStatus? status;
-  _TxSwapEntry(this.swap, [this.status]);
+  _TxSwapEntry(this.swap);
 }
 
 class TxPageState extends State<TxPage> {
@@ -483,7 +483,7 @@ class _EmptyActivity extends StatelessWidget {
               'Your transactions will appear here',
               style: TextStyle(
                 fontSize: 13,
-                color: ZipherColors.text20,
+                color: ZipherColors.text40,
               ),
             ),
           ],
@@ -591,7 +591,7 @@ class _TxRowState extends State<_TxRow> {
         : isSwapDeposit
             ? ZipherColors.cyan.withValues(alpha: 0.8)
             : isShielding
-                ? ZipherColors.purple.withValues(alpha: 0.7)
+                ? ZipherColors.purple
                 : ZipherColors.red;
 
     final fiatValue = isShielding && shieldedAmount != null
@@ -682,7 +682,7 @@ class _TxRowState extends State<_TxRow> {
                           color: isSwapDeposit
                               ? ZipherColors.cyan.withValues(alpha: 0.7)
                               : (isShielding || isMessage)
-                                  ? ZipherColors.purple.withValues(alpha: 0.7)
+                                  ? ZipherColors.purple.withValues(alpha: 0.85)
                                   : ZipherColors.text60,
                         ),
                         const Gap(3),
@@ -694,7 +694,7 @@ class _TxRowState extends State<_TxRow> {
                             color: isSwapDeposit
                                 ? ZipherColors.cyan.withValues(alpha: 0.7)
                                 : (isShielding || isMessage)
-                                    ? ZipherColors.purple.withValues(alpha: 0.7)
+                                    ? ZipherColors.purple
                                     : ZipherColors.text60,
                           ),
                         ),
@@ -729,7 +729,7 @@ class _TxRowState extends State<_TxRow> {
                           ),
                           const Gap(4),
                           Text(
-                            swapStatusLabel!,
+                            swapStatusLabel,
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
@@ -737,7 +737,7 @@ class _TxRowState extends State<_TxRow> {
                                   ? ZipherColors.green.withValues(alpha: 0.8)
                                   : (swapStatus?.isFailed == true || swapStatus?.isRefunded == true)
                                       ? ZipherColors.red.withValues(alpha: 0.8)
-                                      : ZipherColors.orange.withValues(alpha: 0.8),
+                                      : ZipherColors.orange.withValues(alpha: 0.9),
                             ),
                           ),
                         ],
@@ -749,7 +749,7 @@ class _TxRowState extends State<_TxRow> {
                     dateStr,
                     style: TextStyle(
                       fontSize: 11,
-                      color: ZipherColors.text20,
+                      color: ZipherColors.text40,
                     ),
                   ),
                 ],
@@ -819,8 +819,7 @@ class _TxRowState extends State<_TxRow> {
                                       ? TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w500,
-                                          color: _privacyColor(privacy)
-                                              .withValues(alpha: 0.6),
+                                          color: _privacyTextColor(privacy),
                                         )
                                       : mutedStyle,
                                 ),
@@ -849,7 +848,7 @@ class _TxRowState extends State<_TxRow> {
                           fiat,
                           style: TextStyle(
                             fontSize: 12,
-                            color: ZipherColors.text20,
+                            color: ZipherColors.text40,
                           ),
                         ),
                       ],
@@ -1225,7 +1224,7 @@ class TransactionState extends State<TransactionPage> {
                   fontSize: 13,
                   color: tx.confirmations! >= 10
                       ? ZipherColors.green.withValues(alpha: 0.8)
-                      : ZipherColors.orange.withValues(alpha: 0.8),
+                      : ZipherColors.orange.withValues(alpha: 0.9),
                 ),
               ),
             ),
@@ -1249,7 +1248,7 @@ class TransactionState extends State<TransactionPage> {
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
-                            color: ZipherColors.purple.withValues(alpha: 0.8),
+                            color: ZipherColors.purple,
                           ),
                         )
                       : isShieldedReceive
@@ -1258,7 +1257,7 @@ class TransactionState extends State<TransactionPage> {
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
-                            color: ZipherColors.purple.withValues(alpha: 0.8),
+                            color: ZipherColors.purple,
                           ),
                         )
                       : Row(
@@ -1378,7 +1377,7 @@ class TransactionState extends State<TransactionPage> {
               style: TextStyle(
                 fontSize: 11,
                 fontFamily: 'monospace',
-                color: ZipherColors.text20,
+                color: ZipherColors.text40,
               ),
             ),
             const Gap(4),
@@ -1513,7 +1512,7 @@ class _InvoiceCard extends StatelessWidget {
             ),
             child: Icon(Icons.receipt_outlined,
                 size: 15,
-                color: ZipherColors.purple.withValues(alpha: 0.8)),
+                color: ZipherColors.purple.withValues(alpha: 0.85)),
           ),
           const Gap(10),
           Expanded(
@@ -1527,7 +1526,7 @@ class _InvoiceCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: ZipherColors.purple.withValues(alpha: 0.7),
+                        color: ZipherColors.purple,
                       ),
                     ),
                     const Gap(6),
@@ -1544,8 +1543,7 @@ class _InvoiceCard extends StatelessWidget {
                           fontSize: 10,
                           fontWeight: FontWeight.w500,
                           fontFamily: 'monospace',
-                          color: ZipherColors.purple
-                              .withValues(alpha: 0.6),
+                          color: ZipherColors.purple,
                         ),
                       ),
                     ),

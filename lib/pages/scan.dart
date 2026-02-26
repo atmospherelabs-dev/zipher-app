@@ -144,7 +144,7 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
                         hintText: s.qr,
                         hintStyle: TextStyle(
                           fontSize: 14,
-                          color: ZipherColors.text20,
+                          color: ZipherColors.text40,
                         ),
                         filled: false,
                         border: InputBorder.none,

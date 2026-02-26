@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:zipher/main.dart' hide ZECUNIT;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
@@ -16,7 +15,6 @@ import '../../store2.dart';
 import '../../zipher_theme.dart';
 import '../scan.dart';
 import '../utils.dart';
-import '../widgets.dart';
 import 'split.dart';
 
 class SendContext {
@@ -384,7 +382,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: ZipherColors.cyan.withValues(alpha: 0.6),
+                    color: ZipherColors.cyan.withValues(alpha: 0.7),
                   ),
                 ),
               ),
@@ -486,7 +484,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                 'Transparent address — memos not available',
                 style: TextStyle(
                   fontSize: 13,
-                  color: ZipherColors.text20,
+                  color: ZipherColors.text40,
                 ),
               ),
             ),
@@ -528,7 +526,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                   hintText: 'Write encrypted message here...',
                   hintStyle: TextStyle(
                     fontSize: 14,
-                    color: ZipherColors.text20,
+                    color: ZipherColors.text40,
                   ),
                   filled: false,
                   border: InputBorder.none,
@@ -549,7 +547,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                       fontSize: 11,
                       color: _memoText.length > (_includeReplyTo ? MAX_MESSAGE_CHARS_WITH_REPLY : MAX_MESSAGE_CHARS_NO_REPLY) - 1
                           ? ZipherColors.red.withValues(alpha: 0.7)
-                          : ZipherColors.text20,
+                          : ZipherColors.text40,
                     ),
                   ),
                 ),
@@ -573,7 +571,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                       : Icons.reply_rounded,
                   size: 14,
                   color: _includeReplyTo
-                      ? ZipherColors.purple.withValues(alpha: 0.5)
+                      ? ZipherColors.purple.withValues(alpha: 0.85)
                       : ZipherColors.text20,
                 ),
                 const Gap(8),
@@ -582,12 +580,12 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                     _includeReplyTo
                         ? 'Reply address included'
                         : 'Reply address hidden',
-style: TextStyle(
-                          fontSize: 12,
-                          color: _includeReplyTo
-                          ? ZipherColors.purple.withValues(alpha: 0.5)
-                          : ZipherColors.text20,
-                        ),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _includeReplyTo
+                          ? ZipherColors.purple
+                          : ZipherColors.text40,
+                    ),
                   ),
                 ),
                 Container(
@@ -637,7 +635,7 @@ style: TextStyle(
                     Icon(
                       Icons.info_outline_rounded,
                       size: 12,
-                      color: Colors.orangeAccent.withValues(alpha: 0.6),
+                      color: ZipherColors.orange.withValues(alpha: 0.7),
                     ),
                     const Gap(6),
                     Expanded(
@@ -645,7 +643,7 @@ style: TextStyle(
                         'Recipient won\'t know this is from you',
                         style: TextStyle(
                           fontSize: 10,
-                          color: Colors.orangeAccent.withValues(alpha: 0.5),
+                          color: ZipherColors.orange.withValues(alpha: 0.9),
                         ),
                       ),
                     ),

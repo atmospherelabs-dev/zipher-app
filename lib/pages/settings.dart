@@ -191,7 +191,7 @@ class _SettingsState extends State<SettingsPage> {
                     hintText: 'e.g. Sent from Zipher',
                     hintStyle: TextStyle(
                       fontSize: 14,
-                      color: ZipherColors.text20,
+                      color: ZipherColors.text40,
                     ),
                     filled: false,
                     border: InputBorder.none,
@@ -229,7 +229,7 @@ class _SettingsState extends State<SettingsPage> {
                           style: TextStyle(
                             fontSize: 11,
                             color: _pinging
-                                ? ZipherColors.text10
+                                ? ZipherColors.text40
                                 : ZipherColors.cyan.withValues(alpha: 0.5),
                           ),
                         ),
@@ -355,10 +355,10 @@ class _SettingsState extends State<SettingsPage> {
                 ),
                 decoration: InputDecoration(
                   hintText: 'https://your-server:9067',
-                  hintStyle: TextStyle(
-                    fontSize: 13,
-                    color: ZipherColors.text20,
-                  ),
+                    hintStyle: TextStyle(
+                      fontSize: 13,
+                      color: ZipherColors.text40,
+                    ),
                   filled: false,
                   border: InputBorder.none,
                   enabledBorder: InputBorder.none,
@@ -456,7 +456,7 @@ class _SettingsState extends State<SettingsPage> {
                         url,
                         style: TextStyle(
                           fontSize: 10,
-                          color: ZipherColors.text20,
+                          color: ZipherColors.text40,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -481,7 +481,7 @@ class _SettingsState extends State<SettingsPage> {
         fontSize: 12,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.5,
-        color: ZipherColors.text20,
+        color: ZipherColors.text40,
       ),
     );
   }
@@ -493,7 +493,7 @@ class _SettingsState extends State<SettingsPage> {
         text,
         style: TextStyle(
           fontSize: 11,
-          color: ZipherColors.text20,
+          color: ZipherColors.text40,
         ),
       ),
     );
@@ -561,7 +561,7 @@ class _SettingsState extends State<SettingsPage> {
                 const Gap(2),
                 Text(subtitle, style: TextStyle(
                   fontSize: 11,
-                  color: ZipherColors.text20,
+                  color: ZipherColors.text40,
                 )),
               ],
             ),

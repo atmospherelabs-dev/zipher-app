@@ -125,7 +125,7 @@ class SwapHistoryState extends State<SwapHistoryPage>
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w500,
-              color: ZipherColors.text20,
+              color: ZipherColors.text40,
             ),
           ),
           const Gap(6),
@@ -133,7 +133,7 @@ class SwapHistoryState extends State<SwapHistoryPage>
             'Your swap history will appear here',
             style: TextStyle(
               fontSize: 12,
-              color: ZipherColors.text10,
+              color: ZipherColors.text40,
             ),
           ),
         ],
@@ -183,7 +183,7 @@ class SwapHistoryState extends State<SwapHistoryPage>
                 when,
                 style: TextStyle(
                   fontSize: 11,
-                  color: ZipherColors.text20,
+                  color: ZipherColors.text40,
                 ),
               ),
             ],
@@ -193,6 +193,12 @@ class SwapHistoryState extends State<SwapHistoryPage>
           // From → To
           Row(
             children: [
+              CurrencyIcon(
+                symbol: swap.fromCurrency,
+                size: 32,
+                blockchain: swap.fromBlockchain,
+              ),
+              const Gap(10),
               Expanded(child: _tokenColumn(
                 label: 'Sent',
                 amount: swap.fromAmount,
@@ -201,7 +207,7 @@ class SwapHistoryState extends State<SwapHistoryPage>
               )),
 
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Icon(Icons.arrow_forward_rounded,
                     size: 16,
                     color: ZipherColors.text10),
@@ -214,6 +220,12 @@ class SwapHistoryState extends State<SwapHistoryPage>
                 address: swap.toAddress,
                 alignEnd: true,
               )),
+              const Gap(10),
+              CurrencyIcon(
+                symbol: swap.toCurrency,
+                size: 32,
+                blockchain: swap.toBlockchain,
+              ),
             ],
           ),
 
@@ -273,7 +285,7 @@ class SwapHistoryState extends State<SwapHistoryPage>
           style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w500,
-            color: ZipherColors.text20,
+            color: ZipherColors.text40,
           ),
         ),
         const Gap(4),
@@ -293,7 +305,7 @@ class SwapHistoryState extends State<SwapHistoryPage>
             centerTrim(address, length: 16),
             style: TextStyle(
               fontSize: 11,
-              color: ZipherColors.text10,
+              color: ZipherColors.text40,
             ),
           ),
         ],

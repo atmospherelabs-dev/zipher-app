@@ -459,13 +459,22 @@ class TokenIcon extends StatelessWidget {
 class CurrencyIcon extends StatelessWidget {
   final String symbol;
   final double size;
-  const CurrencyIcon({super.key, required this.symbol, this.size = 36});
+  final String? blockchain;
+  const CurrencyIcon({
+    super.key,
+    required this.symbol,
+    this.size = 36,
+    this.blockchain,
+  });
 
   @override
   Widget build(BuildContext context) {
     final sym = symbol.toUpperCase();
     final assetKey = TokenIcon._symbolToAsset[sym];
-    return ClipOval(
+    final badgeSize = size * 0.4;
+    final showBadge = blockchain != null && !_isNativeChain(sym);
+
+    final mainIcon = ClipOval(
       child: assetKey != null
           ? Image.asset(
               'assets/tokens/$assetKey.png',
@@ -473,6 +482,84 @@ class CurrencyIcon extends StatelessWidget {
               errorBuilder: (_, __, ___) => _fallback(sym),
             )
           : _fallback(sym),
+    );
+
+    if (!showBadge) return mainIcon;
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          mainIcon,
+          Positioned(
+            right: -2,
+            bottom: -2,
+            child: Container(
+              width: badgeSize,
+              height: badgeSize,
+              decoration: BoxDecoration(
+                color: const Color(0xFF0A0E27),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: const Color(0xFF0A0E27),
+                  width: 1.5,
+                ),
+              ),
+              child: ClipOval(
+                child: _chainBadgeImage(badgeSize - 3),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _isNativeChain(String sym) {
+    if (blockchain == null) return true;
+    final chain = blockchain!.toLowerCase();
+    const nativePairs = {
+      'BTC': 'btc', 'ETH': 'eth', 'SOL': 'sol', 'BNB': 'bsc',
+      'DOGE': 'doge', 'XRP': 'xrp', 'ADA': 'cardano', 'TRX': 'tron',
+      'AVAX': 'avax', 'LTC': 'ltc', 'BCH': 'bch', 'SUI': 'sui',
+      'APT': 'aptos', 'TON': 'ton', 'XLM': 'stellar', 'NEAR': 'near',
+      'ARB': 'arb', 'OP': 'op', 'POL': 'pol', 'BERA': 'bera',
+      'ZEC': 'zec',
+    };
+    return nativePairs[sym] == chain;
+  }
+
+  Widget _chainBadgeImage(double s) {
+    final chain = blockchain!.toLowerCase();
+    final chainAsset = TokenIcon._chainToAsset[chain];
+    if (chainAsset != null) {
+      return Image.asset(
+        'assets/chains/$chainAsset.png',
+        width: s, height: s, fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _chainFallback(s),
+      );
+    }
+    return _chainFallback(s);
+  }
+
+  Widget _chainFallback(double s) {
+    return Container(
+      width: s, height: s,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade800,
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Text(
+          blockchain != null ? blockchain!.substring(0, 1).toUpperCase() : '?',
+          style: TextStyle(
+            fontSize: s * 0.6, fontWeight: FontWeight.w700,
+            color: Colors.white.withValues(alpha: 0.7),
+          ),
+        ),
+      ),
     );
   }
 
@@ -509,6 +596,8 @@ class StoredSwap {
   final String toAmount;
   final String toAddress;
   final String? txId;
+  final String? fromBlockchain;
+  final String? toBlockchain;
 
   StoredSwap({
     required this.provider,
@@ -520,6 +609,8 @@ class StoredSwap {
     required this.toAmount,
     required this.toAddress,
     this.txId,
+    this.fromBlockchain,
+    this.toBlockchain,
   });
 
   Map<String, dynamic> toJson() => {
@@ -532,6 +623,8 @@ class StoredSwap {
     'toAmount': toAmount,
     'toAddress': toAddress,
     if (txId != null) 'txId': txId,
+    if (fromBlockchain != null) 'fromBlockchain': fromBlockchain,
+    if (toBlockchain != null) 'toBlockchain': toBlockchain,
   };
 
   factory StoredSwap.fromJson(Map<String, dynamic> json) => StoredSwap(
@@ -544,6 +637,8 @@ class StoredSwap {
     toAmount: json['toAmount'] ?? '',
     toAddress: json['toAddress'] ?? '',
     txId: json['txId'],
+    fromBlockchain: json['fromBlockchain'],
+    toBlockchain: json['toBlockchain'],
   );
 }
 

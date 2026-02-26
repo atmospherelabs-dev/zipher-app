@@ -208,7 +208,7 @@ class _FaucetPageState extends State<FaucetPage> {
                   children: [
                     Icon(Icons.info_outline_rounded,
                         size: 16,
-                        color: ZipherColors.orange.withValues(alpha: 0.5)),
+                        color: ZipherColors.orange.withValues(alpha: 0.7)),
                     const Gap(10),
                     Expanded(
                       child: Text(

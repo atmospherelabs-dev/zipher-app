@@ -24,7 +24,7 @@ class ZipherColors {
   // Named text colors (static, for themes)
   static const Color textPrimary = Color(0xFFE5E7EB);
   static const Color textSecondary = Color(0xFF9CA3AF);
-  static const Color textMuted = Color(0xFF6B7280);
+  static const Color textMuted = Color(0xFF8B92A0);
   static const Color textOnBrand = Color(0xFF0A0E27);
 
   // ── Semantic opacity tokens ─────────────────────────────
@@ -33,9 +33,9 @@ class ZipherColors {
 
   static final Color text90 = Colors.white.withValues(alpha: 0.9);
   static final Color text60 = Colors.white.withValues(alpha: 0.6);
-  static final Color text40 = Colors.white.withValues(alpha: 0.4);
-  static final Color text20 = Colors.white.withValues(alpha: 0.2);
-  static final Color text10 = Colors.white.withValues(alpha: 0.1);
+  static final Color text40 = Colors.white.withValues(alpha: 0.55);
+  static final Color text20 = Colors.white.withValues(alpha: 0.35);
+  static final Color text10 = Colors.white.withValues(alpha: 0.15);
 
   static final Color cardBg = Colors.white.withValues(alpha: 0.04);
   static final Color cardBgElevated = Colors.white.withValues(alpha: 0.06);
@@ -712,7 +712,7 @@ class ZipherWidgets {
         fontSize: 12,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.5,
-        color: ZipherColors.text20,
+        color: ZipherColors.text40,
       ),
     );
   }
@@ -785,7 +785,7 @@ class ZipherWidgets {
             const SizedBox(height: 4),
             Text(
               subtitle,
-              style: TextStyle(fontSize: 12, color: ZipherColors.text10),
+              style: TextStyle(fontSize: 12, color: ZipherColors.text20),
             ),
           ],
         ],

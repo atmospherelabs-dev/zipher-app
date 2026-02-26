@@ -364,7 +364,7 @@ class _ScaffoldBar extends State<ScaffoldBar> {
 
     return PopScope(
         canPop: location == '/account',
-        onPopInvoked: _onPop,
+        onPopInvokedWithResult: (didPop, _) => _onPop(didPop),
         child: Scaffold(
           backgroundColor: ZipherColors.bg,
           bottomNavigationBar: ClipRect(

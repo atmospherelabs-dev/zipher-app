@@ -95,7 +95,7 @@ class _ContactsState extends State<ContactsPage> {
                   'No contacts yet',
                   style: TextStyle(
                     fontSize: 15,
-                    color: ZipherColors.text20,
+                    color: ZipherColors.text40,
                   ),
                 ),
                 const Gap(8),
@@ -103,7 +103,7 @@ class _ContactsState extends State<ContactsPage> {
                   'Tap + to add your first contact',
                   style: TextStyle(
                     fontSize: 13,
-                    color: ZipherColors.text10,
+                    color: ZipherColors.text40,
                   ),
                 ),
               ],
@@ -580,7 +580,6 @@ class _ContactAddState extends State<ContactAddPage> {
 
   @override
   Widget build(BuildContext context) {
-    final s = S.of(context);
     return Scaffold(
       backgroundColor: ZipherColors.bg,
       appBar: AppBar(
@@ -690,7 +689,7 @@ class _ContactAddState extends State<ContactAddPage> {
                           hintText: 'Zcash address',
                           hintStyle: TextStyle(
                             fontSize: 13,
-                            color: ZipherColors.text20,
+                            color: ZipherColors.text40,
                           ),
                           filled: false,
                           border: InputBorder.none,

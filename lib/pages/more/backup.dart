@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:screen_protector/screen_protector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:warp_api/data_fb_generated.dart';
@@ -30,7 +29,6 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   bool _verificationPassed = false;
 
   Backup? _backup;
-  String? _primary;
   String? _loadError;
 
   @override
@@ -59,25 +57,18 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
       // Read seed from Keychain (post-migration it won't be in the DB)
       final kcSeed = await SecureKeyStore.getSeed(aa.coin, aa.id);
 
-      String primary;
-      if (kcSeed != null)
-        primary = kcSeed;
-      else if (backup.seed != null)
-        primary = backup.seed!;
-      else if (backup.sk != null)
-        primary = backup.sk!;
-      else if (backup.uvk != null)
-        primary = backup.uvk!;
-      else if (backup.fvk != null)
-        primary = backup.fvk!;
-      else {
+      final hasKey = kcSeed != null ||
+          backup.seed != null ||
+          backup.sk != null ||
+          backup.uvk != null ||
+          backup.fvk != null;
+      if (!hasKey) {
         setState(() => _loadError = 'Account has no key');
         return;
       }
       if (!mounted) return;
       setState(() {
         _backup = backup;
-        _primary = primary;
         _keychainSeed = kcSeed;
       });
     } catch (e) {
@@ -135,7 +126,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.error_outline_rounded,
-                    size: 40, color: ZipherColors.orange.withValues(alpha: 0.4)),
+                    size: 40, color: ZipherColors.orange.withValues(alpha: 0.7)),
                 const Gap(16),
                 Text(
                   _loadError!,
@@ -153,7 +144,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     'Tap to retry',
                     style: TextStyle(
                       fontSize: 13,
-                      color: ZipherColors.cyan.withValues(alpha: 0.6),
+                      color: ZipherColors.cyan.withValues(alpha: 0.7),
                     ),
                   ),
                 ),
@@ -214,7 +205,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       'Content hidden for security',
                       style: TextStyle(
                         fontSize: 14,
-                        color: ZipherColors.text10,
+                        color: ZipherColors.text40,
                       ),
                     ),
                   ],
@@ -252,7 +243,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                             style: TextStyle(
                               fontSize: 12,
                               color: ZipherColors.orange
-                                  .withValues(alpha: 0.7),
+                                  .withValues(alpha: 0.9),
                               height: 1.4,
                             ),
                           ),
@@ -337,7 +328,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                                     ? ZipherColors.green
                                         .withValues(alpha: 0.6)
                                     : ZipherColors.orange
-                                        .withValues(alpha: 0.6),
+                                        .withValues(alpha: 0.9),
                               ),
                             ),
                           ],
@@ -641,7 +632,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
       {Widget? trailing}) {
     return Row(
       children: [
-        Icon(icon, size: 16, color: color.withValues(alpha: 0.5)),
+        Icon(icon, size: 16, color: color.withValues(alpha: 0.85)),
         const Gap(8),
         Expanded(
           child: Column(
@@ -659,7 +650,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                 subtitle,
                 style: TextStyle(
                   fontSize: 11,
-                  color: ZipherColors.text20,
+                  color: ZipherColors.text40,
                 ),
               ),
             ],
@@ -667,18 +658,6 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
         ),
         if (trailing != null) trailing,
       ],
-    );
-  }
-
-  Widget _sectionLabel(String text) {
-    return Text(
-      text.toUpperCase(),
-      style: TextStyle(
-        fontSize: 11,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.5,
-        color: ZipherColors.text20,
-      ),
     );
   }
 
@@ -733,7 +712,7 @@ class _KeyCard extends StatelessWidget {
           // Header row
           Row(
             children: [
-              Icon(icon, size: 14, color: accentColor.withValues(alpha: 0.5)),
+              Icon(icon, size: 14, color: accentColor.withValues(alpha: 0.85)),
               const Gap(6),
               Expanded(
                 child: Text(
@@ -773,7 +752,7 @@ class _KeyCard extends StatelessWidget {
             description,
             style: TextStyle(
               fontSize: 11,
-              color: ZipherColors.text20,
+              color: ZipherColors.text40,
               height: 1.4,
             ),
           ),
@@ -810,7 +789,7 @@ class _KeyCard extends StatelessWidget {
                           'Tap to reveal',
                           style: TextStyle(
                             fontSize: 11,
-                            color: ZipherColors.text10,
+                            color: ZipherColors.text40,
                           ),
                         ),
                       ],
@@ -878,7 +857,7 @@ class _KeyCard extends StatelessWidget {
               label,
               style: TextStyle(
                 fontSize: 10,
-                color: ZipherColors.text20,
+                color: ZipherColors.text40,
               ),
             ),
           ],
@@ -971,7 +950,7 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
               const Spacer(flex: 2),
               Icon(Icons.quiz_rounded,
                   size: 48,
-                  color: ZipherColors.cyan.withValues(alpha: 0.4)),
+                  color: ZipherColors.cyan.withValues(alpha: 0.5)),
               const Gap(20),
               Text(
                 'Verify Your Seed',

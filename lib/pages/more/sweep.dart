@@ -90,7 +90,7 @@ class _SweepState extends State<SweepPage>
                           style: TextStyle(
                             fontSize: 12,
                             color:
-                                ZipherColors.cyan.withValues(alpha: 0.5),
+                                ZipherColors.cyan.withValues(alpha: 0.7),
                             height: 1.4,
                           ),
                         ),
@@ -134,7 +134,7 @@ class _SweepState extends State<SweepPage>
                     'Which account to sweep from. Usually 0 (the first account).',
                     style: TextStyle(
                       fontSize: 11,
-                      color: ZipherColors.text10,
+                      color: ZipherColors.text40,
                     ),
                   ),
                   const Gap(8),
@@ -217,7 +217,7 @@ class _SweepState extends State<SweepPage>
         fontSize: 12,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.5,
-        color: ZipherColors.text20,
+        color: ZipherColors.text40,
       ),
     );
   }
@@ -283,7 +283,7 @@ class _SweepState extends State<SweepPage>
           hintText: hint,
           hintStyle: TextStyle(
             fontSize: 13,
-            color: ZipherColors.text10,
+            color: ZipherColors.text40,
           ),
           filled: false,
           border: InputBorder.none,

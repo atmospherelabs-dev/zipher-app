@@ -189,7 +189,7 @@ class _FilterChip extends StatelessWidget {
             fontSize: 11,
             fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
             color: selected
-                ? ZipherColors.purple.withValues(alpha: 0.8)
+                ? ZipherColors.purple
                 : ZipherColors.text40,
           ),
         ),
@@ -230,10 +230,10 @@ class _EmptyState extends StatelessWidget {
           Icon(icon, size: 36, color: ZipherColors.cardBgElevated),
           const Gap(12),
           Text(title, style: TextStyle(
-              fontSize: 14, color: ZipherColors.text20)),
+              fontSize: 14, color: ZipherColors.text40)),
           const Gap(4),
           Text(subtitle, style: TextStyle(
-              fontSize: 12, color: ZipherColors.text10)),
+              fontSize: 12, color: ZipherColors.text40)),
         ],
       ),
     );
@@ -298,7 +298,7 @@ class _MemoCard extends StatelessWidget {
                         size: 10,
                         color: isSystem
                             ? ZipherColors.text20
-                            : ZipherColors.purple.withValues(alpha: 0.5),
+                            : ZipherColors.purple.withValues(alpha: 0.85),
                       ),
                       const Gap(4),
                       Text(
@@ -307,8 +307,8 @@ class _MemoCard extends StatelessWidget {
                           fontSize: 9, fontWeight: FontWeight.w600,
                           letterSpacing: 0.5,
                           color: isSystem
-                              ? ZipherColors.text20
-                              : ZipherColors.purple.withValues(alpha: 0.5),
+                              ? ZipherColors.text40
+                              : ZipherColors.purple,
                         ),
                       ),
                     ],
@@ -361,7 +361,7 @@ class _MemoCard extends StatelessWidget {
                         : txHash,
                     style: TextStyle(
                       fontSize: 9, fontFamily: 'monospace',
-                      color: ZipherColors.text10,
+                      color: ZipherColors.text40,
                     ),
                   ),
                 ],

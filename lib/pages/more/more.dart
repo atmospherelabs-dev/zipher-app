@@ -1,7 +1,5 @@
-import 'dart:async';
 import 'dart:convert';
 
-import 'package:zipher/appsettings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
@@ -193,7 +191,7 @@ class _MorePageState extends State<MorePage> {
                       'v$packageVersion',
                       style: TextStyle(
                         fontSize: 10,
-                        color: ZipherColors.text10,
+                        color: ZipherColors.text40,
                       ),
                     ),
                   ],
@@ -214,7 +212,7 @@ class _MorePageState extends State<MorePage> {
         fontSize: 12,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.5,
-        color: ZipherColors.text20,
+        color: ZipherColors.text40,
       ),
     );
   }
@@ -257,7 +255,6 @@ class _MorePageState extends State<MorePage> {
   }
 
   void _resetApp() async {
-    final s = S.of(context);
     final confirm1 = await showConfirmDialog(
       context,
       'Reset App',
@@ -339,7 +336,7 @@ class _TestnetToggleState extends State<_TestnetToggle> {
                       fontSize: 11,
                       color: isTestnet
                           ? ZipherColors.orange.withValues(alpha: 0.7)
-                          : ZipherColors.text20,
+                          : ZipherColors.text40,
                     ),
                   ),
                 ],
@@ -356,7 +353,7 @@ class _TestnetToggleState extends State<_TestnetToggle> {
                   )
                 : Switch.adaptive(
                     value: isTestnet,
-                    activeColor: ZipherColors.orange,
+                    activeTrackColor: ZipherColors.orange,
                     onChanged: (v) => _toggleTestnet(v),
                   ),
           ],
@@ -496,7 +493,7 @@ class _SettingsItem extends StatelessWidget {
                         subtitle!,
                         style: TextStyle(
                           fontSize: 11,
-                          color: ZipherColors.text20,
+                          color: ZipherColors.text40,
                         ),
                       ),
                     ],

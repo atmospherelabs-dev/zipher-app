@@ -103,15 +103,14 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
                                 Icon(Icons.lock_rounded,
                                     size: 12,
                                     color: ZipherColors.purple
-                                        .withValues(alpha: 0.5)),
+                                        .withValues(alpha: 0.85)),
                                 const Gap(6),
                                 Text(
                                   'Encrypted Memo',
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w500,
-                                    color: Colors.white
-                                        .withValues(alpha: 0.3),
+                                    color: ZipherColors.text40,
                                   ),
                                 ),
                               ],
@@ -160,7 +159,7 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: ZipherColors.orange
-                                      .withValues(alpha: 0.7),
+                                      .withValues(alpha: 0.9),
                                 ),
                               ),
                             ),
@@ -287,7 +286,7 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
             fiatStr,
             style: TextStyle(
               fontSize: 13,
-              color: ZipherColors.text20,
+              color: ZipherColors.text40,
             ),
           ),
         ],
@@ -351,7 +350,7 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
                     'To',
                     style: TextStyle(
                       fontSize: 12,
-                      color: ZipherColors.text20,
+                      color: ZipherColors.text40,
                     ),
                   ),
                   const Gap(2),
@@ -370,7 +369,7 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
                       style: TextStyle(
                         fontSize: 11,
                         fontFamily: 'monospace',
-                        color: ZipherColors.text20,
+                        color: ZipherColors.text40,
                       ),
                     ),
                   ] else
@@ -419,7 +418,7 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
               child: Icon(
                 Icons.shield_rounded,
                 size: 18,
-                color: ZipherColors.purple.withValues(alpha: 0.7),
+                color: ZipherColors.purple.withValues(alpha: 0.85),
               ),
             ),
             const Gap(12),
@@ -501,7 +500,9 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
                   ? Icons.shield_rounded
                   : Icons.shield_outlined,
               size: 14,
-              color: privacyColor.withValues(alpha: 0.7),
+              color: privacyColor == ZipherColors.purple
+                  ? privacyColor.withValues(alpha: 0.85)
+                  : privacyColor.withValues(alpha: 0.7),
             ),
             const Gap(6),
             Text(
@@ -509,7 +510,10 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
-                color: privacyColor.withValues(alpha: 0.8),
+                color: privacyColor == ZipherColors.purple
+                    ? ZipherColors.purple
+                    : privacyColor.withValues(
+                        alpha: privacyColor == ZipherColors.cyan ? 0.7 : 0.9),
               ),
             ),
           ],
@@ -590,7 +594,9 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
                         Icon(
                           icon,
                           size: 20,
-                          color: accent.withValues(alpha: 0.9),
+                          color: accent == ZipherColors.purple
+                              ? accent.withValues(alpha: 0.85)
+                              : accent.withValues(alpha: 0.9),
                         ),
                         const Gap(10),
                         Text(
@@ -598,7 +604,9 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
-                            color: accent.withValues(alpha: 0.9),
+                            color: accent == ZipherColors.purple
+                                ? ZipherColors.purple
+                                : accent.withValues(alpha: 0.9),
                           ),
                         ),
                       ],

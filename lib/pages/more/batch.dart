@@ -12,7 +12,6 @@ import 'package:share_plus/share_plus.dart';
 import '../../generated/intl/messages.dart';
 import '../../zipher_theme.dart';
 import '../utils.dart';
-import '../widgets.dart';
 
 class BatchBackupPage extends StatefulWidget {
   @override
@@ -117,7 +116,7 @@ class _BatchBackupState extends State<BatchBackupPage> {
                     'Encryption public key',
                     style: TextStyle(
                       fontSize: 12,
-                      color: ZipherColors.text20,
+                      color: ZipherColors.text40,
                     ),
                   ),
                   const Gap(8),
@@ -137,7 +136,7 @@ class _BatchBackupState extends State<BatchBackupPage> {
                         hintText: 'Paste public key...',
                         hintStyle: TextStyle(
                           fontSize: 13,
-                          color: ZipherColors.text10,
+                          color: ZipherColors.text40,
                         ),
                         filled: false,
                         border: InputBorder.none,
@@ -197,7 +196,7 @@ class _BatchBackupState extends State<BatchBackupPage> {
                     'Decryption secret key',
                     style: TextStyle(
                       fontSize: 12,
-                      color: ZipherColors.text20,
+                      color: ZipherColors.text40,
                     ),
                   ),
                   const Gap(8),
@@ -217,7 +216,7 @@ class _BatchBackupState extends State<BatchBackupPage> {
                         hintText: 'Paste secret key...',
                         hintStyle: TextStyle(
                           fontSize: 13,
-                          color: ZipherColors.text10,
+                          color: ZipherColors.text40,
                         ),
                         filled: false,
                         border: InputBorder.none,
@@ -241,14 +240,14 @@ class _BatchBackupState extends State<BatchBackupPage> {
                         children: [
                           Icon(Icons.cloud_download_outlined,
                               size: 16,
-                              color: ZipherColors.purple.withValues(alpha: 0.7)),
+                              color: ZipherColors.purple.withValues(alpha: 0.85)),
                           const Gap(8),
                           Text(
                             s.fullRestore,
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
-                              color: ZipherColors.purple.withValues(alpha: 0.7),
+                              color: ZipherColors.purple,
                             ),
                           ),
                         ],
@@ -273,7 +272,7 @@ class _BatchBackupState extends State<BatchBackupPage> {
         fontSize: 12,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.5,
-        color: ZipherColors.text20,
+        color: ZipherColors.text40,
       ),
     );
   }
@@ -290,13 +289,11 @@ class _BatchBackupState extends State<BatchBackupPage> {
     final s = S.of(context);
     final tempDir = await getTemporaryDirectory();
     final savePath = await getTemporaryPath('Zipher.age');
-    if (savePath != null) {
-      try {
-        WarpApi.zipBackup(_backupKeyController.text, savePath, tempDir.path);
-        await shareFile(context, savePath, title: s.fullBackup);
-      } on String catch (e) {
-        await showMessageBox2(context, s.error, e);
-      }
+    try {
+      WarpApi.zipBackup(_backupKeyController.text, savePath, tempDir.path);
+      await shareFile(context, savePath, title: s.fullBackup);
+    } on String catch (e) {
+      await showMessageBox2(context, s.error, e);
     }
   }
 
@@ -405,7 +402,7 @@ class _KeygenState extends State<KeygenPage> with WithLoadingAnimation {
                 s.keygenHelp,
                 style: TextStyle(
                   fontSize: 12,
-                  color: ZipherColors.cyan.withValues(alpha: 0.5),
+                  color: ZipherColors.cyan.withValues(alpha: 0.7),
                   height: 1.4,
                 ),
               ),
@@ -435,7 +432,7 @@ class _KeygenState extends State<KeygenPage> with WithLoadingAnimation {
         fontSize: 12,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.5,
-        color: ZipherColors.text20,
+        color: ZipherColors.text40,
       ),
     );
   }
@@ -452,7 +449,7 @@ class _KeygenState extends State<KeygenPage> with WithLoadingAnimation {
           ? Text('Generating...',
               style: TextStyle(
                   fontSize: 12,
-                  color: ZipherColors.text10))
+                  color: ZipherColors.text40))
           : SelectableText(
               value,
               style: TextStyle(

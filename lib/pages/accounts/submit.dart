@@ -108,7 +108,7 @@ class _SubmitTxState extends State<SubmitTxPage> {
             'Signing and broadcasting your transaction',
             style: TextStyle(
               fontSize: 13,
-              color: ZipherColors.text20,
+              color: ZipherColors.text40,
             ),
           ),
         ],
@@ -253,7 +253,7 @@ class _SubmitTxState extends State<SubmitTxPage> {
             'Transaction will appear on CipherScan once confirmed',
             style: TextStyle(
               fontSize: 11,
-              color: ZipherColors.text20,
+              color: ZipherColors.text40,
             ),
           ),
           const Gap(12),

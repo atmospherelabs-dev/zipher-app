@@ -479,7 +479,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
               suffixStyle: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
-                color: ZipherColors.text20,
+                color: ZipherColors.text40,
               ),
               filled: false,
               border: InputBorder.none,
@@ -695,7 +695,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
                     fontWeight: FontWeight.w600,
                     color: r.addressController.text.isNotEmpty
                         ? ZipherColors.text90
-                        : ZipherColors.text20,
+                        : ZipherColors.text40,
                   ),
                 ),
               ),
@@ -714,7 +714,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
                     '(\$${(r.amountZat / ZECUNIT * _price!).toStringAsFixed(2)})',
                     style: TextStyle(
                       fontSize: 10,
-                      color: ZipherColors.text20,
+                      color: ZipherColors.text40,
                     ),
                   ),
                 ],
@@ -761,7 +761,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
                         hintText: 'Zcash address',
                         hintStyle: TextStyle(
                           fontSize: 14,
-                          color: ZipherColors.text20,
+                          color: ZipherColors.text40,
                         ),
                         filled: false,
                         border: InputBorder.none,
@@ -830,7 +830,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
                   hintText: '0.00',
                   hintStyle: TextStyle(
                     fontSize: 14,
-                    color: ZipherColors.text20,
+                    color: ZipherColors.text40,
                   ),
                   prefixIcon: Padding(
                     padding: const EdgeInsets.only(left: 14, right: 8),
@@ -846,7 +846,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
                   suffixStyle: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    color: ZipherColors.text20,
+                    color: ZipherColors.text40,
                   ),
                   filled: false,
                   border: InputBorder.none,
@@ -887,7 +887,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
                         style: TextStyle(
                           fontSize: 12,
                           color: r.memoController.text.isEmpty
-                              ? ZipherColors.text20
+                              ? ZipherColors.text40
                               : ZipherColors.text40,
                         ),
                       ),
@@ -962,7 +962,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
             const Gap(4),
             Text(
               'Only you and the recipient can read this',
-              style: TextStyle(fontSize: 12, color: ZipherColors.text20),
+              style: TextStyle(fontSize: 12, color: ZipherColors.text40),
             ),
             const Gap(14),
             Container(
@@ -986,8 +986,8 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
                   enabledBorder: InputBorder.none,
                   focusedBorder: InputBorder.none,
                   contentPadding: const EdgeInsets.all(16),
-                  counterStyle:
-                      TextStyle(fontSize: 11, color: ZipherColors.text20),
+                counterStyle:
+                    TextStyle(fontSize: 11, color: ZipherColors.text40),
                 ),
               ),
             ),
@@ -1067,7 +1067,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
             _summaryRow(
               '',
               '≈ \$${(_totalZat ~/ _recipients.length / ZECUNIT * _price!).toStringAsFixed(2)} USD each',
-              valueColor: ZipherColors.text20,
+              valueColor: ZipherColors.text40,
             ),
           ],
           const Gap(8),
@@ -1086,7 +1086,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
             _summaryRow(
               '',
               '≈ \$${((_equalSplit ? _totalZat : totalSplit) / ZECUNIT * _price!).toStringAsFixed(2)} USD',
-              valueColor: ZipherColors.text20,
+              valueColor: ZipherColors.text40,
             ),
           ],
 
@@ -1142,7 +1142,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
                     'Add addresses for all recipients',
                     style: TextStyle(
                       fontSize: 12,
-                      color: ZipherColors.text20,
+                      color: ZipherColors.text40,
                     ),
                   ),
                 ],

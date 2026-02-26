@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:zipher/router.dart';
 import 'package:zipher/services/secure_key_store.dart';
@@ -225,7 +224,7 @@ class _SplashState extends State<SplashPage> {
   }
 
   _initAccel() {
-    accelerometerEvents.listen(handleAccel);
+    accelerometerEventStream().listen(handleAccel);
   }
 
   void _setProgress(double progress, String message) {

@@ -118,7 +118,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                                 _seedVisible ? 'Hide' : 'Show',
                                 style: TextStyle(
                                   fontSize: 11,
-                                  color: ZipherColors.text20,
+                                  color: ZipherColors.text40,
                                 ),
                               ),
                             ],
@@ -147,7 +147,8 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                                 decoration: InputDecoration(
                                   hintText: 'word1 word2 word3 ...',
                                   hintStyle: TextStyle(
-                                    color: ZipherColors.text20,
+                                    fontSize: 15,
+                                    color: ZipherColors.text40,
                                   ),
                                   filled: true,
                                   fillColor: ZipherColors.cardBg,
@@ -210,7 +211,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                                         'Tap to enter your seed phrase...',
                                         style: TextStyle(
                                           fontSize: 14,
-                                          color: ZipherColors.text20,
+                                          color: ZipherColors.text40,
                                         ),
                                       )
                                     : Text(
@@ -244,7 +245,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                       'Supports 12, 15, 18, 21, or 24 word seed phrases.',
                       style: TextStyle(
                         fontSize: 12,
-                        color: ZipherColors.text20,
+                        color: ZipherColors.text40,
                       ),
                     ),
 
@@ -303,7 +304,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                                       'Optional — speeds up scanning',
                                       style: TextStyle(
                                         fontSize: 12,
-                                        color: ZipherColors.text20,
+                                        color: ZipherColors.text40,
                                       ),
                                     ),
                                   ],
@@ -432,7 +433,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                                   'This is thorough but takes longer.',
                             style: TextStyle(
                               fontSize: 12,
-                              color: ZipherColors.text20,
+                              color: ZipherColors.text40,
                               height: 1.4,
                             ),
                           ),

@@ -841,7 +841,7 @@ FormFieldValidator<T> composeOr<T>(List<FormFieldValidator<T>> validators) {
 class PoolBitSet {
   static Set<int> toSet(int pools) {
     return List.generate(3, (index) => pools & (1 << index) != 0 ? index : null)
-        .whereNotNull()
+        .nonNulls
         .toSet();
   }
 

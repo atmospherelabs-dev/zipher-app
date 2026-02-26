@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:screen_protector/screen_protector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
 import '../../services/secure_key_store.dart';
@@ -14,7 +12,6 @@ import '../utils.dart';
 import '../../accounts.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
-import '../../pages/widgets.dart';
 
 // Mode for the add account page
 enum _Mode { create, import_, derive }
@@ -237,7 +234,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
                           _seedVisible ? 'Hide' : 'Show',
                           style: TextStyle(
                             fontSize: 11,
-                            color: ZipherColors.text20,
+                            color: ZipherColors.text40,
                           ),
                         ),
                       ],
@@ -273,7 +270,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
                             hintText: 'Enter your 24-word seed phrase...',
                             hintStyle: TextStyle(
                               fontSize: 13,
-                              color: ZipherColors.text20,
+                              color: ZipherColors.text40,
                             ),
                             filled: false,
                             border: InputBorder.none,
@@ -312,7 +309,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
                                   'Tap to enter your seed phrase...',
                                   style: TextStyle(
                                     fontSize: 13,
-                                    color: ZipherColors.text20,
+                                    color: ZipherColors.text40,
                                   ),
                                 )
                               : Text(
@@ -338,7 +335,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
                 'Usually 0. Only change if you know what this is.',
                 style: TextStyle(
                   fontSize: 11,
-                  color: ZipherColors.text20,
+                  color: ZipherColors.text40,
                 ),
               ),
               const Gap(8),
@@ -358,7 +355,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
                 'When was this wallet created? Helps speed up the scan.',
                 style: TextStyle(
                   fontSize: 11,
-                  color: ZipherColors.text20,
+                  color: ZipherColors.text40,
                 ),
               ),
               const Gap(8),
@@ -404,7 +401,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
                       'and balance, but shares the same recovery phrase.',
                       style: TextStyle(
                         fontSize: 11,
-                        color: ZipherColors.text20,
+                        color: ZipherColors.text40,
                         height: 1.4,
                       ),
                     ),
@@ -493,7 +490,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
                       : 'Will do a full scan from 2018 (slower)',
                   style: TextStyle(
                     fontSize: 11,
-                    color: ZipherColors.text20,
+                    color: ZipherColors.text40,
                   ),
                 ),
               ),
@@ -623,7 +620,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
             hintText: hint,
             hintStyle: TextStyle(
               fontSize: 13,
-              color: ZipherColors.text20,
+              color: ZipherColors.text40,
             ),
             prefixIcon: Icon(
               icon,
@@ -669,7 +666,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
                     fontSize: 13,
                     color: _birthdayDate != null
                         ? ZipherColors.text90
-                        : ZipherColors.text20,
+                        : ZipherColors.text40,
                   ),
                 ),
                 const Spacer(),

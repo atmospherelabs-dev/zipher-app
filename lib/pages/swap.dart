@@ -398,7 +398,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
               )),
               if (subtitle != null)
                 Text(subtitle, style: TextStyle(
-                  fontSize: 10, color: ZipherColors.text20,
+                  fontSize: 10, color: ZipherColors.text40,
                 )),
             ],
           ),
@@ -501,6 +501,8 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
           ? _addressController.text.trim()
           : _cachedTAddr,
       txId: txId,
+      fromBlockchain: origin.blockchain,
+      toBlockchain: dest.blockchain,
     );
     await SwapStore.save(swap);
   }
@@ -736,7 +738,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                     hintText: '0.00',
                     hintStyle: TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w600,
-                      color: ZipherColors.text10,
+                      color: ZipherColors.text20,
                     ),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
@@ -753,7 +755,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
               alignment: Alignment.centerRight,
               child: Text(
                 '\$${_inputUsd.toStringAsFixed(2)}',
-                style: TextStyle(fontSize: 12, color: ZipherColors.text20),
+                style: TextStyle(fontSize: 12, color: ZipherColors.text40),
               ),
             ),
           ),
@@ -803,7 +805,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                       : '0.00',
                   style: TextStyle(
                     fontSize: 18, fontWeight: FontWeight.w600,
-                    color: _estimatedOutput > 0 ? ZipherColors.text90 : ZipherColors.text10,
+                    color: _estimatedOutput > 0 ? ZipherColors.text90 : ZipherColors.text20,
                   ),
                 ),
               ),
@@ -817,7 +819,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
               alignment: Alignment.centerRight,
               child: Text(
                 '\$${outputUsd.toStringAsFixed(2)}',
-                style: TextStyle(fontSize: 12, color: ZipherColors.text20),
+                style: TextStyle(fontSize: 12, color: ZipherColors.text40),
               ),
             ),
           ),
@@ -918,9 +920,9 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                         controller: searchController,
                         onChanged: (_) => setModalState(() {}),
                         style: TextStyle(fontSize: 14, color: ZipherColors.text90),
-                        decoration: InputDecoration(
-                          hintText: 'Search by name or ticker...',
-                          hintStyle: TextStyle(color: ZipherColors.text20),
+                      decoration: InputDecoration(
+                        hintText: 'Search by name or ticker...',
+                        hintStyle: TextStyle(color: ZipherColors.text40),
                           prefixIcon: Icon(Icons.search_rounded, size: 18,
                               color: ZipherColors.text20),
                           border: InputBorder.none,
@@ -1037,7 +1039,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                     hintText: hint,
                     hintStyle: TextStyle(
                       fontSize: 14,
-                      color: ZipherColors.text20,
+                      color: ZipherColors.text40,
                     ),
                     filled: false,
                     border: InputBorder.none,
@@ -1227,7 +1229,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                     fontSize: 15, fontWeight: FontWeight.w600,
                     color: enabled
                         ? ZipherColors.cyan.withValues(alpha: 0.9)
-                        : ZipherColors.text10,
+                        : ZipherColors.text40,
                   ),
                 ),
               ],

@@ -186,7 +186,7 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
                           const Gap(8),
                             Text('Checking every 5s...', style: TextStyle(
                             fontSize: 11,
-                            color: ZipherColors.text10,
+                            color: ZipherColors.text40,
                           )),
                         ],
                       ),
@@ -209,7 +209,7 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
                                 'You can safely leave this screen. Your swap will continue in the background.',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: ZipherColors.cyan.withValues(alpha: 0.5),
+                                  color: ZipherColors.cyan.withValues(alpha: 0.7),
                                 ),
                               ),
                             ),
@@ -240,7 +240,11 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
       child: Row(
         children: [
           // From side
-          CurrencyIcon(symbol: _from!, size: 32),
+          CurrencyIcon(
+            symbol: _from!,
+            size: 32,
+            blockchain: _storedSwap?.fromBlockchain,
+          ),
           const Gap(10),
           Expanded(
             child: Column(
@@ -248,7 +252,7 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
               children: [
                 Text('Sent', style: TextStyle(
                   fontSize: 11, fontWeight: FontWeight.w500,
-                  color: ZipherColors.text20,
+                  color: ZipherColors.text40,
                 )),
                 const Gap(2),
                 Text(
@@ -274,7 +278,7 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
               children: [
                 Text('Receiving', style: TextStyle(
                   fontSize: 11, fontWeight: FontWeight.w500,
-                  color: ZipherColors.text20,
+                  color: ZipherColors.text40,
                 )),
                 const Gap(2),
                 Text(
@@ -289,7 +293,11 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
             ),
           ),
           const Gap(10),
-          CurrencyIcon(symbol: _to!, size: 32),
+          CurrencyIcon(
+            symbol: _to!,
+            size: 32,
+            blockchain: _storedSwap?.toBlockchain,
+          ),
         ],
       ),
     );
@@ -325,7 +333,7 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
         shape: BoxShape.circle,
         color: color.withValues(alpha: 0.08),
       ),
-      child: Icon(icon, size: 36, color: color.withValues(alpha: 0.6)),
+      child: Icon(icon, size: 36, color: color.withValues(alpha: 0.85)),
     );
   }
 
@@ -345,7 +353,7 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
         children: [
           Text(label, style: TextStyle(
             fontSize: 11, fontWeight: FontWeight.w500,
-            color: ZipherColors.text20,
+            color: ZipherColors.text40,
           )),
           const Gap(8),
           Row(

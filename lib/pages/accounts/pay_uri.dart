@@ -9,8 +9,6 @@ import 'package:warp_api/warp_api.dart';
 import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../zipher_theme.dart';
-import '../../coin/coins.dart';
-import '../../generated/intl/messages.dart';
 import '../utils.dart';
 
 class PaymentURIPage extends StatefulWidget {
@@ -255,7 +253,9 @@ class _AddressCard extends StatelessWidget {
             children: [
               Icon(icon,
                   size: 18,
-                  color: accentColor.withValues(alpha: 0.7)),
+                  color: primary
+                      ? accentColor.withValues(alpha: 0.85)
+                      : accentColor.withValues(alpha: 0.7)),
               const Gap(8),
               Expanded(
                 child: Text(
@@ -298,7 +298,9 @@ class _AddressCard extends StatelessWidget {
             hint,
             style: TextStyle(
               fontSize: 11,
-              color: accentColor.withValues(alpha: 0.4),
+              color: primary
+                  ? accentColor
+                  : accentColor.withValues(alpha: 0.7),
             ),
           ),
         ],
@@ -603,7 +605,7 @@ class _RequestPaymentSheetState extends State<_RequestPaymentSheet> {
             hintText: 'Invoice ref (e.g. INV-2026-001)',
             hintStyle: TextStyle(
               fontSize: 14,
-              color: ZipherColors.text20,
+              color: ZipherColors.text40,
             ),
             prefixIcon: Padding(
               padding: const EdgeInsets.only(left: 12, right: 8),
@@ -639,7 +641,7 @@ class _RequestPaymentSheetState extends State<_RequestPaymentSheet> {
             hintText: 'Reason or description...',
             hintStyle: TextStyle(
               fontSize: 15,
-              color: ZipherColors.text20,
+              color: ZipherColors.text40,
             ),
             filled: true,
             fillColor: ZipherColors.cardBg,
@@ -664,7 +666,7 @@ class _RequestPaymentSheetState extends State<_RequestPaymentSheet> {
                 'Adding an invoice ref creates a trackable payment request',
                 style: TextStyle(
                   fontSize: 11,
-                  color: ZipherColors.text20,
+                  color: ZipherColors.text40,
                 ),
               ),
             ),
@@ -723,7 +725,7 @@ class _RequestPaymentSheetState extends State<_RequestPaymentSheet> {
                 Icon(
                   Icons.receipt_outlined,
                   size: 13,
-                  color: ZipherColors.purple.withValues(alpha: 0.7),
+                  color: ZipherColors.purple.withValues(alpha: 0.85),
                 ),
                 const Gap(6),
                 Text(
@@ -731,7 +733,7 @@ class _RequestPaymentSheetState extends State<_RequestPaymentSheet> {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    color: ZipherColors.purple.withValues(alpha: 0.7),
+                    color: ZipherColors.purple,
                   ),
                 ),
               ],

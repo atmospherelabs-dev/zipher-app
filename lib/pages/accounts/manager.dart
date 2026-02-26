@@ -90,7 +90,7 @@ class _AccountManagerState extends State<AccountManagerPage> {
                     'No accounts',
                     style: TextStyle(
                       fontSize: 14,
-                      color: ZipherColors.text20,
+                      color: ZipherColors.text40,
                     ),
                   ),
                 ],

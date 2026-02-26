@@ -69,7 +69,7 @@ class AboutPage extends StatelessWidget {
               'by CipherScan',
               style: TextStyle(
                 fontSize: 13,
-                color: ZipherColors.cyan.withValues(alpha: 0.5),
+                color: ZipherColors.cyan.withValues(alpha: 0.7),
               ),
             ),
             const Gap(4),
@@ -79,7 +79,7 @@ class AboutPage extends StatelessWidget {
                 'v$packageVersion ($id)',
                 style: TextStyle(
                   fontSize: 11,
-                  color: ZipherColors.text10,
+                  color: ZipherColors.text40,
                 ),
               ),
             ),
@@ -154,7 +154,7 @@ class AboutPage extends StatelessWidget {
                 'THE AUTHORS ARE NOT LIABLE FOR ANY DAMAGES ARISING FROM THE USE OF THIS SOFTWARE.',
                 style: TextStyle(
                   fontSize: 10,
-                  color: ZipherColors.text10,
+                  color: ZipherColors.text40,
                   height: 1.5,
                 ),
                 textAlign: TextAlign.center,
@@ -234,9 +234,9 @@ class _InfoCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+            Row(
             children: [
-              Icon(icon, size: 16, color: iconColor.withValues(alpha: 0.5)),
+              Icon(icon, size: 16, color: iconColor.withValues(alpha: 0.85)),
               const Gap(8),
               Text(
                 title,

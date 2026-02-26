@@ -90,7 +90,7 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
                           'you can re-sync from an earlier point. Your funds are safe on the blockchain — this just re-reads them.',
                           style: TextStyle(
                             fontSize: 12,
-                            color: ZipherColors.cyan.withValues(alpha: 0.5),
+                            color: ZipherColors.cyan.withValues(alpha: 0.7),
                             height: 1.4,
                           ),
                         ),
@@ -111,7 +111,7 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
                     'Roll back to a recent save point. Fastest option.',
                     style: TextStyle(
                       fontSize: 11,
-                      color: ZipherColors.text20,
+                      color: ZipherColors.text40,
                     ),
                   ),
                   const Gap(10),
@@ -128,7 +128,7 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
                   'Re-download all transactions from a specific point. Slower but thorough.',
                   style: TextStyle(
                     fontSize: 11,
-                    color: ZipherColors.text20,
+                    color: ZipherColors.text40,
                   ),
                 ),
                 const Gap(12),
@@ -159,7 +159,7 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
                               fontSize: 14,
                               color: _selectedDate != null
                                   ? ZipherColors.text90
-                                  : ZipherColors.text20,
+                                  : ZipherColors.text40,
                             ),
                           ),
                         ),
@@ -250,7 +250,7 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
                         hintText: 'e.g. 2000000',
                         hintStyle: TextStyle(
                           fontSize: 14,
-                          color: ZipherColors.text20,
+                          color: ZipherColors.text40,
                         ),
                         filled: false,
                         border: InputBorder.none,
@@ -364,7 +364,7 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
                       'Block ${cp.height}',
                       style: TextStyle(
                         fontSize: 10,
-                        color: ZipherColors.text20,
+                        color: ZipherColors.text40,
                       ),
                     ),
                   ],
@@ -387,7 +387,7 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
         fontSize: 12,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.5,
-        color: ZipherColors.text20,
+        color: ZipherColors.text40,
       ),
     );
   }
