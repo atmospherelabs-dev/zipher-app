@@ -12,6 +12,7 @@ import '../../zipher_theme.dart';
 import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../generated/intl/messages.dart';
+import '../../services/near_intents.dart';
 import '../../store2.dart';
 import '../scan.dart';
 import '../utils.dart';
@@ -207,14 +208,16 @@ class _ContactsState extends State<ContactsPage> {
     GoRouter.of(context).push('/account/txplan?tab=contacts', extra: txPlan);
   }
 
-  _add() {
-    GoRouter.of(context).push('/more/contacts/add');
+  _add() async {
+    await GoRouter.of(context).push('/more/contacts/add');
+    listKey.currentState?.refreshChains();
   }
 
-  _edit() {
+  _edit() async {
     final c = listKey.currentState!.selectedContact!;
     final id = c.id;
-    GoRouter.of(context).push('/more/contacts/edit?id=$id');
+    await GoRouter.of(context).push('/more/contacts/edit?id=$id');
+    listKey.currentState?.refreshChains();
   }
 
   _delete() async {
@@ -245,6 +248,19 @@ class ContactList extends StatefulWidget {
 
 class ContactListState extends State<ContactList> {
   late int? selected = widget.initialSelect;
+  Map<String, String> _chainMap = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadChains();
+  }
+
+  Future<void> _loadChains() async {
+    final map = await ContactChainStore.loadAll();
+    if (mounted) setState(() => _chainMap = map);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Observer(builder: (context) {
@@ -255,11 +271,13 @@ class ContactListState extends State<ContactList> {
         itemBuilder: (context, index) {
           final contact = c[index].unpack();
           final isSelected = selected == index;
+          final addr = contact.address ?? '';
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: _ContactCard(
               contact: contact,
               selected: isSelected,
+              chainId: _chainMap[addr],
               onPress: () => widget.onSelect?.call(index),
               onLongPress: () {
                 final v = selected != index ? index : null;
@@ -274,18 +292,22 @@ class ContactListState extends State<ContactList> {
     });
   }
 
+  void refreshChains() => _loadChains();
+
   Contact? get selectedContact => selected?.let((s) => contacts.contacts[s]);
 }
 
 class _ContactCard extends StatelessWidget {
   final ContactT contact;
   final bool selected;
+  final String? chainId;
   final VoidCallback? onPress;
   final VoidCallback? onLongPress;
 
   const _ContactCard({
     required this.contact,
     this.selected = false,
+    this.chainId,
     this.onPress,
     this.onLongPress,
   });
@@ -296,6 +318,8 @@ class _ContactCard extends StatelessWidget {
     final truncated = addr.length > 20
         ? '${addr.substring(0, 10)}...${addr.substring(addr.length - 10)}'
         : addr;
+    final chain = ChainInfo.byId(chainId);
+    final symbol = chain?.symbol ?? 'ZEC';
 
     return Material(
       color: Colors.transparent,
@@ -317,36 +341,45 @@ class _ContactCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: ZipherColors.cyan.withValues(alpha: 0.08),
-                  shape: BoxShape.circle,
-                ),
-                child: Center(
-                  child: Text(
-                    (contact.name ?? '?')[0].toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: ZipherColors.cyan.withValues(alpha: 0.7),
-                    ),
-                  ),
-                ),
-              ),
+              CurrencyIcon(symbol: symbol, size: 40),
               const Gap(14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      contact.name ?? '',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        color: ZipherColors.text90,
-                      ),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            contact.name ?? '',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              color: ZipherColors.text90,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (chain != null) ...[
+                          const Gap(8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: ZipherColors.cardBgElevated,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              chain.symbol,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: ZipherColors.text40,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const Gap(2),
                     Text(
@@ -409,6 +442,8 @@ class _ContactEditState extends State<ContactEditPage> {
   final formKey = GlobalKey<FormBuilderState>();
   final nameController = TextEditingController();
   final addressController = TextEditingController();
+  ChainInfo _selectedChain = ChainInfo.all.first;
+  String _originalAddress = '';
 
   @override
   void initState() {
@@ -416,6 +451,14 @@ class _ContactEditState extends State<ContactEditPage> {
     final c = WarpApi.getContact(aa.coin, widget.id);
     nameController.text = c.name!;
     addressController.text = c.address!;
+    _originalAddress = c.address!;
+    _loadChain();
+  }
+
+  Future<void> _loadChain() async {
+    final chainId = await ContactChainStore.get(_originalAddress);
+    final chain = ChainInfo.byId(chainId);
+    if (chain != null && mounted) setState(() => _selectedChain = chain);
   }
 
   @override
@@ -428,6 +471,7 @@ class _ContactEditState extends State<ContactEditPage> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    final isZec = _selectedChain.id == 'zec';
     return Scaffold(
       backgroundColor: ZipherColors.bg,
       appBar: AppBar(
@@ -504,6 +548,20 @@ class _ContactEditState extends State<ContactEditPage> {
               ),
               const Gap(20),
               Text(
+                'Chain',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: ZipherColors.text40,
+                ),
+              ),
+              const Gap(8),
+              _ChainSelector(
+                selected: _selectedChain,
+                onChanged: (c) => setState(() => _selectedChain = c),
+              ),
+              const Gap(20),
+              Text(
                 'Address',
                 style: TextStyle(
                   fontSize: 14,
@@ -520,6 +578,9 @@ class _ContactEditState extends State<ContactEditPage> {
                 child: FormBuilderTextField(
                   name: 'address',
                   controller: addressController,
+                  validator: isZec
+                      ? null
+                      : (v) => chainAddressValidator(v, _selectedChain.id),
                   maxLines: 5,
                   style: TextStyle(
                     fontSize: 13,
@@ -527,7 +588,7 @@ class _ContactEditState extends State<ContactEditPage> {
                     color: ZipherColors.text90,
                   ),
                   decoration: InputDecoration(
-                    hintText: s.address,
+                    hintText: '${_selectedChain.name} address',
                     hintStyle: TextStyle(
                       fontSize: 13,
                       color: ZipherColors.text20,
@@ -549,9 +610,14 @@ class _ContactEditState extends State<ContactEditPage> {
     );
   }
 
-  _save() {
+  _save() async {
+    final addr = addressController.text;
     WarpApi.storeContact(
-        aa.coin, widget.id, nameController.text, addressController.text, true);
+        aa.coin, widget.id, nameController.text, addr, true);
+    if (_originalAddress != addr) {
+      await ContactChainStore.remove(_originalAddress);
+    }
+    await ContactChainStore.set(addr, _selectedChain.id);
     contacts.fetchContacts();
     GoRouter.of(context).pop();
   }
@@ -570,6 +636,7 @@ class _ContactAddState extends State<ContactAddPage> {
   final formKey = GlobalKey<FormBuilderState>();
   final nameController = TextEditingController();
   final addressController = TextEditingController();
+  ChainInfo _selectedChain = ChainInfo.all.first; // ZEC default
 
   @override
   void dispose() {
@@ -580,6 +647,7 @@ class _ContactAddState extends State<ContactAddPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isZec = _selectedChain.id == 'zec';
     return Scaffold(
       backgroundColor: ZipherColors.bg,
       appBar: AppBar(
@@ -657,6 +725,20 @@ class _ContactAddState extends State<ContactAddPage> {
               ),
               const Gap(20),
               Text(
+                'Chain',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: ZipherColors.text40,
+                ),
+              ),
+              const Gap(8),
+              _ChainSelector(
+                selected: _selectedChain,
+                onChanged: (c) => setState(() => _selectedChain = c),
+              ),
+              const Gap(20),
+              Text(
                 'Address',
                 style: TextStyle(
                   fontSize: 14,
@@ -677,7 +759,9 @@ class _ContactAddState extends State<ContactAddPage> {
                       child: FormBuilderTextField(
                         name: 'address',
                         controller: addressController,
-                        validator: addressValidator,
+                        validator: isZec
+                            ? addressValidator
+                            : (v) => chainAddressValidator(v, _selectedChain.id),
                         minLines: 3,
                         maxLines: 5,
                         style: TextStyle(
@@ -686,7 +770,7 @@ class _ContactAddState extends State<ContactAddPage> {
                           color: ZipherColors.text90,
                         ),
                         decoration: InputDecoration(
-                          hintText: 'Zcash address',
+                          hintText: '${_selectedChain.name} address',
                           hintStyle: TextStyle(
                             fontSize: 13,
                             color: ZipherColors.text40,
@@ -730,17 +814,221 @@ class _ContactAddState extends State<ContactAddPage> {
   }
 
   _qr() async {
+    final isZec = _selectedChain.id == 'zec';
     addressController.text =
-        await scanQRCode(context, validator: addressValidator);
+        await scanQRCode(context, validator: isZec ? addressValidator : null);
   }
 
   _add() async {
     final form = formKey.currentState!;
     if (form.validate()) {
+      final addr = addressController.text;
       WarpApi.storeContact(
-          aa.coin, 0, nameController.text, addressController.text, true);
+          aa.coin, 0, nameController.text, addr, true);
+      await ContactChainStore.set(addr, _selectedChain.id);
       contacts.fetchContacts();
       GoRouter.of(context).pop();
     }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHAIN SELECTOR
+// ═══════════════════════════════════════════════════════════
+
+class _ChainSelector extends StatelessWidget {
+  final ChainInfo selected;
+  final ValueChanged<ChainInfo> onChanged;
+
+  const _ChainSelector({required this.selected, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => _showPicker(context),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: ZipherColors.borderSubtle,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            CurrencyIcon(symbol: selected.symbol, size: 28),
+            const Gap(12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    selected.name,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: ZipherColors.text90,
+                    ),
+                  ),
+                  Text(
+                    selected.symbol,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: ZipherColors.text40,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.unfold_more_rounded,
+                size: 18,
+                color: ZipherColors.text40),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showPicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: ZipherColors.bg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      isScrollControlled: true,
+      builder: (_) => _ChainPickerSheet(
+        selected: selected,
+        onSelected: (c) {
+          onChanged(c);
+          Navigator.of(context).pop();
+        },
+      ),
+    );
+  }
+}
+
+class _ChainPickerSheet extends StatefulWidget {
+  final ChainInfo selected;
+  final ValueChanged<ChainInfo> onSelected;
+
+  const _ChainPickerSheet({required this.selected, required this.onSelected});
+
+  @override
+  State<_ChainPickerSheet> createState() => _ChainPickerSheetState();
+}
+
+class _ChainPickerSheetState extends State<_ChainPickerSheet> {
+  String _search = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _search.isEmpty
+        ? ChainInfo.all
+        : ChainInfo.all.where((c) =>
+            c.name.toLowerCase().contains(_search.toLowerCase()) ||
+            c.symbol.toLowerCase().contains(_search.toLowerCase())).toList();
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.65,
+      minChildSize: 0.4,
+      maxChildSize: 0.85,
+      expand: false,
+      builder: (context, scrollController) => Column(
+        children: [
+          const Gap(8),
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: ZipherColors.text10,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Container(
+              decoration: BoxDecoration(
+                color: ZipherColors.borderSubtle,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: TextField(
+                onChanged: (v) => setState(() => _search = v),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: ZipherColors.text90,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Search chains...',
+                  hintStyle: TextStyle(
+                    fontSize: 14,
+                    color: ZipherColors.text20,
+                  ),
+                  prefixIcon: Icon(Icons.search_rounded,
+                      size: 18, color: ZipherColors.text20),
+                  filled: false,
+                  border: InputBorder.none,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              controller: scrollController,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: filtered.length,
+              itemBuilder: (context, index) {
+                final chain = filtered[index];
+                final isCurrent = chain.id == widget.selected.id;
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => widget.onSelected(chain),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      child: Row(
+                        children: [
+                          CurrencyIcon(symbol: chain.symbol, size: 36),
+                          const Gap(14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  chain.name,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                    color: ZipherColors.text90,
+                                  ),
+                                ),
+                                const Gap(1),
+                                Text(
+                                  chain.symbol,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: ZipherColors.text40,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isCurrent)
+                            Icon(Icons.check_rounded,
+                                size: 18,
+                                color: ZipherColors.cyan.withValues(alpha: 0.7)),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

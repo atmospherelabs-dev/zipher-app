@@ -59,10 +59,12 @@ class _HomeState extends State<HomePageInner> {
   Timer? _swapPollTimer;
   final _nearApi = NearIntentsService();
   int _lastTxCount = -1;
+  String? _accountEmoji;
 
   @override
   void initState() {
     super.initState();
+    _loadAccountEmoji();
     try {
       syncStatus2.update();
       Future(marketPrice.update);
@@ -83,6 +85,11 @@ class _HomeState extends State<HomePageInner> {
       _lastTxCount = currentTxCount;
       _loadSwapsAndPoll();
     }
+  }
+
+  Future<void> _loadAccountEmoji() async {
+    final emoji = await AccountEmojiStore.get(aa.coin, aa.id);
+    if (mounted) setState(() => _accountEmoji = emoji);
   }
 
   void _loadSwapsAndPoll() async {
@@ -138,8 +145,8 @@ class _HomeState extends State<HomePageInner> {
 
   String _formatFiat(double x) => '\$${x.toStringAsFixed(2)}';
 
-  void _showAccountSwitcher(BuildContext context) {
-    showModalBottomSheet(
+  void _showAccountSwitcher(BuildContext context) async {
+    await showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -147,6 +154,7 @@ class _HomeState extends State<HomePageInner> {
         onAccountChanged: () => setState(() {}),
       ),
     );
+    _loadAccountEmoji();
   }
 
   Future<void> _onRefresh() async {
@@ -276,16 +284,21 @@ class _HomeState extends State<HomePageInner> {
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Center(
-                            child: Text(
-                              (aa.name.isNotEmpty ? aa.name[0] : '?')
-                                  .toUpperCase(),
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: ZipherColors.cyan
-                                    .withValues(alpha: 0.7),
-                              ),
-                            ),
+                            child: _accountEmoji != null
+                                ? Text(
+                                    _accountEmoji!,
+                                    style: const TextStyle(fontSize: 17),
+                                  )
+                                : Text(
+                                    (aa.name.isNotEmpty ? aa.name[0] : '?')
+                                        .toUpperCase(),
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: ZipherColors.cyan
+                                          .withValues(alpha: 0.7),
+                                    ),
+                                  ),
                           ),
                         ),
                         const Gap(10),
@@ -1309,12 +1322,21 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
   late List<Account> accounts;
   int? _editingIndex;
   final _nameController = TextEditingController();
+  Map<String, String> _emojis = {};
 
   @override
   void initState() {
     super.initState();
     accounts = getAllAccounts();
+    _loadEmojis();
   }
+
+  Future<void> _loadEmojis() async {
+    final map = await AccountEmojiStore.loadAll();
+    if (mounted) setState(() => _emojis = map);
+  }
+
+  String? _emojiFor(Account a) => _emojis['${a.coin}_${a.id}'];
 
   @override
   void dispose() {
@@ -1439,48 +1461,79 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                         ),
                         child: Row(
                           children: [
-                            Container(
-                              width: 36,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                color: isActive
-                                    ? ZipherColors.cyan
-                                        .withValues(alpha: 0.10)
-                                    : ZipherColors.cardBg,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  (a.name ?? '?')[0].toUpperCase(),
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                    color: isActive
-                                        ? ZipherColors.cyan
-                                            .withValues(alpha: 0.7)
-                                        : ZipherColors.text20,
-                                  ),
+                            GestureDetector(
+                              onTap: isEditing
+                                  ? () => _pickEmoji(a)
+                                  : null,
+                              child: Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: isActive
+                                      ? ZipherColors.cyan
+                                          .withValues(alpha: 0.10)
+                                      : ZipherColors.cardBg,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: isEditing
+                                      ? Border.all(
+                                          color: ZipherColors.cyan
+                                              .withValues(alpha: 0.2),
+                                          width: 1.5,
+                                        )
+                                      : null,
+                                ),
+                                child: Center(
+                                  child: _emojiFor(a) != null
+                                      ? Text(
+                                          _emojiFor(a)!,
+                                          style: const TextStyle(fontSize: 18),
+                                        )
+                                      : Text(
+                                          (a.name ?? '?')[0].toUpperCase(),
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w700,
+                                            color: isActive
+                                                ? ZipherColors.cyan
+                                                    .withValues(alpha: 0.7)
+                                                : ZipherColors.text20,
+                                          ),
+                                        ),
                                 ),
                               ),
                             ),
                             const Gap(12),
                             Expanded(
                               child: isEditing
-                                  ? TextField(
-                                      controller: _nameController,
-                                      autofocus: true,
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
-                                        color: ZipherColors.text90,
+                                  ? Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: ZipherColors.borderSubtle,
+                                        borderRadius:
+                                            BorderRadius.circular(10),
                                       ),
-                                      decoration: InputDecoration(
-                                        isDense: true,
-                                        filled: false,
-                                        border: InputBorder.none,
-                                        contentPadding: EdgeInsets.zero,
+                                      child: TextField(
+                                        controller: _nameController,
+                                        autofocus: true,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                          color: ZipherColors.text90,
+                                        ),
+                                        decoration: InputDecoration(
+                                          isDense: true,
+                                          filled: false,
+                                          border: InputBorder.none,
+                                          hintText: 'Account name',
+                                          hintStyle: TextStyle(
+                                            fontSize: 14,
+                                            color: ZipherColors.text20,
+                                          ),
+                                          contentPadding: EdgeInsets.zero,
+                                        ),
+                                        onSubmitted: (v) => _rename(a, v),
                                       ),
-                                      onSubmitted: (v) => _rename(a, v),
                                     )
                                   : Column(
                                       crossAxisAlignment:
@@ -1607,6 +1660,28 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
     widget.onAccountChanged();
   }
 
+  void _pickEmoji(Account a) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: ZipherColors.bg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _EmojiPickerSheet(
+        onSelected: (emoji) async {
+          Navigator.of(context).pop();
+          await AccountEmojiStore.set(a.coin, a.id, emoji);
+          await _loadEmojis();
+        },
+        onClear: () async {
+          Navigator.of(context).pop();
+          await AccountEmojiStore.remove(a.coin, a.id);
+          await _loadEmojis();
+        },
+      ),
+    );
+  }
+
   void _startEditing(int index, Account a) {
     _nameController.text = a.name ?? '';
     setState(() => _editingIndex = index);
@@ -1655,5 +1730,104 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
         accounts = getAllAccounts();
       });
     }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// EMOJI PICKER SHEET
+// ═══════════════════════════════════════════════════════════
+
+class _EmojiPickerSheet extends StatelessWidget {
+  final ValueChanged<String> onSelected;
+  final VoidCallback onClear;
+
+  const _EmojiPickerSheet({required this.onSelected, required this.onClear});
+
+  static const _emojis = [
+    '💰', '🏦', '🔒', '🛡️', '⚡', '🌙', '🌊', '🔥',
+    '💎', '🪙', '🏠', '🎯', '🚀', '✨', '🌿', '🍀',
+    '❄️', '☁️', '🌈', '⭐', '🎵', '🎨', '📚', '💼',
+    '🧳', '🎁', '🏆', '👑', '🦊', '🐱', '🐶', '🦁',
+    '🐻', '🦄', '🐝', '🦋', '🌸', '🌺', '🍄', '🌍',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: ZipherColors.text10,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const Gap(16),
+          Row(
+            children: [
+              Text(
+                'Pick an emoji',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: ZipherColors.text60,
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: onClear,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: ZipherColors.cardBg,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'Remove',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: ZipherColors.text40,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Gap(16),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 8,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+            ),
+            itemCount: _emojis.length,
+            itemBuilder: (context, index) {
+              return GestureDetector(
+                onTap: () => onSelected(_emojis[index]),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: ZipherColors.cardBg,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(
+                    child: Text(
+                      _emojis[index],
+                      style: const TextStyle(fontSize: 22),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
   }
 }

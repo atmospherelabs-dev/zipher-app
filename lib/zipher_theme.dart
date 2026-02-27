@@ -504,7 +504,7 @@ class ZipherWidgets {
 
   // ── Button tiers ─────────────────────────────────────────
 
-  /// Primary CTA — gradient (cyan → green)
+  /// Primary CTA — flat cyan tint
   static Widget gradientButton({
     required String label,
     required VoidCallback onPressed,
@@ -512,12 +512,13 @@ class ZipherWidgets {
     double? width,
     bool enabled = true,
   }) {
+    final color = ZipherColors.cyan;
     return Opacity(
       opacity: enabled ? 1.0 : 0.4,
       child: Container(
         width: width,
         decoration: BoxDecoration(
-          gradient: ZipherColors.primaryGradient,
+          color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(ZipherRadius.md),
         ),
         child: Material(
@@ -532,13 +533,13 @@ class ZipherWidgets {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   if (icon != null) ...[
-                    Icon(icon, color: ZipherColors.textOnBrand, size: 20),
+                    Icon(icon, color: color.withValues(alpha: 0.9), size: 20),
                     const SizedBox(width: 8),
                   ],
                   Text(
                     label,
-                    style: const TextStyle(
-                      color: ZipherColors.textOnBrand,
+                    style: TextStyle(
+                      color: color.withValues(alpha: 0.9),
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                       fontFamily: 'Inter',

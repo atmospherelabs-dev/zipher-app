@@ -24,6 +24,20 @@ class _AccountManagerState extends State<AccountManagerPage> {
   int? selected;
   bool editing = false;
   final _nameController = TextEditingController();
+  Map<String, String> _emojis = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEmojis();
+  }
+
+  Future<void> _loadEmojis() async {
+    final map = await AccountEmojiStore.loadAll();
+    if (mounted) setState(() => _emojis = map);
+  }
+
+  String? _emojiFor(Account a) => _emojis['${a.coin}_${a.id}'];
 
   @override
   void dispose() {
@@ -136,15 +150,20 @@ class _AccountManagerState extends State<AccountManagerPage> {
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Center(
-                              child: Text(
-                                (a.name ?? '?')[0].toUpperCase(),
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: _accountColor(a)
-                                      .withValues(alpha: 0.7),
-                                ),
-                              ),
+                              child: _emojiFor(a) != null
+                                  ? Text(
+                                      _emojiFor(a)!,
+                                      style: const TextStyle(fontSize: 20),
+                                    )
+                                  : Text(
+                                      (a.name ?? '?')[0].toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                        color: _accountColor(a)
+                                            .withValues(alpha: 0.7),
+                                      ),
+                                    ),
                             ),
                           ),
                           const Gap(12),

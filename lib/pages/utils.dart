@@ -18,6 +18,7 @@ import 'package:intl/intl.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:logger/logger.dart';
 import 'package:path_provider/path_provider.dart';
+import '../services/near_intents.dart';
 import 'package:reflectable/reflectable.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:share_plus/share_plus.dart';
@@ -25,7 +26,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:warp_api/data_fb_generated.dart';
 import 'package:warp_api/warp_api.dart';
 
-import 'avatar.dart';
 import 'package:path/path.dart' as p;
 import 'package:http/http.dart' as http;
 import 'dart:convert' as convert;
@@ -896,11 +896,15 @@ class _ContactAutocompleteState extends State<ContactAutocomplete> {
   final _link = LayerLink();
   OverlayEntry? _overlay;
   List<Contact> _matches = [];
+  Map<String, String> _chainMap = {};
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_onChanged);
+    ContactChainStore.loadAll().then((m) {
+      if (mounted) setState(() => _chainMap = m);
+    });
   }
 
   @override
@@ -969,23 +973,13 @@ class _ContactAutocompleteState extends State<ContactAutocomplete> {
                   ),
                   itemBuilder: (context, index) {
                     final c = _matches[index];
+                    final chainId = _chainMap[c.address ?? ''];
+                    final chain = ChainInfo.byId(chainId);
+                    final symbol = chain?.symbol ?? 'ZEC';
                     return ListTile(
                       dense: true,
                       visualDensity: VisualDensity.compact,
-                      leading: CircleAvatar(
-                        radius: 14,
-                        backgroundColor:
-                            initialToColor(c.name![0].toUpperCase())
-                                .withValues(alpha: 0.15),
-                        child: Text(
-                          c.name![0].toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: initialToColor(c.name![0].toUpperCase()),
-                          ),
-                        ),
-                      ),
+                      leading: CurrencyIcon(symbol: symbol, size: 28),
                       title: Text(
                         c.name!,
                         style: TextStyle(

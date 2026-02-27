@@ -255,12 +255,12 @@ class MediumTitle extends StatelessWidget {
             horizontal: ZipherSpacing.md, vertical: ZipherSpacing.sm),
         decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(ZipherRadius.sm),
-            gradient: ZipherColors.primaryGradient),
+            color: ZipherColors.cyan.withValues(alpha: 0.12)),
         child: Text(title,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: ZipherColors.textOnBrand)));
+                color: ZipherColors.cyan.withValues(alpha: 0.9))));
   }
 }
 

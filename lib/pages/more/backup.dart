@@ -38,6 +38,19 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
     _enableScreenProtection();
     _loadBackup();
     _loadBirthday();
+    _loadVerificationState();
+  }
+
+  Future<void> _loadVerificationState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'seed_verified_${aa.coin}_${aa.id}';
+    final v = prefs.getBool(key) ?? false;
+    if (v && mounted) setState(() => _verificationPassed = true);
+  }
+
+  Future<void> _saveVerificationState(bool passed) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('seed_verified_${aa.coin}_${aa.id}', passed);
   }
 
   Future<void> _enableScreenProtection() async {
@@ -509,27 +522,31 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                         // Verify Backup button
                         if (_seedRevealed && !_verificationPassed) ...[
                           const Gap(16),
-                          GestureDetector(
-                            onTap: () => _startVerification(
-                                (_keychainSeed ?? backup.seed)!),
-                            child: Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              decoration: BoxDecoration(
-                                gradient: ZipherColors.primaryGradient,
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.quiz_rounded, size: 18,
-                                      color: ZipherColors.textOnBrand),
-                                  const Gap(8),
-                                  Text('Verify Backup', style: TextStyle(
-                                    fontSize: 14, fontWeight: FontWeight.w700,
-                                    color: ZipherColors.textOnBrand,
-                                  )),
-                                ],
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () => _startVerification(
+                                  (_keychainSeed ?? backup.seed)!),
+                              borderRadius: BorderRadius.circular(14),
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                decoration: BoxDecoration(
+                                  color: ZipherColors.cyan.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.quiz_rounded, size: 18,
+                                        color: ZipherColors.cyan.withValues(alpha: 0.9)),
+                                    const Gap(8),
+                                    Text('Verify Backup', style: TextStyle(
+                                      fontSize: 14, fontWeight: FontWeight.w700,
+                                      color: ZipherColors.cyan.withValues(alpha: 0.9),
+                                    )),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -591,8 +608,10 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
           words: words,
           indices: sortedIndices,
           onResult: (passed) {
+            if (passed == null) return; // dismissed without completing
             if (passed) {
               setState(() => _verificationPassed = true);
+              _saveVerificationState(true);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: const Text('Backup verified successfully!'),
@@ -874,7 +893,7 @@ class _KeyCard extends StatelessWidget {
 class _SeedVerificationPage extends StatefulWidget {
   final List<String> words;
   final List<int> indices;
-  final void Function(bool passed) onResult;
+  final void Function(bool? passed) onResult;
 
   const _SeedVerificationPage({
     required this.words,
@@ -929,7 +948,10 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
         elevation: 0,
         leading: IconButton(
           icon: Icon(Icons.close_rounded, color: ZipherColors.text60),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () {
+            Navigator.of(context).pop();
+            widget.onResult(null);
+          },
         ),
         title: Text(
           'VERIFY BACKUP',
@@ -1014,21 +1036,25 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
               const Spacer(flex: 3),
               SizedBox(
                 width: double.infinity,
-                child: GestureDetector(
-                  onTap: _verify,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    decoration: BoxDecoration(
-                      gradient: ZipherColors.primaryGradient,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Center(
-                      child: Text(
-                        'Verify',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: ZipherColors.textOnBrand,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _verify,
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      decoration: BoxDecoration(
+                        color: ZipherColors.cyan.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Center(
+                        child: Text(
+                          'Verify',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: ZipherColors.cyan.withValues(alpha: 0.9),
+                          ),
                         ),
                       ),
                     ),

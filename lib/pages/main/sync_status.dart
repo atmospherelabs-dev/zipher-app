@@ -11,7 +11,8 @@ class SyncStatusWidget extends StatefulWidget {
   SyncStatusState createState() => SyncStatusState();
 }
 
-class SyncStatusState extends State<SyncStatusWidget> {
+class SyncStatusState extends State<SyncStatusWidget>
+    with SingleTickerProviderStateMixin {
   var display = 0;
 
   @override
@@ -70,69 +71,83 @@ class SyncStatusState extends State<SyncStatusWidget> {
   Widget build(BuildContext context) {
     final syncing = syncStatus2.syncing;
     final connected = syncStatus2.connected;
-
-    // Hidden when fully synced and connected — clean Phantom-style
-    if (!syncing && connected) return const SizedBox.shrink();
+    final visible = syncing || !connected;
 
     final syncedHeight = syncStatus2.syncedHeight;
-    final text = getSyncText(syncedHeight);
-    final value = syncStatus2.eta.progress?.let((x) => x.toDouble() / 100.0);
+    final text = visible ? getSyncText(syncedHeight) : '';
+    final value = syncing
+        ? syncStatus2.eta.progress?.let((x) => x.toDouble() / 100.0)
+        : null;
 
-    return GestureDetector(
-      onTap: _onSync,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                if (!connected)
-                  Icon(Icons.cloud_off_outlined,
-                      size: 14,
-                      color: ZipherColors.red.withValues(alpha: 0.8))
-                else
-                  SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 1.5,
-                      color: ZipherColors.text40,
-                    ),
-                  ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    text,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                      color: !connected
-                          ? ZipherColors.red.withValues(alpha: 0.8)
-                          : ZipherColors.text40,
-                    ),
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOut,
+      alignment: Alignment.topCenter,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 200),
+        opacity: visible ? 1.0 : 0.0,
+        child: visible
+            ? GestureDetector(
+                onTap: _onSync,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          if (!connected)
+                            Icon(Icons.cloud_off_outlined,
+                                size: 14,
+                                color:
+                                    ZipherColors.red.withValues(alpha: 0.8))
+                          else
+                            SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: ZipherColors.text40,
+                              ),
+                            ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              text,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w400,
+                                color: !connected
+                                    ? ZipherColors.red.withValues(alpha: 0.8)
+                                    : ZipherColors.text40,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (syncing && value != null) ...[
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: SizedBox(
+                            height: 2,
+                            child: LinearProgressIndicator(
+                              value: value.clamp(0, 1),
+                              backgroundColor:
+                                  ZipherColors.cyan.withValues(alpha: 0.15),
+                              valueColor:
+                                  const AlwaysStoppedAnimation<Color>(
+                                      ZipherColors.cyan),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-              ],
-            ),
-            // Subtle progress bar
-            if (syncing && value != null) ...[
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(2),
-                child: SizedBox(
-                  height: 2,
-                  child: LinearProgressIndicator(
-                    value: value.clamp(0, 1),
-                    backgroundColor: ZipherColors.cyan.withValues(alpha: 0.15),
-                    valueColor: const AlwaysStoppedAnimation<Color>(
-                        ZipherColors.cyan),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
+              )
+            : const SizedBox.shrink(),
       ),
     );
   }

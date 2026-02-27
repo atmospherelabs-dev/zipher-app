@@ -442,3 +442,40 @@ List<PnL> getPNL(
   });
   return pnls;
 }
+
+// ---------------------------------------------------------------------------
+// Account emoji avatar (SharedPreferences)
+// ---------------------------------------------------------------------------
+
+class AccountEmojiStore {
+  static const _prefix = 'account_emoji_';
+
+  static String _key(int coin, int id) => '$_prefix${coin}_$id';
+
+  static Future<String?> get(int coin, int id) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_key(coin, id));
+  }
+
+  static Future<void> set(int coin, int id, String emoji) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_key(coin, id), emoji);
+  }
+
+  static Future<void> remove(int coin, int id) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key(coin, id));
+  }
+
+  static Future<Map<String, String>> loadAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    final map = <String, String>{};
+    for (final key in prefs.getKeys()) {
+      if (key.startsWith(_prefix)) {
+        final v = prefs.getString(key);
+        if (v != null) map[key.substring(_prefix.length)] = v;
+      }
+    }
+    return map;
+  }
+}

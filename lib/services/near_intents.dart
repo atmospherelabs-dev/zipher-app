@@ -689,3 +689,137 @@ class SwapStore {
     return map;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Contact chain metadata (SharedPreferences — Dart-only, no FFI)
+// ---------------------------------------------------------------------------
+
+class ChainInfo {
+  final String id;
+  final String symbol;
+  final String name;
+
+  const ChainInfo({required this.id, required this.symbol, required this.name});
+
+  static const all = [
+    ChainInfo(id: 'zec', symbol: 'ZEC', name: 'Zcash'),
+    ChainInfo(id: 'btc', symbol: 'BTC', name: 'Bitcoin'),
+    ChainInfo(id: 'eth', symbol: 'ETH', name: 'Ethereum'),
+    ChainInfo(id: 'sol', symbol: 'SOL', name: 'Solana'),
+    ChainInfo(id: 'arb', symbol: 'ARB', name: 'Arbitrum'),
+    ChainInfo(id: 'base', symbol: 'BASE', name: 'Base'),
+    ChainInfo(id: 'op', symbol: 'OP', name: 'Optimism'),
+    ChainInfo(id: 'pol', symbol: 'POL', name: 'Polygon'),
+    ChainInfo(id: 'bsc', symbol: 'BNB', name: 'BNB Chain'),
+    ChainInfo(id: 'near', symbol: 'NEAR', name: 'NEAR'),
+    ChainInfo(id: 'avax', symbol: 'AVAX', name: 'Avalanche'),
+    ChainInfo(id: 'tron', symbol: 'TRX', name: 'Tron'),
+    ChainInfo(id: 'xrp', symbol: 'XRP', name: 'XRP'),
+    ChainInfo(id: 'doge', symbol: 'DOGE', name: 'Dogecoin'),
+    ChainInfo(id: 'ltc', symbol: 'LTC', name: 'Litecoin'),
+    ChainInfo(id: 'bch', symbol: 'BCH', name: 'Bitcoin Cash'),
+    ChainInfo(id: 'sui', symbol: 'SUI', name: 'Sui'),
+    ChainInfo(id: 'ton', symbol: 'TON', name: 'TON'),
+    ChainInfo(id: 'stellar', symbol: 'XLM', name: 'Stellar'),
+    ChainInfo(id: 'cardano', symbol: 'ADA', name: 'Cardano'),
+    ChainInfo(id: 'aptos', symbol: 'APT', name: 'Aptos'),
+    ChainInfo(id: 'bera', symbol: 'BERA', name: 'Berachain'),
+    ChainInfo(id: 'starknet', symbol: 'STRK', name: 'Starknet'),
+    ChainInfo(id: 'gnosis', symbol: 'GNO', name: 'Gnosis'),
+  ];
+
+  static ChainInfo? byId(String? id) {
+    if (id == null) return null;
+    final lower = id.toLowerCase();
+    try {
+      return all.firstWhere((c) => c.id == lower);
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+String? chainAddressValidator(String? v, String chainId) {
+  if (v == null || v.trim().isEmpty) return 'Address is required';
+  final addr = v.trim();
+  final patterns = _chainAddressPatterns[chainId];
+  if (patterns == null) return null; // no validation for unknown chains
+  for (final pattern in patterns) {
+    if (pattern.hasMatch(addr)) return null;
+  }
+  return 'Invalid ${ChainInfo.byId(chainId)?.name ?? chainId} address';
+}
+
+final _chainAddressPatterns = <String, List<RegExp>>{
+  'btc': [
+    RegExp(r'^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$'),       // P2PKH / P2SH
+    RegExp(r'^bc1[a-zA-HJ-NP-Z0-9]{25,90}$'),            // Bech32 / Bech32m
+  ],
+  'eth': [RegExp(r'^0x[0-9a-fA-F]{40}$')],
+  'sol': [RegExp(r'^[1-9A-HJ-NP-Za-km-z]{32,44}$')],
+  'arb': [RegExp(r'^0x[0-9a-fA-F]{40}$')],
+  'base': [RegExp(r'^0x[0-9a-fA-F]{40}$')],
+  'op': [RegExp(r'^0x[0-9a-fA-F]{40}$')],
+  'pol': [RegExp(r'^0x[0-9a-fA-F]{40}$')],
+  'bsc': [RegExp(r'^0x[0-9a-fA-F]{40}$')],
+  'avax': [RegExp(r'^0x[0-9a-fA-F]{40}$')],
+  'gnosis': [RegExp(r'^0x[0-9a-fA-F]{40}$')],
+  'bera': [RegExp(r'^0x[0-9a-fA-F]{40}$')],
+  'starknet': [RegExp(r'^0x[0-9a-fA-F]{40,66}$')],
+  'near': [
+    RegExp(r'^[a-z0-9_\-]+(\.[a-z0-9_\-]+)*\.near$'),    // named
+    RegExp(r'^[0-9a-fA-F]{64}$'),                          // implicit
+  ],
+  'tron': [RegExp(r'^T[a-zA-HJ-NP-Z1-9]{33}$')],
+  'xrp': [RegExp(r'^r[1-9A-HJ-NP-Za-km-z]{24,34}$')],
+  'doge': [RegExp(r'^D[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}$')],
+  'ltc': [
+    RegExp(r'^[LM3][a-km-zA-HJ-NP-Z1-9]{26,33}$'),       // Legacy
+    RegExp(r'^ltc1[a-zA-HJ-NP-Z0-9]{25,90}$'),            // Bech32
+  ],
+  'bch': [
+    RegExp(r'^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$'),         // Legacy
+    RegExp(r'^(bitcoincash:)?[qp][a-z0-9]{41}$'),          // CashAddr
+  ],
+  'sui': [RegExp(r'^0x[0-9a-fA-F]{64}$')],
+  'ton': [RegExp(r'^(EQ|UQ)[a-zA-Z0-9_\-]{46}$')],
+  'stellar': [RegExp(r'^G[A-Z2-7]{55}$')],
+  'cardano': [RegExp(r'^addr1[a-z0-9]{50,120}$')],
+  'aptos': [RegExp(r'^0x[0-9a-fA-F]{64}$')],
+};
+
+class ContactChainStore {
+  static const _key = 'zipher_contact_chains';
+
+  static Future<Map<String, String>> _loadAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_key);
+    if (raw == null) return {};
+    try {
+      return Map<String, String>.from(jsonDecode(raw));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Future<String?> get(String address) async {
+    final map = await _loadAll();
+    return map[address];
+  }
+
+  static Future<void> set(String address, String chainId) async {
+    final map = await _loadAll();
+    map[address] = chainId;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_key, jsonEncode(map));
+  }
+
+  static Future<void> remove(String address) async {
+    final map = await _loadAll();
+    map.remove(address);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_key, jsonEncode(map));
+  }
+
+  static Future<Map<String, String>> loadAll() => _loadAll();
+}

@@ -313,13 +313,13 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       decoration: BoxDecoration(
-                        gradient: ZipherColors.primaryGradient,
+                        color: ZipherColors.cyan.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: Center(
                         child: Text('Confirm', style: TextStyle(
                           fontSize: 16, fontWeight: FontWeight.w700,
-                          color: ZipherColors.textOnBrand,
+                          color: ZipherColors.cyan.withValues(alpha: 0.9),
                         )),
                       ),
                     ),
