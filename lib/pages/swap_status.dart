@@ -145,6 +145,12 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
 
                     const Gap(12),
 
+                    // ── Deposit address (for intoZec swaps) ──
+                    if (_isIntoZec)
+                      _depositAddressCard(),
+
+                    if (_isIntoZec) const Gap(10),
+
                     // ── TX hashes (only when available) ──
                     if (_status?.txHashIn != null)
                       _infoCard('Deposit TX', _status!.txHashIn!),
@@ -393,11 +399,86 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
     );
   }
 
+  // ─── Deposit address card ─────────────────────────────────
+
+  bool get _isIntoZec {
+    final to = _to?.toUpperCase() ?? '';
+    return to == 'ZEC' || to == 'TAZ';
+  }
+
+  Widget _depositAddressCard() {
+    final from = _from ?? '';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: ZipherColors.orange.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: ZipherColors.orange.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.arrow_upward_rounded, size: 14,
+                  color: ZipherColors.orange.withValues(alpha: 0.7)),
+              const Gap(6),
+              Text('Send $from to this address', style: TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w600,
+                color: ZipherColors.orange.withValues(alpha: 0.8),
+              )),
+            ],
+          ),
+          const Gap(8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.depositAddress,
+                  style: TextStyle(
+                    fontSize: 12, fontFamily: 'monospace',
+                    color: ZipherColors.text60,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+              const Gap(8),
+              GestureDetector(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: widget.depositAddress));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text('Deposit address copied'),
+                      duration: const Duration(seconds: 2),
+                      backgroundColor: ZipherColors.surface,
+                    ),
+                  );
+                },
+                child: Container(
+                  width: 30, height: 30,
+                  decoration: BoxDecoration(
+                    color: ZipherColors.orange.withValues(alpha: 0.08),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.copy_rounded, size: 13,
+                      color: ZipherColors.orange.withValues(alpha: 0.6)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   // ─── Helpers ───────────────────────────────────────────────
 
   String _humanLabel(String status) {
     final s = _status;
-    if (s == null || s.isPending) return 'Deposit Sent';
+    if (s == null || s.isPending) {
+      return _isIntoZec ? 'Awaiting Deposit' : 'Deposit Sent';
+    }
     if (s.isProcessing) return 'Processing Swap';
     if (s.isSuccess) return 'Swap Complete';
     if (s.isRefunded) return 'Refunded';
@@ -407,7 +488,9 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
   String _description() {
     final s = _status;
     if (s == null || s.isPending) {
-      return 'Your deposit has been sent and is waiting for on-chain confirmation.';
+      return _isIntoZec
+          ? 'Send your ${_from ?? 'tokens'} to the deposit address below. The swap will begin once the deposit is confirmed on-chain.'
+          : 'Your deposit has been sent and is waiting for on-chain confirmation.';
     }
     if (s.isProcessing) return 'Your swap is being processed. This may take a few minutes.';
     if (s.isSuccess) return 'Swap completed successfully!';

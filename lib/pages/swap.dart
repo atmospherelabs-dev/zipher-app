@@ -253,9 +253,15 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                     ),
                     child: Column(
                       children: [
-                        _detailRow('Swap from', 'Zipher'),
+                        _detailRow(
+                          _direction == SwapDirection.fromZec ? 'Swap from' : 'Receive in',
+                          'Zipher',
+                        ),
                         _sheetDivider(),
-                        _detailRow('Swap to', centerTrim(_addressController.text.trim(), length: 16)),
+                        _detailRow(
+                          _direction == SwapDirection.fromZec ? 'Swap to' : 'Refund to',
+                          centerTrim(_addressController.text.trim(), length: 16),
+                        ),
                         _sheetDivider(),
                         _detailRow('Slippage', '${(_slippageBps / 100).toStringAsFixed(1)}%'),
                         if (quote.deadline.isNotEmpty) ...[
@@ -272,6 +278,73 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                     ),
                   ),
                   const Gap(12),
+
+                  // Deposit address (intoZec only)
+                  if (_direction == SwapDirection.intoZec && quote.depositAddress.isNotEmpty) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: ZipherColors.orange.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: ZipherColors.orange.withValues(alpha: 0.10)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.arrow_upward_rounded, size: 14,
+                                  color: ZipherColors.orange.withValues(alpha: 0.7)),
+                              const Gap(6),
+                              Text('Send ${origin.symbol} to', style: TextStyle(
+                                fontSize: 12, fontWeight: FontWeight.w600,
+                                color: ZipherColors.orange.withValues(alpha: 0.8),
+                              )),
+                            ],
+                          ),
+                          const Gap(8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  quote.depositAddress,
+                                  style: TextStyle(
+                                    fontSize: 12, fontFamily: 'monospace',
+                                    color: ZipherColors.text60,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                              const Gap(8),
+                              GestureDetector(
+                                onTap: () {
+                                  Clipboard.setData(ClipboardData(text: quote.depositAddress));
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                    SnackBar(
+                                      content: const Text('Deposit address copied'),
+                                      duration: const Duration(seconds: 2),
+                                      backgroundColor: ZipherColors.surface,
+                                    ),
+                                  );
+                                },
+                                child: Container(
+                                  width: 30, height: 30,
+                                  decoration: BoxDecoration(
+                                    color: ZipherColors.orange.withValues(alpha: 0.08),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(Icons.copy_rounded, size: 13,
+                                      color: ZipherColors.orange.withValues(alpha: 0.6)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Gap(12),
+                  ],
 
                   // Slippage warning
                   if (slippageUsd > 0.01)
