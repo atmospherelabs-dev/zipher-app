@@ -412,24 +412,17 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: ZipherColors.orange.withValues(alpha: 0.06),
+        color: ZipherColors.cardBg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: ZipherColors.orange.withValues(alpha: 0.10)),
+        border: Border.all(color: ZipherColors.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.arrow_upward_rounded, size: 14,
-                  color: ZipherColors.orange.withValues(alpha: 0.7)),
-              const Gap(6),
-              Text('Send $from to this address', style: TextStyle(
-                fontSize: 12, fontWeight: FontWeight.w600,
-                color: ZipherColors.orange.withValues(alpha: 0.8),
-              )),
-            ],
-          ),
+          Text('Send $from to this address', style: TextStyle(
+            fontSize: 11, fontWeight: FontWeight.w500,
+            color: ZipherColors.text40,
+          )),
           const Gap(8),
           Row(
             children: [
@@ -458,11 +451,11 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
                 child: Container(
                   width: 30, height: 30,
                   decoration: BoxDecoration(
-                    color: ZipherColors.orange.withValues(alpha: 0.08),
+                    color: ZipherColors.cardBgElevated,
                     shape: BoxShape.circle,
                   ),
                   child: Icon(Icons.copy_rounded, size: 13,
-                      color: ZipherColors.orange.withValues(alpha: 0.6)),
+                      color: ZipherColors.text40),
                 ),
               ),
             ],
