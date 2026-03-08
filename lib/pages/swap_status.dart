@@ -36,9 +36,18 @@ class _SwapStatusPageState extends State<SwapStatusPage> {
   StoredSwap? _storedSwap;
 
   String? get _from => _storedSwap?.fromCurrency ?? widget.fromCurrency;
-  String? get _fromAmt => _storedSwap?.fromAmount ?? widget.fromAmount;
+  String? get _fromAmt => _fmtAmt(_storedSwap?.fromAmount ?? widget.fromAmount, _from);
   String? get _to => _storedSwap?.toCurrency ?? widget.toCurrency;
-  String? get _toAmt => _storedSwap?.toAmount ?? widget.toAmount;
+  String? get _toAmt => _fmtAmt(_storedSwap?.toAmount ?? widget.toAmount, _to);
+
+  String? _fmtAmt(String? raw, String? symbol) {
+    if (raw == null) return null;
+    final v = double.tryParse(raw);
+    if (v == null) return raw;
+    final s = (symbol ?? '').toUpperCase();
+    final isZec = s == 'ZEC' || s == 'TAZ';
+    return v.toStringAsFixed(isZec ? 4 : 2);
+  }
 
   @override
   void initState() {

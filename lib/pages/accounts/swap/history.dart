@@ -290,7 +290,7 @@ class SwapHistoryState extends State<SwapHistoryPage>
         ),
         const Gap(4),
         Text(
-          '$amount $symbol',
+          '${_fmtAmt(amount, symbol)} $symbol',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -311,6 +311,14 @@ class SwapHistoryState extends State<SwapHistoryPage>
         ],
       ],
     );
+  }
+
+  String _fmtAmt(String raw, String symbol) {
+    final v = double.tryParse(raw);
+    if (v == null) return raw;
+    final s = symbol.toUpperCase();
+    final isZec = s == 'ZEC' || s == 'TAZ';
+    return v.toStringAsFixed(isZec ? 4 : 2);
   }
 
   // ─── Clear history ─────────────────────────────────────────

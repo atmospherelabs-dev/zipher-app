@@ -1111,7 +1111,10 @@ class _TxRowState extends State<_TxRow> {
 
     final String amountStr;
     if (isSwapDeposit) {
-      amountStr = '${swapInfo!.toAmount} ${swapInfo!.toCurrency}';
+      final raw = double.tryParse(swapInfo!.toAmount ?? '') ?? 0;
+      final sym = swapInfo!.toCurrency ?? '';
+      final isZecDest = sym.toUpperCase() == 'ZEC' || sym.toUpperCase() == 'TAZ';
+      amountStr = '${raw.toStringAsFixed(isZecDest ? 4 : 2)} $sym';
     } else if (isShielding && shieldedAmount != null) {
       amountStr = '${decimalToString(shieldedAmount)} ZEC';
     } else if (isShielding) {
@@ -1643,16 +1646,14 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
     return amountToString2(a.balance);
   }
 
-  void _switchTo(Account a) {
-    setActiveAccount(a.coin, a.id);
-    Future(() async {
-      final prefs = await SharedPreferences.getInstance();
-      await aa.save(prefs);
-    });
+  void _switchTo(Account a) async {
+    Navigator.of(context).pop();
+    await setActiveAccountAsync(a.coin, a.id);
+    final prefs = await SharedPreferences.getInstance();
+    await aa.save(prefs);
     aa.update(null);
     contacts.fetchContacts();
     widget.onAccountChanged();
-    Navigator.of(context).pop();
   }
 
   void _addAccount() async {

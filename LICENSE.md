@@ -2,7 +2,7 @@ The MIT License (MIT)
 =====================
 
 Copyright © 2023 Hanh Huynh Huu (original YWallet code)
-Copyright © 2025-2026 Cipherscan (Zipher modifications)
+Copyright © 2025-2026 Atmosphere Labs LLC (Zipher modifications)
 
 Permission is hereby granted, free of charge, to any person
 obtaining a copy of this software and associated documentation

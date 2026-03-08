@@ -31,7 +31,7 @@ Built by [Atmosphere Labs](https://atmospherelabs.dev).
 ## Built With
 
 - [Flutter](https://flutter.dev) — mobile UI (iOS & Android)
-- [Warp Sync Engine](https://github.com/hhanh00/zcash-sync) — Rust-based sync by Hanh Huynh Huu
+- [Warp Sync Engine](https://github.com/hhanh00/zcash-sync) — Rust-based Zcash sync engine
 - [librustzcash](https://github.com/zcash/librustzcash) — Zcash protocol libraries
 - [NEAR Intents](https://near.org/intents) — cross-chain swap infrastructure
 

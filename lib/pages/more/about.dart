@@ -66,7 +66,7 @@ class AboutPage extends StatelessWidget {
             ),
             const Gap(4),
             Text(
-              'by CipherScan',
+              'by Atmosphere Labs',
               style: TextStyle(
                 fontSize: 13,
                 color: ZipherColors.cyan.withValues(alpha: 0.7),
@@ -74,7 +74,7 @@ class AboutPage extends StatelessWidget {
             ),
             const Gap(4),
             GestureDetector(
-              onTap: () => _openUrl('https://github.com/hhanh00/zwallet/commit/$commitId'),
+              onTap: () => _openUrl('https://github.com/atmospherelabs-dev/zipher-app/commit/$commitId'),
               child: Text(
                 'v$packageVersion ($id)',
                 style: TextStyle(
@@ -120,7 +120,7 @@ class AboutPage extends StatelessWidget {
               iconColor: ZipherColors.cyan,
               title: 'Open Source',
               items: [
-                'Zipher is built on top of YWallet\'s open-source Zcash engine.',
+                'Built on open-source Zcash technology (MIT licensed).',
                 'Verify the code yourself on GitHub.',
               ],
             ),
@@ -130,14 +130,14 @@ class AboutPage extends StatelessWidget {
             // Links
             _linkButton(
               icon: Icons.language_rounded,
-              label: 'cipherscan.app',
-              onTap: () => _openUrl('https://cipherscan.app'),
+              label: 'atmospherelabs.dev',
+              onTap: () => _openUrl('https://atmospherelabs.dev'),
             ),
             const Gap(8),
             _linkButton(
               icon: Icons.code_rounded,
               label: 'View on GitHub',
-              onTap: () => _openUrl('https://github.com/hhanh00/zwallet'),
+              onTap: () => _openUrl('https://github.com/atmospherelabs-dev/zipher-app'),
             ),
 
             const Gap(32),
