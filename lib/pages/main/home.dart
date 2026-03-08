@@ -216,8 +216,8 @@ class _HomeState extends State<HomePageInner> {
                           height: 620,
                           child: CustomPaint(
                             painter: _BeamPainter(
-                              colorTop: ZipherColors.cyan.withValues(alpha: 0.16),
-                              colorMid: ZipherColors.purple.withValues(alpha: 0.10),
+                              colorTop: ZipherColors.cyan.withValues(alpha: 0.08),
+                              colorMid: ZipherColors.warm.withValues(alpha: 0.05),
                             ),
                           ),
                         ),
