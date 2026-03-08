@@ -1111,8 +1111,8 @@ class _TxRowState extends State<_TxRow> {
 
     final String amountStr;
     if (isSwapDeposit) {
-      final raw = double.tryParse(swapInfo!.toAmount ?? '') ?? 0;
-      final sym = swapInfo!.toCurrency ?? '';
+      final raw = double.tryParse(swapInfo!.toAmount) ?? 0;
+      final sym = swapInfo!.toCurrency;
       final isZecDest = sym.toUpperCase() == 'ZEC' || sym.toUpperCase() == 'TAZ';
       amountStr = '${raw.toStringAsFixed(isZecDest ? 4 : 2)} $sym';
     } else if (isShielding && shieldedAmount != null) {

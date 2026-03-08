@@ -405,27 +405,6 @@ class _ContactCard extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CONTACT ITEM (for backward compat)
-// ═══════════════════════════════════════════════════════════
-
-class ContactItem extends StatelessWidget {
-  final ContactT contact;
-  final bool? selected;
-  final void Function()? onPress;
-  final void Function()? onLongPress;
-  ContactItem(this.contact, {this.selected, this.onPress, this.onLongPress});
-
-  @override
-  Widget build(BuildContext context) {
-    return _ContactCard(
-      contact: contact,
-      selected: selected ?? false,
-      onPress: onPress,
-      onLongPress: onLongPress,
-    );
-  }
-}
-
 // ═══════════════════════════════════════════════════════════
 // EDIT CONTACT
 // ═══════════════════════════════════════════════════════════

@@ -17,8 +17,6 @@ import '../generated/intl/messages.dart';
 import '../appsettings.dart' as app;
 import '../settings.pb.dart';
 import '../store2.dart';
-import 'utils.dart';
-
 late List<String> currencies;
 
 // ═══════════════════════════════════════════════════════════
