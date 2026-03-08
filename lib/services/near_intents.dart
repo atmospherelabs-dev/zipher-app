@@ -368,10 +368,10 @@ class TokenIcon extends StatelessWidget {
                 width: badgeSize,
                 height: badgeSize,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0A0E27),
+                  color: const Color(0xFF08090F),
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: const Color(0xFF0A0E27),
+                    color: const Color(0xFF08090F),
                     width: 1.5,
                   ),
                 ),
@@ -500,10 +500,10 @@ class CurrencyIcon extends StatelessWidget {
               width: badgeSize,
               height: badgeSize,
               decoration: BoxDecoration(
-                color: const Color(0xFF0A0E27),
+                color: const Color(0xFF08090F),
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: const Color(0xFF0A0E27),
+                  color: const Color(0xFF08090F),
                   width: 1.5,
                 ),
               ),

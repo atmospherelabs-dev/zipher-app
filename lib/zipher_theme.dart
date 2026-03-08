@@ -3,18 +3,21 @@ import 'package:flutter/material.dart';
 /// Zipher Design System — semantic tokens and shared widgets.
 
 class ZipherColors {
-  // Core backgrounds
-  static const Color bg = Color(0xFF0A0E27);
-  static const Color surface = Color(0xFF141827);
-  static const Color surfaceLight = Color(0xFF1A1F37);
-  static const Color border = Color(0xFF1E293B);
-  static const Color borderLight = Color(0xFF2D3748);
+  // Core backgrounds (Cipherscan/Cipherpay-aligned dark: #08090F)
+  static const Color bg = Color(0xFF08090F);
+  static const Color surface = Color(0xFF0E1018);
+  static const Color surfaceLight = Color(0xFF14161F);
+  static const Color border = Color(0xFF1A1D28);
+  static const Color borderLight = Color(0xFF22252F);
 
   // Brand colors
   static const Color cyan = Color(0xFF00D4FF);
   static const Color cyanDark = Color(0xFF00A3CC);
   static const Color green = Color(0xFF10E06C);
   static const Color greenDark = Color(0xFF0BBF5B);
+  /// Warm accent (gradient end, Orchard pool). Keep green for success/positive.
+  static const Color warm = Color(0xFFF4B728);
+  static const Color warmDark = Color(0xFFD4A020);
   static const Color purple = Color(0xFFA855F7);
   static const Color purpleDark = Color(0xFF7C3AED);
   static const Color orange = Color(0xFFFF6B35);
@@ -25,7 +28,7 @@ class ZipherColors {
   static const Color textPrimary = Color(0xFFE5E7EB);
   static const Color textSecondary = Color(0xFF9CA3AF);
   static const Color textMuted = Color(0xFF8B92A0);
-  static const Color textOnBrand = Color(0xFF0A0E27);
+  static const Color textOnBrand = Color(0xFF08090F);
 
   // ── Semantic opacity tokens ─────────────────────────────
   // Use these instead of scattered Colors.white.withValues(alpha: ...).
@@ -42,8 +45,9 @@ class ZipherColors {
   static final Color borderSubtle = Colors.white.withValues(alpha: 0.05);
 
   // Gradients
+  /// Primary brand gradient (sync bar, gradient buttons). Cyan → warm.
   static const LinearGradient primaryGradient = LinearGradient(
-    colors: [cyan, green],
+    colors: [cyan, warm],
     begin: Alignment.centerLeft,
     end: Alignment.centerRight,
   );
@@ -56,9 +60,9 @@ class ZipherColors {
 
   static const LinearGradient bgGradient = LinearGradient(
     colors: [
-      Color(0xFF0A0E27),
-      Color(0xFF0D1230),
-      Color(0xFF0A0E27),
+      Color(0xFF08090F),
+      Color(0xFF0E1018),
+      Color(0xFF08090F),
     ],
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
@@ -67,27 +71,34 @@ class ZipherColors {
   // Pool-specific colors
   static const Color transparent = cyan;
   static const Color sapling = purple;
-  static const Color orchard = green;
+  static const Color orchard = warm;
   static const Color shielded = purple;
 
   // Standard page padding
   static const double pagePadding = 20.0;
 }
 
+/// Spacing tokens — 8pt base scale (4 for tight UI). Use everywhere; no raw values.
 class ZipherSpacing {
   static const double xs = 4;
   static const double sm = 8;
+  static const double smMd = 12;
   static const double md = 16;
   static const double lg = 24;
   static const double xl = 32;
   static const double xxl = 48;
 }
 
+/// Border radius tokens — use these everywhere; no raw values.
+/// Scale: xxs (handles/chips) → xs → sm → md → lg → xl → xxl (pills) → full.
 class ZipherRadius {
+  static const double xxs = 2;
+  static const double xs = 4;
   static const double sm = 8;
   static const double md = 12;
   static const double lg = 16;
   static const double xl = 24;
+  static const double xxl = 28;
   static const double full = 999;
 }
 
@@ -168,7 +179,7 @@ class ZipherTheme {
           backgroundColor: ZipherColors.cyan,
           foregroundColor: ZipherColors.textOnBrand,
           elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.lg, vertical: ZipherSpacing.md),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ZipherRadius.md),
           ),
@@ -185,7 +196,7 @@ class ZipherTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: ZipherColors.cyan,
           side: const BorderSide(color: ZipherColors.border),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.lg, vertical: ZipherSpacing.md),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ZipherRadius.md),
           ),
@@ -240,7 +251,7 @@ class ZipherTheme {
         labelStyle: const TextStyle(color: ZipherColors.textSecondary),
         hintStyle: const TextStyle(color: ZipherColors.textMuted),
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            const EdgeInsets.symmetric(horizontal: ZipherSpacing.md, vertical: ZipherSpacing.md),
       ),
 
       // Dialogs
@@ -454,7 +465,7 @@ class ZipherTheme {
         tileColor: Colors.transparent,
         textColor: ZipherColors.textPrimary,
         iconColor: ZipherColors.textSecondary,
-        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        contentPadding: EdgeInsets.symmetric(horizontal: ZipherSpacing.md, vertical: ZipherSpacing.xs),
       ),
 
       // Tooltip
@@ -527,7 +538,7 @@ class ZipherWidgets {
             onTap: enabled ? onPressed : null,
             borderRadius: BorderRadius.circular(ZipherRadius.md),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.lg, vertical: ZipherSpacing.md),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -573,7 +584,7 @@ class ZipherWidgets {
             onTap: enabled ? onPressed : null,
             borderRadius: BorderRadius.circular(ZipherRadius.md),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.lg, vertical: ZipherSpacing.md),
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(ZipherRadius.md),
@@ -619,7 +630,7 @@ class ZipherWidgets {
           onTap: onPressed,
           borderRadius: BorderRadius.circular(ZipherRadius.md),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+            padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.lg, vertical: ZipherSpacing.md),
             decoration: BoxDecoration(
               color: ZipherColors.cardBg,
               borderRadius: BorderRadius.circular(ZipherRadius.md),
@@ -724,7 +735,7 @@ class ZipherWidgets {
       padding: padding,
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(ZipherRadius.lg),
         border: Border.all(color: ZipherColors.borderSubtle),
       ),
       child: child,
@@ -755,10 +766,10 @@ class ZipherWidgets {
     String? subtitle,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 48),
+      padding: const EdgeInsets.symmetric(vertical: ZipherSpacing.xxl),
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(ZipherRadius.lg),
         border: Border.all(color: ZipherColors.borderSubtle),
       ),
       child: Column(
@@ -773,7 +784,7 @@ class ZipherWidgets {
             ),
             child: Icon(icon, size: 24, color: ZipherColors.text10),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: ZipherSpacing.smMd),
           Text(
             title,
             style: TextStyle(
@@ -783,7 +794,7 @@ class ZipherWidgets {
             ),
           ),
           if (subtitle != null) ...[
-            const SizedBox(height: 4),
+            const SizedBox(height: ZipherSpacing.xs),
             Text(
               subtitle,
               style: TextStyle(fontSize: 12, color: ZipherColors.text20),
@@ -797,10 +808,10 @@ class ZipherWidgets {
   /// Error banner
   static Widget errorBanner(String message, {VoidCallback? onRetry}) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(ZipherSpacing.md),
       decoration: BoxDecoration(
         color: ZipherColors.red.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(ZipherRadius.md),
         border: Border.all(
           color: ZipherColors.red.withValues(alpha: 0.15),
         ),
@@ -809,7 +820,7 @@ class ZipherWidgets {
         children: [
           Icon(Icons.error_outline_rounded,
               size: 18, color: ZipherColors.red.withValues(alpha: 0.7)),
-          const SizedBox(width: 10),
+          const SizedBox(width: ZipherSpacing.sm),
           Expanded(
             child: Text(
               message,
@@ -823,7 +834,7 @@ class ZipherWidgets {
             GestureDetector(
               onTap: onRetry,
               child: Padding(
-                padding: const EdgeInsets.only(left: 8),
+                padding: const EdgeInsets.only(left: ZipherSpacing.sm),
                 child: Text(
                   'Retry',
                   style: TextStyle(
@@ -843,12 +854,12 @@ class ZipherWidgets {
   static Widget sheetHandle() {
     return Center(
       child: Container(
-        margin: const EdgeInsets.only(top: 10, bottom: 6),
+        margin: const EdgeInsets.only(top: ZipherSpacing.sm, bottom: ZipherSpacing.sm),
         width: 36,
         height: 4,
         decoration: BoxDecoration(
           color: ZipherColors.cardBgElevated,
-          borderRadius: BorderRadius.circular(2),
+          borderRadius: BorderRadius.circular(ZipherRadius.xxs),
         ),
       ),
     );
@@ -857,30 +868,13 @@ class ZipherWidgets {
   /// Standard bottom sheet decoration
   static BoxDecoration get sheetDecoration => BoxDecoration(
         color: ZipherColors.bg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(ZipherRadius.xl)),
         border: Border(
           top: BorderSide(color: ZipherColors.cardBgElevated, width: 0.5),
         ),
       );
 
-  /// Pool indicator dot
-  static Widget poolDot(String pool) {
-    final color = pool == 'transparent'
-        ? ZipherColors.transparent
-        : pool == 'sapling'
-            ? ZipherColors.sapling
-            : ZipherColors.orchard;
-    return Container(
-      width: 8,
-      height: 8,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-      ),
-    );
-  }
-
-  /// Sync progress bar (cyan → green gradient)
+  /// Sync progress bar (cyan → warm gradient)
   static Widget syncProgressBar(double progress) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(ZipherRadius.full),
