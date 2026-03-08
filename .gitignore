@@ -61,4 +61,3 @@ lib/src/version.dart
 # Native compiled libraries
 *.a
 .cargo/
-missing.arb

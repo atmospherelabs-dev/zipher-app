@@ -51,7 +51,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.cipherscan.zipher"
+        applicationId "dev.atmospherelabs.zipher"
         minSdkVersion 24
         targetSdkVersion 36
         versionCode flutterVersionCode.toInteger()
@@ -63,9 +63,9 @@ android {
 
     signingConfigs {
         release {
-            keyAlias "zwallet"
+            keyAlias "zipher"
             keyPassword key
-            storeFile = rootProject.file("../docker/zwallet.jks")
+            storeFile = rootProject.file("zipher.jks")
             storePassword key
         }
     }

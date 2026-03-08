@@ -1,5 +1,2 @@
 build/**
 **/target/**
-misc/build-dir
-misc/.flatpak-builder
-misc/root
