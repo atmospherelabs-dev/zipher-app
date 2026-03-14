@@ -5,9 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../../accounts.dart';
+import '../../services/wallet_service.dart';
 import '../../init.dart';
 import '../../services/secure_key_store.dart';
 import '../../zipher_theme.dart';
@@ -386,45 +385,16 @@ class _TestnetToggleState extends State<_TestnetToggle> {
       // Initialize the active coin's DB paths
       await initCoins();
 
-      // Initialize the native wallet for the active coin
-      final c = activeCoin;
-      final coin = c.coin;
-      WarpApi.setDbPasswd(coin, appStore.dbPassword);
-      WarpApi.initWallet(coin, c.dbFullPath);
-      final p = WarpApi.getProperty(coin, 'settings');
-      final settings = p.isNotEmpty
-          ? CoinSettings.fromBuffer(base64Decode(p))
-          : CoinSettings();
-      final url = resolveURL(c, settings);
-      WarpApi.updateLWD(coin, url);
-      try { WarpApi.migrateData(coin); } catch (_) {}
-
-      // Find or create an account on the target network
-      var accountId = WarpApi.getFirstAccount(coin);
-      if (accountId <= 0) {
-        // Auto-create a wallet for this network
-        final name = enable ? 'Testnet' : 'Main';
-        accountId = await WarpApi.newAccount(coin, name, '', 0);
-        if (accountId > 0) {
-          final backup = WarpApi.getBackup(coin, accountId);
-          if (backup.seed != null) {
-            await SecureKeyStore.storeSeed(
-                coin, accountId, backup.seed!, backup.index);
-            WarpApi.loadKeysFromSeed(
-                coin, accountId, backup.seed!, backup.index);
-            WarpApi.clearAccountSecrets(coin, accountId);
-          }
-        }
-        try { await WarpApi.skipToLastHeight(coin); } catch (_) {}
+      // TODO: migrate to WalletService - testnet switch requires wallet reopen
+      final ws = WalletService.instance;
+      if (await ws.walletExists()) {
+        await ws.closeWallet();
+        await ws.openWallet();
       }
-
-      if (accountId > 0) {
-        setActiveAccount(coin, accountId);
-        await aa.save(prefs);
-      }
+      setActiveAccount(activeCoin.coin, 1);
+      await aa.save(prefs);
 
       if (mounted) {
-        // Navigate to home with fresh state
         GoRouter.of(context).go('/account');
       }
     } catch (e) {

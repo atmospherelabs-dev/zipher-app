@@ -3,11 +3,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
+import '../../services/wallet_service.dart';
+import '../../src/rust/api/wallet.dart' as rust_wallet;
 
 import '../../accounts.dart';
-import '../../appsettings.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 import '../../store2.dart';
@@ -152,9 +151,7 @@ class SplitBillPage extends StatefulWidget {
 
 class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
   late final s = S.of(context);
-  late PoolBalanceT balances =
-      WarpApi.getPoolBalances(aa.coin, aa.id, appSettings.anchorOffset, false)
-          .unpack();
+  PoolBalance get balances => aa.poolBalances;
 
   final _totalController = TextEditingController();
   int _totalZat = 0;
@@ -1263,37 +1260,31 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
       return;
     }
 
-    final recipientList = <Recipient>[];
-    for (final r in _recipients) {
+    final recipients = _recipients.map((r) {
       final addr = r.addressController.text.trim();
       final memo = r.memoController.text;
-
-      final builder = RecipientObjectBuilder(
+      return rust_wallet.PaymentRecipient(
         address: addr,
-        pools: 7,
-        amount: r.amountZat,
-        feeIncluded: false,
-        replyTo: false,
-        subject: '',
-        memo: memo,
+        amount: BigInt.from(r.amountZat),
+        memo: memo.isNotEmpty ? memo : null,
       );
-      recipientList.add(Recipient(builder.toBytes()));
-    }
+    }).toList();
 
     try {
-      final plan = await load(() => WarpApi.prepareTx(
-            aa.coin,
-            aa.id,
-            recipientList,
-            7,
-            coinSettings.replyUa,
-            appSettings.anchorOffset,
-            coinSettings.feeT,
-          ));
-      GoRouter.of(context)
-          .push('/account/txplan?tab=account', extra: plan);
-    } on String catch (e) {
-      showMessageBox2(context, s.error, e);
+      final txid = await load(() => WalletService.instance.send(recipients));
+      logger.i('Split send OK: $txid');
+      await aa.updateBalance();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Transaction sent successfully'),
+            backgroundColor: ZipherColors.green,
+          ),
+        );
+        GoRouter.of(context).pop();
+      }
+    } catch (e) {
+      showMessageBox2(context, s.error, e.toString());
     }
   }
 

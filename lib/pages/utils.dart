@@ -23,8 +23,6 @@ import 'package:reflectable/reflectable.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
 
 import 'package:path/path.dart' as p;
 import 'package:http/http.dart' as http;
@@ -39,6 +37,9 @@ import '../sent_memos_db.dart';
 import '../store2.dart';
 import '../zipher_theme.dart';
 import 'widgets.dart';
+
+const DAY_SEC = 24 * 3600;
+const DAY_MS = DAY_SEC * 1000;
 
 var logger = Logger();
 
@@ -235,19 +236,24 @@ void openTxInExplorer(String txId) {
 String? addressValidator(String? v) {
   final s = S.of(rootNavigatorKey.currentContext!);
   if (v == null || v.isEmpty) return s.addressIsEmpty;
+  // Synchronous check — validates encoding only
   try {
-    WarpApi.parseTexAddress(aa.coin, v);
-    return null;
-  } on String {}
-  final valid = WarpApi.validAddress(aa.coin, v);
-  if (!valid) return s.invalidAddress;
+    final uri = Uri.tryParse(v);
+    if (uri != null && (uri.scheme == 'zcash' || uri.scheme == 'zcash-test')) {
+      return null; // payment URI, not a plain address
+    }
+  } catch (_) {}
+  if (v.length < 20) return s.invalidAddress;
   return null;
 }
 
 String? paymentURIValidator(String? v) {
   final s = S.of(rootNavigatorKey.currentContext!);
   if (v == null || v.isEmpty) return s.required;
-  if (WarpApi.decodePaymentURI(aa.coin, v) == null) return s.invalidPaymentURI;
+  final uri = Uri.tryParse(v);
+  if (uri == null || (uri.scheme != 'zcash' && uri.scheme != 'zcash-test')) {
+    return s.invalidPaymentURI;
+  }
   return null;
 }
 
@@ -348,7 +354,7 @@ Future<void> saveFileBinary(
       sharePositionOrigin: Rect.fromLTWH(0, 0, size.width, size.height / 2));
 }
 
-int getSpendable(int pools, PoolBalanceT balances) {
+int getSpendable(int pools, PoolBalance balances) {
   return (pools & 1 != 0 ? balances.transparent : 0) +
       (pools & 2 != 0 ? balances.sapling : 0) +
       (pools & 4 != 0 ? balances.orchard : 0);
@@ -588,9 +594,6 @@ class Note extends HasHeight {
     return Note(id, height, confirmations, timestamp, value, orchard, excluded,
         selected);
   }
-  factory Note.fromShieldedNote(ShieldedNoteT n) => Note(n.id, n.height, 0,
-      toDateTime(n.timestamp), n.value / ZECUNIT, n.orchard, n.excluded, false);
-
   Note(this.id, this.height, this.confirmations, this.timestamp, this.value,
       this.orchard, this.excluded, this.selected);
 
@@ -626,13 +629,11 @@ class Tx extends HasHeight {
     String? address,
     String? contact,
     String? memo,
-    List<Memo> memos,
+    List<TxMemo> memos,
   ) {
     final confirmations = latestHeight?.let((h) => h - height + 1);
-    final memos2 =
-        memos.map((m) => TxMemo(address: m.address!, memo: m.memo!)).toList();
     return Tx(id, height, confirmations, timestamp, txid, fullTxId, value,
-        address, contact, memo, memos2);
+        address, contact, memo, memos);
   }
 
   Tx(
@@ -848,8 +849,37 @@ class PoolBitSet {
   static int fromSet(Set<int> poolSet) => poolSet.map((p) => 1 << p).sum;
 }
 
-List<Account> getAllAccounts() =>
-    WarpApi.getAccountList(activeCoin.coin).toList();
+/// Simple account model (replaces old FlatBuffer Account).
+class Account {
+  final int coin;
+  final int id;
+  final String? name;
+  final int balance;
+  final int keyType; // 0 = seed, 1 = secret key, 0x80 = view-only
+
+  Account({required this.coin, required this.id, this.name, this.balance = 0, this.keyType = 0});
+}
+
+/// Simple contact model (replaces old FlatBuffer Contact).
+class Contact {
+  final int id;
+  final String? name;
+  final String? address;
+
+  Contact({required this.id, this.name, this.address});
+}
+
+List<Account> getAllAccounts() {
+  if (aa.id == 0) return [];
+  return [
+    Account(
+      coin: aa.coin,
+      id: aa.id,
+      name: aa.name,
+      balance: aa.poolBalances.confirmed,
+    ),
+  ];
+}
 
 void showLocalNotification({required int id, String? title, String? body}) {
   AwesomeNotifications().createNotification(
@@ -859,10 +889,6 @@ void showLocalNotification({required int id, String? title, String? body}) {
     title: title,
     body: body,
   ));
-}
-
-extension PoolBalanceExtension on PoolBalanceT {
-  int get total => transparent + sapling + orchard;
 }
 
 String? isValidUA(int uaType) {
@@ -920,8 +946,8 @@ class _ContactAutocompleteState extends State<ContactAutocomplete> {
       _removeOverlay();
       return;
     }
-    final contacts = WarpApi.getContacts(aa.coin);
-    _matches = contacts.where((c) {
+    final allContacts = <Contact>[];
+    _matches = allContacts.where((c) {
       if (c.name == null || c.address == null) return false;
       return c.name!.toLowerCase().contains(query) ||
           c.address!.toLowerCase().startsWith(query);

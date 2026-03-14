@@ -3,9 +3,8 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../../accounts.dart';
+import '../../services/wallet_service.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 import '../../services/secure_key_store.dart';
@@ -409,27 +408,17 @@ class _DisclaimerState extends State<DisclaimerPage> {
     if (widget.mode == 'create') {
       setState(() => _creating = true);
       try {
-        final coin = activeCoin.coin;
-        final name = isTestnet ? 'Testnet' : 'Main';
-        final account = await WarpApi.newAccount(coin, name, '', 0);
-        if (account >= 0) {
-          // Move seed from DB to Keychain
-          final backup = WarpApi.getBackup(coin, account);
-          if (backup.seed != null) {
-            await SecureKeyStore.storeSeed(
-                coin, account, backup.seed!, backup.index);
-            WarpApi.loadKeysFromSeed(coin, account, backup.seed!, backup.index);
-            WarpApi.clearAccountSecrets(coin, account);
-          }
-          setActiveAccount(coin, account, canPayOverride: true);
-          await aa.save(prefs);
-          try {
-            await WarpApi.skipToLastHeight(coin);
-          } catch (e) {
-            logger.e('skipToLastHeight error: $e');
-          }
-          if (mounted) GoRouter.of(context).go('/account');
+        final ws = WalletService.instance;
+        final exists = await ws.walletExists();
+        if (!exists) {
+          final seed = await ws.createWallet();
+          await SecureKeyStore.storeSeed(activeCoin.coin, 1, seed, 0);
+        } else {
+          await ws.openWallet();
         }
+        setActiveAccount(activeCoin.coin, 1, canPayOverride: true);
+        await aa.save(prefs);
+        if (mounted) GoRouter.of(context).go('/account');
       } catch (e) {
         logger.e('Create wallet error: $e');
         if (mounted) {

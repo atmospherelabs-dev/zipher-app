@@ -1689,7 +1689,7 @@ abstract class _Election implements Election {
 /// @nodoc
 mixin _$Vote {
   Election get election => throw _privateConstructorUsedError;
-  List<VoteNoteT> get notes => throw _privateConstructorUsedError;
+  List<int> get notes => throw _privateConstructorUsedError;
   int? get candidate => throw _privateConstructorUsedError;
 
   @JsonKey(ignore: true)
@@ -1701,7 +1701,7 @@ abstract class $VoteCopyWith<$Res> {
   factory $VoteCopyWith(Vote value, $Res Function(Vote) then) =
       _$VoteCopyWithImpl<$Res, Vote>;
   @useResult
-  $Res call({Election election, List<VoteNoteT> notes, int? candidate});
+  $Res call({Election election, List<int> notes, int? candidate});
 
   $ElectionCopyWith<$Res> get election;
 }
@@ -1731,7 +1731,7 @@ class _$VoteCopyWithImpl<$Res, $Val extends Vote>
       notes: null == notes
           ? _value.notes
           : notes // ignore: cast_nullable_to_non_nullable
-              as List<VoteNoteT>,
+              as List<int>,
       candidate: freezed == candidate
           ? _value.candidate
           : candidate // ignore: cast_nullable_to_non_nullable
@@ -1755,7 +1755,7 @@ abstract class _$$VoteImplCopyWith<$Res> implements $VoteCopyWith<$Res> {
       __$$VoteImplCopyWithImpl<$Res>;
   @override
   @useResult
-  $Res call({Election election, List<VoteNoteT> notes, int? candidate});
+  $Res call({Election election, List<int> notes, int? candidate});
 
   @override
   $ElectionCopyWith<$Res> get election;
@@ -1783,7 +1783,7 @@ class __$$VoteImplCopyWithImpl<$Res>
       notes: null == notes
           ? _value._notes
           : notes // ignore: cast_nullable_to_non_nullable
-              as List<VoteNoteT>,
+              as List<int>,
       candidate: freezed == candidate
           ? _value.candidate
           : candidate // ignore: cast_nullable_to_non_nullable
@@ -1796,16 +1796,14 @@ class __$$VoteImplCopyWithImpl<$Res>
 
 class _$VoteImpl implements _Vote {
   const _$VoteImpl(
-      {required this.election,
-      required final List<VoteNoteT> notes,
-      this.candidate})
+      {required this.election, required final List<int> notes, this.candidate})
       : _notes = notes;
 
   @override
   final Election election;
-  final List<VoteNoteT> _notes;
+  final List<int> _notes;
   @override
-  List<VoteNoteT> get notes {
+  List<int> get notes {
     if (_notes is EqualUnmodifiableListView) return _notes;
     // ignore: implicit_dynamic_type
     return EqualUnmodifiableListView(_notes);
@@ -1845,13 +1843,13 @@ class _$VoteImpl implements _Vote {
 abstract class _Vote implements Vote {
   const factory _Vote(
       {required final Election election,
-      required final List<VoteNoteT> notes,
+      required final List<int> notes,
       final int? candidate}) = _$VoteImpl;
 
   @override
   Election get election;
   @override
-  List<VoteNoteT> get notes;
+  List<int> get notes;
   @override
   int? get candidate;
   @override

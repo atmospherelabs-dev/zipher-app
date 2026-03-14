@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../accounts.dart';
+import '../services/wallet_service.dart';
 import '../zipher_theme.dart';
 
 const _faucetBaseUrl = 'https://testnet.zecfaucet.com/';
@@ -24,10 +23,12 @@ class _FaucetPageState extends State<FaucetPage> {
     _loadAddress();
   }
 
-  void _loadAddress() {
+  void _loadAddress() async {
     try {
-      final addr = WarpApi.getAddress(aa.coin, aa.id, 7);
-      setState(() => _address = addr);
+      final addrs = await WalletService.instance.getAddresses();
+      if (addrs.isNotEmpty && mounted) {
+        setState(() => _address = addrs.first.address);
+      }
     } catch (_) {}
   }
 

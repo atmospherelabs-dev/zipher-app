@@ -1,19 +1,16 @@
 import 'dart:async';
-import 'dart:ffi';
-import 'dart:isolate';
 import 'dart:math';
 
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:get_it/get_it.dart';
 import 'package:mobx/mobx.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
 
 import 'appsettings.dart';
 import 'pages/utils.dart';
 import 'accounts.dart';
 import 'coin/coins.dart';
 import 'generated/intl/messages.dart';
+import 'services/wallet_service.dart';
 
 part 'store2.g.dart';
 part 'store2.freezed.dart';
@@ -30,26 +27,10 @@ abstract class _AppStore with Store {
   bool flat = false;
 }
 
-final syncProgressPort2 = ReceivePort();
-final syncProgressStream = syncProgressPort2.asBroadcastStream();
-
 void initSyncListener() {
-  syncProgressStream.listen((e) {
-    if (e is List<int>) {
-      final progress = Progress(e);
-      syncStatus2.setProgress(progress);
-      final b = progress.balances?.unpack();
-      if (b != null) {
-        final newTotal = b.transparent + b.sapling + b.orchard;
-        final oldTotal = aa.poolBalances.transparent +
-            aa.poolBalances.sapling +
-            aa.poolBalances.orchard;
-        if (newTotal > 0 || oldTotal == 0) {
-          aa.poolBalances = b;
-        }
-      }
-    }
-  });
+  // With pepper-sync, progress is driven by periodic polling rather than
+  // a native port callback. No-op for now — sync status is updated
+  // when syncAndAwait completes.
 }
 
 Timer? syncTimer;
@@ -60,7 +41,6 @@ Future<void> startAutoSync() async {
     await syncStatus2.sync(false, auto: true);
     syncTimer = Timer.periodic(Duration(seconds: 15), (timer) {
       syncStatus2.sync(false, auto: true);
-      aa.updateDivisified();
     });
   }
 }
@@ -124,7 +104,6 @@ abstract class _SyncStatus2 with Store {
   @action
   void reset() {
     isRescan = false;
-    syncedHeight = WarpApi.getDbHeight(aa.coin).height;
     syncing = false;
     paused = false;
   }
@@ -132,22 +111,31 @@ abstract class _SyncStatus2 with Store {
   @action
   Future<void> update() async {
     try {
-      final lh = latestHeight;
-      latestHeight = await WarpApi.getLatestHeight(aa.coin);
-      if (lh == null && latestHeight != null) aa.update(latestHeight);
+      if (!WalletService.instance.isWalletOpen) return;
+      final info = await WalletService.instance.getServerInfo();
+      // Server info is a JSON string — parse latest height from it
+      try {
+        final parsed = _parseServerInfoHeight(info);
+        if (parsed != null) {
+          final lh = latestHeight;
+          latestHeight = parsed;
+          if (lh == null && latestHeight != null) {
+            await aa.update(latestHeight);
+          }
+        }
+      } catch (_) {}
       connected = true;
-    } on String catch (e) {
-      logger.d(e);
-      connected = false;
     } catch (e) {
       logger.e('Sync update error: $e');
       connected = false;
     }
-    try {
-      syncedHeight = WarpApi.getDbHeight(aa.coin).height;
-    } catch (e) {
-      logger.e('getDbHeight error: $e');
-    }
+  }
+
+  int? _parseServerInfoHeight(String info) {
+    // zingolib's do_info returns a JSON-like string with "latest_block_height"
+    final match = RegExp(r'"latest_block_height"\s*:\s*(\d+)').firstMatch(info);
+    if (match != null) return int.tryParse(match.group(1)!);
+    return null;
   }
 
   @action
@@ -155,39 +143,34 @@ abstract class _SyncStatus2 with Store {
     logger.d('R/A/P/S $rescan $auto $paused $syncing');
     if (paused) return;
     if (syncing) return;
+    if (!WalletService.instance.isWalletOpen) return;
     try {
       await update();
       final lh = latestHeight;
       if (lh == null) return;
-      // don't auto sync more than 1 month of data
-      if (!rescan && auto && lh - syncedHeight > 30 * 24 * 60 * 4 / 5) {
-        paused = true;
-        return;
-      }
-      if (isSynced) return;
+      if (isSynced && !rescan) return;
       syncing = true;
       isRescan = rescan;
-      _updateSyncedHeight();
       startSyncedHeight = syncedHeight;
-      eta.begin(latestHeight!);
+      eta.begin(lh);
       eta.checkpoint(syncedHeight, DateTime.now());
 
       final preBalance = AccountBalanceSnapshot(
-          coin: aa.coin, id: aa.id, balance: aa.poolBalances.total);
-      // This may take a long time
-      await WarpApi.warpSync(
-          aa.coin,
-          aa.id,
-          !appSettings.nogetTx,
-          appSettings.anchorOffset,
-          coinSettings.spamFilter ? 50 : 1000000,
-          syncProgressPort2.sendPort.nativePort);
+          coin: aa.coin, id: aa.id, balance: aa.poolBalances.confirmed);
 
-      aa.update(latestHeight);
+      final result = rescan
+          ? await WalletService.instance.rescan()
+          : await WalletService.instance.syncAndAwait();
+
+      syncedHeight = result.endHeight;
+      latestHeight = result.endHeight;
+
+      await aa.update(result.endHeight);
       contacts.fetchContacts();
       marketPrice.update();
+
       final postBalance = AccountBalanceSnapshot(
-          coin: aa.coin, id: aa.id, balance: aa.poolBalances.total);
+          coin: aa.coin, id: aa.id, balance: aa.poolBalances.confirmed);
       if (preBalance.sameAccount(postBalance) &&
           preBalance.balance != postBalance.balance) {
         final s = GetIt.I.get<S>();
@@ -196,7 +179,7 @@ abstract class _SyncStatus2 with Store {
           final amount =
               amountToString2(postBalance.balance - preBalance.balance);
           showLocalNotification(
-            id: latestHeight!,
+            id: result.endHeight,
             title: s.incomingFunds,
             body: s.received(amount, ticker),
           );
@@ -204,15 +187,12 @@ abstract class _SyncStatus2 with Store {
           final amount =
               amountToString2(preBalance.balance - postBalance.balance);
           showLocalNotification(
-            id: latestHeight!,
+            id: result.endHeight,
             title: s.paymentMade,
             body: s.spent(amount, ticker),
           );
         }
       }
-    } on String catch (e) {
-      logger.d(e);
-      showSnackBar(e);
     } catch (e) {
       logger.e('Sync error: $e');
     } finally {
@@ -223,8 +203,6 @@ abstract class _SyncStatus2 with Store {
 
   @action
   Future<void> rescan(int height) async {
-    WarpApi.rescanFrom(aa.coin, height);
-    _updateSyncedHeight();
     paused = false;
     await sync(true);
   }
@@ -235,22 +213,9 @@ abstract class _SyncStatus2 with Store {
   }
 
   @action
-  void setProgress(Progress progress) {
-    trialDecryptionCount = progress.trialDecryptions;
-    syncedHeight = progress.height;
-    downloadedSize = progress.downloaded;
-    if (progress.timestamp > 0)
-      timestamp =
-          DateTime.fromMillisecondsSinceEpoch(progress.timestamp * 1000);
+  void setProgress(int height) {
+    syncedHeight = height;
     eta.checkpoint(syncedHeight, DateTime.now());
-  }
-
-  void _updateSyncedHeight() {
-    final h = WarpApi.getDbHeight(aa.coin);
-    syncedHeight = h.height;
-    timestamp = (h.timestamp != 0)
-        ? DateTime.fromMillisecondsSinceEpoch(h.timestamp * 1000)
-        : null;
   }
 }
 
@@ -353,29 +318,18 @@ abstract class _ContactStore with Store {
 
   @action
   void fetchContacts() {
-    contacts.clear();
-    contacts.addAll(WarpApi.getContacts(aa.coin));
+    // Contacts are stored in SharedPreferences in the new engine
+    // TODO: migrate contact storage
   }
 
   @action
   void add(Contact c) {
-    WarpApi.storeContact(aa.coin, c.id, c.name!, c.address!, true);
-    markContactsSaved(aa.coin, false);
-    fetchContacts();
+    contacts.add(c);
   }
 
   @action
   void remove(Contact c) {
     contacts.removeWhere((contact) => contact.id == c.id);
-    WarpApi.storeContact(aa.coin, c.id, c.name!, "", true);
-    markContactsSaved(aa.coin, false);
-    fetchContacts();
-  }
-
-  @action
-  markContactsSaved(int coin, bool v) {
-    coinSettings.contactsSaved = true;
-    coinSettings.save(coin);
   }
 }
 
@@ -501,7 +455,7 @@ class Election with _$Election {
 class Vote with _$Vote {
   const factory Vote({
     required Election election,
-    required List<VoteNoteT> notes,
+    required List<int> notes,
     int? candidate,
   }) = _Vote;
 }

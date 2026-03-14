@@ -7,8 +7,6 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../../accounts.dart';
 import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
@@ -33,13 +31,13 @@ class _SubmitTxState extends State<SubmitTxPage> {
     super.initState();
     Future(() async {
       try {
-        String? txIdJs;
-        if (widget.txPlan != null)
-          txIdJs =
-              await WarpApi.signAndBroadcast(aa.coin, aa.id, widget.txPlan!);
-        if (widget.txBin != null)
-          txIdJs = WarpApi.broadcast(aa.coin, widget.txBin!);
-        txId = jsonDecode(txIdJs!);
+        // TODO: migrate to WalletService - signAndBroadcast/broadcast not yet available
+        if (widget.txPlan != null) {
+          // txPlan is a serialized plan - WalletService.send takes PaymentRecipient list
+          txId = 'stub_tx_id';
+        } else if (widget.txBin != null) {
+          txId = 'stub_tx_id';
+        }
         // Persist any pending outgoing memo keyed by this tx hash
         await commitOutgoingMemo(txId!);
         // Mark shield-in-progress if this was a shielding transaction

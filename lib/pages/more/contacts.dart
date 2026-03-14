@@ -5,8 +5,6 @@ import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
 
 import '../../zipher_theme.dart';
 import '../../accounts.dart';
@@ -199,13 +197,10 @@ class _ContactsState extends State<ContactsPage> {
     final confirmed =
         await showConfirmDialog(context, s.save, s.confirmSaveContacts);
     if (!confirmed) return;
-    final txPlan = WarpApi.commitUnsavedContacts(
-        aa.coin,
-        aa.id,
-        coinSettings.receipientPools,
-        appSettings.anchorOffset,
-        fee);
-    GoRouter.of(context).push('/account/txplan?tab=contacts', extra: txPlan);
+    // TODO: implement contact syncing with zingolib
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Contact sync not yet implemented')),
+    );
   }
 
   _add() async {
@@ -226,7 +221,7 @@ class _ContactsState extends State<ContactsPage> {
         await showConfirmDialog(context, s.delete, s.confirmDeleteContact);
     if (!confirmed) return;
     final c = listKey.currentState!.selectedContact!;
-    WarpApi.storeContact(aa.coin, c.id, c.name!, '', true);
+    contacts.remove(c);
     contacts.fetchContacts();
   }
 }
@@ -269,7 +264,7 @@ class ContactListState extends State<ContactList> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         itemCount: c.length,
         itemBuilder: (context, index) {
-          final contact = c[index].unpack();
+          final contact = c[index];
           final isSelected = selected == index;
           final addr = contact.address ?? '';
           return Padding(
@@ -298,7 +293,7 @@ class ContactListState extends State<ContactList> {
 }
 
 class _ContactCard extends StatelessWidget {
-  final ContactT contact;
+  final Contact contact;
   final bool selected;
   final String? chainId;
   final VoidCallback? onPress;
@@ -427,9 +422,10 @@ class _ContactEditState extends State<ContactEditPage> {
   @override
   void initState() {
     super.initState();
-    final c = WarpApi.getContact(aa.coin, widget.id);
-    nameController.text = c.name!;
-    addressController.text = c.address!;
+    final c = contacts.contacts.firstWhere((c) => c.id == widget.id,
+        orElse: () => Contact(id: widget.id, name: '', address: ''));
+    nameController.text = c.name ?? '';
+    addressController.text = c.address ?? '';
     _originalAddress = c.address!;
     _loadChain();
   }
@@ -591,8 +587,7 @@ class _ContactEditState extends State<ContactEditPage> {
 
   _save() async {
     final addr = addressController.text;
-    WarpApi.storeContact(
-        aa.coin, widget.id, nameController.text, addr, true);
+    contacts.add(Contact(id: widget.id, name: nameController.text, address: addr));
     if (_originalAddress != addr) {
       await ContactChainStore.remove(_originalAddress);
     }
@@ -802,8 +797,7 @@ class _ContactAddState extends State<ContactAddPage> {
     final form = formKey.currentState!;
     if (form.validate()) {
       final addr = addressController.text;
-      WarpApi.storeContact(
-          aa.coin, 0, nameController.text, addr, true);
+      contacts.add(Contact(id: 0, name: nameController.text, address: addr));
       await ContactChainStore.set(addr, _selectedChain.id);
       contacts.fetchContacts();
       GoRouter.of(context).pop();

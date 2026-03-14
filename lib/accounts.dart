@@ -1,26 +1,66 @@
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
-import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tuple/tuple.dart';
-import 'package:warp_api/data_fb_generated.dart' hide Quote;
+import 'package:mobx/mobx.dart';
+
 import 'appsettings.dart';
 import 'coin/coins.dart';
-import 'package:mobx/mobx.dart';
-import 'package:warp_api/warp_api.dart';
-
 import 'pages/utils.dart';
-import 'services/secure_key_store.dart';
+import 'services/wallet_service.dart';
+import 'src/rust/api/wallet.dart' as rust_wallet;
 
 part 'accounts.g.dart';
 
-final ActiveAccount2 nullAccount =
-    ActiveAccount2(0, 0, "", null, false, false, false);
+/// Pool balance — replaces old FlatBuffer PoolBalanceT.
+class PoolBalance {
+  int transparent;
+  int sapling;
+  int orchard;
+  int unconfirmedTransparent;
+  int unconfirmedSapling;
+  int unconfirmedOrchard;
+
+  PoolBalance({
+    this.transparent = 0,
+    this.sapling = 0,
+    this.orchard = 0,
+    this.unconfirmedTransparent = 0,
+    this.unconfirmedSapling = 0,
+    this.unconfirmedOrchard = 0,
+  });
+
+  factory PoolBalance.fromRust(rust_wallet.WalletBalance b) {
+    return PoolBalance(
+      transparent: b.transparent.toInt(),
+      sapling: b.sapling.toInt(),
+      orchard: b.orchard.toInt(),
+      unconfirmedTransparent: b.unconfirmedTransparent.toInt(),
+      unconfirmedSapling: b.unconfirmedSapling.toInt(),
+      unconfirmedOrchard: b.unconfirmedOrchard.toInt(),
+    );
+  }
+
+  int get confirmed => transparent + sapling + orchard;
+  int get unconfirmed =>
+      unconfirmedTransparent + unconfirmedSapling + unconfirmedOrchard;
+  int get total => confirmed + unconfirmed;
+  bool get hasUnconfirmed => unconfirmed > 0;
+  bool get hasTransparent => transparent > 0 || unconfirmedTransparent > 0;
+}
+
+final ActiveAccount2 nullAccount = ActiveAccount2(
+  coin: 0,
+  id: 0,
+  name: '',
+  address: '',
+  canPay: false,
+);
 
 ActiveAccount2 aa = nullAccount;
 
 AASequence aaSequence = AASequence();
+
 class AASequence = _AASequence with _$AASequence;
 
 abstract class _AASequence with Store {
@@ -33,72 +73,53 @@ abstract class _AASequence with Store {
 
 void setActiveAccount(int coin, int id, {bool? canPayOverride}) {
   coinSettings = CoinSettingsExtension.load(coin);
-  aa = ActiveAccount2.fromId(coin, id, canPayOverride: canPayOverride);
   coinSettings.account = id;
   coinSettings.save(coin);
-  aa.updateDivisified();
-  aa.update(null);
-  loadOutgoingMemos(coin: coin, accountId: id);
   aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
 }
 
-/// Async variant that also loads spending keys from Keychain into the
-/// Rust runtime cache and sets canPay correctly.
-Future<void> setActiveAccountAsync(int coin, int id) async {
-  final hasSeed = await SecureKeyStore.hasSeed(coin, id);
-  if (hasSeed) {
-    final seed = await SecureKeyStore.getSeed(coin, id);
-    if (seed != null) {
-      final index = await SecureKeyStore.getIndex(coin, id);
-      try {
-        await compute(_loadKeysIsolate, _LoadKeysParams(coin, id, seed, index));
-      } catch (e) {
-        logger.e('Failed to load keys for $coin/$id: $e');
-      }
-    }
-  }
-  setActiveAccount(coin, id, canPayOverride: hasSeed ? true : null);
-}
-
-class _LoadKeysParams {
-  final int coin;
-  final int account;
-  final String seed;
-  final int index;
-  _LoadKeysParams(this.coin, this.account, this.seed, this.index);
-}
-
-void _loadKeysIsolate(_LoadKeysParams p) {
-  WarpApi.loadKeysFromSeed(p.coin, p.account, p.seed, p.index);
-}
-
 class ActiveAccount2 extends _ActiveAccount2 with _$ActiveAccount2 {
-  ActiveAccount2(super.coin, super.id, super.name, super.seed, super.canPay,
-      super.external, super.saved);
+  ActiveAccount2({
+    required int coin,
+    required int id,
+    required String name,
+    required String address,
+    required bool canPay,
+  }) : super(coin: coin, id: id, name: name, address: address, canPay: canPay);
+
+  /// Create from wallet service data (new engine).
+  factory ActiveAccount2.fromWallet({
+    required int coin,
+    required String address,
+    required rust_wallet.WalletBalance balance,
+  }) {
+    final account = ActiveAccount2(
+      coin: coin,
+      id: 1,
+      name: 'Main',
+      address: address,
+      canPay: true,
+    );
+    account.poolBalances = PoolBalance.fromRust(balance);
+    account.diversifiedAddress = address;
+    return account;
+  }
 
   static ActiveAccount2? fromPrefs(SharedPreferences prefs) {
-    final coin = prefs.getInt('coin') ?? activeCoin.coin;
-    var id = prefs.getInt('account') ?? 0;
-    // Only restore accounts for the currently active network
-    if (coin == activeCoin.coin && WarpApi.checkAccount(coin, id))
-      return ActiveAccount2.fromId(coin, id);
-    // Fallback: find first account on the active coin
-    final fallbackId = WarpApi.getFirstAccount(activeCoin.coin);
-    if (fallbackId > 0) return ActiveAccount2.fromId(activeCoin.coin, fallbackId);
-    return null;
+    final wallet = WalletService.instance;
+    if (!wallet.isWalletOpen) return null;
+    return ActiveAccount2(
+      coin: activeCoin.coin,
+      id: 1,
+      name: 'Main',
+      address: '',
+      canPay: true,
+    );
   }
 
   Future<void> save(SharedPreferences prefs) async {
     await prefs.setInt('coin', coin);
     await prefs.setInt('account', id);
-  }
-
-  factory ActiveAccount2.fromId(int coin, int id, {bool? canPayOverride}) {
-    if (id == 0) return nullAccount;
-    final backup = WarpApi.getBackup(coin, id);
-    final canPay = canPayOverride ?? (backup.sk != null);
-    return ActiveAccount2(
-        coin, id, backup.name!, backup.seed, canPay, false, backup.saved);
   }
 
   bool get hasUA => coins[coin].supportsUA;
@@ -108,16 +129,18 @@ abstract class _ActiveAccount2 with Store {
   final int coin;
   final int id;
   final String name;
-  final String? seed;
+  final String address;
   final bool canPay;
-  final bool external;
-  final bool saved;
 
-  _ActiveAccount2(this.coin, this.id, this.name, this.seed, this.canPay,
-      this.external, this.saved)
-      : notes = Notes(coin, id),
-        txs = Txs(coin, id),
-        messages = Messages(coin, id);
+  _ActiveAccount2({
+    required this.coin,
+    required this.id,
+    required this.name,
+    required this.address,
+    required this.canPay,
+  })  : notes = Notes(),
+        txs = Txs(),
+        messages = Messages();
 
   @observable
   String diversifiedAddress = '';
@@ -129,17 +152,17 @@ abstract class _ActiveAccount2 with Store {
   String currency = '';
 
   @observable
-  PoolBalanceT poolBalances = PoolBalanceT();
+  PoolBalance poolBalances = PoolBalance();
   Notes notes;
   Txs txs;
   Messages messages;
 
-  List<Spending> spendings = [];
+  List<dynamic> spendings = [];
   List<TimeSeriesPoint<double>> accountBalances = [];
 
   @action
   void reset(int resetHeight) {
-    poolBalances = PoolBalanceT();
+    poolBalances = PoolBalance();
     notes.clear();
     txs.clear();
     messages.clear();
@@ -149,73 +172,73 @@ abstract class _ActiveAccount2 with Store {
   }
 
   @action
-  void updatePoolBalances() {
-    poolBalances = WarpApi.getPoolBalances(coin, id, 0, true).unpack();
-  }
-
-  @action
-  void updateDivisified() {
+  Future<void> updateBalance() async {
     if (id == 0) return;
     try {
-      diversifiedAddress = WarpApi.getDiversifiedAddress(coin, id,
-          coinSettings.uaType, DateTime.now().millisecondsSinceEpoch ~/ 1000);
-    } catch (e) {}
+      final balance = await WalletService.instance.getBalance();
+      poolBalances = PoolBalance.fromRust(balance);
+    } catch (e) {
+      logger.e('updateBalance error: $e');
+    }
   }
 
   @action
-  void update(int? newHeight) {
+  Future<void> updateAddress() async {
     if (id == 0) return;
-    updateDivisified();
-    updatePoolBalances();
-
-    notes.read(newHeight);
-    txs.read(newHeight);
-    messages.read(newHeight);
-
-    currency = appSettings.currency;
-
-    final now = DateTime.now().toUtc();
-    final today = DateTime.utc(now.year, now.month, now.day);
-    final start =
-        today.add(Duration(days: -365)).millisecondsSinceEpoch ~/ 1000;
-    final end = today.millisecondsSinceEpoch ~/ 1000;
-    spendings = WarpApi.getSpendings(coin, id, start);
-
-    final trades = WarpApi.getPnLTxs(coin, id, start);
-    List<AccountBalance> abs = [];
-    var b = poolBalances.orchard + poolBalances.sapling;
-    abs.add(AccountBalance(DateTime.now(), b / ZECUNIT));
-    for (var trade in trades) {
-      final timestamp =
-          DateTime.fromMillisecondsSinceEpoch(trade.timestamp * 1000);
-      final value = trade.value;
-      final ab = AccountBalance(timestamp, b / ZECUNIT);
-      abs.add(ab);
-      b -= value;
+    try {
+      final addrs = await WalletService.instance.getAddresses();
+      if (addrs.isNotEmpty) {
+        diversifiedAddress = addrs.first.address;
+      }
+    } catch (e) {
+      logger.e('updateAddress error: $e');
     }
-    abs.add(AccountBalance(
-        DateTime.fromMillisecondsSinceEpoch(start * 1000), b / ZECUNIT));
-    accountBalances = sampleDaily<AccountBalance, double, double>(
-        abs.reversed,
-        start,
-        end,
-        (AccountBalance ab) => ab.time.millisecondsSinceEpoch ~/ DAY_MS,
-        (AccountBalance ab) => ab.balance,
-        (acc, v) => v,
-        0.0);
+  }
 
+  @action
+  Future<void> updateTransactions() async {
+    if (id == 0) return;
+    try {
+      final records = await WalletService.instance.getTransactions();
+      txs.items = records.map((r) {
+        final timestamp =
+            DateTime.fromMillisecondsSinceEpoch(r.timestamp.toInt() * 1000);
+        return Tx.from(
+          height,
+          0,
+          r.height,
+          timestamp,
+          r.txid.substring(0, min(12, r.txid.length)),
+          r.txid,
+          r.value / ZECUNIT,
+          null,
+          null,
+          null,
+          [],
+        );
+      }).toList();
+    } catch (e) {
+      logger.e('updateTransactions error: $e');
+    }
+  }
+
+  @action
+  Future<void> update(int? newHeight) async {
+    if (id == 0) return;
+    await updateAddress();
+    await updateBalance();
+    await updateTransactions();
+    currency = appSettings.currency;
     if (newHeight != null) height = newHeight;
   }
 }
 
 class Notes extends _Notes with _$Notes {
-  Notes(super.coin, super.id);
+  Notes();
 }
 
 abstract class _Notes with Store {
-  final int coin;
-  final int id;
-  _Notes(this.coin, this.id);
+  _Notes();
 
   @observable
   List<Note> items = [];
@@ -223,29 +246,13 @@ abstract class _Notes with Store {
 
   @action
   void read(int? height) {
-    final shieledNotes = WarpApi.getNotesSync(coin, id);
-    items = shieledNotes.map((n) {
-      final timestamp = DateTime.fromMillisecondsSinceEpoch(n.timestamp * 1000);
-      return Note.from(height, n.id, n.height, timestamp, n.value / ZECUNIT,
-          n.orchard, n.excluded, false);
-    }).toList();
+    // Notes are not yet available from zingolib's direct API
+    // Will be populated when we add note-level querying
   }
 
   @action
   void clear() {
     items.clear();
-  }
-
-  @action
-  void invert() {
-    WarpApi.invertExcluded(coin, id);
-    items = items.map((n) => n.invertExcluded).toList();
-  }
-
-  @action
-  void exclude(Note note) {
-    WarpApi.updateExcluded(coin, note.id, note.excluded);
-    items = List.of(items);
   }
 
   @action
@@ -257,13 +264,11 @@ abstract class _Notes with Store {
 }
 
 class Txs extends _Txs with _$Txs {
-  Txs(super.coin, super.id);
+  Txs();
 }
 
 abstract class _Txs with Store {
-  final int coin;
-  final int id;
-  _Txs(this.coin, this.id);
+  _Txs();
 
   @observable
   List<Tx> items = [];
@@ -271,23 +276,7 @@ abstract class _Txs with Store {
 
   @action
   void read(int? height) {
-    final shieldedTxs = WarpApi.getTxsSync(coin, id);
-    items = shieldedTxs.map((tx) {
-      final timestamp =
-          DateTime.fromMillisecondsSinceEpoch(tx.timestamp * 1000);
-      return Tx.from(
-          height,
-          tx.id,
-          tx.height,
-          timestamp,
-          tx.shortTxId!,
-          tx.txId!,
-          tx.value / ZECUNIT,
-          tx.address,
-          tx.name,
-          tx.memo,
-          tx.messages?.memos ?? []);
-    }).toList();
+    // Transactions are loaded via updateTransactions()
   }
 
   @action
@@ -304,13 +293,11 @@ abstract class _Txs with Store {
 }
 
 class Messages extends _Messages with _$Messages {
-  Messages(super.coin, super.id);
+  Messages();
 }
 
 abstract class _Messages with Store {
-  final int coin;
-  final int id;
-  _Messages(this.coin, this.id);
+  _Messages();
 
   @observable
   List<ZMessage> items = [];
@@ -318,21 +305,7 @@ abstract class _Messages with Store {
 
   @action
   void read(int? height) {
-    final ms = WarpApi.getMessagesSync(coin, id);
-    items = ms
-        .map((m) => ZMessage(
-            m.idMsg,
-            m.idTx,
-            m.incoming,
-            m.sender,
-            m.from,
-            m.to!,
-            m.subject!,
-            m.body!,
-            DateTime.fromMillisecondsSinceEpoch(m.timestamp * 1000),
-            m.height,
-            m.read))
-        .toList();
+    // Messages will be populated from transaction memos
   }
 
   @action
@@ -388,59 +361,6 @@ class SortConfig2 {
     if (orderBy > 0) return ' \u2191';
     return ' \u2193';
   }
-}
-
-List<PnL> getPNL(
-    int start, int end, Iterable<TxTimeValue> tvs, Iterable<Quote> quotes) {
-  final trades = tvs.map((tv) {
-    final dt = DateTime.fromMillisecondsSinceEpoch(tv.timestamp * 1000);
-    final qty = tv.value / ZECUNIT;
-    return Trade(dt, qty);
-  });
-
-  final portfolioTimeSeries = sampleDaily<Trade, Trade, double>(
-      trades,
-      start,
-      end,
-      (t) => t.dt.millisecondsSinceEpoch ~/ DAY_MS,
-      (t) => t,
-      (acc, t) => acc + t.qty,
-      0.0);
-
-  var prevBalance = 0.0;
-  var cash = 0.0;
-  var realized = 0.0;
-  final len = min(quotes.length, portfolioTimeSeries.length);
-
-  final z = ZipStream.zip2<Quote, TimeSeriesPoint<double>,
-      Tuple2<Quote, TimeSeriesPoint<double>>>(
-    Stream.fromIterable(quotes),
-    Stream.fromIterable(portfolioTimeSeries),
-    (a, b) => Tuple2(a, b),
-  ).take(len);
-
-  List<PnL> pnls = [];
-  z.listen((qv) {
-    final dt = qv.item1.dt;
-    final price = qv.item1.price;
-    final balance = qv.item2.value;
-    final qty = balance - prevBalance;
-
-    final closeQty =
-        qty * balance < 0 ? min(qty.abs(), prevBalance.abs()) * qty.sign : 0.0;
-    final openQty = qty - closeQty;
-    final avgPrice = prevBalance != 0 ? cash / prevBalance : 0.0;
-
-    cash += openQty * price + closeQty * avgPrice;
-    realized += closeQty * (avgPrice - price);
-    final unrealized = price * balance - cash;
-
-    final pnl = PnL(dt, price, balance, realized, unrealized);
-    pnls.add(pnl);
-
-    prevBalance = balance;
-  });
-  return pnls;
 }
 
 // ---------------------------------------------------------------------------

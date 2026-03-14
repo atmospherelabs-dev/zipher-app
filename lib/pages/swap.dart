@@ -7,10 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../accounts.dart';
+import '../services/wallet_service.dart';
+import '../src/rust/api/wallet.dart' as rust_wallet;
 import '../appsettings.dart';
 import '../services/near_intents.dart';
 import '../zipher_theme.dart';
@@ -48,10 +47,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
   double _rate = 0;
   String _cachedTAddr = '';
 
-  int get _spendableZat {
-    final b = WarpApi.getPoolBalances(aa.coin, aa.id, appSettings.anchorOffset, false).unpack();
-    return b.transparent + b.sapling + b.orchard;
-  }
+  int get _spendableZat => aa.poolBalances.confirmed;
 
   NearToken get _originToken => _direction == SwapDirection.fromZec ? _zecToken! : _selectedToken!;
   NearToken get _destToken => _direction == SwapDirection.fromZec ? _selectedToken! : _zecToken!;
@@ -156,7 +152,8 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
 
     try {
       final amountBigInt = _toBigInt(parsed, _originToken.decimals);
-      final tAddr = WarpApi.getAddress(aa.coin, aa.id, 1);
+      final tAddrs = await WalletService.instance.getTransparentAddresses();
+      final tAddr = tAddrs.isNotEmpty ? tAddrs.first : aa.diversifiedAddress;
       _cachedTAddr = tAddr;
       final refund = _direction == SwapDirection.fromZec ? tAddr : addr;
       final recipient = _direction == SwapDirection.fromZec ? addr : tAddr;
@@ -518,21 +515,17 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
         final depositAddr = quote.depositAddress;
         final amountZat = stringToAmount(amountStr);
 
-        final recipient = Recipient(RecipientObjectBuilder(
-          address: depositAddr,
-          amount: amountZat,
-        ).toBytes());
-
-        final txPlan = await WarpApi.prepareTx(
-          aa.coin, aa.id, [recipient], 7,
-          coinSettings.replyUa, appSettings.anchorOffset, coinSettings.feeT,
-        );
-
-        final txIdJson = await WarpApi.signAndBroadcast(aa.coin, aa.id, txPlan);
-        final txId = jsonDecode(txIdJson);
+        final recipients = [
+          rust_wallet.PaymentRecipient(
+            address: depositAddr,
+            amount: BigInt.from(amountZat),
+            memo: null,
+          ),
+        ];
+        final txId = await WalletService.instance.send(recipients);
 
         try {
-          await _nearApi.submitDeposit(txHash: txId, depositAddress: depositAddr);
+          await _nearApi.submitDeposit(txHash: txId.toString(), depositAddress: depositAddr);
         } catch (e) {
           logger.w('[Swap] NEAR deposit notification failed: $e');
         }
@@ -541,7 +534,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
           GoRouter.of(context).push('/swap/status', extra: _statusExtra(quote, amountStr));
         }
 
-        await _storeSwap(quote, amountStr, txId: txId);
+        await _storeSwap(quote, amountStr, txId: txId.toString());
       } on String catch (e) {
         logger.e('[Swap] String error: $e');
         if (mounted) showMessageBox2(context, 'Error', e);

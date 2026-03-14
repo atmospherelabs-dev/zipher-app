@@ -11,9 +11,6 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../accounts.dart';
 import '../appsettings.dart';
 import '../coin/coins.dart';
@@ -120,6 +117,16 @@ class LoadingWrapper extends StatelessWidget {
   }
 }
 
+/// Local recipient type (replaces warp_api RecipientT).
+class RecipientT {
+  final String? address;
+  final String? subject;
+  final String? memo;
+  final int amount;
+  final bool replyTo;
+  RecipientT({this.address, this.subject, this.memo, this.amount = 0, this.replyTo = false});
+}
+
 class RecipientWidget extends StatelessWidget {
   final RecipientT recipient;
   final bool? selected;
@@ -130,10 +137,10 @@ class RecipientWidget extends StatelessWidget {
       0,
       false,
       '',
-      recipient.address!,
-      recipient.address!,
-      recipient.subject!,
-      recipient.memo!,
+      recipient.address ?? '',
+      recipient.address ?? '',
+      recipient.subject ?? '',
+      recipient.memo ?? '',
       DateTime.now(),
       0,
       false,
@@ -708,12 +715,7 @@ class AnimatedQR extends StatefulWidget {
   final List<String> chunks;
 
   AnimatedQR.init(String title, String caption, String data)
-      : this(
-            title,
-            caption,
-            data,
-            WarpApi.splitData(DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                base64Encode(ZLibCodec().encode(utf8.encode(data)))));
+      : this(title, caption, data, [base64Encode(ZLibCodec().encode(utf8.encode(data)))]);
 
   AnimatedQR(this.title, this.caption, this.data, this.chunks);
 

@@ -7,7 +7,7 @@ import 'package:sqflite/sqflite.dart' hide getDatabasesPath;
 import 'pages/utils.dart';
 
 /// Dart-managed SQLite database for app-level data that the Rust
-/// backend (`warp_api`) does not track — primarily outgoing memos.
+/// backend does not track — primarily outgoing memos.
 ///
 /// Lives in a separate `zipher_app.db` file alongside the Rust-managed
 /// `zec.db`, so there is zero risk of schema conflicts.

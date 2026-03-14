@@ -6,10 +6,8 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:screen_protector/screen_protector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../../accounts.dart';
+import '../../services/wallet_service.dart';
 import '../../services/secure_key_store.dart';
 import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
@@ -28,7 +26,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   int? _birthdayHeight;
   bool _verificationPassed = false;
 
-  Backup? _backup;
+  _Backup? _backup;
   String? _loadError;
 
   @override
@@ -65,23 +63,31 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
 
   void _loadBackup() async {
     try {
-      final backup = WarpApi.getBackup(aa.coin, aa.id);
-
-      // Read seed from Keychain (post-migration it won't be in the DB)
+      final ws = WalletService.instance;
       final kcSeed = await SecureKeyStore.getSeed(aa.coin, aa.id);
-
-      final hasKey = kcSeed != null ||
-          backup.seed != null ||
-          backup.sk != null ||
-          backup.uvk != null ||
-          backup.fvk != null;
+      String? uvk;
+      String? seed;
+      try {
+        uvk = await ws.exportUfvk();
+        seed = await ws.getSeedPhrase();
+      } catch (_) {}
+      final hasKey = kcSeed != null || seed != null || uvk != null;
       if (!hasKey) {
         setState(() => _loadError = 'Account has no key');
         return;
       }
       if (!mounted) return;
       setState(() {
-        _backup = backup;
+        _backup = _Backup(
+          name: aa.name,
+          index: aa.id,
+          seed: kcSeed ?? seed,
+          sk: null,
+          tsk: null,
+          uvk: uvk,
+          fvk: null,
+          saved: false,
+        );
         _keychainSeed = kcSeed;
       });
     } catch (e) {
@@ -509,8 +515,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                               setState(
                                   () => _seedRevealed = !_seedRevealed);
                               if (_seedRevealed && !_backup!.saved) {
-                                WarpApi.setBackupReminder(
-                                    aa.coin, aa.id, true);
+                                // TODO: migrate to WalletService - setBackupReminder
                                 setActiveAccount(aa.coin, aa.id);
                               }
                             },
@@ -643,7 +648,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
     );
   }
 
-  bool _hasSpendingKeys(Backup b) =>
+  bool _hasSpendingKeys(_Backup b) =>
       _keychainSeed != null || b.seed != null || b.sk != null || b.tsk != null;
 
   Widget _sectionHeader(
@@ -683,6 +688,28 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   void _showQR(BuildContext context, String value, String title) {
     GoRouter.of(context).push('/showqr?title=$title', extra: value);
   }
+}
+
+/// Local backup type (replaces warp_api Backup).
+class _Backup {
+  final String? name;
+  final int index;
+  final String? seed;
+  final String? sk;
+  final String? tsk;
+  final String? uvk;
+  final String? fvk;
+  final bool saved;
+  _Backup({
+    this.name,
+    required this.index,
+    this.seed,
+    this.sk,
+    this.tsk,
+    this.uvk,
+    this.fvk,
+    required this.saved,
+  });
 }
 
 // ═══════════════════════════════════════════════════════════

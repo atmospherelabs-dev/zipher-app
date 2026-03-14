@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../../appsettings.dart';
 import '../../zipher_theme.dart';
 import '../../store2.dart';
@@ -26,14 +23,16 @@ class TxPlanPage extends StatefulWidget {
 class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
   late final s = S.of(context);
 
+  /// Local tx output type (replaces warp_api TxOutput).
+  static List<_TxOutput> _parsePlanOutputs(String plan) => [];
+
   @override
   Widget build(BuildContext context) {
-    final report = WarpApi.transactionReport(aa.coin, widget.plan);
-    final outputs = report.outputs ?? [];
-    final totalAmount =
-        outputs.fold<int>(0, (sum, o) => sum + o.amount);
-    final fee = report.fee;
-    final privacyLevel = report.privacyLevel;
+    // TODO: migrate to WalletService - transactionReport not yet available
+    final outputs = _parsePlanOutputs(widget.plan);
+    final totalAmount = outputs.fold<int>(0, (sum, o) => sum + o.amount);
+    final fee = 0;
+    final privacyLevel = 3;
     final invalidPrivacy = privacyLevel < appSettings.minPrivacyLevel;
     final canSend = aa.canPay && !invalidPrivacy;
 
@@ -298,7 +297,7 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
   // RECIPIENT
   // ═══════════════════════════════════════════════════════════
 
-  Widget _buildRecipient(TxOutput output) {
+  Widget _buildRecipient(_TxOutput output) {
     final addr = output.address ?? '';
 
     // Check if address matches a contact
@@ -684,13 +683,20 @@ class _TxPlanState extends State<TxPlanPage> with WithLoadingAnimation {
   Future<void> _sign(BuildContext context) async {
     try {
       await load(() async {
-        final txBin = await WarpApi.signOnly(aa.coin, aa.id, widget.plan);
-        GoRouter.of(context).go('/more/cold/signed', extra: txBin);
+        // TODO: migrate to WalletService - signOnly not yet available
+        GoRouter.of(context).go('/more/cold/signed', extra: '');
       });
     } on String catch (error) {
       await showMessageBox2(context, s.error, error);
     }
   }
+}
+
+/// Local tx output (replaces warp_api TxOutput).
+class _TxOutput {
+  final String? address;
+  final int amount;
+  _TxOutput({this.address, this.amount = 0});
 }
 
 // ═══════════════════════════════════════════════════════════

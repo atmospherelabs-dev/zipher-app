@@ -2,8 +2,6 @@ import 'dart:convert';
 import 'dart:math' as m;
 
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
 
 import 'settings.pb.dart';
 import 'coin/coins.dart';
@@ -60,14 +58,26 @@ extension CoinSettingsExtension on CoinSettings {
   }
 
   static CoinSettings load(int coin) {
-    final p = WarpApi.getProperty(coin, 'settings');
-    return CoinSettings.fromBuffer(base64Decode(p))..defaults(coin);
+    // Synchronous load not available - use loadAsync or defaults
+    return CoinSettings()..defaults(coin);
+  }
+
+  static Future<CoinSettings> loadAsync(int coin) async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString('coin_settings_$coin') ?? '';
+    if (stored.isEmpty) {
+      return CoinSettings()..defaults(coin);
+    }
+    final settings = CoinSettings.fromBuffer(base64Decode(stored));
+    return settings..defaults(coin);
   }
 
   void save(int coin) {
+    // Persists via SharedPreferences - fire and forget
     final bytes = writeToBuffer();
     final settings = base64Encode(bytes);
-    WarpApi.setProperty(coin, 'settings', settings);
+    SharedPreferences.getInstance().then((prefs) =>
+        prefs.setString('coin_settings_$coin', settings));
   }
 
   FeeT get feeT => FeeT(scheme: manualFee ? 1 : 0, fee: fee.toInt());
@@ -78,6 +88,13 @@ extension CoinSettingsExtension on CoinSettings {
     if (idx >= 0) return explorers[idx];
     return explorer.customURL;
   }
+}
+
+/// Local fee type (replaces warp_api FeeT).
+class FeeT {
+  final int scheme;
+  final int fee;
+  FeeT({required this.scheme, required this.fee});
 }
 
 extension CustomSendSettingsExtension on CustomSendSettings {

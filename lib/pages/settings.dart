@@ -7,9 +7,9 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:protobuf/protobuf.dart';
-import 'package:warp_api/warp_api.dart';
 
 import '../accounts.dart';
+import '../services/wallet_service.dart';
 import '../zipher_theme.dart';
 import '../coin/coin.dart';
 import '../coin/coins.dart';
@@ -584,7 +584,7 @@ class _SettingsState extends State<SettingsPage> {
     app.appSettings = app.AppSettingsExtension.load(prefs);
     app.coinSettings = app.CoinSettingsExtension.load(aa.coin);
     final serverUrl = resolveURL(coins[aa.coin], app.coinSettings);
-    WarpApi.updateLWD(aa.coin, serverUrl);
+    await WalletService.instance.setServer(serverUrl);
     aaSequence.settingsSeqno = DateTime.now().millisecondsSinceEpoch;
     Future(() async {
       await marketPrice.update();

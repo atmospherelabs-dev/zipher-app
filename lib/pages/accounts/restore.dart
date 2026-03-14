@@ -4,11 +4,10 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:screen_protector/screen_protector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/warp_api.dart';
 
 import '../../accounts.dart';
 import '../../coin/coins.dart';
-import '../../services/secure_key_store.dart';
+import '../../services/wallet_service.dart';
 import '../../store2.dart';
 import '../../zipher_theme.dart';
 
@@ -25,7 +24,6 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
   bool _seedVisible = false;
   String? _error;
 
-  // Wallet birthday
   DateTime? _selectedDate;
   bool _showDatePicker = false;
 
@@ -51,7 +49,6 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
       body: SafeArea(
         child: Column(
           children: [
-            // Scrollable content
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -59,7 +56,6 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Gap(12),
-                    // Back — minimal, matching disclaimer
                     IconButton(
                       onPressed: () => GoRouter.of(context).pop(),
                       icon: Icon(Icons.arrow_back_rounded,
@@ -67,7 +63,6 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                           size: 22),
                     ),
                     const Gap(24),
-                    // Title
                     Text(
                       'Restore Wallet',
                       style: TextStyle(
@@ -88,7 +83,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                     ),
                     const Gap(28),
 
-                    // ── Seed input ──
+                    // Seed input
                     Row(
                       children: [
                         Text(
@@ -251,7 +246,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
 
                     const Gap(24),
 
-                    // ── Wallet birthday section ──
+                    // Wallet birthday section
                     GestureDetector(
                       onTap: () =>
                           setState(() => _showDatePicker = !_showDatePicker),
@@ -335,7 +330,6 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                       ),
                     ),
 
-                    // Date picker (collapsible)
                     AnimatedSize(
                       duration: const Duration(milliseconds: 250),
                       curve: Curves.easeOutCubic,
@@ -343,7 +337,6 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                           ? Column(
                               children: [
                                 const Gap(8),
-                                // Year shortcuts
                                 SizedBox(
                                   height: 32,
                                   child: ListView(
@@ -412,7 +405,6 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
 
                     const Gap(16),
 
-                    // Info hint
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -446,7 +438,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
               ),
             ),
 
-            // Restore button (pinned at bottom)
+            // Restore button
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
               child: SizedBox(
@@ -481,13 +473,9 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
     if (value == null || value.trim().isEmpty) {
       return 'Please enter your seed phrase';
     }
-    if (WarpApi.isValidTransparentKey(value.trim())) {
-      return 'Transparent keys are not supported';
-    }
-    final coin = activeCoin.coin;
-    final keyType = WarpApi.validKey(coin, value.trim());
-    if (keyType < 0) {
-      return 'Invalid seed phrase or key';
+    final words = value.trim().split(RegExp(r'\s+'));
+    if (![12, 15, 18, 21, 24].contains(words.length)) {
+      return 'Seed phrase must be 12, 15, 18, 21, or 24 words';
     }
     return null;
   }
@@ -498,37 +486,44 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
 
     setState(() => _loading = true);
     try {
-      final coin = activeCoin.coin;
-      final name = isTestnet ? 'Testnet' : 'Main';
       final seed = _seedController.text.trim();
-      final account = await WarpApi.newAccount(coin, name, seed, 0);
-      if (account < 0) {
+
+      // Validate seed via Rust
+      final isValid = await WalletService.instance.validateSeed(seed);
+      if (!isValid) {
         setState(() {
-          _error = 'This account already exists';
+          _error = 'Invalid seed phrase';
           _loading = false;
         });
         return;
       }
-      // Store seed in Keychain, load keys, then clear from DB
-      await SecureKeyStore.storeSeed(coin, account, seed, 0);
-      WarpApi.loadKeysFromSeed(coin, account, seed, 0);
-      WarpApi.clearAccountSecrets(coin, account);
-      setActiveAccount(coin, account, canPayOverride: true);
-      final prefs = await SharedPreferences.getInstance();
-      await aa.save(prefs);
 
-      // Determine scan height
-      int scanHeight;
+      // Estimate birthday height (approximate: 1 block per 75 seconds)
+      int birthday = 419200; // Sapling activation
       if (_selectedDate != null) {
-        scanHeight =
-            await WarpApi.getBlockHeightByTime(coin, _selectedDate!);
-      } else {
-        scanHeight = 419200; // Sapling activation
+        final saplingTime = DateTime(2018, 10, 29);
+        final seconds = _selectedDate!.difference(saplingTime).inSeconds;
+        birthday = 419200 + (seconds ~/ 75);
       }
 
-      // Start rescan from the determined height
-      aa.reset(scanHeight);
-      Future(() => syncStatus2.rescan(scanHeight));
+      await WalletService.instance.restoreFromSeed(seed, birthday);
+
+      final name = isTestnet ? 'Testnet' : 'Main';
+      aa = ActiveAccount2(
+        coin: activeCoin.coin,
+        id: 1,
+        name: name,
+        address: '',
+        canPay: true,
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      await aa.save(prefs);
+      await prefs.setString('wallet_name', name);
+
+      // Start scanning in background
+      aa.reset(birthday);
+      Future(() => syncStatus2.rescan(birthday));
 
       if (mounted) GoRouter.of(context).go('/account');
     } catch (e) {
@@ -538,8 +533,6 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
     }
   }
 }
-
-// ─── Year shortcut chip ─────────────────────────────────────
 
 class _YearChip extends StatelessWidget {
   final int year;

@@ -1,21 +1,17 @@
-import 'dart:convert';
-
-import 'package:zipher/main.dart' hide ZECUNIT;
 import 'package:flutter/material.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
 
 import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../generated/intl/messages.dart';
+import '../../services/wallet_service.dart';
+import '../../src/rust/api/wallet.dart' as rust_wallet;
 import '../../store2.dart';
 import '../../zipher_theme.dart';
 import '../scan.dart';
 import '../utils.dart';
-import 'split.dart';
 
 class SendContext {
   final String address;
@@ -23,11 +19,26 @@ class SendContext {
   final Amount amount;
   final MemoData? memo;
   SendContext(this.address, this.pools, this.amount, this.memo);
+
   static SendContext? fromPaymentURI(String puri) {
-    final p = WarpApi.decodePaymentURI(aa.coin, puri);
-    if (p == null) throw S.of(navigatorKey.currentContext!).invalidPaymentURI;
-    return SendContext(
-        p.address!, 7, Amount(p.amount, false), MemoData(false, '', p.memo!));
+    // ZIP-321 parsing is simplified — just extract address from URI
+    if (puri.startsWith('zcash:')) {
+      final parts = puri.substring(6).split('?');
+      final addr = parts.first;
+      int amount = 0;
+      String memo = '';
+      if (parts.length > 1) {
+        final params = Uri.splitQueryString(parts[1]);
+        if (params.containsKey('amount')) {
+          amount = stringToAmount(params['amount']!);
+        }
+        if (params.containsKey('memo')) {
+          memo = params['memo']!;
+        }
+      }
+      return SendContext(addr, 7, Amount(amount, false), MemoData(false, '', memo));
+    }
+    return null;
   }
 
   @override
@@ -52,44 +63,27 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
   late final s = S.of(context);
   late final t = Theme.of(context);
   final formKey = GlobalKey<FormBuilderState>();
-  late PoolBalanceT balances =
-      WarpApi.getPoolBalances(aa.coin, aa.id, appSettings.anchorOffset, false)
-          .unpack();
 
-  // Controllers
   final _addressController = TextEditingController();
   final _amountController = TextEditingController();
   final _memoController = TextEditingController();
 
   String _address = '';
-  int _pools = 7;
   int _amountZat = 0;
   bool _deductFee = false;
   String _memoText = '';
   late bool _includeReplyTo = appSettings.includeReplyTo != 0;
-  bool isShielded = true; // Default shielded (Zashi-style)
-  int addressPools = 0;
-  bool isTex = false;
-  int rp = 0;
-  late bool custom;
   bool _balanceVisible = true;
+  bool _sending = false;
+
+  int get _spendable => aa.poolBalances.confirmed;
 
   @override
   void initState() {
     super.initState();
-    custom = widget.custom ^ appSettings.customSend;
     _didUpdateSendContext(widget.sendContext);
     _memoText = appSettings.memo;
     if (_memoText.isNotEmpty) _memoController.text = _memoText;
-  }
-
-  @override
-  void didUpdateWidget(QuickSendPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    balances =
-        WarpApi.getPoolBalances(aa.coin, aa.id, appSettings.anchorOffset, false)
-            .unpack();
-    _didUpdateSendContext(widget.sendContext);
   }
 
   @override
@@ -99,10 +93,6 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
     _memoController.dispose();
     super.dispose();
   }
-
-  int get _spendable => getSpendable(_pools, balances);
-  int get _totalBal => balances.transparent + balances.sapling + balances.orchard;
-  int get _memoBytes => utf8.encode(_memoText).length;
 
   @override
   Widget build(BuildContext context) {
@@ -122,8 +112,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
@@ -153,21 +142,13 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Balance
                         _buildBalanceHero(),
                         const Gap(28),
-
-                        // Send to
                         _buildSendTo(),
                         const Gap(20),
-
-                        // Amount
                         _buildAmount(),
                         const Gap(20),
-
-                        // Message — visible when shielded, hint when transparent
                         _buildMessage(),
-
                         const Gap(32),
                       ],
                     ),
@@ -175,18 +156,12 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                 ),
               ),
             ),
-
-            // Review button
-            _buildReview(),
+            _buildSendButton(),
           ],
         ),
       ),
     );
   }
-
-  // ═══════════════════════════════════════════════════════════
-  // BALANCE HERO
-  // ═══════════════════════════════════════════════════════════
 
   Widget _buildBalanceHero() {
     return Center(
@@ -207,13 +182,12 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                       ),
                       child: Center(
                         child: Image.asset('assets/zcash_logo.png',
-                            width: 22, height: 22,
-                            fit: BoxFit.contain),
+                            width: 22, height: 22, fit: BoxFit.contain),
                       ),
                     ),
                     const Gap(8),
                     Text(
-                      amountToString2(_totalBal),
+                      amountToString2(_spendable),
                       style: const TextStyle(
                         fontSize: 36,
                         fontWeight: FontWeight.w700,
@@ -236,117 +210,69 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
           const Gap(6),
           Text(
             'Spendable:  ${amountToString2(_spendable)} ZEC',
-            style: TextStyle(
-              fontSize: 13,
-              color: ZipherColors.text40,
-            ),
+            style: TextStyle(fontSize: 13, color: ZipherColors.text40),
           ),
         ],
       ),
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // SEND TO
-  // ═══════════════════════════════════════════════════════════
-
   Widget _buildSendTo() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Send to',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: ZipherColors.text40,
-          ),
-        ),
+        Text('Send to',
+            style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: ZipherColors.text40)),
         const Gap(8),
-        FormBuilderField<String>(
-          name: 'address',
-          initialValue: _address,
-          validator: composeOr([addressValidator, paymentURIValidator]),
-          onChanged: (v) => _onAddress(v),
-          builder: (field) {
-            return Container(
-              height: 52,
-              decoration: BoxDecoration(
-                color: ZipherColors.cardBg,
-                borderRadius: BorderRadius.circular(ZipherRadius.lg),
-              ),
-              child: ContactAutocomplete(
-                controller: _addressController,
-                onSelected: (address, name) {
-                  _addressController.text = address;
-                  field.didChange(address);
-                },
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _addressController,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: ZipherColors.text90,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: 'Zcash address or payment URI',
-                          hintStyle: TextStyle(
-                            fontSize: 14,
-                            color: ZipherColors.text20,
-                          ),
-                          filled: false,
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 14),
-                        ),
-                        onChanged: (v) => field.didChange(v),
-                      ),
-                    ),
-                    _iconBtn(Icons.people_outline_rounded, () async {
-                      final c = await GoRouter.of(context)
-                          .push<Contact>('/account/quick_send/contacts');
-                      if (c != null) _setAddress(c.address!, field);
-                    }),
-                    _iconBtn(Icons.qr_code_rounded, () async {
-                      final text = await scanQRCode(context,
-                          validator:
-                              composeOr([addressValidator, paymentURIValidator]));
-                      _setAddress(text, field);
-                    }),
-                    const Gap(4),
-                  ],
+        Container(
+          height: 52,
+          decoration: BoxDecoration(
+            color: ZipherColors.cardBg,
+            borderRadius: BorderRadius.circular(ZipherRadius.lg),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _addressController,
+                  style:
+                      TextStyle(fontSize: 14, color: ZipherColors.text90),
+                  decoration: InputDecoration(
+                    hintText: 'Zcash address',
+                    hintStyle:
+                        TextStyle(fontSize: 14, color: ZipherColors.text20),
+                    filled: false,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                  ),
+                  onChanged: (v) => setState(() => _address = v.trim()),
                 ),
               ),
-            );
-          },
+              GestureDetector(
+                onTap: () async {
+                  final text = await scanQRCode(context,
+                      validator: composeOr(
+                          [addressValidator, paymentURIValidator]));
+                  _addressController.text = text;
+                  setState(() => _address = text.trim());
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(ZipherSpacing.sm),
+                  child: Icon(Icons.qr_code_rounded,
+                      size: 20, color: ZipherColors.text40),
+                ),
+              ),
+              const Gap(4),
+            ],
+          ),
         ),
       ],
     );
   }
-
-  void _setAddress(String v, FormFieldState<String> field) {
-    _addressController.text = v;
-    field.didChange(v);
-  }
-
-  Widget _iconBtn(IconData icon, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.all(ZipherSpacing.sm),
-        child: Icon(icon, size: 20,
-            color: ZipherColors.text40),
-      ),
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // AMOUNT
-  // ═══════════════════════════════════════════════════════════
 
   Widget _buildAmount() {
     return Column(
@@ -354,14 +280,11 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
       children: [
         Row(
           children: [
-            Text(
-              'Amount',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: ZipherColors.text40,
-              ),
-            ),
+            Text('Amount',
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: ZipherColors.text40)),
             const Spacer(),
             GestureDetector(
               onTap: () {
@@ -372,19 +295,18 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                 });
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: ZipherColors.cyan.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(ZipherRadius.sm),
                 ),
-                child: Text(
-                  'MAX',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: ZipherColors.cyan.withValues(alpha: 0.7),
-                  ),
-                ),
+                child: Text('MAX',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color:
+                            ZipherColors.cyan.withValues(alpha: 0.7))),
               ),
             ),
           ],
@@ -401,36 +323,22 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
             keyboardType:
                 const TextInputType.numberWithOptions(decimal: true),
             style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: ZipherColors.text90,
-            ),
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: ZipherColors.text90),
             decoration: InputDecoration(
               hintText: '0.00',
               hintStyle: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: ZipherColors.text20,
-              ),
-              prefixIcon: Padding(
-                padding: const EdgeInsets.only(left: 14, right: 8),
-                child: Image.asset('assets/zcash_small.png',
-                    width: 18, height: 18,
-                    color: ZipherColors.text40,
-                    colorBlendMode: BlendMode.srcIn),
-              ),
-              prefixIconConstraints:
-                  const BoxConstraints(minWidth: 0, minHeight: 0),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: ZipherColors.text20),
               suffixText: 'ZEC',
               suffixStyle: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: ZipherColors.text20,
-              ),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: ZipherColors.text20),
               filled: false,
               border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             ),
@@ -447,295 +355,77 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
             padding: const EdgeInsets.only(top: 6, left: 4),
             child: Text(
               '\$${(_amountZat / ZECUNIT * marketPrice.price!).toStringAsFixed(2)} USD',
-              style: TextStyle(
-                fontSize: 12,
-                color: ZipherColors.text20,
-              ),
+              style: TextStyle(fontSize: 12, color: ZipherColors.text20),
             ),
           ),
       ],
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // MESSAGE
-  // ═══════════════════════════════════════════════════════════
-
   Widget _buildMessage() {
-    // If address is entered and it's transparent-only, show a hint instead
-    final hasAddress = _addressController.text.trim().isNotEmpty;
-    final isTransparentOnly = hasAddress && !isShielded;
-
-    if (isTransparentOnly) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: ZipherColors.cardBg,
-          borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.info_outline_rounded,
-                size: 14,
-                color: ZipherColors.text20),
-            const Gap(10),
-            Expanded(
-              child: Text(
-                'Transparent address — memos not available',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: ZipherColors.text40,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Message',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: ZipherColors.text40,
-          ),
-        ),
+        Text('Message',
+            style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: ZipherColors.text40)),
         const Gap(8),
         Container(
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
             borderRadius: BorderRadius.circular(ZipherRadius.lg),
           ),
-          child: Column(
-            children: [
-              TextField(
-                controller: _memoController,
-                maxLines: 4,
-                maxLength: _includeReplyTo
-                    ? MAX_MESSAGE_CHARS_WITH_REPLY
-                    : MAX_MESSAGE_CHARS_NO_REPLY,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: ZipherColors.text90,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'Write encrypted message here...',
-                  hintStyle: TextStyle(
-                    fontSize: 14,
-                    color: ZipherColors.text40,
-                  ),
-                  filled: false,
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  contentPadding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-                  counterText: '',
-                ),
-                onChanged: (v) => setState(() => _memoText = v),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 14, bottom: 10),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    '${_memoText.length}/${_includeReplyTo ? MAX_MESSAGE_CHARS_WITH_REPLY : MAX_MESSAGE_CHARS_NO_REPLY}',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: _memoText.length > (_includeReplyTo ? MAX_MESSAGE_CHARS_WITH_REPLY : MAX_MESSAGE_CHARS_NO_REPLY) - 1
-                          ? ZipherColors.red.withValues(alpha: 0.7)
-                          : ZipherColors.text40,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Gap(10),
-        // Reply-to toggle
-        GestureDetector(
-          onTap: () =>
-              setState(() => _includeReplyTo = !_includeReplyTo),
-          behavior: HitTestBehavior.opaque,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              children: [
-                Icon(
-                  _includeReplyTo
-                      ? Icons.reply_rounded
-                      : Icons.reply_rounded,
-                  size: 14,
-                  color: _includeReplyTo
-                      ? ZipherColors.purple.withValues(alpha: 0.85)
-                      : ZipherColors.text20,
-                ),
-                const Gap(8),
-                Expanded(
-                  child: Text(
-                    _includeReplyTo
-                        ? 'Reply address included'
-                        : 'Reply address hidden',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: _includeReplyTo
-                          ? ZipherColors.purple
-                          : ZipherColors.text40,
-                    ),
-                  ),
-                ),
-                Container(
-                  width: 32,
-                  height: 18,
-                  decoration: BoxDecoration(
-                    color: _includeReplyTo
-                        ? ZipherColors.purple.withValues(alpha: 0.25)
-                        : ZipherColors.borderSubtle,
-                    borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                  ),
-                  child: AnimatedAlign(
-                    duration: const Duration(milliseconds: 150),
-                    alignment: _includeReplyTo
-                        ? Alignment.centerRight
-                        : Alignment.centerLeft,
-                    child: Container(
-                      width: 14,
-                      height: 14,
-                      margin: const EdgeInsets.symmetric(horizontal: 2),
-                      decoration: BoxDecoration(
-                        color: _includeReplyTo
-                            ? ZipherColors.purple
-                            : ZipherColors.text40,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+          child: TextField(
+            controller: _memoController,
+            maxLines: 4,
+            maxLength: 512,
+            style: TextStyle(fontSize: 14, color: ZipherColors.text90),
+            decoration: InputDecoration(
+              hintText: 'Write encrypted message here...',
+              hintStyle:
+                  TextStyle(fontSize: 14, color: ZipherColors.text40),
+              filled: false,
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+              counterText: '',
             ),
+            onChanged: (v) => setState(() => _memoText = v),
           ),
         ),
-
-        // Warning when reply-to is OFF and address is a known contact
-        if (!_includeReplyTo && _address.isNotEmpty)
-          Builder(
-            builder: (context) {
-              final contacts = WarpApi.getContacts(aa.coin);
-              final isKnown = contacts.any(
-                  (c) => c.address != null && c.address == _address);
-              if (!isKnown) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.info_outline_rounded,
-                      size: 12,
-                      color: ZipherColors.orange.withValues(alpha: 0.7),
-                    ),
-                    const Gap(6),
-                    Expanded(
-                      child: Text(
-                        'Recipient won\'t know this is from you',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: ZipherColors.orange.withValues(alpha: 0.9),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
       ],
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // REVIEW BUTTON
-  // ═══════════════════════════════════════════════════════════
-
-  Widget _buildReview() {
-    final label = widget.single ? 'Review' : 'Add Recipient';
+  Widget _buildSendButton() {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
         child: SizedBox(
           width: double.infinity,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: _review,
-              borderRadius: BorderRadius.circular(ZipherRadius.lg),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: ZipherColors.cyan.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
+          child: _sending
+              ? Center(
+                  child: SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: CircularProgressIndicator(
+                        color: ZipherColors.cyan, strokeWidth: 2),
+                  ),
+                )
+              : ZipherWidgets.gradientButton(
+                  label: 'Send',
+                  icon: Icons.send_rounded,
+                  onPressed: _send,
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.send_rounded,
-                        size: 20,
-                        color: ZipherColors.cyan.withValues(alpha: 0.9)),
-                    const Gap(10),
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: ZipherColors.cyan.withValues(alpha: 0.9),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
         ),
       ),
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // BUSINESS LOGIC
-  // ═══════════════════════════════════════════════════════════
-
-  void _onAddress(String? v) {
-    if (v == null) return;
-    // Detect multi-output ZIP-321 URI and redirect to Split page
-    if (isMultiOutputUri(v)) {
-      final payments = parseZip321Uri(v);
-      if (payments != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          GoRouter.of(context)
-              .pushReplacement('/account/split', extra: payments);
-        });
-        return;
-      }
-    }
-    final puri = WarpApi.decodePaymentURI(aa.coin, v);
-    if (puri != null) {
-      final sc = SendContext(puri.address!, _pools, Amount(puri.amount, false),
-          MemoData(false, '', puri.memo!));
-      _didUpdateSendContext(sc);
-    } else {
-      _address = v;
-      _didUpdateAddress(v);
-    }
-    setState(() {});
-  }
-
   void _didUpdateSendContext(SendContext? sendContext) {
     if (sendContext == null) return;
     _address = sendContext.address;
-    _pools = sendContext.pools;
     _amountZat = sendContext.amount.value;
     _deductFee = sendContext.amount.deductFee;
     final memo = sendContext.memo;
@@ -746,90 +436,59 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
     _addressController.text = _address;
     _amountController.text =
         _amountZat > 0 ? amountToString2(_amountZat) : '';
-    _didUpdateAddress(_address);
   }
 
-  void _didUpdateAddress(String? address) {
-    if (address == null) return;
-    isTex = false;
-    var address2 = address;
-    try {
-      address2 = WarpApi.parseTexAddress(aa.coin, address2);
-      isTex = true;
-      _pools = 1;
-    } on String {}
-    final receivers = address.isNotEmpty
-        ? WarpApi.receiversOfAddress(aa.coin, address2)
-        : 0;
-    isShielded = receivers & 6 != 0;
-    addressPools = receivers & coinSettings.receipientPools;
-    rp = addressPools;
-  }
-
-  void _review() async {
-    // Validate address
+  void _send() async {
     final addr = _addressController.text.trim();
     if (addr.isEmpty) {
       _showError('Enter a recipient address');
       return;
     }
-    // Validate amount
-    if (_amountZat <= 0) {
-      _showError('Enter a valid amount (min 0.0001 ZEC)');
+
+    final validation = await WalletService.instance.validateAddress(addr);
+    if (!validation.isValid) {
+      _showError('Invalid Zcash address');
       return;
     }
-    if (_amountZat < MIN_MEMO_AMOUNT) {
-      _showError('Minimum amount is 0.0001 ZEC');
+
+    if (_amountZat <= 0) {
+      _showError('Enter a valid amount');
       return;
     }
     if (_amountZat > _spendable) {
       _showError(s.notEnoughBalance);
       return;
     }
-    // Validate memo
-    if (_memoBytes > 511) {
-      _showError(s.memoTooLong);
-      return;
-    }
 
-    final memoData = MemoData(_includeReplyTo, '', _memoText);
-    final sc = SendContext(addr, _pools, Amount(_amountZat, _deductFee), memoData);
-    SendContext.instance = sc;
+    setState(() => _sending = true);
+    try {
+      final recipients = [
+        rust_wallet.PaymentRecipient(
+          address: addr,
+          amount: BigInt.from(_amountZat),
+          memo: _memoText.isNotEmpty ? _memoText : null,
+        ),
+      ];
+      final txid = await WalletService.instance.send(recipients);
+      logger.i('Transaction sent: $txid');
 
-    final builder = RecipientObjectBuilder(
-      address: addr,
-      pools: rp,
-      amount: _amountZat,
-      feeIncluded: _deductFee,
-      replyTo: memoData.reply,
-      subject: memoData.subject,
-      memo: memoData.memo,
-    );
-    final recipient = Recipient(builder.toBytes());
+      // Refresh balance
+      await aa.updateBalance();
+      await aa.updateTransactions();
 
-    if (widget.single) {
-      try {
-        final plan = await load(() => WarpApi.prepareTx(
-              aa.coin,
-              aa.id,
-              [recipient],
-              _pools,
-              coinSettings.replyUa,
-              appSettings.anchorOffset,
-              coinSettings.feeT,
-            ));
-        // Store memo + recipient so SubmitTxPage can persist after broadcast
-        if (_memoText.isNotEmpty) {
-          pendingOutgoingMemo = _memoText;
-          pendingOutgoingRecipient = addr;
-          pendingOutgoingAnonymous = !_includeReplyTo;
-        }
-        GoRouter.of(context).push('/account/txplan?tab=account', extra: plan);
-      } on String catch (e) {
-        showMessageBox2(context, s.error, e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Transaction sent successfully'),
+            backgroundColor: ZipherColors.green,
+          ),
+        );
+        GoRouter.of(context).pop();
       }
-    } else {
-      GoRouter.of(context).pop(recipient);
+    } catch (e) {
+      _showError('Send failed: $e');
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
   }
 
@@ -843,13 +502,9 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                 color: ZipherColors.red.withValues(alpha: 0.8)),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                msg,
-style: TextStyle(
-                          fontSize: 13,
-                          color: ZipherColors.text90,
-                        ),
-              ),
+              child: Text(msg,
+                  style: TextStyle(
+                      fontSize: 13, color: ZipherColors.text90)),
             ),
           ],
         ),
@@ -858,8 +513,7 @@ style: TextStyle(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ZipherRadius.md),
           side: BorderSide(
-            color: ZipherColors.red.withValues(alpha: 0.15),
-          ),
+              color: ZipherColors.red.withValues(alpha: 0.15)),
         ),
         duration: const Duration(seconds: 3),
       ),

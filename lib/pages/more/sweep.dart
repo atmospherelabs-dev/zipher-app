@@ -3,8 +3,6 @@ import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../../appsettings.dart';
 import '../../zipher_theme.dart';
 import '../../accounts.dart';
@@ -312,56 +310,24 @@ class _SweepState extends State<SweepPage>
     }
     form.save();
 
-    final latestHeight = await WarpApi.getLatestHeight(aa.coin);
-
-    // Always sweep to shielded (pool 7 = best available shielded pool)
-    const pool = 6; // Sapling + Orchard (shielded)
-
+    // TODO: migrate to WalletService - sweep not yet available in zingolib
     if (_useSeed && seed.isNotEmpty) {
-      load(() async {
-        try {
-          final txPlan = await WarpApi.sweepTransparentSeed(
-              aa.coin,
-              aa.id,
-              latestHeight,
-              seed,
-              pool,
-              '',
-              int.parse(indexController.text),
-              30,
-              coinSettings.feeT);
-          GoRouter.of(context)
-              .push('/account/txplan?tab=more', extra: txPlan);
-        } on String catch (e) {
-          form.fields['seed']!.invalidate(e);
-        }
-      });
+      form.fields['seed']!.invalidate('Sweep from seed not yet supported');
     }
-
     if (!_useSeed && sk.isNotEmpty) {
-      await load(() async {
-        try {
-          final txPlan = await WarpApi.sweepTransparent(aa.coin, aa.id,
-              latestHeight, sk, pool, '', coinSettings.feeT);
-          GoRouter.of(context)
-              .push('/account/txplan?tab=more', extra: txPlan);
-        } on String catch (e) {
-          form.fields['sk']!.invalidate(e);
-        }
-      });
+      form.fields['sk']!.invalidate('Sweep from private key not yet supported');
     }
   }
 
   String? _validSeed(String? v) {
     if (v == null) return null;
-    if (v.isNotEmpty && !WarpApi.validSeed(aa.coin, v)) return s.invalidKey;
+    // TODO: migrate to WalletService - validateSeed is async, validator is sync
     return null;
   }
 
   String? _validTKey(String? v) {
     if (v == null) return null;
-    if (v.isNotEmpty && !WarpApi.isValidTransparentKey(v))
-      return s.invalidKey;
+    // TODO: migrate to WalletService - transparent key validation not yet available
     return null;
   }
 }

@@ -23,8 +23,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  warp_api:
-    path: packages/warp_api_ffi
   logger: ^2.0.2+1
   go_router: ^11.1.3
   flutter_mobx: ^2.0.2
@@ -90,6 +88,10 @@ dependencies:
   screen_protector: ^1.4.2
   flutter_svg: ^2.0.9
   sqflite: ^2.4.2
+  flutter_rust_bridge: ^2.0.0
+  rust_lib_zipher:
+    path: rust_builder
+  protobuf: ^3.1.0
 
 dependency_overrides:
   intl: ^0.18.0

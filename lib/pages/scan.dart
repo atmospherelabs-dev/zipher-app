@@ -7,8 +7,6 @@ import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../generated/intl/messages.dart';
 import '../zipher_theme.dart';
 import 'utils.dart';
@@ -238,17 +236,9 @@ class _MultiQRReaderState extends State<MultiQRReader> {
       if (text == null) return;
       if (!fragments.contains(text)) {
         fragments.add(text);
-        final res = WarpApi.mergeData(text);
-        if (res.data?.isEmpty != false) {
-          logger.d('${res.progress} ${res.total}');
-          setState(() {
-            value = res.progress / res.total;
-          });
-        } else {
-          final decoded =
-              utf8.decode(ZLibCodec().decode(base64Decode(res.data!)));
-          widget.onChanged?.call(decoded);
-        }
+        // TODO: migrate to WalletService - multi-QR merge not yet available
+        setState(() => value = 1.0);
+        widget.onChanged?.call(text);
       }
     }
   }

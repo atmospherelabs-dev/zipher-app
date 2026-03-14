@@ -3,9 +3,6 @@ import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:form_builder_validators/form_builder_validators.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../../router.dart';
 import '../../accounts.dart';
 import '../../services/secure_key_store.dart';
@@ -20,6 +17,15 @@ import '../widgets.dart';
 class KeyToolPage extends StatefulWidget {
   @override
   State<StatefulWidget> createState() => _KeyToolState();
+}
+
+/// Local key pack type (replaces warp_api KeyPackT).
+class KeyPackT {
+  final String? tAddr;
+  final String? tKey;
+  final String? zAddr;
+  final String? zKey;
+  KeyPackT({this.tAddr, this.tKey, this.zAddr, this.zKey});
 }
 
 class _KeyToolState extends State<KeyToolPage> with WithLoadingAnimation {
@@ -39,7 +45,7 @@ class _KeyToolState extends State<KeyToolPage> with WithLoadingAnimation {
 
   void _loadSeed() async {
     final kcSeed = await SecureKeyStore.getSeed(aa.coin, aa.id);
-    if (mounted) setState(() => seed = kcSeed ?? aa.seed ?? '');
+    if (mounted) setState(() => seed = kcSeed ?? '');
   }
 
   @override
@@ -88,16 +94,8 @@ class _KeyToolState extends State<KeyToolPage> with WithLoadingAnimation {
   }
 
   Future<void> _computeKeys(int coin, int id, int account, int ext) async {
-    for (int a = 0; a < 100; a++) {
-      final zkp =
-          (await WarpApi.deriveZip32(coin, id, account + a, 0, null)).unpack();
-      final tkp =
-          (await WarpApi.deriveZip32(coin, id, account, ext, address + a))
-              .unpack();
-      final kp = KeyPackT(
-          tAddr: tkp.tAddr, tKey: tkp.tKey, zAddr: zkp.zAddr, zKey: zkp.zKey);
-      keys.add(kp);
-    }
+    // TODO: migrate to WalletService - deriveZip32 not yet available
+    keys.clear();
   }
 }
 

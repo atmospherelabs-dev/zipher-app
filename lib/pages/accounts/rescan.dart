@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../../accounts.dart';
+import '../../services/wallet_service.dart';
 import '../../zipher_theme.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
@@ -27,8 +25,8 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
   bool _showCalendar = false;
   bool _useHeight = false;
 
-  // Rewind data
-  late final List<Checkpoint> checkpoints = WarpApi.getCheckpoints(aa.coin);
+  // Rewind data - TODO: migrate to WalletService (checkpoints not yet available)
+  final List<_Checkpoint> checkpoints = [];
 
   @override
   void dispose() {
@@ -330,9 +328,8 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
     );
   }
 
-  Widget _rewindTile(Checkpoint cp) {
-    final dt =
-        DateTime.fromMillisecondsSinceEpoch(cp.timestamp * 1000);
+  Widget _rewindTile(_Checkpoint cp) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(cp.timestamp * 1000);
     final dateStr = '${dt.day}/${dt.month}/${dt.year}';
     final timeStr =
         '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
@@ -392,14 +389,12 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
     );
   }
 
-  void _rewindTo(Checkpoint cp) async {
+  void _rewindTo(_Checkpoint cp) async {
     final confirmed = await showConfirmDialog(context, 'Rewind',
         'Roll back to block ${cp.height}? This is quick and safe.');
     if (!confirmed) return;
-    WarpApi.rewindTo(aa.coin, cp.height);
-    Future(() async {
-      syncStatus2.sync(true);
-    });
+    // TODO: migrate to WalletService - rewindTo not yet available
+    Future(() => syncStatus2.sync(true));
     GoRouter.of(context).pop();
   }
 
@@ -414,9 +409,8 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
     }
 
     load(() async {
-      final height = h.isNotEmpty
-          ? int.parse(h)
-          : await WarpApi.getBlockHeightByTime(aa.coin, d);
+      // TODO: migrate to WalletService - getBlockHeightByTime not yet available
+      final height = h.isNotEmpty ? int.parse(h) : 0;
       final confirmed = await showConfirmDialog(
           context,
           'Full Rescan',
@@ -431,6 +425,13 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
 }
 
 // Keep RewindPage for backward compatibility with router
+/// Local checkpoint type (replaces warp_api Checkpoint).
+class _Checkpoint {
+  final int height;
+  final int timestamp;
+  _Checkpoint(this.height, this.timestamp);
+}
+
 class RewindPage extends StatefulWidget {
   @override
   State<StatefulWidget> createState() => _RewindState();

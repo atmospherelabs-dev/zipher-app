@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
 
 import '../../zipher_theme.dart';
 import '../../accounts.dart';
@@ -314,7 +312,7 @@ class _AccountManagerState extends State<AccountManagerPage> {
 
   void _onEditDone(String name) {
     final a = accounts[selected!];
-    WarpApi.updateAccountName(a.coin, a.id, name);
+    // TODO: persist account name change
     _refresh();
     setState(() => editing = false);
   }
@@ -329,7 +327,7 @@ class _AccountManagerState extends State<AccountManagerPage> {
     final confirmed = await showConfirmDialog(
         context, s.deleteAccount(a.name!), s.confirmDeleteAccount);
     if (confirmed) {
-      WarpApi.deleteAccount(a.coin, a.id);
+      // TODO: implement account deletion with zingolib
       _refresh();
       if (accounts.isEmpty) {
         setActiveAccount(0, 0);

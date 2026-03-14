@@ -1,14 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timeago/timeago.dart' as timeago;
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
+import '../../services/wallet_service.dart';
 
 import '../../generated/intl/messages.dart';
 import '../../appsettings.dart';
@@ -528,7 +525,7 @@ class _HomeState extends State<HomePageInner> {
                 ),
 
                 // Backup warning
-                if (!aa.saved)
+                if (false) // TODO: track backup status
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
@@ -676,31 +673,16 @@ class _HomeState extends State<HomePageInner> {
     });
 
     try {
-      final plan = await WarpApi.transferPools(
-        aa.coin,
-        aa.id,
-        1,
-        4,
-        transparentBal,
-        true,
-        'Auto-shield $amtStr ZEC',
-        0,
-        appSettings.anchorOffset,
-        coinSettings.feeT,
-      );
-      if (!mounted) return;
-
-      final txIdJs = await WarpApi.signAndBroadcast(aa.coin, aa.id, plan);
-      final txId = jsonDecode(txIdJs);
+      final txId = await WalletService.instance.shieldFunds();
       logger.i('[Shield] Broadcast OK: $txId');
-    } on String catch (e) {
+    } catch (e) {
       logger.e('[Shield] Error: $e');
       if (!mounted) return;
       setState(() {
         lastShieldSubmit = null;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e), duration: const Duration(seconds: 3)),
+        SnackBar(content: Text('$e'), duration: const Duration(seconds: 3)),
       );
     }
   }
@@ -1648,11 +1630,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
 
   void _switchTo(Account a) async {
     Navigator.of(context).pop();
-    await setActiveAccountAsync(a.coin, a.id);
-    final prefs = await SharedPreferences.getInstance();
-    await aa.save(prefs);
-    aa.update(null);
-    contacts.fetchContacts();
+    // With single-wallet zingolib, switching accounts is a no-op for now
     widget.onAccountChanged();
   }
 
@@ -1692,7 +1670,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
 
   void _rename(Account a, String name) {
     if (name.isNotEmpty) {
-      WarpApi.updateAccountName(a.coin, a.id, name);
+      // TODO: persist account name in local storage
     }
     setState(() {
       _editingIndex = null;
@@ -1727,7 +1705,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
         context, s.deleteAccount(a.name!), s.confirmDeleteAccount,
         isDanger: true);
     if (confirmed) {
-      WarpApi.deleteAccount(a.coin, a.id);
+      // TODO: implement account deletion
       setState(() {
         _editingIndex = null;
         accounts = getAllAccounts();

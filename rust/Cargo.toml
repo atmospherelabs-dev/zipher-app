@@ -7,22 +7,33 @@ edition = "2021"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-flutter_rust_bridge = "=2.9.0"
-anyhow = "1.0.95"
-tracing = "0.1.41"
+flutter_rust_bridge = "=2.11.1"
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+log = "0.4"
 hex = "0.4"
-rusqlite = { version = "0.29.0", features = ["bundled", "modern_sqlite", "backup"] }
-r2d2 = "0.8.10"
-r2d2_sqlite = "0.22.0"
-reqwest = { version = "0.11.27", default-features = false, features = ["json", "rustls-tls"] }
-lazy_static = "1.5.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = "1.34.0"
-rand_core = "0.6.4"
-orchard = "0.3.0"
+tokio = { version = "1", features = ["full"] }
+rand = "0.8"
 
-zcash-vote = { path = "../native/zcash-vote" }
+# Zingolib — full Zcash wallet backend with pepper-sync engine
+zingolib = { git = "https://github.com/zingolabs/zingolib", branch = "dev" }
+
+# Zcash crates — exact versions matching zingolib dev branch
+zcash_protocol = "0.7"
+zcash_address = "0.10"
+zcash_client_backend = { version = "0.21", features = ["lightwalletd-tonic"] }
+zip32 = "0.2"
+zcash_keys = { version = "0.12", features = ["orchard", "sapling"] }
+bip0039 = { version = "0.14", features = ["rand"] }
+
+lazy_static = "1"
+json = "0.12"
+http = "1"
+nonempty = "0.11"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
 
 [features]
 dart_ffi = []
@@ -31,5 +42,11 @@ dart_ffi = []
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
 [profile.dev]
-opt-level = 3
+opt-level = 1
 debug = true
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = true

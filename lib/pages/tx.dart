@@ -10,8 +10,6 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../accounts.dart';
 import '../zipher_theme.dart';
 import '../generated/intl/messages.dart';
@@ -230,12 +228,9 @@ class TxPageState extends State<TxPage> {
   void initState() {
     super.initState();
     _loadSwapsAndPoll();
+    // TODO: migrate to WalletService - transparentSync not yet available
     syncStatus2.latestHeight?.let((height) {
-      Future(() async {
-        final txListUpdated =
-            await WarpApi.transparentSync(aa.coin, aa.id, height);
-        if (txListUpdated) aa.update(height);
-      });
+      Future(() => aa.update(height));
     });
   }
 

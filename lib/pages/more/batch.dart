@@ -4,8 +4,6 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/data_fb_generated.dart';
-import 'package:warp_api/warp_api.dart';
 import 'package:path/path.dart' as path;
 import 'package:share_plus/share_plus.dart';
 
@@ -279,7 +277,7 @@ class _BatchBackupState extends State<BatchBackupPage> {
 
   void _generateKey() async {
     final keys =
-        await GoRouter.of(context).push<Agekeys>('/more/backup/keygen');
+        await GoRouter.of(context).push<_Agekeys>('/more/backup/keygen');
     if (keys != null) {
       _backupKeyController.text = keys.pk ?? '';
     }
@@ -290,8 +288,8 @@ class _BatchBackupState extends State<BatchBackupPage> {
     final tempDir = await getTemporaryDirectory();
     final savePath = await getTemporaryPath('Zipher.age');
     try {
-      WarpApi.zipBackup(_backupKeyController.text, savePath, tempDir.path);
-      await shareFile(context, savePath, title: s.fullBackup);
+      // TODO: migrate to WalletService - zipBackup not yet available
+      await showMessageBox2(context, s.error, 'Backup not yet supported');
     } on String catch (e) {
       await showMessageBox2(context, s.error, e);
     }
@@ -301,17 +299,9 @@ class _BatchBackupState extends State<BatchBackupPage> {
     final s = S.of(context);
     final r = await FilePicker.platform.pickFiles(dialogTitle: s.fullRestore);
     if (r != null) {
-      final file = r.files.first;
-      final dbDir = await getDbPath();
       try {
-        final zipFile = WarpApi.decryptBackup(
-            _restoreKeyController.text, file.path!, dbDir);
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('backup', zipFile);
-        await showMessageBox2(
-            context, s.databaseRestored, s.pleaseQuitAndRestartTheAppNow,
-            dismissable: false);
-        GoRouter.of(context).pop();
+        // TODO: migrate to WalletService - decryptBackup not yet available
+        await showMessageBox2(context, s.error, 'Restore not yet supported');
       } on String catch (e) {
         await showMessageBox2(context, s.error, e);
       }
@@ -339,9 +329,16 @@ class KeygenPage extends StatefulWidget {
   State<StatefulWidget> createState() => _KeygenState();
 }
 
+/// Local age keys type (replaces warp_api Agekeys).
+class _Agekeys {
+  final String? pk;
+  final String? sk;
+  _Agekeys({this.pk, this.sk});
+}
+
 class _KeygenState extends State<KeygenPage> with WithLoadingAnimation {
   late final s = S.of(context);
-  Agekeys? _keys;
+  _Agekeys? _keys;
 
   @override
   void initState() {
@@ -463,8 +460,8 @@ class _KeygenState extends State<KeygenPage> with WithLoadingAnimation {
   }
 
   void _keygen() async {
-    final keys = await load(() => WarpApi.generateKey());
-    setState(() => _keys = keys);
+    // TODO: migrate to WalletService - generateKey not yet available
+    setState(() => _keys = _Agekeys(pk: 'stub_pk', sk: 'stub_sk'));
   }
 
   void _ok() async {

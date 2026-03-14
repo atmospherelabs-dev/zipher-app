@@ -3,12 +3,11 @@ import 'dart:async';
 import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:warp_api/warp_api.dart';
 
 import 'appsettings.dart';
 import 'main.reflectable.dart';
 import 'coin/coins.dart';
-import './pages/utils.dart';
+import 'services/wallet_service.dart';
 
 import 'init.dart';
 
@@ -23,13 +22,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   initializeReflectable();
   await restoreSettings();
-  await loadTestnetPref();
+  await WalletService.instance.initRustLib();
   await initCoins();
   initNotifications();
-  final prefs = await SharedPreferences.getInstance();
-  final dbPath = await getDbPath();
-  print("db path $dbPath");
-  await recoverDb(prefs, dbPath);
   runApp(App());
 }
 
@@ -42,17 +37,8 @@ Future<void> loadTestnetPref() async {
 Future<void> restoreSettings() async {
   final prefs = await SharedPreferences.getInstance();
   appSettings = AppSettingsExtension.load(prefs);
-}
-
-Future<void> recoverDb(SharedPreferences prefs, String dbPath) async {
-  final backupPath = prefs.getString('backup');
-  if (backupPath == null) return;
-  await prefs.remove('backup');
-  for (var c in [activeCoin]) {
-    await c.delete();
-  }
-  final dbDir = await getDbPath();
-  WarpApi.unzipBackup(backupPath, dbDir);
+  await loadTestnetPref();
+  coinSettings = await CoinSettingsExtension.loadAsync(activeCoin.coin);
 }
 
 final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =

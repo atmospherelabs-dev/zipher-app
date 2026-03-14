@@ -4,10 +4,10 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:warp_api/warp_api.dart';
-
 import '../../accounts.dart';
 import '../../appsettings.dart';
+import '../../coin/coins.dart';
+import '../../services/wallet_service.dart';
 import '../../zipher_theme.dart';
 import '../utils.dart';
 
@@ -20,7 +20,28 @@ class PaymentURIPage extends StatefulWidget {
 }
 
 class _PaymentURIState extends State<PaymentURIPage> {
-  final int availableMode = WarpApi.getAvailableAddrs(aa.coin, aa.id);
+  int _availableMode = 7; // UA by default
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAddresses();
+  }
+
+  Future<void> _loadAddresses() async {
+    try {
+      final addrs = await WalletService.instance.getAddresses();
+      if (addrs.isNotEmpty && mounted) {
+        int mode = 0;
+        for (final a in addrs) {
+          if (a.hasTransparent) mode |= 1;
+          if (a.hasSapling) mode |= 2;
+          if (a.hasOrchard) mode |= 4;
+        }
+        setState(() => _availableMode = mode != 0 ? mode : 7);
+      }
+    } catch (_) {}
+  }
 
   String _truncate(String addr) {
     if (addr.length <= 24) return addr;
@@ -28,17 +49,14 @@ class _PaymentURIState extends State<PaymentURIPage> {
   }
 
   /// Get shielded (unified) address
-  String get _shieldedAddress {
-    if (aa.id == 0) return '';
-    return WarpApi.getAddress(aa.coin, aa.id, coinSettings.uaType);
-  }
+  String get _shieldedAddress => aa.diversifiedAddress;
 
   /// Get transparent address
   String get _transparentAddress {
     if (aa.id == 0) return '';
-    final hasTransparent = availableMode & 1 != 0;
-    if (!hasTransparent) return '';
-    return WarpApi.getAddress(aa.coin, aa.id, 1);
+    if (_availableMode & 1 == 0) return '';
+    // TODO: migrate to WalletService.getTransparentAddresses
+    return '';
   }
 
   @override
@@ -483,8 +501,8 @@ class _RequestPaymentSheetState extends State<_RequestPaymentSheet> {
     } else if (_step == 1) {
       final amountZat = stringToAmount(_amountController.text.trim());
       final memo = _buildMemo();
-      _paymentURI = WarpApi.makePaymentURI(
-          aa.coin, widget.address, amountZat, memo);
+      final scheme = isTestnet ? 'zcash-test' : 'zcash';
+      _paymentURI = '$scheme:$widget.address?amount=${amountZat / ZECUNIT}&memo=${Uri.encodeComponent(memo)}';
       setState(() => _step = 2);
     }
   }
