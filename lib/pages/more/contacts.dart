@@ -197,7 +197,7 @@ class _ContactsState extends State<ContactsPage> {
     final confirmed =
         await showConfirmDialog(context, s.save, s.confirmSaveContacts);
     if (!confirmed) return;
-    // TODO: implement contact syncing with zingolib
+    // TODO: implement contact syncing
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Contact sync not yet implemented')),
     );

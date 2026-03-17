@@ -279,6 +279,7 @@ class ZipherTheme {
           side: const BorderSide(color: ZipherColors.border),
         ),
         behavior: SnackBarBehavior.floating,
+        insetPadding: const EdgeInsets.fromLTRB(15, 5, 15, 100),
       ),
 
       // Divider

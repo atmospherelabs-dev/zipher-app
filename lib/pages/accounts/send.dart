@@ -21,9 +21,15 @@ class SendContext {
   SendContext(this.address, this.pools, this.amount, this.memo);
 
   static SendContext? fromPaymentURI(String puri) {
-    // ZIP-321 parsing is simplified — just extract address from URI
+    // ZIP-321 parsing — extract address, amount, and memo from URI
+    String? scheme;
     if (puri.startsWith('zcash:')) {
-      final parts = puri.substring(6).split('?');
+      scheme = 'zcash:';
+    } else if (puri.startsWith('zcash-test:')) {
+      scheme = 'zcash-test:';
+    }
+    if (scheme != null) {
+      final parts = puri.substring(scheme.length).split('?');
       final addr = parts.first;
       int amount = 0;
       String memo = '';
@@ -77,6 +83,14 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
   bool _sending = false;
 
   int get _spendable => aa.poolBalances.confirmed;
+
+  bool get _isTransparentAddress =>
+      _address.startsWith('t1') || _address.startsWith('t3');
+
+  bool get _isTransparentOnly =>
+      aa.poolBalances.transparent > 0 &&
+      aa.poolBalances.sapling == 0 &&
+      aa.poolBalances.orchard == 0;
 
   @override
   void initState() {
@@ -144,11 +158,28 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                       children: [
                         _buildBalanceHero(),
                         const Gap(28),
-                        _buildSendTo(),
-                        const Gap(20),
                         _buildAmount(),
                         const Gap(20),
-                        _buildMessage(),
+                        _buildSendTo(),
+                        const Gap(20),
+                        if (!_isTransparentAddress) _buildMessage(),
+                        if (_isTransparentAddress) ...[
+                          Row(
+                            children: [
+                              Icon(Icons.info_outline_rounded,
+                                  size: 13,
+                                  color: ZipherColors.text20),
+                              const Gap(6),
+                              Text(
+                                'Transparent addresses don\'t support memos',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: ZipherColors.text20,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                         const Gap(32),
                       ],
                     ),
@@ -212,6 +243,31 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
             'Spendable:  ${amountToString2(_spendable)} ZEC',
             style: TextStyle(fontSize: 13, color: ZipherColors.text40),
           ),
+          if (_isTransparentOnly && _spendable > 0) ...[
+            const Gap(8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: ZipherColors.warm.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(ZipherRadius.sm),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.info_outline_rounded,
+                      size: 13, color: ZipherColors.warm),
+                  const Gap(6),
+                  Text(
+                    'Transparent only — shield for best results',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: ZipherColors.warm.withValues(alpha: 0.8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -257,8 +313,15 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                   final text = await scanQRCode(context,
                       validator: composeOr(
                           [addressValidator, paymentURIValidator]));
-                  _addressController.text = text;
-                  setState(() => _address = text.trim());
+                  if (text.isEmpty) return;
+                  final parsed = SendContext.fromPaymentURI(text);
+                  if (parsed != null) {
+                    _didUpdateSendContext(parsed);
+                    setState(() {});
+                  } else {
+                    _addressController.text = text;
+                    setState(() => _address = text.trim());
+                  }
                 },
                 child: Padding(
                   padding: const EdgeInsets.all(ZipherSpacing.sm),
@@ -444,13 +507,6 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
       _showError('Enter a recipient address');
       return;
     }
-
-    final validation = await WalletService.instance.validateAddress(addr);
-    if (!validation.isValid) {
-      _showError('Invalid Zcash address');
-      return;
-    }
-
     if (_amountZat <= 0) {
       _showError('Enter a valid amount');
       return;
@@ -460,19 +516,41 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
       return;
     }
 
+    final validation = await WalletService.instance.validateAddress(addr);
+    if (!validation.isValid) {
+      _showError('Invalid Zcash address');
+      return;
+    }
+
+    _showConfirmationSheet(addr);
+  }
+
+  void _showConfirmationSheet(String addr) {
+    final isTransparent = addr.startsWith('t1') || addr.startsWith('t3');
+    final memo = isTransparent ? null : (_memoText.isNotEmpty ? _memoText : null);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ConfirmSendSheet(
+        address: addr,
+        enteredAmount: _amountZat,
+        spendable: _spendable,
+        isMax: _deductFee,
+        isTransparent: isTransparent,
+        memo: memo,
+        onConfirmed: () => _executeConfirmedSend(),
+      ),
+    );
+  }
+
+  Future<void> _executeConfirmedSend() async {
     setState(() => _sending = true);
     try {
-      final recipients = [
-        rust_wallet.PaymentRecipient(
-          address: addr,
-          amount: BigInt.from(_amountZat),
-          memo: _memoText.isNotEmpty ? _memoText : null,
-        ),
-      ];
-      final txid = await WalletService.instance.send(recipients);
+      final txid = await WalletService.instance.confirmSend();
       logger.i('Transaction sent: $txid');
 
-      // Refresh balance
       await aa.updateBalance();
       await aa.updateTransactions();
 
@@ -483,13 +561,52 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
             backgroundColor: ZipherColors.green,
           ),
         );
-        GoRouter.of(context).pop();
+        boostSyncPolling();
+        final router = GoRouter.of(context);
+        if (router.canPop()) {
+          router.pop();
+        } else {
+          router.go('/account');
+        }
       }
     } catch (e) {
-      _showError('Send failed: $e');
+      _showError(_friendlyError(e.toString()));
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  String _friendlyError(String raw) {
+    final r = raw.toLowerCase();
+    if (r.contains('insufficientfunds') || r.contains('insufficient funds') ||
+        r.contains('proposal failed')) {
+      if (_isTransparentOnly && !_isTransparentAddress) {
+        return 'Your funds are transparent but the destination is shielded. '
+            'Shield your funds first from More → Shield Funds.';
+      }
+      final available = RegExp(r'available.*?(\d+)').firstMatch(raw);
+      final required = RegExp(r'required.*?(\d+)').firstMatch(raw);
+      if (available != null && required != null) {
+        final avail = int.tryParse(available.group(1)!) ?? 0;
+        final req = int.tryParse(required.group(1)!) ?? 0;
+        final fee = (req - avail) / ZECUNIT;
+        return 'Not enough funds. You need ${fee.toStringAsFixed(4)} ZEC more to cover the network fee.';
+      }
+      return 'Not enough funds to cover the transaction and network fee.';
+    }
+    if (r.contains('checkpointnotfound')) {
+      return 'Wallet is still syncing. Please wait for sync to complete before sending.';
+    }
+    if (r.contains('failed to create payment')) {
+      return 'Invalid payment. Check the address and amount.';
+    }
+    if (r.contains('wallet not initialized')) {
+      return 'Wallet is not open. Please restart the app.';
+    }
+    // Strip stack traces — only show the first line
+    final firstLine = raw.split('\n').first;
+    if (firstLine.length > 120) return '${firstLine.substring(0, 120)}…';
+    return firstLine;
   }
 
   void _showError(String msg) {
@@ -518,5 +635,339 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
         duration: const Duration(seconds: 3),
       ),
     );
+  }
+}
+
+/// Confirmation bottom sheet — calculates the fee and shows a full
+/// breakdown before the user commits to sending.
+class _ConfirmSendSheet extends StatefulWidget {
+  final String address;
+  final int enteredAmount;
+  final int spendable;
+  final bool isMax;
+  final bool isTransparent;
+  final String? memo;
+  final Future<void> Function() onConfirmed;
+
+  const _ConfirmSendSheet({
+    required this.address,
+    required this.enteredAmount,
+    required this.spendable,
+    required this.isMax,
+    required this.isTransparent,
+    required this.memo,
+    required this.onConfirmed,
+  });
+
+  @override
+  State<_ConfirmSendSheet> createState() => _ConfirmSendSheetState();
+}
+
+class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
+  bool _loading = true;
+  bool _sending = false;
+  String? _error;
+  int _fee = 0;
+  bool _feeEstimated = false;
+  int _sendAmount = 0;
+
+  String _cleanError(String raw) {
+    final s = raw.replaceFirst(RegExp(r'^Exception:\s*'), '');
+    if (s.contains('Shield them first') || s.contains('Shield your funds')) {
+      final match = RegExp(r'Your funds.*?shielded address\.').firstMatch(s);
+      if (match != null) return match.group(0)!;
+    }
+    if (s.contains('InsufficientFunds') || s.contains('insufficient funds')) {
+      return 'Not enough funds to cover the transaction and network fee.';
+    }
+    // Strip stack traces — keep only the meaningful part
+    final first = s.split('\n').first.split('Stack backtrace').first.trim();
+    if (first.length > 150) return '${first.substring(0, 150)}…';
+    return first;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateFee();
+  }
+
+  Future<void> _calculateFee() async {
+    try {
+      // For MAX sends, use the full spendable as the requested amount.
+      // The SDK proposal will compute the exact fee and the real send amount.
+      final requestAmount = widget.isMax
+          ? widget.spendable
+          : widget.enteredAmount;
+
+      final result = await WalletService.instance.proposeSend(
+        widget.address,
+        requestAmount,
+        memo: widget.memo,
+      );
+
+      _sendAmount = result.sendAmount;
+      final fee = result.fee;
+
+      if (widget.isMax) {
+        // For MAX, the real sendable is balance minus the exact fee
+        _sendAmount = widget.spendable - fee;
+        if (_sendAmount <= 0) {
+          setState(() {
+            _loading = false;
+            _error = 'Balance too low to cover the network fee.';
+          });
+          return;
+        }
+        // Re-propose with the correct amount so the stored proposal matches
+        final adjusted = await WalletService.instance.proposeSend(
+          widget.address,
+          _sendAmount,
+          memo: widget.memo,
+        );
+        _sendAmount = adjusted.sendAmount;
+        setState(() {
+          _fee = adjusted.fee;
+          _feeEstimated = !adjusted.isExact;
+          _loading = false;
+        });
+      } else {
+        if (_sendAmount + fee > widget.spendable) {
+          setState(() {
+            _loading = false;
+            _error =
+                'Not enough funds. You need ${amountToString2((_sendAmount + fee) - widget.spendable)} '
+                'ZEC more to cover the network fee.';
+          });
+          return;
+        }
+        setState(() {
+          _fee = fee;
+          _feeEstimated = !result.isExact;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _loading = false;
+        _error = _cleanError(e.toString());
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomPad = MediaQuery.of(context).viewPadding.bottom;
+    return Container(
+      decoration: BoxDecoration(
+        color: ZipherColors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        border: Border(
+          top: BorderSide(color: ZipherColors.border, width: 0.5),
+        ),
+      ),
+      padding: EdgeInsets.fromLTRB(24, 16, 24, 16 + bottomPad),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: ZipherColors.text20,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const Gap(20),
+          Text(
+            'Confirm Transaction',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: ZipherColors.text90,
+            ),
+          ),
+          const Gap(24),
+          if (_loading) ...[
+            const Gap(32),
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                color: ZipherColors.cyan,
+                strokeWidth: 2,
+              ),
+            ),
+            const Gap(12),
+            Text(
+              'Calculating fee...',
+              style: TextStyle(fontSize: 13, color: ZipherColors.text40),
+            ),
+            const Gap(32),
+          ] else if (_error != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: ZipherColors.red.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(ZipherRadius.md),
+                border: Border.all(
+                  color: ZipherColors.red.withValues(alpha: 0.12),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.error_outline_rounded,
+                      size: 18, color: ZipherColors.red),
+                  const Gap(10),
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: TextStyle(
+                          fontSize: 13, color: ZipherColors.text90),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Gap(20),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: ZipherColors.border),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                  ),
+                ),
+                child: Text(
+                  'Go back',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: ZipherColors.text60,
+                  ),
+                ),
+              ),
+            ),
+          ] else ...[
+            _row('To', _shortAddress(widget.address)),
+            _divider(),
+            _row('Amount', '${amountToString2(_sendAmount)} ZEC'),
+            _divider(),
+            _row('Network fee',
+                '${_feeEstimated ? "~" : ""}${amountToString2(_fee)} ZEC',
+                valueColor: ZipherColors.text40),
+            if (widget.memo != null && widget.memo!.isNotEmpty) ...[
+              _divider(),
+              _row('Memo', widget.memo!, maxLines: 2),
+            ],
+            _divider(),
+            _row(
+              'Total',
+              '${amountToString2(_sendAmount + _fee)} ZEC',
+              labelStyle: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: ZipherColors.text90,
+              ),
+              valueStyle: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+            const Gap(28),
+            SizedBox(
+              width: double.infinity,
+              child: _sending
+                  ? Center(
+                      child: SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: CircularProgressIndicator(
+                          color: ZipherColors.cyan,
+                          strokeWidth: 2,
+                        ),
+                      ),
+                    )
+                  : ZipherWidgets.gradientButton(
+                      label: 'Confirm & Send',
+                      icon: Icons.check_rounded,
+                      onPressed: () async {
+                        setState(() => _sending = true);
+                        Navigator.of(context).pop();
+                        await widget.onConfirmed();
+                      },
+                    ),
+            ),
+            const Gap(8),
+            if (!_sending)
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: ZipherColors.text40,
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _row(
+    String label,
+    String value, {
+    Color? valueColor,
+    TextStyle? labelStyle,
+    TextStyle? valueStyle,
+    int maxLines = 1,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        crossAxisAlignment:
+            maxLines > 1 ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+        children: [
+          Text(
+            label,
+            style: labelStyle ??
+                TextStyle(fontSize: 13, color: ZipherColors.text40),
+          ),
+          const Gap(16),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              maxLines: maxLines,
+              overflow: TextOverflow.ellipsis,
+              style: valueStyle ??
+                  TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: valueColor ?? ZipherColors.text90,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _divider() => Divider(
+        height: 1,
+        color: ZipherColors.border.withValues(alpha: 0.3),
+      );
+
+  String _shortAddress(String addr) {
+    if (addr.length <= 20) return addr;
+    return '${addr.substring(0, 10)}...${addr.substring(addr.length - 10)}';
   }
 }

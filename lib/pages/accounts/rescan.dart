@@ -394,7 +394,8 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
         'Roll back to block ${cp.height}? This is quick and safe.');
     if (!confirmed) return;
     // TODO: migrate to WalletService - rewindTo not yet available
-    Future(() => syncStatus2.sync(true));
+    syncStatus2.prepareRescan(cp.height);
+    Future(() => syncStatus2.sync());
     GoRouter.of(context).pop();
   }
 
@@ -418,7 +419,8 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
               'This may take a while but your funds are safe.');
       if (!confirmed) return;
       aa.reset(height);
-      Future(() => syncStatus2.rescan(height));
+      syncStatus2.prepareRescan(height);
+      Future(() => syncStatus2.sync());
       GoRouter.of(context).pop();
     });
   }

@@ -92,6 +92,7 @@ dependencies:
   rust_lib_zipher:
     path: rust_builder
   protobuf: ^3.1.0
+  encrypt: ^5.0.3
 
 dependency_overrides:
   intl: ^0.18.0

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -7,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../accounts.dart';
@@ -17,40 +15,6 @@ import '../services/near_intents.dart';
 import '../store2.dart';
 import '../tablelist.dart';
 import 'utils.dart';
-
-// ─── CipherScan tx cache (for shielding amounts) ────────────
-
-const _csApi = 'https://api.mainnet.cipherscan.app/api';
-
-/// Cached shielding amounts: txId → totalInput (in ZEC as double).
-/// Populated lazily from CipherScan API.
-final Map<String, double> _shieldAmountCache = {};
-
-/// Fetch the totalInput for a shielding tx from CipherScan.
-/// Returns cached value immediately if available, otherwise fetches
-/// and calls [onLoaded] when done.
-double? getShieldAmount(String txId, {VoidCallback? onLoaded}) {
-  if (_shieldAmountCache.containsKey(txId)) return _shieldAmountCache[txId];
-  // Fire async fetch
-  _fetchShieldAmount(txId, onLoaded);
-  return null;
-}
-
-Future<void> _fetchShieldAmount(String txId, VoidCallback? onLoaded) async {
-  try {
-    final resp = await http.get(Uri.parse('$_csApi/tx/$txId'));
-    if (resp.statusCode == 200) {
-      final json = jsonDecode(resp.body);
-      final totalInput = (json['totalInput'] as num?)?.toDouble();
-      if (totalInput != null) {
-        _shieldAmountCache[txId] = totalInput;
-        onLoaded?.call();
-      }
-    }
-  } catch (e) {
-    logger.e('[Activity] Shield amount fetch error: $e');
-  }
-}
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -174,8 +138,7 @@ _InvoiceData? _parseInvoice(String? memo) {
 /// Detect shielding: self-transfer with no destination address,
 /// or our auto-shield memo pattern
 bool _isShielding(Tx tx) =>
-    (tx.value <= 0 && (tx.address == null || tx.address!.isEmpty)) ||
-    (tx.memo?.contains('Auto-shield') ?? false);
+    tx.kind == 'shield' || tx.kind == 'send-to-self';
 
 /// Subtitle parts for activity row: (prefix, value, shouldColorValue)
 ({String prefix, String value, bool colorValue}) _txSubtitleParts(
@@ -560,20 +523,12 @@ class _TxRowState extends State<_TxRow> {
     }
 
     final dateStr = _humanDate(tx.timestamp);
-    double? shieldedAmount;
-    if (isShielding) {
-      final match = RegExp(r'Auto-shield ([\d.,]+) ZEC').firstMatch(memo);
-      if (match != null) {
-        shieldedAmount = double.tryParse(match.group(1)!.replaceAll(',', '.'));
-      }
-      shieldedAmount ??= getShieldAmount(tx.fullTxId,
-          onLoaded: () { if (mounted) setState(() {}); });
-    }
+    final shieldedAmount = isShielding && tx.rawValue > 0 ? tx.rawValue : null;
 
     final String amountStr;
     if (isSwapDeposit) {
       amountStr = '${swapInfo!.toAmount} ${swapInfo!.toCurrency}';
-    } else if (isShielding && shieldedAmount != null) {
+    } else if (shieldedAmount != null) {
       amountStr = '${decimalToString(shieldedAmount)} ZEC';
     } else if (isShielding) {
       amountStr = '···';
@@ -589,9 +544,7 @@ class _TxRowState extends State<_TxRow> {
                 ? ZipherColors.purple
                 : ZipherColors.red;
 
-    final fiatValue = isShielding && shieldedAmount != null
-        ? shieldedAmount
-        : tx.value.abs();
+    final fiatValue = shieldedAmount ?? tx.value.abs();
     final fiat = isSwapDeposit ? '' : _fiatStr(fiatValue);
 
     // For message transactions, extract a clean memo preview
@@ -990,19 +943,9 @@ class TransactionState extends State<TransactionPage> {
     final pColor = _privacyColor(privacy);
     final invoice = _parseInvoice(_effectiveMemo);
 
-    // For shielding, try memo first, then CipherScan as fallback
-    final memo = tx.memo ?? '';
-    double? shieldedAmount;
-    if (isSelfTransfer) {
-      final match = RegExp(r'Auto-shield ([\d.,]+) ZEC').firstMatch(memo);
-      if (match != null) {
-        shieldedAmount = double.tryParse(match.group(1)!.replaceAll(',', '.'));
-      }
-      shieldedAmount ??= getShieldAmount(tx.fullTxId,
-          onLoaded: () { if (mounted) setState(() {}); });
-    }
-    final displayValue = isSelfTransfer && shieldedAmount != null
-        ? shieldedAmount
+    // For shielding, use rawValue (the actual amount moved)
+    final displayValue = isSelfTransfer && tx.rawValue > 0
+        ? tx.rawValue
         : tx.value.abs();
     final fiat = _fiatStr(displayValue);
 
@@ -1212,12 +1155,10 @@ class TransactionState extends State<TransactionPage> {
             _DetailRow(
               label: 'Status',
               child: Text(
-                tx.confirmations! >= 10
-                    ? 'Confirmed'
-                    : '${tx.confirmations} confirmations',
+                tx.confirmations! >= 1 ? 'Confirmed' : 'Pending',
                 style: TextStyle(
                   fontSize: 13,
-                  color: tx.confirmations! >= 10
+                  color: tx.confirmations! >= 1
                       ? ZipherColors.green.withValues(alpha: 0.8)
                       : ZipherColors.orange.withValues(alpha: 0.9),
                 ),
@@ -1238,22 +1179,40 @@ class TransactionState extends State<TransactionPage> {
                 _DetailRow(
                   label: isSelf ? 'To' : (isReceive ? 'From' : 'Sent to'),
                   child: isSelf
-                      ? Text(
-                          'Your shielded wallet',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                            color: ZipherColors.purple,
-                          ),
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.lock_rounded,
+                                size: 13,
+                                color: ZipherColors.text60),
+                            const Gap(5),
+                            Text(
+                              'Private',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: ZipherColors.text60,
+                              ),
+                            ),
+                          ],
                         )
                       : isShieldedReceive
-                      ? Text(
-                          'Private',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                            color: ZipherColors.purple,
-                          ),
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.lock_rounded,
+                                size: 13,
+                                color: ZipherColors.text60),
+                            const Gap(5),
+                            Text(
+                              'Private',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: ZipherColors.text60,
+                              ),
+                            ),
+                          ],
                         )
                       : Row(
                           mainAxisSize: MainAxisSize.min,
@@ -1463,14 +1422,14 @@ class _BottomAction extends StatelessWidget {
             children: [
               Icon(icon,
                   size: 16,
-                  color: ZipherColors.cyan.withValues(alpha: 0.7)),
+                  color: ZipherColors.text60),
               const Gap(8),
               Text(
                 label,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: ZipherColors.cyan.withValues(alpha: 0.7),
+                  color: ZipherColors.text60,
                 ),
               ),
             ],

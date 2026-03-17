@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:zipher/router.dart';
 import 'package:app_links/app_links.dart';
@@ -9,6 +10,8 @@ import 'package:quick_actions/quick_actions.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:workmanager/workmanager.dart';
 
+import 'package:path_provider/path_provider.dart';
+
 import '../../accounts.dart';
 import 'accounts/send.dart';
 import 'utils.dart';
@@ -17,6 +20,8 @@ import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
 import '../init.dart';
 import '../services/wallet_service.dart';
+import '../services/wallet_registry.dart';
+import '../services/secure_key_store.dart';
 import '../store2.dart';
 import '../zipher_theme.dart';
 
@@ -43,28 +48,90 @@ class _SplashState extends State<SplashPage> {
           _setProgress(0.1, 'Initializing...');
           await initCoins();
 
-          _setProgress(0.3, 'Checking wallet...');
+          _setProgress(0.2, 'Checking wallets...');
           final wallet = WalletService.instance;
-          final exists = await wallet.walletExists();
+          final registry = WalletRegistry.instance;
+          print('[Splash] checking wallets, server=${wallet.serverUrl}');
 
+          if (!await registry.isMigrated()) {
+            print('[Splash] running legacy migration...');
+            await _migrateLegacyWallet(wallet, registry);
+            print('[Splash] migration done');
+          }
+
+          final wallets = await registry.getAll();
+          print('[Splash] ${wallets.length} wallet(s) in registry');
           final applinkUri = await _registerURLHandler();
           final quickAction = await _registerQuickActions();
 
-          if (exists) {
-            _setProgress(0.5, 'Opening wallet...');
-            await wallet.openWallet();
+          if (wallets.isNotEmpty) {
+            var activeId = await registry.getActiveId();
+            print('[Splash] activeId=$activeId');
 
-            _setProgress(0.7, 'Loading balance...');
+            if (activeId == null ||
+                !wallets.any((w) => w.id == activeId)) {
+              activeId = wallets.first.id;
+              print('[Splash] recovery: using first wallet $activeId');
+              await registry.setActive(activeId);
+            }
+
+            final exists = await wallet.walletExists(walletId: activeId);
+            print('[Splash] wallet exists on disk: $exists');
+            if (!exists) {
+              String? fallbackId;
+              for (final w in wallets) {
+                if (await wallet.walletExists(walletId: w.id)) {
+                  fallbackId = w.id;
+                  break;
+                }
+              }
+              if (fallbackId != null) {
+                activeId = fallbackId;
+                print('[Splash] fallback to wallet $activeId');
+                await registry.setActive(activeId);
+              } else {
+                print('[Splash] no wallets on disk, going to /welcome');
+                appStore.initialized = true;
+                GoRouter.of(context).go('/welcome');
+                return;
+              }
+            }
+
+            _setProgress(0.5, 'Opening wallet...');
+            print('[Splash] opening wallet $activeId...');
+            await wallet.openWalletById(activeId);
+            print('[Splash] wallet opened');
+
+            _setProgress(0.7, 'Loading wallet data...');
             try {
-              final balance = await wallet.getBalance();
-              final addrs = await wallet.getAddresses();
-              aa = ActiveAccount2.fromWallet(
+              final profile = await registry.getById(activeId);
+              final birthday = await wallet.getBirthday();
+
+              aa = ActiveAccount2(
                 coin: activeCoin.coin,
-                address: addrs.isNotEmpty ? addrs.first.address : '',
-                balance: balance,
+                id: 1,
+                name: profile?.name ?? 'Main',
+                address: '',
+                canPay: true,
+                walletId: activeId,
               );
+
+              // Use cached balance for instant display
+              if (profile != null && profile.lastBalance > 0) {
+                aa.poolBalances = PoolBalance(orchard: profile.lastBalance);
+              }
+
+              // Load full state (balance, txs, address) from wallet
+              await aa.update(null);
+              print('[Splash] loaded: balance=${aa.poolBalances.confirmed} txs=${aa.txs.items.length} birthday=$birthday');
+
+              // Initialize sync state from wallet's birthday
+              if (birthday > 0) {
+                syncStatus2.syncedHeight = birthday;
+              }
             } catch (e) {
               logger.e('Failed to load wallet data: $e');
+              print('[Splash] ERROR loading wallet data: $e');
             }
 
             initSyncListener();
@@ -83,9 +150,11 @@ class _SplashState extends State<SplashPage> {
             } else if (quickAction != null) {
               handleQuickAction(context, quickAction);
             } else {
+              print('[Splash] navigating to /account');
               GoRouter.of(context).go('/account');
             }
           } else {
+            print('[Splash] no wallets, going to /welcome');
             appStore.initialized = true;
             GoRouter.of(context).go('/welcome');
           }
@@ -267,6 +336,58 @@ class _LoadProgressState extends State<LoadProgress>
   }
 }
 
+/// Migrate legacy single-wallet directory to UUID-based layout.
+Future<void> _migrateLegacyWallet(
+    WalletService wallet, WalletRegistry registry) async {
+  try {
+    final appDir = await getApplicationDocumentsDirectory();
+
+    // Check legacy mainnet directory
+    final legacyDir = Directory('${appDir.path}/zipher_wallet');
+    final legacyFile = File('${legacyDir.path}/zingo-wallet.dat');
+
+    if (!await legacyFile.exists()) {
+      await registry.markMigrated();
+      return;
+    }
+
+    // Create a new profile for the legacy wallet
+    final profile = await registry.create('Main Wallet');
+
+    // Rename directory to new UUID-based path
+    final newDir = Directory('${appDir.path}/zipher_wallet_${profile.id}');
+    await legacyDir.rename(newDir.path);
+
+    // Also migrate testnet directory if it exists
+    final legacyTestDir = Directory('${appDir.path}/zipher_wallet_testnet');
+    if (await legacyTestDir.exists()) {
+      final newTestDir =
+          Directory('${appDir.path}/zipher_wallet_${profile.id}_testnet');
+      await legacyTestDir.rename(newTestDir.path);
+    }
+
+    // Copy seed from legacy key to new wallet-keyed format
+    final legacySeed = await SecureKeyStore.getSeed(0, 1);
+    if (legacySeed != null && legacySeed.isNotEmpty) {
+      await SecureKeyStore.storeSeedForWallet(profile.id, legacySeed);
+      // Keep legacy key (seed_0_1) for 2 releases as fallback.
+      // Verify new key reads back correctly.
+      final verification =
+          await SecureKeyStore.getSeedForWallet(profile.id);
+      if (verification != legacySeed) {
+        logger.e('Migration verification failed -- legacy key preserved');
+      }
+    }
+
+    await registry.setActive(profile.id);
+    await registry.markMigrated();
+    logger.i('Legacy wallet migrated to profile ${profile.id}');
+  } catch (e) {
+    logger.e('Legacy wallet migration failed: $e');
+    await registry.markMigrated();
+  }
+}
+
 StreamSubscription? subUniLinks;
 
 bool setActiveAccountOf(int coin) {
@@ -314,7 +435,7 @@ void backgroundSyncDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     try {
       logger.i("Native called background task: $task");
-      await syncStatus2.sync(false, auto: true);
+      await syncStatus2.sync();
     } catch (e) {
       logger.e('Background sync error: $e');
     }

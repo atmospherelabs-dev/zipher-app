@@ -8,12 +8,9 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'wallet.freezed.dart';
 
-// These functions are ignored because they are not marked as `pub`: `build_config`, `build_transaction_request`, `zat_to_u64`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `CLIENT`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `deref`, `initialize`
+// These functions are ignored because they are not marked as `pub`: `legacy_err`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
-/// Create a brand-new wallet from fresh entropy.
-/// Returns the 24-word seed phrase.
 Future<String> createWallet(
         {required String dataDir,
         required String serverUrl,
@@ -25,7 +22,6 @@ Future<String> createWallet(
         chainType: chainType,
         chainHeight: chainHeight);
 
-/// Restore a wallet from a seed phrase.
 Future<void> restoreFromSeed(
         {required String dataDir,
         required String serverUrl,
@@ -39,7 +35,6 @@ Future<void> restoreFromSeed(
         seedPhrase: seedPhrase,
         birthday: birthday);
 
-/// Restore a wallet from a unified full viewing key (watch-only).
 Future<void> restoreFromUfvk(
         {required String dataDir,
         required String serverUrl,
@@ -53,7 +48,6 @@ Future<void> restoreFromUfvk(
         ufvk: ufvk,
         birthday: birthday);
 
-/// Open an existing wallet from disk.
 Future<void> openWallet(
         {required String dataDir,
         required String serverUrl,
@@ -61,104 +55,121 @@ Future<void> openWallet(
     RustLib.instance.api.crateApiWalletOpenWallet(
         dataDir: dataDir, serverUrl: serverUrl, chainType: chainType);
 
-/// Save the wallet to disk and release resources.
 Future<void> closeWallet() => RustLib.instance.api.crateApiWalletCloseWallet();
 
-/// Start syncing and await completion.
 Future<SyncResultInfo> syncWallet() =>
     RustLib.instance.api.crateApiWalletSyncWallet();
 
-/// Start syncing without awaiting (runs in background).
 Future<void> startSync() => RustLib.instance.api.crateApiWalletStartSync();
 
-/// Pause a running sync.
 Future<void> pauseSync() => RustLib.instance.api.crateApiWalletPauseSync();
 
-/// Resume a paused sync.
 Future<void> resumeSync() => RustLib.instance.api.crateApiWalletResumeSync();
 
-/// Stop a running sync.
 Future<void> stopSync() => RustLib.instance.api.crateApiWalletStopSync();
 
-/// Full rescan from wallet birthday.
 Future<SyncResultInfo> rescanWallet() =>
     RustLib.instance.api.crateApiWalletRescanWallet();
 
-/// Get current sync status without blocking.
 Future<SyncStatusInfo> getSyncStatus() =>
     RustLib.instance.api.crateApiWalletGetSyncStatus();
 
-/// Returns pool balances for the default account.
 Future<WalletBalance> getWalletBalance() =>
     RustLib.instance.api.crateApiWalletGetWalletBalance();
 
-/// Get the wallet's unified addresses.
 Future<List<AddressInfo>> getAddresses() =>
     RustLib.instance.api.crateApiWalletGetAddresses();
 
-/// Get the wallet's transparent addresses.
 Future<List<String>> getTransparentAddresses() =>
     RustLib.instance.api.crateApiWalletGetTransparentAddresses();
 
-/// Get transaction summaries.
 Future<List<TransactionRecord>> getTransactions() =>
     RustLib.instance.api.crateApiWalletGetTransactions();
 
-/// Get detailed value transfers (per-recipient breakdown with memos).
 Future<List<ValueTransferRecord>> getValueTransfers() =>
     RustLib.instance.api.crateApiWalletGetValueTransfers();
 
-/// Search for messages (memo-bearing value transfers) optionally filtered by text.
 Future<List<ValueTransferRecord>> getMessages({String? filter}) =>
     RustLib.instance.api.crateApiWalletGetMessages(filter: filter);
 
-/// Send ZEC to one or more recipients.
 Future<String> sendPayment({required List<PaymentRecipient> recipients}) =>
     RustLib.instance.api.crateApiWalletSendPayment(recipients: recipients);
 
-/// Shield transparent funds to the best shielded pool.
 Future<String> shieldFunds() =>
     RustLib.instance.api.crateApiWalletShieldFunds();
 
-/// Validate a Zcash address and return its type.
 Future<AddressValidation> validateAddress({required String address}) =>
     RustLib.instance.api.crateApiWalletValidateAddress(address: address);
 
-/// Validate a seed phrase.
 Future<bool> validateSeed({required String seed}) =>
     RustLib.instance.api.crateApiWalletValidateSeed(seed: seed);
 
-/// Get server info as JSON string.
 Future<String> getServerInfo() =>
     RustLib.instance.api.crateApiWalletGetServerInfo();
 
-/// Update the lightwalletd server URL.
 Future<void> setServer({required String serverUrl}) =>
     RustLib.instance.api.crateApiWalletSetServer(serverUrl: serverUrl);
 
-/// Get the wallet's seed phrase.
-/// Returns None for watch-only wallets.
 Future<String?> getSeedPhrase() =>
     RustLib.instance.api.crateApiWalletGetSeedPhrase();
 
-/// Get the wallet's birthday height.
 Future<int> getBirthday() => RustLib.instance.api.crateApiWalletGetBirthday();
 
-/// Export the wallet's unified full viewing key (UFVK).
-/// Safe to share -- allows watching the wallet but not spending.
+Future<int> getWalletSyncedHeight() =>
+    RustLib.instance.api.crateApiWalletGetWalletSyncedHeight();
+
 Future<String?> exportUfvk() => RustLib.instance.api.crateApiWalletExportUfvk();
 
-/// Check whether this wallet has spending capability (vs watch-only).
 Future<bool> hasSpendingKey() =>
     RustLib.instance.api.crateApiWalletHasSpendingKey();
 
-/// Delete wallet data from disk. Must be called after close_wallet().
+Future<int> createAccount() =>
+    RustLib.instance.api.crateApiWalletCreateAccount();
+
+Future<int> getAccountCount() =>
+    RustLib.instance.api.crateApiWalletGetAccountCount();
+
+Future<WalletBalance> getAccountBalance({required int accountIndex}) =>
+    RustLib.instance.api
+        .crateApiWalletGetAccountBalance(accountIndex: accountIndex);
+
+Future<String> sendFromAccount(
+        {required int accountIndex,
+        required List<PaymentRecipient> recipients}) =>
+    RustLib.instance.api.crateApiWalletSendFromAccount(
+        accountIndex: accountIndex, recipients: recipients);
+
+Future<String> shieldAccount({required int accountIndex}) =>
+    RustLib.instance.api
+        .crateApiWalletShieldAccount(accountIndex: accountIndex);
+
+Future<String> generateDiversifiedAddress(
+        {required int accountIndex,
+        required bool includeOrchard,
+        required bool includeSapling}) =>
+    RustLib.instance.api.crateApiWalletGenerateDiversifiedAddress(
+        accountIndex: accountIndex,
+        includeOrchard: includeOrchard,
+        includeSapling: includeSapling);
+
+Future<List<PaymentRecipient>> parsePaymentUri({required String uri}) =>
+    RustLib.instance.api.crateApiWalletParsePaymentUri(uri: uri);
+
+Future<String> buildPaymentUri(
+        {required String address, required BigInt amount, String? memo}) =>
+    RustLib.instance.api.crateApiWalletBuildPaymentUri(
+        address: address, amount: amount, memo: memo);
+
 Future<void> deleteWalletData({required String dataDir}) =>
     RustLib.instance.api.crateApiWalletDeleteWalletData(dataDir: dataDir);
 
-/// Start the periodic save task (saves wallet state to disk at checkpoints).
 Future<void> startSaveTask() =>
     RustLib.instance.api.crateApiWalletStartSaveTask();
+
+Future<int> getLatestBlockHeight(
+        {required String serverUrl, required ChainType chainType}) =>
+    RustLib.instance.api.crateApiWalletGetLatestBlockHeight(
+        serverUrl: serverUrl, chainType: chainType);
 
 @freezed
 sealed class AddressInfo with _$AddressInfo {
@@ -219,6 +230,7 @@ sealed class TransactionRecord with _$TransactionRecord {
     required String kind,
     BigInt? fee,
     required String status,
+    required BigInt rawValue,
   }) = _TransactionRecord;
 }
 
@@ -240,6 +252,7 @@ sealed class ValueTransferRecord with _$ValueTransferRecord {
 
 @freezed
 sealed class WalletBalance with _$WalletBalance {
+  const WalletBalance._();
   const factory WalletBalance({
     required BigInt transparent,
     required BigInt sapling,
@@ -251,4 +264,6 @@ sealed class WalletBalance with _$WalletBalance {
     required BigInt totalSapling,
     required BigInt totalOrchard,
   }) = _WalletBalance;
+  static Future<WalletBalance> default_() =>
+      RustLib.instance.api.crateApiWalletWalletBalanceDefault();
 }

@@ -30,7 +30,12 @@ class SyncStatusState extends State<SyncStatusWidget>
 
   String getSyncText(int syncedHeight) {
     final s = S.of(context);
-    if (!syncStatus2.connected) return s.connectionError;
+    if (!syncStatus2.connected) {
+      if (syncStatus2.connectionError != null) {
+        return 'Connection lost — retrying...';
+      }
+      return s.connectionError;
+    }
     final latestHeight = syncStatus2.latestHeight;
     if (latestHeight == null) return '';
 
@@ -159,7 +164,7 @@ class SyncStatusState extends State<SyncStatusWidget>
       });
     } else {
       if (syncStatus2.paused) syncStatus2.setPause(false);
-      Future(() => syncStatus2.sync(false));
+      Future(() => syncStatus2.sync());
     }
   }
 }

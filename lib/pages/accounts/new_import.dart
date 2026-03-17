@@ -64,7 +64,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         title: Text(
-          widget.first ? 'CREATE WALLET' : 'ADD ACCOUNT',
+          widget.first ? 'CREATE ACCOUNT' : 'ADD ACCOUNT',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -111,7 +111,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
 
             Center(
               child: Text(
-                'Create a new wallet with a fresh seed phrase',
+                'Create a new account with a fresh seed phrase',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,
@@ -189,7 +189,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
                             ),
                           )
                         : Text(
-                            'Create Wallet',
+                            'Create Account',
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w600,
@@ -278,7 +278,13 @@ class _NewImportAccountState extends State<NewImportAccountPage>
 
     await load(() async {
       final wallet = WalletService.instance;
-      final seedPhrase = await wallet.createWallet();
+
+      // Close any open wallet first (when adding a new account)
+      if (!widget.first && wallet.isWalletOpen) {
+        await wallet.closeWallet();
+      }
+
+      await wallet.createNewWallet(name);
 
       aa = ActiveAccount2(
         coin: activeCoin.coin,
@@ -288,15 +294,12 @@ class _NewImportAccountState extends State<NewImportAccountPage>
         canPay: true,
       );
 
-      // Store seed phrase reference
       final prefs = await SharedPreferences.getInstance();
       await aa.save(prefs);
-      await prefs.setString('wallet_name', name);
-
-      // Update address from the newly created wallet
       await aa.updateAddress();
 
       aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+      syncStatus2.resetForWalletSwitch();
 
       if (widget.first) {
         GoRouter.of(context).go('/account');

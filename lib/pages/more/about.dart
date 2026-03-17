@@ -5,12 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../accounts.dart';
 import '../../services/wallet_service.dart';
+import '../../services/wallet_registry.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 import '../../services/secure_key_store.dart';
 import '../../zipher_theme.dart';
 import '../../src/version.dart';
 import '../../appsettings.dart';
+import '../../store2.dart';
 import '../utils.dart';
 
 class AboutPage extends StatelessWidget {
@@ -380,7 +382,7 @@ class _DisclaimerState extends State<DisclaimerPage> {
                           ignoring: !_allAccepted,
                           child: ZipherWidgets.gradientButton(
                             label: widget.mode == 'create'
-                                ? 'Create Wallet'
+                                ? 'Create Account'
                                 : 'Continue',
                             icon: widget.mode == 'create'
                                 ? Icons.add_rounded
@@ -409,15 +411,36 @@ class _DisclaimerState extends State<DisclaimerPage> {
       setState(() => _creating = true);
       try {
         final ws = WalletService.instance;
-        final exists = await ws.walletExists();
-        if (!exists) {
-          final seed = await ws.createWallet();
-          await SecureKeyStore.storeSeed(activeCoin.coin, 1, seed, 0);
-        } else {
-          await ws.openWallet();
+        print('[Disclaimer] creating wallet, server=${ws.serverUrl}');
+
+        if (ws.isWalletOpen) {
+          print('[Disclaimer] pausing sync and closing existing wallet...');
+          syncStatus2.paused = true;
+          await ws.closeWallet();
+          print('[Disclaimer] closed');
         }
-        setActiveAccount(activeCoin.coin, 1, canPayOverride: true);
+
+        print('[Disclaimer] calling createNewWallet...');
+        final seed = await ws.createNewWallet('Main Wallet');
+        print('[Disclaimer] wallet created');
+        await SecureKeyStore.storeSeed(activeCoin.coin, 1, seed, 0);
+
+        final balance = await ws.getBalance();
+        final addrs = await ws.getAddresses();
+        final profile = await WalletRegistry.instance
+            .getById(ws.activeWalletId!);
+
+        aa = ActiveAccount2.fromWallet(
+          coin: activeCoin.coin,
+          address: addrs.isNotEmpty ? addrs.first.address : '',
+          balance: balance,
+          walletName: profile?.name ?? 'Main Wallet',
+          walletId: ws.activeWalletId ?? '',
+        );
         await aa.save(prefs);
+
+        aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+        syncStatus2.resetForWalletSwitch();
         if (mounted) GoRouter.of(context).go('/account');
       } catch (e) {
         logger.e('Create wallet error: $e');

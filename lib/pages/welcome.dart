@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 
+import '../services/wallet_registry.dart';
 import '../zipher_theme.dart';
 
 class WelcomePage extends StatefulWidget {
@@ -14,6 +15,7 @@ class _WelcomePageState extends State<WelcomePage>
     with SingleTickerProviderStateMixin {
   late AnimationController _glowController;
   late Animation<double> _glowAnimation;
+  bool _hasExistingWallets = false;
 
   @override
   void initState() {
@@ -25,6 +27,14 @@ class _WelcomePageState extends State<WelcomePage>
     _glowAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
       CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
     );
+    _checkExistingWallets();
+  }
+
+  Future<void> _checkExistingWallets() async {
+    final wallets = await WalletRegistry.instance.getAll();
+    if (mounted) {
+      setState(() => _hasExistingWallets = wallets.isNotEmpty);
+    }
   }
 
   @override
@@ -123,11 +133,11 @@ class _WelcomePageState extends State<WelcomePage>
 
                   const Spacer(flex: 5),
 
-                  // Create Wallet button
+                  // Create Account button
                   SizedBox(
                     width: double.infinity,
                     child: ZipherWidgets.gradientButton(
-                      label: 'Create Wallet',
+                      label: 'Create Account',
                       icon: Icons.add_rounded,
                       onPressed: () =>
                           GoRouter.of(context).push('/disclaimer', extra: 'create'),
@@ -136,7 +146,7 @@ class _WelcomePageState extends State<WelcomePage>
 
                   const Gap(12),
 
-                  // Restore Wallet — ghost button
+                  // Import Account — ghost button
                   SizedBox(
                     width: double.infinity,
                     child: Material(
@@ -165,7 +175,7 @@ class _WelcomePageState extends State<WelcomePage>
                               ),
                               const Gap(8),
                               Text(
-                                'Restore Wallet',
+                                'Import Account',
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w500,
@@ -178,6 +188,24 @@ class _WelcomePageState extends State<WelcomePage>
                       ),
                     ),
                   ),
+
+                  if (_hasExistingWallets) ...[
+                    const Gap(8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () => GoRouter.of(context).go('/account'),
+                        child: Text(
+                          'Back to my wallets',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: ZipherColors.text40,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
 
                   const Gap(16),
                 ],

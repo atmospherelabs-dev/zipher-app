@@ -3,6 +3,7 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/engine_api.dart';
 import 'api/wallet.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -40,6 +41,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ChainType dco_decode_chain_type(dynamic raw);
 
   @protected
+  EngineSyncProgress dco_decode_engine_sync_progress(dynamic raw);
+
+  @protected
+  EngineTransactionRecord dco_decode_engine_transaction_record(dynamic raw);
+
+  @protected
   int dco_decode_i_32(dynamic raw);
 
   @protected
@@ -50,6 +57,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<AddressInfo> dco_decode_list_address_info(dynamic raw);
+
+  @protected
+  List<EngineTransactionRecord> dco_decode_list_engine_transaction_record(
+      dynamic raw);
 
   @protected
   List<PaymentRecipient> dco_decode_list_payment_recipient(dynamic raw);
@@ -71,6 +82,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PaymentRecipient dco_decode_payment_recipient(dynamic raw);
+
+  @protected
+  ProposalResult dco_decode_proposal_result(dynamic raw);
 
   @protected
   SyncResultInfo dco_decode_sync_result_info(dynamic raw);
@@ -121,6 +135,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ChainType sse_decode_chain_type(SseDeserializer deserializer);
 
   @protected
+  EngineSyncProgress sse_decode_engine_sync_progress(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineTransactionRecord sse_decode_engine_transaction_record(
+      SseDeserializer deserializer);
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
@@ -131,6 +153,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<AddressInfo> sse_decode_list_address_info(SseDeserializer deserializer);
+
+  @protected
+  List<EngineTransactionRecord> sse_decode_list_engine_transaction_record(
+      SseDeserializer deserializer);
 
   @protected
   List<PaymentRecipient> sse_decode_list_payment_recipient(
@@ -155,6 +181,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   PaymentRecipient sse_decode_payment_recipient(SseDeserializer deserializer);
+
+  @protected
+  ProposalResult sse_decode_proposal_result(SseDeserializer deserializer);
 
   @protected
   SyncResultInfo sse_decode_sync_result_info(SseDeserializer deserializer);
@@ -208,6 +237,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_chain_type(ChainType self, SseSerializer serializer);
 
   @protected
+  void sse_encode_engine_sync_progress(
+      EngineSyncProgress self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_transaction_record(
+      EngineTransactionRecord self, SseSerializer serializer);
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
@@ -219,6 +256,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_address_info(
       List<AddressInfo> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_engine_transaction_record(
+      List<EngineTransactionRecord> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_payment_recipient(
@@ -245,6 +286,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_payment_recipient(
       PaymentRecipient self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_proposal_result(
+      ProposalResult self, SseSerializer serializer);
 
   @protected
   void sse_encode_sync_result_info(

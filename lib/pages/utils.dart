@@ -34,6 +34,7 @@ import '../coin/coins.dart';
 import '../generated/intl/messages.dart';
 import '../router.dart';
 import '../sent_memos_db.dart';
+import '../services/wallet_registry.dart';
 import '../store2.dart';
 import '../zipher_theme.dart';
 import 'widgets.dart';
@@ -617,6 +618,8 @@ class Tx extends HasHeight {
   String? contact;
   String? memo;
   List<TxMemo> memos;
+  String kind;
+  double rawValue;
 
   factory Tx.from(
     int? latestHeight,
@@ -629,11 +632,13 @@ class Tx extends HasHeight {
     String? address,
     String? contact,
     String? memo,
-    List<TxMemo> memos,
-  ) {
+    List<TxMemo> memos, {
+    String kind = '',
+    double rawValue = 0,
+  }) {
     final confirmations = latestHeight?.let((h) => h - height + 1);
     return Tx(id, height, confirmations, timestamp, txid, fullTxId, value,
-        address, contact, memo, memos);
+        address, contact, memo, memos, kind, rawValue);
   }
 
   Tx(
@@ -647,7 +652,9 @@ class Tx extends HasHeight {
       this.address,
       this.contact,
       this.memo,
-      this.memos);
+      this.memos,
+      this.kind,
+      this.rawValue);
 }
 
 class ZMessage extends HasHeight {
@@ -879,6 +886,10 @@ List<Account> getAllAccounts() {
       balance: aa.poolBalances.confirmed,
     ),
   ];
+}
+
+Future<List<WalletProfile>> getAllWallets() {
+  return WalletRegistry.instance.getAll();
 }
 
 void showLocalNotification({required int id, String? title, String? body}) {

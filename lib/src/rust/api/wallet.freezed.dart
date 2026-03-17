@@ -772,6 +772,7 @@ mixin _$TransactionRecord {
   String get kind => throw _privateConstructorUsedError;
   BigInt? get fee => throw _privateConstructorUsedError;
   String get status => throw _privateConstructorUsedError;
+  BigInt get rawValue => throw _privateConstructorUsedError;
 
   @JsonKey(ignore: true)
   $TransactionRecordCopyWith<TransactionRecord> get copyWith =>
@@ -791,7 +792,8 @@ abstract class $TransactionRecordCopyWith<$Res> {
       int value,
       String kind,
       BigInt? fee,
-      String status});
+      String status,
+      BigInt rawValue});
 }
 
 /// @nodoc
@@ -814,6 +816,7 @@ class _$TransactionRecordCopyWithImpl<$Res, $Val extends TransactionRecord>
     Object? kind = null,
     Object? fee = freezed,
     Object? status = null,
+    Object? rawValue = null,
   }) {
     return _then(_value.copyWith(
       txid: null == txid
@@ -844,6 +847,10 @@ class _$TransactionRecordCopyWithImpl<$Res, $Val extends TransactionRecord>
           ? _value.status
           : status // ignore: cast_nullable_to_non_nullable
               as String,
+      rawValue: null == rawValue
+          ? _value.rawValue
+          : rawValue // ignore: cast_nullable_to_non_nullable
+              as BigInt,
     ) as $Val);
   }
 }
@@ -863,7 +870,8 @@ abstract class _$$TransactionRecordImplCopyWith<$Res>
       int value,
       String kind,
       BigInt? fee,
-      String status});
+      String status,
+      BigInt rawValue});
 }
 
 /// @nodoc
@@ -884,6 +892,7 @@ class __$$TransactionRecordImplCopyWithImpl<$Res>
     Object? kind = null,
     Object? fee = freezed,
     Object? status = null,
+    Object? rawValue = null,
   }) {
     return _then(_$TransactionRecordImpl(
       txid: null == txid
@@ -914,6 +923,10 @@ class __$$TransactionRecordImplCopyWithImpl<$Res>
           ? _value.status
           : status // ignore: cast_nullable_to_non_nullable
               as String,
+      rawValue: null == rawValue
+          ? _value.rawValue
+          : rawValue // ignore: cast_nullable_to_non_nullable
+              as BigInt,
     ));
   }
 }
@@ -928,7 +941,8 @@ class _$TransactionRecordImpl implements _TransactionRecord {
       required this.value,
       required this.kind,
       this.fee,
-      required this.status});
+      required this.status,
+      required this.rawValue});
 
   @override
   final String txid;
@@ -944,10 +958,12 @@ class _$TransactionRecordImpl implements _TransactionRecord {
   final BigInt? fee;
   @override
   final String status;
+  @override
+  final BigInt rawValue;
 
   @override
   String toString() {
-    return 'TransactionRecord(txid: $txid, height: $height, timestamp: $timestamp, value: $value, kind: $kind, fee: $fee, status: $status)';
+    return 'TransactionRecord(txid: $txid, height: $height, timestamp: $timestamp, value: $value, kind: $kind, fee: $fee, status: $status, rawValue: $rawValue)';
   }
 
   @override
@@ -962,12 +978,14 @@ class _$TransactionRecordImpl implements _TransactionRecord {
             (identical(other.value, value) || other.value == value) &&
             (identical(other.kind, kind) || other.kind == kind) &&
             (identical(other.fee, fee) || other.fee == fee) &&
-            (identical(other.status, status) || other.status == status));
+            (identical(other.status, status) || other.status == status) &&
+            (identical(other.rawValue, rawValue) ||
+                other.rawValue == rawValue));
   }
 
   @override
   int get hashCode => Object.hash(
-      runtimeType, txid, height, timestamp, value, kind, fee, status);
+      runtimeType, txid, height, timestamp, value, kind, fee, status, rawValue);
 
   @JsonKey(ignore: true)
   @override
@@ -985,7 +1003,8 @@ abstract class _TransactionRecord implements TransactionRecord {
       required final int value,
       required final String kind,
       final BigInt? fee,
-      required final String status}) = _$TransactionRecordImpl;
+      required final String status,
+      required final BigInt rawValue}) = _$TransactionRecordImpl;
 
   @override
   String get txid;
@@ -1001,6 +1020,8 @@ abstract class _TransactionRecord implements TransactionRecord {
   BigInt? get fee;
   @override
   String get status;
+  @override
+  BigInt get rawValue;
   @override
   @JsonKey(ignore: true)
   _$$TransactionRecordImplCopyWith<_$TransactionRecordImpl> get copyWith =>
@@ -1513,7 +1534,7 @@ class __$$WalletBalanceImplCopyWithImpl<$Res>
 
 /// @nodoc
 
-class _$WalletBalanceImpl implements _WalletBalance {
+class _$WalletBalanceImpl extends _WalletBalance {
   const _$WalletBalanceImpl(
       {required this.transparent,
       required this.sapling,
@@ -1523,7 +1544,8 @@ class _$WalletBalanceImpl implements _WalletBalance {
       required this.unconfirmedTransparent,
       required this.totalTransparent,
       required this.totalSapling,
-      required this.totalOrchard});
+      required this.totalOrchard})
+      : super._();
 
   @override
   final BigInt transparent;
@@ -1592,7 +1614,7 @@ class _$WalletBalanceImpl implements _WalletBalance {
       __$$WalletBalanceImplCopyWithImpl<_$WalletBalanceImpl>(this, _$identity);
 }
 
-abstract class _WalletBalance implements WalletBalance {
+abstract class _WalletBalance extends WalletBalance {
   const factory _WalletBalance(
       {required final BigInt transparent,
       required final BigInt sapling,
@@ -1603,6 +1625,7 @@ abstract class _WalletBalance implements WalletBalance {
       required final BigInt totalTransparent,
       required final BigInt totalSapling,
       required final BigInt totalOrchard}) = _$WalletBalanceImpl;
+  const _WalletBalance._() : super._();
 
   @override
   BigInt get transparent;

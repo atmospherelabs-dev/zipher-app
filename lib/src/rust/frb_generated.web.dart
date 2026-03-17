@@ -7,6 +7,7 @@
 // Static analysis wrongly picks the IO variant, thus ignore this
 // ignore_for_file: argument_type_not_assignable
 
+import 'api/engine_api.dart';
 import 'api/wallet.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -40,6 +41,10 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 
 @protected ChainType dco_decode_chain_type(dynamic raw);
 
+@protected EngineSyncProgress dco_decode_engine_sync_progress(dynamic raw);
+
+@protected EngineTransactionRecord dco_decode_engine_transaction_record(dynamic raw);
+
 @protected int dco_decode_i_32(dynamic raw);
 
 @protected PlatformInt64 dco_decode_i_64(dynamic raw);
@@ -47,6 +52,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 @protected List<String> dco_decode_list_String(dynamic raw);
 
 @protected List<AddressInfo> dco_decode_list_address_info(dynamic raw);
+
+@protected List<EngineTransactionRecord> dco_decode_list_engine_transaction_record(dynamic raw);
 
 @protected List<PaymentRecipient> dco_decode_list_payment_recipient(dynamic raw);
 
@@ -61,6 +68,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 @protected BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
 
 @protected PaymentRecipient dco_decode_payment_recipient(dynamic raw);
+
+@protected ProposalResult dco_decode_proposal_result(dynamic raw);
 
 @protected SyncResultInfo dco_decode_sync_result_info(dynamic raw);
 
@@ -94,6 +103,10 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 
 @protected ChainType sse_decode_chain_type(SseDeserializer deserializer);
 
+@protected EngineSyncProgress sse_decode_engine_sync_progress(SseDeserializer deserializer);
+
+@protected EngineTransactionRecord sse_decode_engine_transaction_record(SseDeserializer deserializer);
+
 @protected int sse_decode_i_32(SseDeserializer deserializer);
 
 @protected PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
@@ -101,6 +114,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 @protected List<String> sse_decode_list_String(SseDeserializer deserializer);
 
 @protected List<AddressInfo> sse_decode_list_address_info(SseDeserializer deserializer);
+
+@protected List<EngineTransactionRecord> sse_decode_list_engine_transaction_record(SseDeserializer deserializer);
 
 @protected List<PaymentRecipient> sse_decode_list_payment_recipient(SseDeserializer deserializer);
 
@@ -115,6 +130,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 @protected BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
 
 @protected PaymentRecipient sse_decode_payment_recipient(SseDeserializer deserializer);
+
+@protected ProposalResult sse_decode_proposal_result(SseDeserializer deserializer);
 
 @protected SyncResultInfo sse_decode_sync_result_info(SseDeserializer deserializer);
 
@@ -148,6 +165,10 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 
 @protected void sse_encode_chain_type(ChainType self, SseSerializer serializer);
 
+@protected void sse_encode_engine_sync_progress(EngineSyncProgress self, SseSerializer serializer);
+
+@protected void sse_encode_engine_transaction_record(EngineTransactionRecord self, SseSerializer serializer);
+
 @protected void sse_encode_i_32(int self, SseSerializer serializer);
 
 @protected void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
@@ -155,6 +176,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 @protected void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
 @protected void sse_encode_list_address_info(List<AddressInfo> self, SseSerializer serializer);
+
+@protected void sse_encode_list_engine_transaction_record(List<EngineTransactionRecord> self, SseSerializer serializer);
 
 @protected void sse_encode_list_payment_recipient(List<PaymentRecipient> self, SseSerializer serializer);
 
@@ -169,6 +192,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 @protected void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
 
 @protected void sse_encode_payment_recipient(PaymentRecipient self, SseSerializer serializer);
+
+@protected void sse_encode_proposal_result(ProposalResult self, SseSerializer serializer);
 
 @protected void sse_encode_sync_result_info(SyncResultInfo self, SseSerializer serializer);
 
@@ -198,8 +223,9 @@ class RustLibWire implements BaseWire {
 
             
         }
-        // @JS('wasm_bindgen') external RustLibWasmModule get wasmModule;
-        // extension type disabled — web target not supported
-        // @JS() @anonymous extension type RustLibWasmModule._(JSObject _) implements JSObject {}
-        
+        @JS('wasm_bindgen') external RustLibWasmModule get wasmModule;
+
+        @JS() @anonymous extension type RustLibWasmModule._(JSObject _) implements JSObject {
+            
+        }
         

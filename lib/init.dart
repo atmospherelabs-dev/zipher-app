@@ -59,7 +59,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // zingolib manages its own key cache — no special lifecycle handling needed
+    // The engine manages its own state — no special lifecycle handling needed
   }
 
   @override

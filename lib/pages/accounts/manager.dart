@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../zipher_theme.dart';
 import '../../accounts.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
+import '../../services/wallet_service.dart';
+import '../../services/wallet_registry.dart';
 import '../utils.dart';
 
 class AccountManagerPage extends StatefulWidget {
@@ -17,41 +18,38 @@ class AccountManagerPage extends StatefulWidget {
 }
 
 class _AccountManagerState extends State<AccountManagerPage> {
-  late List<Account> accounts = getAllAccounts();
   late final s = S.of(context);
-  int? selected;
-  bool editing = false;
-  final _nameController = TextEditingController();
-  Map<String, String> _emojis = {};
+  List<WalletProfile> _wallets = [];
+  bool _loading = true;
+  bool _switching = false;
 
   @override
   void initState() {
     super.initState();
-    _loadEmojis();
+    _load();
   }
 
-  Future<void> _loadEmojis() async {
-    final map = await AccountEmojiStore.loadAll();
-    if (mounted) setState(() => _emojis = map);
-  }
-
-  String? _emojiFor(Account a) => _emojis['${a.coin}_${a.id}'];
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    super.dispose();
+  Future<void> _load() async {
+    final wallets = await WalletRegistry.instance.getAll();
+    if (mounted) {
+      setState(() {
+        _wallets = wallets;
+        _loading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final activeWalletId = WalletService.instance.activeWalletId;
+
     return Scaffold(
       backgroundColor: ZipherColors.bg,
       appBar: AppBar(
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         title: Text(
-          'ACCOUNTS',
+          'WALLET MANAGER',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -61,290 +59,441 @@ class _AccountManagerState extends State<AccountManagerPage> {
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
+          icon:
+              Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
-          if (selected != null && !editing)
-            IconButton(
-              onPressed: _edit,
-              icon: Icon(Icons.edit_rounded,
-                  size: 20,
-                  color: ZipherColors.text40),
-            ),
-          if (selected != null && !editing)
-            IconButton(
-              onPressed: _delete,
-              icon: Icon(Icons.delete_outline_rounded,
-                  size: 20,
-                  color: ZipherColors.red.withValues(alpha: 0.5)),
-            ),
-          if (selected == null)
-            IconButton(
-              onPressed: _add,
-              icon: Icon(Icons.add_rounded,
-                  size: 22,
-                  color: ZipherColors.cyan.withValues(alpha: 0.7)),
-            ),
+          IconButton(
+            onPressed: _addWallet,
+            icon: Icon(Icons.add_rounded,
+                size: 22,
+                color: ZipherColors.cyan.withValues(alpha: 0.7)),
+          ),
         ],
       ),
-      body: accounts.isEmpty
+      body: _loading
           ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.account_balance_wallet_outlined,
-                      size: 40,
-                      color: ZipherColors.cardBgElevated),
-                  const Gap(12),
-                  Text(
-                    'No accounts',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: ZipherColors.text40,
-                    ),
-                  ),
-                ],
+              child: CircularProgressIndicator(
+                color: ZipherColors.cyan,
+                strokeWidth: 2,
               ),
             )
-          : ListView.builder(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              itemCount: accounts.length,
-              itemBuilder: (context, index) {
-                final a = accounts[index];
-                final isSelected = index == selected;
-                final isActive = a.coin == aa.coin && a.id == aa.id;
-
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: GestureDetector(
-                    onTap: () => _select(index),
-                    onLongPress: () =>
-                        setState(() => selected = isSelected ? null : index),
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? ZipherColors.cyan.withValues(alpha: 0.06)
-                            : ZipherColors.cardBg,
-                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                        border: isSelected
-                            ? Border.all(
-                                color:
-                                    ZipherColors.cyan.withValues(alpha: 0.15))
-                            : null,
+          : _switching
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: ZipherColors.cyan,
+                        ),
                       ),
-                      child: Row(
+                      const Gap(12),
+                      Text(
+                        'Switching account...',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: ZipherColors.text40,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : _wallets.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          // Avatar
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: _accountColor(a)
-                                  .withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(ZipherRadius.md),
-                            ),
-                            child: Center(
-                              child: _emojiFor(a) != null
-                                  ? Text(
-                                      _emojiFor(a)!,
-                                      style: const TextStyle(fontSize: 20),
-                                    )
-                                  : Text(
-                                      (a.name ?? '?')[0].toUpperCase(),
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w700,
-                                        color: _accountColor(a)
-                                            .withValues(alpha: 0.7),
-                                      ),
-                                    ),
+                          Icon(Icons.account_balance_wallet_outlined,
+                              size: 40,
+                              color: ZipherColors.cardBgElevated),
+                          const Gap(12),
+                          Text(
+                            'No accounts',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: ZipherColors.text40,
                             ),
                           ),
-                          const Gap(12),
-                          // Name & type
-                          Expanded(
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      itemCount: _wallets.length,
+                      itemBuilder: (context, index) {
+                        final w = _wallets[index];
+                        final isActive = w.id == activeWalletId;
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: isActive
+                                  ? ZipherColors.cyan
+                                      .withValues(alpha: 0.06)
+                                  : ZipherColors.cardBg,
+                              borderRadius:
+                                  BorderRadius.circular(ZipherRadius.lg),
+                              border: isActive
+                                  ? Border.all(
+                                      color: ZipherColors.cyan
+                                          .withValues(alpha: 0.15))
+                                  : null,
+                            ),
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
                               children: [
-                                if (editing && isSelected)
-                                  TextField(
-                                    controller: _nameController,
-                                    autofocus: true,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                      color: ZipherColors.text90,
-                                    ),
-                                    decoration: InputDecoration(
-                                      isDense: true,
-                                      filled: false,
-                                      border: InputBorder.none,
-                                      contentPadding: EdgeInsets.zero,
-                                    ),
-                                    onSubmitted: _onEditDone,
-                                  )
-                                else
-                                  Text(
-                                    a.name ?? 'Account',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                      color: ZipherColors.text90,
-                                    ),
-                                  ),
-                                const Gap(2),
                                 Row(
                                   children: [
-                                    if (isActive)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 6, vertical: 1),
-                                        margin:
-                                            const EdgeInsets.only(right: 6),
-                                        decoration: BoxDecoration(
-                                          color: ZipherColors.green
-                                              .withValues(alpha: 0.1),
-                                          borderRadius:
-                                              BorderRadius.circular(ZipherRadius.xs),
-                                        ),
-                                        child: Text(
-                                          'Active',
-                                          style: TextStyle(
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.w600,
-                                            color: ZipherColors.green
-                                                .withValues(alpha: 0.6),
-                                          ),
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        color: (isActive
+                                                ? ZipherColors.cyan
+                                                : ZipherColors.text20)
+                                            .withValues(alpha: 0.1),
+                                        borderRadius:
+                                            BorderRadius.circular(
+                                                ZipherRadius.md),
+                                      ),
+                                      child: Center(
+                                        child: Icon(
+                                          w.isWatchOnly
+                                              ? Icons.visibility_rounded
+                                              : Icons
+                                                  .account_balance_wallet_rounded,
+                                          size: 18,
+                                          color: isActive
+                                              ? ZipherColors.cyan
+                                                  .withValues(
+                                                      alpha: 0.7)
+                                              : ZipherColors.text20,
                                         ),
                                       ),
-                                    if (a.keyType == 0x80)
-                                      _typeBadge('Watch-only',
-                                          ZipherColors.cyan),
-                                    if (a.keyType == 1)
-                                      _typeBadge(
-                                          'Secret key', ZipherColors.purple),
+                                    ),
+                                    const Gap(12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  w.name,
+                                                  style: TextStyle(
+                                                    fontSize: 15,
+                                                    fontWeight:
+                                                        FontWeight.w600,
+                                                    color: ZipherColors
+                                                        .text90,
+                                                  ),
+                                                  overflow: TextOverflow
+                                                      .ellipsis,
+                                                ),
+                                              ),
+                                              if (w.isWatchOnly) ...[
+                                                const Gap(6),
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 5,
+                                                          vertical: 1),
+                                                  decoration:
+                                                      BoxDecoration(
+                                                    color: ZipherColors
+                                                        .orange
+                                                        .withValues(
+                                                            alpha: 0.10),
+                                                    borderRadius:
+                                                        BorderRadius
+                                                            .circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    'Watch',
+                                                    style: TextStyle(
+                                                      fontSize: 9,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color: ZipherColors
+                                                          .orange
+                                                          .withValues(
+                                                              alpha:
+                                                                  0.7),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                              if (isActive) ...[
+                                                const Gap(6),
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets
+                                                          .symmetric(
+                                                          horizontal: 5,
+                                                          vertical: 1),
+                                                  decoration:
+                                                      BoxDecoration(
+                                                    color: ZipherColors
+                                                        .green
+                                                        .withValues(
+                                                            alpha: 0.10),
+                                                    borderRadius:
+                                                        BorderRadius
+                                                            .circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    'Active',
+                                                    style: TextStyle(
+                                                      fontSize: 9,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color: ZipherColors
+                                                          .green
+                                                          .withValues(
+                                                              alpha:
+                                                                  0.7),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                          const Gap(2),
+                                          Text(
+                                            '${amountToString2(w.lastBalance)} ZEC',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: ZipherColors.text40,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    PopupMenuButton<String>(
+                                      icon: Icon(
+                                        Icons.more_vert_rounded,
+                                        size: 18,
+                                        color: ZipherColors.text20,
+                                      ),
+                                      color: ZipherColors.cardBgElevated,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(
+                                                ZipherRadius.md),
+                                      ),
+                                      onSelected: (action) =>
+                                          _onWalletAction(
+                                              action, w, isActive),
+                                      itemBuilder: (_) => [
+                                        if (!isActive)
+                                          PopupMenuItem(
+                                            value: 'switch',
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                    Icons
+                                                        .swap_horiz_rounded,
+                                                    size: 16,
+                                                    color: ZipherColors
+                                                        .text60),
+                                                const Gap(8),
+                                                Text('Switch to',
+                                                    style: TextStyle(
+                                                        fontSize: 13,
+                                                        color:
+                                                            ZipherColors
+                                                                .text90)),
+                                              ],
+                                            ),
+                                          ),
+                                        PopupMenuItem(
+                                          value: 'rename',
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.edit_rounded,
+                                                  size: 16,
+                                                  color: ZipherColors
+                                                      .text60),
+                                              const Gap(8),
+                                              Text('Rename',
+                                                  style: TextStyle(
+                                                      fontSize: 13,
+                                                      color:
+                                                          ZipherColors
+                                                              .text90)),
+                                            ],
+                                          ),
+                                        ),
+                                        if (!isActive)
+                                          PopupMenuItem(
+                                            value: 'delete',
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                    Icons
+                                                        .delete_outline_rounded,
+                                                    size: 16,
+                                                    color: ZipherColors
+                                                        .red
+                                                        .withValues(
+                                                            alpha: 0.6)),
+                                                const Gap(8),
+                                                Text('Delete',
+                                                    style: TextStyle(
+                                                        fontSize: 13,
+                                                        color: ZipherColors
+                                                            .red
+                                                            .withValues(
+                                                                alpha:
+                                                                    0.7))),
+                                              ],
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ],
                                 ),
                               ],
                             ),
                           ),
-                          // Balance
-                          Text(
-                            '${amountToString2(a.balance)} ZEC',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color:
-                                  ZipherColors.text60,
-                            ),
-                          ),
-                        ],
-                      ),
+                        );
+                      },
                     ),
-                  ),
-                );
-              },
-            ),
     );
   }
 
-  Color _accountColor(Account a) {
-    switch (a.keyType) {
-      case 0x80:
-        return ZipherColors.cyan;
-      case 1:
-        return ZipherColors.purple;
-      default:
-        return ZipherColors.cyan;
+  void _onWalletAction(
+      String action, WalletProfile w, bool isActive) async {
+    switch (action) {
+      case 'switch':
+        await _switchWallet(w);
+      case 'rename':
+        await _renameWallet(w);
+      case 'delete':
+        await _deleteWallet(w);
     }
   }
 
-  Widget _typeBadge(String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(ZipherRadius.xs),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w500,
-          color: color.withValues(alpha: 0.5),
-        ),
-      ),
-    );
-  }
+  Future<void> _switchWallet(WalletProfile w) async {
+    setState(() => _switching = true);
+    try {
+      final ws = WalletService.instance;
+      await ws.switchWallet(w.id);
 
-  void _select(int index) {
-    if (selected != null) {
-      setState(() => selected = index == selected ? null : index);
-      return;
-    }
-    final a = accounts[index];
-    if (widget.main) {
-      setActiveAccount(a.coin, a.id);
-      Future(() async {
-        final prefs = await SharedPreferences.getInstance();
-        await aa.save(prefs);
-      });
-      aa.update(null);
-    }
-    GoRouter.of(context).pop<Account>(a);
-  }
-
-  void _add() async {
-    await GoRouter.of(context).push('/more/account_manager/new');
-    _refresh();
-    setState(() {});
-  }
-
-  void _edit() {
-    if (selected == null) return;
-    _nameController.text = accounts[selected!].name ?? '';
-    setState(() => editing = true);
-  }
-
-  void _onEditDone(String name) {
-    final a = accounts[selected!];
-    // TODO: persist account name change
-    _refresh();
-    setState(() => editing = false);
-  }
-
-  void _delete() async {
-    if (selected == null) return;
-    final a = accounts[selected!];
-    if (accounts.length > 1 && a.coin == aa.coin && a.id == aa.id) {
-      await showMessageBox2(context, s.error, s.cannotDeleteActive);
-      return;
-    }
-    final confirmed = await showConfirmDialog(
-        context, s.deleteAccount(a.name!), s.confirmDeleteAccount);
-    if (confirmed) {
-      // TODO: implement account deletion with zingolib
-      _refresh();
-      if (accounts.isEmpty) {
-        setActiveAccount(0, 0);
-        GoRouter.of(context).go('/account');
-      } else {
-        selected = null;
-        setState(() {});
+      final balance = await ws.getBalance();
+      final addrs = await ws.getAddresses();
+      aa = ActiveAccount2.fromWallet(
+        coin: activeCoin.coin,
+        address: addrs.isNotEmpty ? addrs.first.address : '',
+        balance: balance,
+        walletName: w.name,
+        walletId: w.id,
+      );
+      aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to switch: $e'),
+            backgroundColor: ZipherColors.surface,
+          ),
+        );
       }
+    } finally {
+      if (mounted) setState(() => _switching = false);
     }
   }
 
-  void _refresh() {
-    accounts = getAllAccounts();
+  Future<void> _renameWallet(WalletProfile w) async {
+    final controller = TextEditingController(text: w.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ZipherColors.cardBgElevated,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ZipherRadius.lg),
+        ),
+        title: Text('Rename Wallet',
+            style:
+                TextStyle(fontSize: 16, color: ZipherColors.text90)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: TextStyle(
+              fontSize: 14, color: ZipherColors.text90),
+          decoration: InputDecoration(
+            hintText: 'Wallet name',
+            hintStyle: TextStyle(
+                fontSize: 14, color: ZipherColors.text40),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('Cancel',
+                style: TextStyle(color: ZipherColors.text40)),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(ctx).pop(controller.text.trim()),
+            child: Text('Save',
+                style: TextStyle(color: ZipherColors.cyan)),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (name != null && name.isNotEmpty && name != w.name) {
+      await WalletRegistry.instance.rename(w.id, name);
+      if (w.id == WalletService.instance.activeWalletId) {
+        aa.name = name;
+      }
+      await _load();
+    }
+  }
+
+  Future<void> _deleteWallet(WalletProfile w) async {
+    if (_wallets.length <= 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Cannot delete the only account'),
+          backgroundColor: ZipherColors.surface,
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showConfirmDialog(
+      context,
+      'Delete "${w.name}"?',
+      'This will permanently remove the wallet and all its data. This cannot be undone.',
+      isDanger: true,
+    );
+    if (confirmed) {
+      await WalletService.instance.deleteWalletById(w.id);
+      await _load();
+    }
+  }
+
+  void _addWallet() {
+    GoRouter.of(context).push('/welcome');
   }
 }
 
-// Keep AccountList and AccountTile for backward compatibility with router
 class AccountList extends StatelessWidget {
   final List<Account> accounts;
   final int? selected;

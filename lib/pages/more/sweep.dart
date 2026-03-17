@@ -310,7 +310,7 @@ class _SweepState extends State<SweepPage>
     }
     form.save();
 
-    // TODO: migrate to WalletService - sweep not yet available in zingolib
+    // TODO: sweep not yet implemented
     if (_useSeed && seed.isNotEmpty) {
       form.fields['seed']!.invalidate('Sweep from seed not yet supported');
     }

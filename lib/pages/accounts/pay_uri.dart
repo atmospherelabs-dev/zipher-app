@@ -20,25 +20,19 @@ class PaymentURIPage extends StatefulWidget {
 }
 
 class _PaymentURIState extends State<PaymentURIPage> {
-  int _availableMode = 7; // UA by default
+  String _transparentAddress = '';
 
   @override
   void initState() {
     super.initState();
-    _loadAddresses();
+    _loadTransparentAddress();
   }
 
-  Future<void> _loadAddresses() async {
+  Future<void> _loadTransparentAddress() async {
     try {
-      final addrs = await WalletService.instance.getAddresses();
+      final addrs = await WalletService.instance.getTransparentAddresses();
       if (addrs.isNotEmpty && mounted) {
-        int mode = 0;
-        for (final a in addrs) {
-          if (a.hasTransparent) mode |= 1;
-          if (a.hasSapling) mode |= 2;
-          if (a.hasOrchard) mode |= 4;
-        }
-        setState(() => _availableMode = mode != 0 ? mode : 7);
+        setState(() => _transparentAddress = addrs.first);
       }
     } catch (_) {}
   }
@@ -48,16 +42,7 @@ class _PaymentURIState extends State<PaymentURIPage> {
     return '${addr.substring(0, 12)}...${addr.substring(addr.length - 12)}';
   }
 
-  /// Get shielded (unified) address
   String get _shieldedAddress => aa.diversifiedAddress;
-
-  /// Get transparent address
-  String get _transparentAddress {
-    if (aa.id == 0) return '';
-    if (_availableMode & 1 == 0) return '';
-    // TODO: migrate to WalletService.getTransparentAddresses
-    return '';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -92,13 +77,13 @@ class _PaymentURIState extends State<PaymentURIPage> {
             children: [
               const Gap(12),
 
-              // Shielded address card (primary — purple accent)
+              // Shielded address card (primary — purple accent for privacy)
               _AddressCard(
                 label: 'Shielded Address',
                 hint: 'Recommended for privacy',
                 address: shielded,
                 truncated: _truncate(shielded),
-                icon: Icons.shield_outlined,
+                icon: Icons.lock_rounded,
                 accentColor: ZipherColors.purple,
                 primary: true,
                 onCopy: () => _copy(shielded),
@@ -107,18 +92,19 @@ class _PaymentURIState extends State<PaymentURIPage> {
 
               const Gap(12),
 
-              // Transparent address card (secondary — cyan accent)
+              // Transparent address card (toned down, neutral)
               if (transparent.isNotEmpty)
                 _AddressCard(
                   label: 'Transparent Address',
-                  hint: 'For exchanges & compatibility',
+                  hint: 'Not private — visible on the blockchain',
                   address: transparent,
                   truncated: _truncate(transparent),
                   icon: Icons.visibility_outlined,
-                  accentColor: ZipherColors.cyan,
+                  accentColor: Colors.white,
                   primary: false,
                   onCopy: () => _copy(transparent),
                   onQR: () => _showQR(transparent, 'Transparent Address'),
+                  warning: true,
                 ),
 
               const Gap(32),
@@ -134,52 +120,52 @@ class _PaymentURIState extends State<PaymentURIPage> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       decoration: BoxDecoration(
-                        color: ZipherColors.cyan.withValues(alpha: 0.12),
+                        color: Colors.white.withValues(alpha: 0.06),
                         borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.08),
+                        ),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      child: Column(
                         children: [
-                          Icon(Icons.qr_code_rounded,
-                              size: 20,
-                              color:
-                                  ZipherColors.cyan.withValues(alpha: 0.9)),
-                          const Gap(10),
-                          Text(
-                            'Request Payment',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color:
-                                  ZipherColors.cyan.withValues(alpha: 0.9),
-                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.qr_code_rounded,
+                                  size: 20,
+                                  color: ZipherColors.text60),
+                              const Gap(10),
+                              Text(
+                                'Request Payment',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: ZipherColors.text60,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Gap(6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.lock_rounded,
+                                  size: 11,
+                                  color: ZipherColors.text20),
+                              const Gap(4),
+                              Text(
+                                'Uses your shielded address',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: ZipherColors.text20,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ),
                   ),
-                ),
-              ),
-
-              const Gap(32),
-
-              // Privacy note
-              Center(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.verified_user_outlined,
-                        size: 14,
-                        color: ZipherColors.text20),
-                    const Gap(6),
-                    Text(
-                      'For privacy, always use shielded address',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: ZipherColors.text20,
-                      ),
-                    ),
-                  ],
                 ),
               ),
 
@@ -237,6 +223,7 @@ class _AddressCard extends StatelessWidget {
   final bool primary;
   final VoidCallback onCopy;
   final VoidCallback onQR;
+  final bool warning;
 
   const _AddressCard({
     required this.label,
@@ -248,19 +235,22 @@ class _AddressCard extends StatelessWidget {
     required this.primary,
     required this.onCopy,
     required this.onQR,
+    this.warning = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final textAlpha = primary ? 0.9 : 0.5;
-
     return Container(
       padding: const EdgeInsets.all(ZipherSpacing.md),
       decoration: BoxDecoration(
-        color: accentColor.withValues(alpha: primary ? 0.06 : 0.03),
+        color: primary
+            ? accentColor.withValues(alpha: 0.06)
+            : ZipherColors.cardBg,
         borderRadius: BorderRadius.circular(ZipherRadius.lg),
         border: Border.all(
-          color: accentColor.withValues(alpha: primary ? 0.12 : 0.06),
+          color: primary
+              ? accentColor.withValues(alpha: 0.12)
+              : Colors.white.withValues(alpha: 0.06),
         ),
       ),
       child: Column(
@@ -273,7 +263,7 @@ class _AddressCard extends StatelessWidget {
                   size: 18,
                   color: primary
                       ? accentColor.withValues(alpha: 0.85)
-                      : accentColor.withValues(alpha: 0.7)),
+                      : ZipherColors.text40),
               const Gap(8),
               Expanded(
                 child: Text(
@@ -285,17 +275,16 @@ class _AddressCard extends StatelessWidget {
                   ),
                 ),
               ),
-              // Action buttons
               _SmallIconBtn(
                 icon: Icons.copy_rounded,
                 onTap: onCopy,
-                alpha: textAlpha,
+                alpha: primary ? 0.9 : 0.5,
               ),
               const Gap(6),
               _SmallIconBtn(
                 icon: Icons.qr_code_rounded,
                 onTap: onQR,
-                alpha: textAlpha,
+                alpha: primary ? 0.9 : 0.5,
               ),
             ],
           ),
@@ -311,16 +300,31 @@ class _AddressCard extends StatelessWidget {
             ),
           ),
           const Gap(6),
-          // Hint
-          Text(
-            hint,
-            style: TextStyle(
-              fontSize: 11,
-              color: primary
-                  ? accentColor
-                  : accentColor.withValues(alpha: 0.7),
+          // Hint / warning
+          if (warning)
+            Row(
+              children: [
+                Icon(Icons.warning_amber_rounded,
+                    size: 12,
+                    color: ZipherColors.orange.withValues(alpha: 0.7)),
+                const Gap(5),
+                Text(
+                  hint,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: ZipherColors.orange.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            )
+          else
+            Text(
+              hint,
+              style: TextStyle(
+                fontSize: 11,
+                color: primary ? accentColor : ZipherColors.text20,
+              ),
             ),
-          ),
         ],
       ),
     );

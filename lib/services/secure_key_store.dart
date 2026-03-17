@@ -75,6 +75,38 @@ class SecureKeyStore {
     }
   }
 
+  // ── Wallet-UUID-keyed seed storage (multi-wallet) ──
+
+  static String _walletSeedKey(String walletId) => 'seed_wallet_$walletId';
+
+  static Future<void> storeSeedForWallet(
+      String walletId, String seed) async {
+    await _storage.write(key: _walletSeedKey(walletId), value: seed);
+  }
+
+  static Future<String?> getSeedForWallet(String walletId) async {
+    try {
+      return await _storage.read(key: _walletSeedKey(walletId));
+    } on PlatformException catch (e) {
+      _logger.e('Keystore read failed for wallet $walletId: $e');
+      return null;
+    }
+  }
+
+  static Future<void> deleteSeedForWallet(String walletId) async {
+    await _storage.delete(key: _walletSeedKey(walletId));
+  }
+
+  static Future<bool> hasSeedForWallet(String walletId) async {
+    try {
+      final v = await _storage.read(key: _walletSeedKey(walletId));
+      return v != null && v.isNotEmpty;
+    } on PlatformException catch (e) {
+      _logger.e('Keystore probe failed for wallet $walletId: $e');
+      return false;
+    }
+  }
+
   // ── DB encryption key ──
 
   static const _dbKeyPrefix = 'db_cipher_key_';

@@ -8,6 +8,7 @@ import 'package:screen_protector/screen_protector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../accounts.dart';
 import '../../services/wallet_service.dart';
+import '../../services/wallet_registry.dart';
 import '../../services/secure_key_store.dart';
 import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
@@ -28,6 +29,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
 
   _Backup? _backup;
   String? _loadError;
+  List<WalletProfile> _allWallets = [];
 
   @override
   void initState() {
@@ -37,6 +39,12 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
     _loadBackup();
     _loadBirthday();
     _loadVerificationState();
+    _loadAllWallets();
+  }
+
+  Future<void> _loadAllWallets() async {
+    final wallets = await WalletRegistry.instance.getAll();
+    if (mounted) setState(() => _allWallets = wallets);
   }
 
   Future<void> _loadVerificationState() async {
@@ -393,6 +401,103 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       ],
                     ),
                   ),
+
+                  // ═══════════════════════════════════
+                  // SEED COVERAGE
+                  // ═══════════════════════════════════
+                  if (_allWallets.length > 1) ...[
+                    const Gap(20),
+                    _sectionHeader(
+                      'Seed Coverage',
+                      'Which accounts each seed phrase covers',
+                      Icons.account_tree_rounded,
+                      ZipherColors.purple,
+                    ),
+                    const Gap(12),
+                    ..._allWallets.map((w) {
+                      final isCurrent = w.id == aa.walletId;
+                      final accountNames = w.visibleAccounts
+                          .map((a) => a.name)
+                          .join(', ');
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isCurrent
+                                ? ZipherColors.cyan.withValues(alpha: 0.04)
+                                : ZipherColors.cardBg,
+                            borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                            border: Border.all(
+                              color: isCurrent
+                                  ? ZipherColors.cyan.withValues(alpha: 0.12)
+                                  : ZipherColors.borderSubtle,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.key_rounded,
+                                size: 14,
+                                color: isCurrent
+                                    ? ZipherColors.cyan.withValues(alpha: 0.6)
+                                    : ZipherColors.text20,
+                              ),
+                              const Gap(10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Text(
+                                          w.name,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: ZipherColors.text60,
+                                          ),
+                                        ),
+                                        if (isCurrent) ...[
+                                          const Gap(6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 5, vertical: 1),
+                                            decoration: BoxDecoration(
+                                              color: ZipherColors.cyan
+                                                  .withValues(alpha: 0.08),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              'viewing',
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.w600,
+                                                color: ZipherColors.cyan
+                                                    .withValues(alpha: 0.7),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    const Gap(2),
+                                    Text(
+                                      'Covers: $accountNames',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: ZipherColors.text40,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
 
                   const Gap(24),
 

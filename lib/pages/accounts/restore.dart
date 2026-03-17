@@ -26,6 +26,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
 
   DateTime? _selectedDate;
   bool _showDatePicker = false;
+  int? _expandedYear;
 
   static final _sapling = activationDate; // Oct 2018
 
@@ -64,7 +65,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                     ),
                     const Gap(24),
                     Text(
-                      'Restore Wallet',
+                      'Import Account',
                       style: TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.w700,
@@ -246,10 +247,12 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
 
                     const Gap(24),
 
-                    // Wallet birthday section
+                    // Wallet birthday — year + month picker
                     GestureDetector(
-                      onTap: () =>
-                          setState(() => _showDatePicker = !_showDatePicker),
+                      onTap: () => setState(() {
+                        _showDatePicker = !_showDatePicker;
+                        if (!_showDatePicker) _expandedYear = null;
+                      }),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
                         padding: const EdgeInsets.symmetric(
@@ -282,7 +285,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                                 children: [
                                   Text(
                                     _selectedDate != null
-                                        ? DateFormat.yMMMd()
+                                        ? DateFormat.yMMM()
                                             .format(_selectedDate!)
                                         : 'Wallet birthday',
                                     style: TextStyle(
@@ -308,13 +311,14 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                             ),
                             if (_selectedDate != null)
                               GestureDetector(
-                                onTap: () =>
-                                    setState(() => _selectedDate = null),
+                                onTap: () => setState(() {
+                                  _selectedDate = null;
+                                  _expandedYear = null;
+                                }),
                                 child: Icon(
                                   Icons.close_rounded,
                                   size: 16,
-                                  color:
-                                      ZipherColors.text20,
+                                  color: ZipherColors.text20,
                                 ),
                               )
                             else
@@ -334,71 +338,9 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                       duration: const Duration(milliseconds: 250),
                       curve: Curves.easeOutCubic,
                       child: _showDatePicker
-                          ? Column(
-                              children: [
-                                const Gap(8),
-                                SizedBox(
-                                  height: 32,
-                                  child: ListView(
-                                    scrollDirection: Axis.horizontal,
-                                    children: [
-                                      for (final year in [
-                                        2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026
-                                      ])
-                                        if (DateTime(year)
-                                            .isBefore(DateTime.now()))
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                                right: 6),
-                                            child: _YearChip(
-                                              year: year,
-                                              selected:
-                                                  _selectedDate?.year ==
-                                                      year,
-                                              onTap: () => setState(() {
-                                                _selectedDate =
-                                                    DateTime(year);
-                                                _showDatePicker = false;
-                                              }),
-                                            ),
-                                          ),
-                                    ],
-                                  ),
-                                ),
-                                const Gap(8),
-                                Container(
-                                  decoration: BoxDecoration(
-                                    color: ZipherColors.cardBg,
-                                    borderRadius: BorderRadius.circular(
-                                        ZipherRadius.md),
-                                    border: Border.all(
-                                      color: ZipherColors.borderSubtle,
-                                    ),
-                                  ),
-                                  child: Theme(
-                                    data: ThemeData.dark().copyWith(
-                                      colorScheme: ColorScheme.dark(
-                                        primary: ZipherColors.cyan,
-                                        onPrimary: Colors.white,
-                                        surface: ZipherColors.bg,
-                                        onSurface: ZipherColors.text90,
-                                      ),
-                                    ),
-                                    child: CalendarDatePicker(
-                                      initialDate:
-                                          _selectedDate ?? DateTime(2022),
-                                      firstDate: _sapling,
-                                      lastDate: DateTime.now(),
-                                      onDateChanged: (date) {
-                                        setState(() {
-                                          _selectedDate = date;
-                                          _showDatePicker = false;
-                                        });
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ],
+                          ? Padding(
+                              padding: const EdgeInsets.only(top: 10),
+                              child: _buildYearMonthPicker(),
                             )
                           : const SizedBox.shrink(),
                     ),
@@ -419,7 +361,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                         Expanded(
                           child: Text(
                             _selectedDate != null
-                                ? 'Scanning from ${DateFormat.yMMMd().format(_selectedDate!)}. '
+                                ? 'Scanning from ${DateFormat.yMMM().format(_selectedDate!)}. '
                                   'Transactions before this date won\'t appear.'
                                 : 'Full scan from chain activation. '
                                   'This is thorough but takes longer.',
@@ -456,7 +398,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                       )
                     : ZipherWidgets.gradientButton(
                         label: _selectedDate != null
-                            ? 'Restore from ${_selectedDate!.year}'
+                            ? 'Restore from ${DateFormat.yMMM().format(_selectedDate!)}'
                             : 'Restore (full scan)',
                         icon: Icons.download_done_rounded,
                         onPressed: _restore,
@@ -466,6 +408,166 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildYearMonthPicker() {
+    final now = DateTime.now();
+    final startYear = _sapling.year + 1; // 2019
+    final years = <int>[];
+    for (int y = startYear; y <= now.year; y++) {
+      years.add(y);
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ZipherColors.cardBg,
+        borderRadius: BorderRadius.circular(ZipherRadius.md),
+        border: Border.all(color: ZipherColors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'When was this wallet created?',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: ZipherColors.text40,
+            ),
+          ),
+          const Gap(12),
+          // Year grid
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: years.map((year) {
+              final isSelected = _selectedDate?.year == year;
+              final isExpanded = _expandedYear == year;
+              return GestureDetector(
+                onTap: () => setState(() {
+                  if (_expandedYear == year) {
+                    _expandedYear = null;
+                  } else {
+                    _expandedYear = year;
+                  }
+                }),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isExpanded
+                        ? ZipherColors.cyan.withValues(alpha: 0.12)
+                        : isSelected
+                            ? ZipherColors.cyan.withValues(alpha: 0.08)
+                            : Colors.white.withValues(alpha: 0.02),
+                    borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                    border: Border.all(
+                      color: isExpanded
+                          ? ZipherColors.cyan.withValues(alpha: 0.3)
+                          : isSelected
+                              ? ZipherColors.cyan.withValues(alpha: 0.2)
+                              : ZipherColors.borderSubtle,
+                    ),
+                  ),
+                  child: Text(
+                    '$year',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: isExpanded || isSelected
+                          ? ZipherColors.cyan
+                          : ZipherColors.text60,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+
+          // Month grid for expanded year
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            child: _expandedYear != null
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: _buildMonthGrid(_expandedYear!, now),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMonthGrid(int year, DateTime now) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        childAspectRatio: 2.2,
+        crossAxisSpacing: 6,
+        mainAxisSpacing: 6,
+      ),
+      itemCount: 12,
+      itemBuilder: (context, i) {
+        final monthDate = DateTime(year, i + 1);
+        final isFuture = monthDate.isAfter(now);
+        final isBeforeSapling = monthDate.isBefore(_sapling);
+        final disabled = isFuture || isBeforeSapling;
+        final isSelected = _selectedDate?.year == year &&
+            _selectedDate?.month == i + 1;
+
+        return GestureDetector(
+          onTap: disabled
+              ? null
+              : () => setState(() {
+                    _selectedDate = DateTime(year, i + 1);
+                    _showDatePicker = false;
+                    _expandedYear = null;
+                  }),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? ZipherColors.cyan.withValues(alpha: 0.15)
+                  : disabled
+                      ? Colors.transparent
+                      : Colors.white.withValues(alpha: 0.02),
+              borderRadius: BorderRadius.circular(ZipherRadius.xs),
+              border: Border.all(
+                color: isSelected
+                    ? ZipherColors.cyan.withValues(alpha: 0.4)
+                    : disabled
+                        ? Colors.transparent
+                        : ZipherColors.borderSubtle,
+              ),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              months[i],
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                color: isSelected
+                    ? ZipherColors.cyan
+                    : disabled
+                        ? ZipherColors.text10
+                        : ZipherColors.text60,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -498,32 +600,58 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
         return;
       }
 
-      // Estimate birthday height (approximate: 1 block per 75 seconds)
-      int birthday = 419200; // Sapling activation
+      // Estimate birthday height by anchoring to the actual chain tip.
+      // Working backwards from "now" avoids drift from the 75s/block estimate
+      // compounding over 7+ years since Sapling activation.
+      const saplingHeight = 419200;
+      int birthday = saplingHeight;
       if (_selectedDate != null) {
-        final saplingTime = DateTime(2018, 10, 29);
-        final seconds = _selectedDate!.difference(saplingTime).inSeconds;
-        birthday = 419200 + (seconds ~/ 75);
+        try {
+          final chainTip =
+              await WalletService.instance.getLatestBlockHeight();
+          final now = DateTime.now();
+          final secondsAgo = now.difference(_selectedDate!).inSeconds;
+          final blocksAgo = secondsAgo ~/ 75;
+          birthday = chainTip - blocksAgo;
+          if (birthday < saplingHeight) birthday = saplingHeight;
+          print('[Restore] estimated birthday: chainTip=$chainTip - $blocksAgo blocks = $birthday');
+        } catch (e) {
+          // Fallback to the old forward-estimate if server is unreachable
+          final saplingTime = DateTime(2018, 10, 29);
+          final seconds = _selectedDate!.difference(saplingTime).inSeconds;
+          birthday = saplingHeight + (seconds ~/ 75);
+          print('[Restore] fallback birthday estimate: $birthday (server unreachable: $e)');
+        }
       }
 
-      await WalletService.instance.restoreFromSeed(seed, birthday);
+      final walletName = isTestnet ? 'Testnet Wallet' : 'Restored Wallet';
+      print('[Restore] birthday=$birthday server=${WalletService.instance.serverUrl}');
 
-      final name = isTestnet ? 'Testnet' : 'Main';
+      final ws = WalletService.instance;
+      if (ws.isWalletOpen) {
+        print('[Restore] pausing sync and closing current wallet...');
+        syncStatus2.paused = true;
+        await ws.closeWallet();
+        print('[Restore] closed');
+      }
+
+      print('[Restore] calling restoreWallet...');
+      await ws.restoreWallet(walletName, seed, birthday);
+      print('[Restore] restoreWallet returned');
+
       aa = ActiveAccount2(
         coin: activeCoin.coin,
         id: 1,
-        name: name,
+        name: walletName,
         address: '',
         canPay: true,
       );
 
       final prefs = await SharedPreferences.getInstance();
       await aa.save(prefs);
-      await prefs.setString('wallet_name', name);
 
-      // Start scanning in background
       aa.reset(birthday);
-      Future(() => syncStatus2.rescan(birthday));
+      syncStatus2.prepareRescan(birthday);
 
       if (mounted) GoRouter.of(context).go('/account');
     } catch (e) {
@@ -534,46 +662,3 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
   }
 }
 
-class _YearChip extends StatelessWidget {
-  final int year;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _YearChip({
-    required this.year,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected
-              ? ZipherColors.cyan.withValues(alpha: 0.1)
-              : ZipherColors.cardBg,
-          borderRadius: BorderRadius.circular(ZipherRadius.sm),
-          border: Border.all(
-            color: selected
-                ? ZipherColors.cyan.withValues(alpha: 0.25)
-                : ZipherColors.borderSubtle,
-          ),
-        ),
-        child: Text(
-          '$year',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: selected
-                ? ZipherColors.cyan.withValues(alpha: 0.9)
-                : ZipherColors.text40,
-          ),
-        ),
-      ),
-    );
-  }
-}

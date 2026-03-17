@@ -85,20 +85,35 @@ class ActiveAccount2 extends _ActiveAccount2 with _$ActiveAccount2 {
     required String name,
     required String address,
     required bool canPay,
-  }) : super(coin: coin, id: id, name: name, address: address, canPay: canPay);
+    String walletId = '',
+    int accountIndex = 0,
+  }) : super(
+          coin: coin,
+          id: id,
+          name: name,
+          address: address,
+          canPay: canPay,
+          walletId: walletId,
+          accountIndex: accountIndex,
+        );
 
   /// Create from wallet service data (new engine).
   factory ActiveAccount2.fromWallet({
     required int coin,
     required String address,
     required rust_wallet.WalletBalance balance,
+    String? walletName,
+    String walletId = '',
+    int accountIndex = 0,
   }) {
     final account = ActiveAccount2(
       coin: coin,
       id: 1,
-      name: 'Main',
+      name: walletName ?? 'Main',
       address: address,
       canPay: true,
+      walletId: walletId,
+      accountIndex: accountIndex,
     );
     account.poolBalances = PoolBalance.fromRust(balance);
     account.diversifiedAddress = address;
@@ -128,9 +143,11 @@ class ActiveAccount2 extends _ActiveAccount2 with _$ActiveAccount2 {
 abstract class _ActiveAccount2 with Store {
   final int coin;
   final int id;
-  final String name;
+  String name;
   final String address;
   final bool canPay;
+  String walletId;
+  int accountIndex;
 
   _ActiveAccount2({
     required this.coin,
@@ -138,6 +155,8 @@ abstract class _ActiveAccount2 with Store {
     required this.name,
     required this.address,
     required this.canPay,
+    this.walletId = '',
+    this.accountIndex = 0,
   })  : notes = Notes(),
         txs = Txs(),
         messages = Messages();
@@ -175,8 +194,11 @@ abstract class _ActiveAccount2 with Store {
   Future<void> updateBalance() async {
     if (id == 0) return;
     try {
-      final balance = await WalletService.instance.getBalance();
+      final ws = WalletService.instance;
+      final balance = await ws.getAccountBalance(accountIndex)
+          .catchError((_) => ws.getBalance());
       poolBalances = PoolBalance.fromRust(balance);
+      logger.d('[AA] updateBalance: confirmed=${poolBalances.confirmed} unconfirmed=${poolBalances.unconfirmed}');
     } catch (e) {
       logger.e('updateBalance error: $e');
     }
@@ -199,12 +221,21 @@ abstract class _ActiveAccount2 with Store {
   Future<void> updateTransactions() async {
     if (id == 0) return;
     try {
+      // Use aa.height if set; otherwise fetch from wallet so confirmations are correct
+      var latestHeight = height;
+      if (latestHeight <= 0) {
+        try {
+          latestHeight = await WalletService.instance.getWalletSyncedHeight();
+        } catch (_) {}
+      }
+      final h = latestHeight > 0 ? latestHeight : null;
+
       final records = await WalletService.instance.getTransactions();
       txs.items = records.map((r) {
         final timestamp =
             DateTime.fromMillisecondsSinceEpoch(r.timestamp.toInt() * 1000);
         return Tx.from(
-          height,
+          h,
           0,
           r.height,
           timestamp,
@@ -215,8 +246,11 @@ abstract class _ActiveAccount2 with Store {
           null,
           null,
           [],
+          kind: r.kind,
+          rawValue: r.rawValue.toDouble() / ZECUNIT,
         );
       }).toList();
+      logger.d('[AA] updateTransactions: ${txs.items.length} txs loaded');
     } catch (e) {
       logger.e('updateTransactions error: $e');
     }
@@ -246,7 +280,7 @@ abstract class _Notes with Store {
 
   @action
   void read(int? height) {
-    // Notes are not yet available from zingolib's direct API
+    // Notes are not yet available from the engine's direct API
     // Will be populated when we add note-level querying
   }
 

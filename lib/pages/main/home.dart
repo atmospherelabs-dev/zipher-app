@@ -6,6 +6,7 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import '../../services/wallet_service.dart';
+import '../../services/wallet_registry.dart';
 
 import '../../generated/intl/messages.dart';
 import '../../appsettings.dart';
@@ -17,7 +18,7 @@ import '../../services/near_intents.dart';
 import '../accounts/send.dart';
 import '../accounts/split.dart';
 import '../scan.dart';
-import '../tx.dart' show getShieldAmount;
+import '../tx.dart';
 import '../utils.dart';
 import 'sync_status.dart';
 
@@ -157,7 +158,7 @@ class _HomeState extends State<HomePageInner> {
   Future<void> _onRefresh() async {
     if (syncStatus2.syncing) return;
     if (syncStatus2.paused) syncStatus2.setPause(false);
-    syncStatus2.sync(false);
+    syncStatus2.sync();
     await Future.delayed(const Duration(milliseconds: 800));
   }
 
@@ -1026,14 +1027,13 @@ class _TxRowState extends State<_TxRow> {
   @override
   Widget build(BuildContext context) {
     final isIncoming = tx.value > 0;
+    final isPending = tx.height <= 0;
     final memo = tx.memo ?? '';
     final isSwapDeposit = swapInfo != null && !isIncoming;
 
     // Detect shielding: self-transfer (no address) or our auto-shield memo
     final isShielding = !isSwapDeposit &&
-        ((tx.value <= 0 &&
-            (tx.address == null || tx.address!.isEmpty)) ||
-        memo.contains('Auto-shield'));
+        (tx.kind == 'shield' || tx.kind == 'send-to-self');
 
     // Check for message content: raw memo or outgoing cache
     final bool isMessage = !isSwapDeposit &&
@@ -1080,16 +1080,7 @@ class _TxRowState extends State<_TxRow> {
 
     final timeStr = timeago.format(tx.timestamp);
 
-    // For shielding, try memo first, then CipherScan as fallback
-    double? shieldedAmount;
-    if (isShielding) {
-      final match = RegExp(r'Auto-shield ([\d.,]+) ZEC').firstMatch(memo);
-      if (match != null) {
-        shieldedAmount = double.tryParse(match.group(1)!.replaceAll(',', '.'));
-      }
-      shieldedAmount ??= getShieldAmount(tx.fullTxId,
-          onLoaded: () { if (mounted) setState(() {}); });
-    }
+    final shieldedAmount = isShielding && tx.rawValue > 0 ? tx.rawValue : null;
 
     final String amountStr;
     if (isSwapDeposit) {
@@ -1097,7 +1088,7 @@ class _TxRowState extends State<_TxRow> {
       final sym = swapInfo!.toCurrency;
       final isZecDest = sym.toUpperCase() == 'ZEC' || sym.toUpperCase() == 'TAZ';
       amountStr = '${raw.toStringAsFixed(isZecDest ? 4 : 2)} $sym';
-    } else if (isShielding && shieldedAmount != null) {
+    } else if (shieldedAmount != null) {
       amountStr = '${decimalToString(shieldedAmount)} ZEC';
     } else if (isShielding) {
       amountStr = '···';
@@ -1207,7 +1198,36 @@ class _TxRowState extends State<_TxRow> {
                         ),
                       ),
                       const Gap(2),
-                      if (isSwapDeposit && swapStatusLabel != null)
+                      if (isPending && !isSwapDeposit)
+                        Row(
+                          children: [
+                            SizedBox(
+                              width: 10, height: 10,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                color: ZipherColors.orange.withValues(alpha: 0.8),
+                              ),
+                            ),
+                            const Gap(5),
+                            Text(
+                              'Pending',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: ZipherColors.orange.withValues(alpha: 0.9),
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              timeStr,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: ZipherColors.text40,
+                              ),
+                            ),
+                          ],
+                        )
+                      else if (isSwapDeposit && swapStatusLabel != null)
                         Row(
                           children: [
                             Container(
@@ -1306,24 +1326,21 @@ class _AccountSwitcherSheet extends StatefulWidget {
 }
 
 class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
-  late List<Account> accounts;
+  List<FlatAccount> _accounts = [];
   int? _editingIndex;
   final _nameController = TextEditingController();
-  Map<String, String> _emojis = {};
+  bool _switching = false;
 
   @override
   void initState() {
     super.initState();
-    accounts = getAllAccounts();
-    _loadEmojis();
+    _loadAccounts();
   }
 
-  Future<void> _loadEmojis() async {
-    final map = await AccountEmojiStore.loadAll();
-    if (mounted) setState(() => _emojis = map);
+  Future<void> _loadAccounts() async {
+    final accounts = await WalletRegistry.instance.getAllVisibleAccounts();
+    if (mounted) setState(() => _accounts = accounts);
   }
-
-  String? _emojiFor(Account a) => _emojis['${a.coin}_${a.id}'];
 
   @override
   void dispose() {
@@ -1333,9 +1350,12 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final activeWalletId = WalletService.instance.activeWalletId;
+    int activeAccountIndex;
+    try { activeAccountIndex = aa.accountIndex; } catch (_) { activeAccountIndex = 0; }
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.6,
+        maxHeight: MediaQuery.of(context).size.height * 0.65,
       ),
       decoration: BoxDecoration(
         color: ZipherColors.bg,
@@ -1393,7 +1413,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                             color: ZipherColors.cyan.withValues(alpha: 0.7)),
                         const Gap(5),
                         Text(
-                          'Add',
+                          'Add Account',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
@@ -1414,198 +1434,200 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
             indent: 20,
             endIndent: 20,
           ),
-          Flexible(
-            child: ListView.builder(
-              shrinkWrap: true,
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
-              itemCount: accounts.length,
-              itemBuilder: (context, index) {
-                final a = accounts[index];
-                final isActive = a.coin == aa.coin && a.id == aa.id;
-                final isEditing = _editingIndex == index;
+          if (_switching)
+            Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                children: [
+                  SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: ZipherColors.cyan,
+                    ),
+                  ),
+                  const Gap(12),
+                  Text(
+                    'Switching account...',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: ZipherColors.text40,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+                itemCount: _accounts.length,
+                itemBuilder: (context, index) {
+                  final fa = _accounts[index];
+                  final isActive = fa.walletId == activeWalletId &&
+                      fa.accountIndex == activeAccountIndex;
+                  final isEditing = _editingIndex == index;
 
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: isEditing ? null : () => _switchTo(a),
-                      onLongPress: () => _startEditing(index, a),
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: isActive
-                              ? ZipherColors.cardBgElevated
-                              : ZipherColors.cardBg,
-                          borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                          border: Border.all(
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: isEditing
+                            ? null
+                            : () => _switchToAccount(fa),
+                        onLongPress: () => _startEditing(index, fa),
+                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
                             color: isActive
-                                ? ZipherColors.cyan.withValues(alpha: 0.10)
-                                : ZipherColors.borderSubtle,
+                                ? ZipherColors.cardBgElevated
+                                : ZipherColors.cardBg,
+                            borderRadius:
+                                BorderRadius.circular(ZipherRadius.lg),
+                            border: Border.all(
+                              color: isActive
+                                  ? ZipherColors.cyan.withValues(alpha: 0.10)
+                                  : ZipherColors.borderSubtle,
+                            ),
                           ),
-                        ),
-                        child: Row(
-                          children: [
-                            GestureDetector(
-                              onTap: isEditing
-                                  ? () => _pickEmoji(a)
-                                  : null,
-                              child: Container(
+                          child: Row(
+                            children: [
+                              Container(
                                 width: 36,
                                 height: 36,
                                 decoration: BoxDecoration(
                                   color: isActive
-                                      ? ZipherColors.cyan
-                                          .withValues(alpha: 0.10)
+                                      ? ZipherColors.cyan.withValues(alpha: 0.10)
                                       : ZipherColors.cardBg,
                                   borderRadius: BorderRadius.circular(ZipherRadius.md),
-                                  border: isEditing
-                                      ? Border.all(
-                                          color: ZipherColors.cyan
-                                              .withValues(alpha: 0.2),
-                                          width: 1.5,
-                                        )
-                                      : null,
                                 ),
                                 child: Center(
-                                  child: _emojiFor(a) != null
-                                      ? Text(
-                                          _emojiFor(a)!,
-                                          style: const TextStyle(fontSize: 18),
-                                        )
-                                      : Text(
-                                          (a.name ?? '?')[0].toUpperCase(),
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w700,
-                                            color: isActive
-                                                ? ZipherColors.cyan
-                                                    .withValues(alpha: 0.7)
-                                                : ZipherColors.text20,
-                                          ),
-                                        ),
+                                  child: Icon(
+                                    Icons.account_circle_rounded,
+                                    size: 18,
+                                    color: isActive
+                                        ? ZipherColors.cyan.withValues(alpha: 0.7)
+                                        : ZipherColors.text20,
+                                  ),
                                 ),
                               ),
-                            ),
-                            const Gap(12),
-                            Expanded(
-                              child: isEditing
-                                  ? Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 12, vertical: 10),
-                                      decoration: BoxDecoration(
-                                        color: ZipherColors.borderSubtle,
-                                        borderRadius:
-                                            BorderRadius.circular(ZipherRadius.md),
-                                      ),
-                                      child: TextField(
-                                        controller: _nameController,
-                                        autofocus: true,
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w500,
-                                          color: ZipherColors.text90,
+                              const Gap(12),
+                              Expanded(
+                                child: isEditing
+                                    ? Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: ZipherColors.borderSubtle,
+                                          borderRadius: BorderRadius.circular(ZipherRadius.md),
                                         ),
-                                        decoration: InputDecoration(
-                                          isDense: true,
-                                          filled: false,
-                                          border: InputBorder.none,
-                                          hintText: 'Account name',
-                                          hintStyle: TextStyle(
-                                            fontSize: 14,
-                                            color: ZipherColors.text20,
-                                          ),
-                                          contentPadding: EdgeInsets.zero,
-                                        ),
-                                        onSubmitted: (v) => _rename(a, v),
-                                      ),
-                                    )
-                                  : Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          a.name ?? 'Account',
+                                        child: TextField(
+                                          controller: _nameController,
+                                          autofocus: true,
                                           style: TextStyle(
                                             fontSize: 14,
                                             fontWeight: FontWeight.w500,
                                             color: ZipherColors.text90,
                                           ),
+                                          decoration: InputDecoration(
+                                            isDense: true,
+                                            filled: false,
+                                            border: InputBorder.none,
+                                            hintText: 'Account name',
+                                            hintStyle: TextStyle(
+                                              fontSize: 14,
+                                              color: ZipherColors.text20,
+                                            ),
+                                            contentPadding: EdgeInsets.zero,
+                                          ),
+                                          onSubmitted: (v) => _renameAccount(fa, v),
                                         ),
-                                        if (isActive)
+                                      )
+                                    : Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
                                           Text(
-                                            'Active',
+                                            fa.displayName,
                                             style: TextStyle(
-                                              fontSize: 10,
+                                              fontSize: 14,
                                               fontWeight: FontWeight.w500,
-                                              color: ZipherColors.green
-                                                  .withValues(alpha: 0.5),
+                                              color: ZipherColors.text90,
                                             ),
                                           ),
-                                      ],
+                                          if (isActive)
+                                            Text(
+                                              'Active',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w500,
+                                                color: ZipherColors.green.withValues(alpha: 0.5),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                              ),
+                              Text(
+                                isActive
+                                    ? '${_liveBalance()} ZEC'
+                                    : '${amountToString2(fa.lastBalance)} ZEC',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: ZipherColors.text40,
+                                ),
+                              ),
+                              if (isEditing) ...[
+                                const Gap(10),
+                                GestureDetector(
+                                  onTap: () => _removeAccount(fa, index),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: ZipherColors.red.withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(ZipherRadius.sm),
                                     ),
-                            ),
-                            Text(
-                              '${_accountBalance(a)} ZEC',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: ZipherColors.text40,
-                              ),
-                            ),
-                            if (isEditing) ...[
-                              const Gap(10),
-                              GestureDetector(
-                                onTap: () => _delete(a, index),
-                                child: Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: ZipherColors.red
-                                        .withValues(alpha: 0.08),
-                                    borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                                  ),
-                                  child: Icon(
-                                    Icons.delete_outline_rounded,
-                                    size: 16,
-                                    color: ZipherColors.red
-                                        .withValues(alpha: 0.5),
+                                    child: Icon(
+                                      Icons.remove_circle_outline_rounded,
+                                      size: 16,
+                                      color: ZipherColors.red.withValues(alpha: 0.5),
+                                    ),
                                   ),
                                 ),
-                              ),
-                              const Gap(4),
-                              GestureDetector(
-                                onTap: () =>
-                                    setState(() => _editingIndex = null),
-                                child: Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: ZipherColors.cardBg,
-                                    borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                                  ),
-                                  child: Icon(
-                                    Icons.close_rounded,
-                                    size: 16,
-                                    color: ZipherColors.text20,
+                                const Gap(4),
+                                GestureDetector(
+                                  onTap: () => setState(() => _editingIndex = null),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: ZipherColors.cardBg,
+                                      borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                                    ),
+                                    child: Icon(
+                                      Icons.close_rounded,
+                                      size: 16,
+                                      color: ZipherColors.text20,
+                                    ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
-          ),
-          // Long press hint
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
             child: Text(
-              'Long press to rename or delete',
+              'Long press to rename or remove',
               style: TextStyle(
                 fontSize: 10,
                 color: ZipherColors.text40,
@@ -1617,100 +1639,498 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
     );
   }
 
-  String _accountBalance(Account a) {
-    // For the active account, use live synced balance
-    if (a.coin == aa.coin && a.id == aa.id) {
-      final total = aa.poolBalances.transparent +
-          aa.poolBalances.sapling +
-          aa.poolBalances.orchard;
-      return amountToString2(total);
+  String _liveBalance() {
+    final total = aa.poolBalances.transparent +
+        aa.poolBalances.sapling +
+        aa.poolBalances.orchard;
+    return amountToString2(total);
+  }
+
+  void _switchToAccount(FlatAccount fa) async {
+    final ws = WalletService.instance;
+
+    // Already on this account
+    if (fa.walletId == ws.activeWalletId && fa.accountIndex == aa.accountIndex) {
+      Navigator.of(context).pop();
+      return;
     }
-    return amountToString2(a.balance);
+
+    setState(() => _switching = true);
+    try {
+      if (fa.walletId != ws.activeWalletId) {
+        // Cross-seed switch: close current wallet, open new one
+        await ws.switchWallet(fa.walletId);
+        syncStatus2.resetForWalletSwitch();
+      }
+
+      final profile = await WalletRegistry.instance.getById(fa.walletId);
+
+      aa = ActiveAccount2(
+        coin: activeCoin.coin,
+        id: 1,
+        name: fa.displayName,
+        address: '',
+        canPay: true,
+        walletId: fa.walletId,
+        accountIndex: fa.accountIndex,
+      );
+
+      // Use cached balance from registry for instant display while loading
+      if (profile != null && profile.lastBalance > 0) {
+        aa.poolBalances = PoolBalance(orchard: profile.lastBalance);
+      }
+
+      // Load full state (balance, txs, address) from the opened wallet
+      await aa.update(null);
+
+      aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+      if (mounted) Navigator.of(context).pop();
+      widget.onAccountChanged();
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to switch account: $e'),
+          ),
+        );
+      }
+    }
   }
 
-  void _switchTo(Account a) async {
+  void _addAccount() {
     Navigator.of(context).pop();
-    // With single-wallet zingolib, switching accounts is a no-op for now
-    widget.onAccountChanged();
-  }
-
-  void _addAccount() async {
-    Navigator.of(context).pop();
-    await GoRouter.of(context).push('/more/account_manager/new');
-    contacts.fetchContacts();
-    widget.onAccountChanged();
-  }
-
-  void _pickEmoji(Account a) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: ZipherColors.bg,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => _EmojiPickerSheet(
-        onSelected: (emoji) async {
-          Navigator.of(context).pop();
-          await AccountEmojiStore.set(a.coin, a.id, emoji);
-          await _loadEmojis();
-        },
-        onClear: () async {
-          Navigator.of(context).pop();
-          await AccountEmojiStore.remove(a.coin, a.id);
-          await _loadEmojis();
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _AddAccountSheet(
+        onDone: () {
+          _loadAccounts();
+          widget.onAccountChanged();
         },
       ),
     );
   }
 
-  void _startEditing(int index, Account a) {
-    _nameController.text = a.name ?? '';
+  void _startEditing(int index, FlatAccount fa) {
+    _nameController.text = fa.displayName;
     setState(() => _editingIndex = index);
   }
 
-  void _rename(Account a, String name) {
-    if (name.isNotEmpty) {
-      // TODO: persist account name in local storage
+  void _renameAccount(FlatAccount fa, String name) async {
+    if (name.isNotEmpty && name != fa.displayName) {
+      await WalletRegistry.instance.rename(fa.walletId, name);
+      if (fa.walletId == WalletService.instance.activeWalletId) {
+        aa.name = name;
+      }
     }
-    setState(() {
-      _editingIndex = null;
-      accounts = getAllAccounts();
-    });
-    if (a.coin == aa.coin && a.id == aa.id) {
-      widget.onAccountChanged();
+    setState(() => _editingIndex = null);
+    await _loadAccounts();
+    widget.onAccountChanged();
+  }
+
+  void _removeAccount(FlatAccount fa, int index) async {
+    // Check if this is the last visible account in its seed group
+    final profile = await WalletRegistry.instance.getById(fa.walletId);
+    if (profile == null) return;
+    final visibleCount = profile.visibleAccounts.length;
+
+    if (visibleCount <= 1) {
+      // Last account in seed group -- prompt to remove entire seed
+      final confirmed = await showConfirmDialog(
+        context,
+        'Remove "${fa.displayName}"?',
+        'This is the last account from this seed. '
+            'Removing it will delete the seed from this device. '
+            'Make sure you have your seed phrase backed up.',
+        isDanger: true,
+      );
+      if (confirmed) {
+        if (fa.walletId == WalletService.instance.activeWalletId) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Cannot remove the active account. Switch first.'),
+              backgroundColor: ZipherColors.surface,
+            ),
+          );
+          return;
+        }
+        await WalletService.instance.deleteWalletById(fa.walletId);
+      }
+    } else {
+      // Hide the derived account
+      final confirmed = await showConfirmDialog(
+        context,
+        'Remove "${fa.displayName}"?',
+        'This account will be hidden. You can re-add it later by deriving from the same seed.',
+      );
+      if (confirmed) {
+        await WalletRegistry.instance.hideAccount(fa.walletId, fa.accountIndex);
+        // If it's the active account, switch to the first visible one in the same seed
+        if (fa.walletId == WalletService.instance.activeWalletId &&
+            fa.accountIndex == aa.accountIndex) {
+          final remaining = profile.visibleAccounts
+              .where((a) => a.accountIndex != fa.accountIndex)
+              .toList();
+          if (remaining.isNotEmpty) {
+            final next = remaining.first;
+            final balance = await WalletService.instance.getAccountBalance(next.accountIndex);
+            final addrs = await WalletService.instance.getAddresses();
+            aa = ActiveAccount2.fromWallet(
+              coin: activeCoin.coin,
+              address: addrs.isNotEmpty ? addrs.first.address : '',
+              balance: balance,
+              walletName: next.name,
+              walletId: fa.walletId,
+              accountIndex: next.accountIndex,
+            );
+            aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+          }
+        }
+      }
+    }
+    setState(() => _editingIndex = null);
+    await _loadAccounts();
+    widget.onAccountChanged();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ADD ACCOUNT SHEET
+// ═══════════════════════════════════════════════════════════
+
+class _AddAccountSheet extends StatefulWidget {
+  final VoidCallback onDone;
+  const _AddAccountSheet({required this.onDone});
+
+  @override
+  State<_AddAccountSheet> createState() => _AddAccountSheetState();
+}
+
+class _AddAccountSheetState extends State<_AddAccountSheet> {
+  List<WalletProfile> _wallets = [];
+  bool _loading = true;
+  bool _deriving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final wallets = await WalletRegistry.instance.getAll();
+    if (mounted) setState(() { _wallets = wallets; _loading = false; });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: ZipherColors.bg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        border: Border(
+          top: BorderSide(color: ZipherColors.borderSubtle, width: 0.5),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Gap(10),
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: ZipherColors.cardBgElevated,
+              borderRadius: BorderRadius.circular(ZipherRadius.xxs),
+            ),
+          ),
+          const Gap(16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Add Account',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: ZipherColors.text60,
+                ),
+              ),
+            ),
+          ),
+          const Gap(14),
+          Divider(
+            height: 1,
+            color: ZipherColors.cardBg,
+            indent: 20,
+            endIndent: 20,
+          ),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else if (_deriving)
+            Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                children: [
+                  SizedBox(
+                    width: 24, height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2, color: ZipherColors.cyan,
+                    ),
+                  ),
+                  const Gap(12),
+                  Text('Creating account...', style: TextStyle(
+                    fontSize: 13, color: ZipherColors.text40,
+                  )),
+                ],
+              ),
+            )
+          else ...[
+            if (_wallets.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Derive from existing seed',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: ZipherColors.text40,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ),
+              ..._wallets.map((w) {
+                final accountNames = w.visibleAccounts
+                    .map((a) => a.name)
+                    .join(', ');
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _deriveFromSeed(w),
+                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: ZipherColors.cardBg,
+                          borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                          border: Border.all(color: ZipherColors.borderSubtle),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36, height: 36,
+                              decoration: BoxDecoration(
+                                color: ZipherColors.cardBgElevated,
+                                borderRadius: BorderRadius.circular(ZipherRadius.md),
+                              ),
+                              child: Center(
+                                child: Icon(
+                                  Icons.account_tree_rounded,
+                                  size: 16,
+                                  color: ZipherColors.text20,
+                                ),
+                              ),
+                            ),
+                            const Gap(12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    w.name,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                      color: ZipherColors.text90,
+                                    ),
+                                  ),
+                                  Text(
+                                    accountNames,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: ZipherColors.text40,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.add_rounded,
+                              size: 18,
+                              color: ZipherColors.cyan.withValues(alpha: 0.5),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+              const Gap(10),
+              Divider(
+                height: 1,
+                color: ZipherColors.cardBg,
+                indent: 20,
+                endIndent: 20,
+              ),
+            ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Or start fresh',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: ZipherColors.text40,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ),
+            _buildOptionTile(
+              icon: Icons.fiber_new_rounded,
+              label: 'Create new seed',
+              subtitle: 'Generate a brand new account',
+              onTap: _createNew,
+            ),
+            _buildOptionTile(
+              icon: Icons.download_rounded,
+              label: 'Import existing seed',
+              subtitle: 'Restore from a seed phrase',
+              onTap: _importExisting,
+            ),
+          ],
+          const Gap(16),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOptionTile({
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(ZipherRadius.lg),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: ZipherColors.cardBg,
+              borderRadius: BorderRadius.circular(ZipherRadius.lg),
+              border: Border.all(color: ZipherColors.borderSubtle),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(
+                    color: ZipherColors.cardBgElevated,
+                    borderRadius: BorderRadius.circular(ZipherRadius.md),
+                  ),
+                  child: Center(child: Icon(icon, size: 16, color: ZipherColors.text20)),
+                ),
+                const Gap(12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(label, style: TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w500, color: ZipherColors.text90,
+                      )),
+                      Text(subtitle, style: TextStyle(
+                        fontSize: 11, color: ZipherColors.text40,
+                      )),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, size: 18, color: ZipherColors.text20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deriveFromSeed(WalletProfile w) async {
+    setState(() => _deriving = true);
+    try {
+      final ws = WalletService.instance;
+
+      // If this seed isn't the active wallet, switch to it first
+      if (w.id != ws.activeWalletId) {
+        await ws.switchWallet(w.id);
+      }
+
+      // Create the new account in Rust
+      final newIndex = await ws.createAccount();
+
+      // Check if a hidden account at this index exists, and unhide it
+      final existing = w.accountAt(newIndex);
+      if (existing != null && existing.isHidden) {
+        await WalletRegistry.instance.unhideAccount(w.id, newIndex);
+      } else {
+        await WalletRegistry.instance.addAccount(w.id,
+            name: 'Account ${newIndex + 1}');
+      }
+
+      // Switch active account to the new one
+      final balance = await ws.getAccountBalance(newIndex);
+      final addrs = await ws.getAddresses();
+      aa = ActiveAccount2.fromWallet(
+        coin: activeCoin.coin,
+        address: addrs.isNotEmpty ? addrs.first.address : '',
+        balance: balance,
+        walletName: 'Account ${newIndex + 1}',
+        walletId: w.id,
+        accountIndex: newIndex,
+      );
+      aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+
+      if (mounted) Navigator.of(context).pop();
+      widget.onDone();
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to create account: $e'),
+          ),
+        );
+      }
     }
   }
 
-  void _delete(Account a, int index) async {
-    final s = S.of(context);
-    if (accounts.length <= 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Cannot delete the only account'),
-          backgroundColor: ZipherColors.surface,
-        ),
-      );
-      return;
-    }
-    if (a.coin == aa.coin && a.id == aa.id) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(s.cannotDeleteActive),
-          backgroundColor: ZipherColors.surface,
-        ),
-      );
-      return;
-    }
-    final confirmed = await showConfirmDialog(
-        context, s.deleteAccount(a.name!), s.confirmDeleteAccount,
-        isDanger: true);
-    if (confirmed) {
-      // TODO: implement account deletion
-      setState(() {
-        _editingIndex = null;
-        accounts = getAllAccounts();
-      });
-    }
+  void _createNew() {
+    Navigator.of(context).pop();
+    GoRouter.of(context).push('/disclaimer', extra: 'create');
+  }
+
+  void _importExisting() {
+    Navigator.of(context).pop();
+    GoRouter.of(context).push('/restore');
   }
 }
 

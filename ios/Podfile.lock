@@ -63,6 +63,8 @@ PODS:
   - quick_actions_ios (0.0.1):
     - Flutter
   - ReachabilitySwift (5.2.4)
+  - rust_lib_zipher (0.0.1):
+    - Flutter
   - screen_protector (1.5.1):
     - Flutter
     - ScreenProtectorKit (= 1.5.1)
@@ -82,8 +84,6 @@ PODS:
   - SwiftyGif (5.4.5)
   - url_launcher_ios (0.0.1):
     - Flutter
-  - warp_api (0.0.1):
-    - Flutter
   - workmanager (0.0.1):
     - Flutter
 
@@ -102,13 +102,13 @@ DEPENDENCIES:
   - network_info_plus (from `.symlinks/plugins/network_info_plus/ios`)
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
   - quick_actions_ios (from `.symlinks/plugins/quick_actions_ios/ios`)
+  - rust_lib_zipher (from `.symlinks/plugins/rust_lib_zipher/ios`)
   - screen_protector (from `.symlinks/plugins/screen_protector/ios`)
   - sensors_plus (from `.symlinks/plugins/sensors_plus/ios`)
   - share_plus (from `.symlinks/plugins/share_plus/ios`)
   - shared_preferences_ios (from `.symlinks/plugins/shared_preferences_ios/ios`)
   - sqflite_darwin (from `.symlinks/plugins/sqflite_darwin/darwin`)
   - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
-  - warp_api (from `.symlinks/plugins/warp_api/ios`)
   - workmanager (from `.symlinks/plugins/workmanager/ios`)
 
 SPEC REPOS:
@@ -149,6 +149,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/path_provider_foundation/darwin"
   quick_actions_ios:
     :path: ".symlinks/plugins/quick_actions_ios/ios"
+  rust_lib_zipher:
+    :path: ".symlinks/plugins/rust_lib_zipher/ios"
   screen_protector:
     :path: ".symlinks/plugins/screen_protector/ios"
   sensors_plus:
@@ -161,8 +163,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/sqflite_darwin/darwin"
   url_launcher_ios:
     :path: ".symlinks/plugins/url_launcher_ios/ios"
-  warp_api:
-    :path: ".symlinks/plugins/warp_api/ios"
   workmanager:
     :path: ".symlinks/plugins/workmanager/ios"
 
@@ -189,6 +189,7 @@ SPEC CHECKSUMS:
   path_provider_foundation: 2b6b4c569c0fb62ec74538f866245ac84301af46
   quick_actions_ios: 56f3cbaa71e94f212838d1f9fe354bd0734779bf
   ReachabilitySwift: 32793e867593cfc1177f5d16491e3a197d2fccda
+  rust_lib_zipher: fc7af29efbfe680a644a7715796c5283661c4f9d
   screen_protector: 585e4a9744efa35ec4ba9a6877b22e46b8d48987
   ScreenProtectorKit: 6ceb3e0808341a9bc15d175bff40dfdd4b32da71
   SDWebImage: 1bb6a1b84b6fe87b972a102bdc77dd589df33477
@@ -198,7 +199,6 @@ SPEC CHECKSUMS:
   sqflite_darwin: 5a7236e3b501866c1c9befc6771dfd73ffb8702d
   SwiftyGif: 706c60cf65fa2bc5ee0313beece843c8eb8194d4
   url_launcher_ios: 5334b05cef931de560670eeae103fd3e431ac3fe
-  warp_api: b9a09ffdbbf563c11bbac12f71070e339769258c
   workmanager: 0afdcf5628bbde6924c21af7836fed07b42e30e6
 
 PODFILE CHECKSUM: af326bba6e7fbf108b4c22ee0d31ddfa675a7649
