@@ -186,7 +186,7 @@ pub fn init_app() {
     #[cfg(not(debug_assertions))]
     {
         let _ = tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::WARN)
+            .with_max_level(tracing::Level::INFO)
             .try_init();
     }
     flutter_rust_bridge::setup_default_user_utils();

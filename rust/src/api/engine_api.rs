@@ -228,14 +228,15 @@ pub async fn engine_clear_inactive_wallets() -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Step 1: Create a proposal and return exact fee info.
-/// Returns (send_amount, fee, is_exact_fee).
+/// When `is_max` is true, `amount` is ignored and the SDK computes the max sendable.
 pub async fn engine_propose_send(
     address: String,
     amount: u64,
     memo: Option<String>,
+    is_max: bool,
 ) -> Result<ProposalResult> {
     let (send_amount, fee, is_exact) =
-        engine::send::propose_send(&address, amount, memo).await?;
+        engine::send::propose_send(&address, amount, memo, is_max).await?;
     Ok(ProposalResult {
         send_amount,
         fee,

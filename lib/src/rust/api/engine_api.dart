@@ -135,11 +135,14 @@ Future<void> engineClearInactiveWallets() =>
     RustLib.instance.api.crateApiEngineApiEngineClearInactiveWallets();
 
 /// Step 1: Create a proposal and return exact fee info.
-/// Returns (send_amount, fee, is_exact_fee).
+/// When `is_max` is true, `amount` is ignored and the SDK computes the max sendable.
 Future<ProposalResult> engineProposeSend(
-        {required String address, required BigInt amount, String? memo}) =>
+        {required String address,
+        required BigInt amount,
+        String? memo,
+        required bool isMax}) =>
     RustLib.instance.api.crateApiEngineApiEngineProposeSend(
-        address: address, amount: amount, memo: memo);
+        address: address, amount: amount, memo: memo, isMax: isMax);
 
 /// Step 2: Confirm and broadcast the previously proposed transaction.
 Future<String> engineConfirmSend({required String seedPhrase}) =>

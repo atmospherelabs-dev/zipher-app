@@ -736,16 +736,18 @@ class WalletService {
   }
 
   /// Step 1: Create a proposal and return exact fee info.
-  /// Returns (sendAmount, fee, isExact).
+  /// When [isMax] is true, [amount] is ignored and the SDK computes the max.
   Future<({int sendAmount, int fee, bool isExact})> proposeSend(
     String address,
     int amount, {
     String? memo,
+    bool isMax = false,
   }) async {
     final result = await rust_engine.engineProposeSend(
       address: address,
       amount: BigInt.from(amount),
       memo: memo,
+      isMax: isMax,
     );
     return (
       sendAmount: result.sendAmount.toInt(),

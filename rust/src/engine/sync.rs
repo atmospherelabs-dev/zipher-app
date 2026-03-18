@@ -96,8 +96,8 @@ pub async fn start() -> Result<()> {
         )
         .await
         {
-            Ok(()) => println!("[engine sync] completed successfully"),
-            Err(e) => println!("[engine sync] error: {:?}", e),
+            Ok(()) => tracing::info!("[engine sync] completed successfully"),
+            Err(e) => tracing::error!("[engine sync] error: {:?}", e),
         }
         SYNC_RUNNING.store(false, Ordering::SeqCst);
         {
@@ -295,7 +295,7 @@ async fn sync_loop_with_retry(
                     return Err(e);
                 }
 
-                println!("[engine sync] error, retrying in {}ms: {}", backoff_ms, msg);
+                tracing::warn!("[engine sync] error, retrying in {}ms: {}", backoff_ms, msg);
                 {
                     let mut p = SYNC_PROGRESS.lock().await;
                     p.connection_error = Some(msg);
@@ -327,13 +327,16 @@ async fn sync_loop(
     server_url: &str,
     db_cipher_key: &Option<String>,
 ) -> Result<()> {
-    println!("[engine sync] starting sync loop");
+    tracing::info!("[engine sync] starting sync loop, server={}", server_url);
 
     let mut db_data = open_wallet_db(db_data_path, params, db_cipher_key)?;
     let db_cache = BlockCache::open(db_cache_path, db_cipher_key)?;
+    tracing::info!("[engine sync] connecting to LWD...");
     let mut lwd = connect_lwd(server_url).await?;
+    tracing::info!("[engine sync] connected, updating subtree roots...");
 
     update_subtree_roots(&mut lwd, &mut db_data).await?;
+    tracing::info!("[engine sync] subtree roots done, entering scan loop");
 
     let batch_size: u32 = 1000;
 
@@ -342,11 +345,13 @@ async fn sync_loop(
             return Err(anyhow::anyhow!("Sync cancelled"));
         }
 
+        tracing::info!("[engine sync] fetching chain tip...");
         let tip = lwd
             .get_latest_block(ChainSpec::default())
             .await
             .map_err(|e| anyhow::anyhow!("get_latest_block: {:?}", e))?;
         let tip_height = BlockHeight::from_u32(tip.into_inner().height as u32);
+        tracing::info!("[engine sync] chain tip = {}", u32::from(tip_height));
 
         db_data
             .update_chain_tip(tip_height)
@@ -358,19 +363,21 @@ async fn sync_loop(
             p.connection_error = None;
         }
 
-        // Refresh transparent UTXOs before shielded scanning
         if let Err(e) = refresh_transparent_utxos(&mut lwd, &mut db_data, &params).await {
-            println!("[engine sync] transparent UTXO refresh warning: {:?}", e);
+            tracing::warn!("[engine sync] transparent UTXO refresh warning: {:?}", e);
         }
 
+        tracing::info!("[engine sync] querying scan ranges...");
         let scan_ranges = db_data
             .suggest_scan_ranges()
             .map_err(|e| anyhow::anyhow!("suggest_scan_ranges: {:?}", e))?;
 
         if scan_ranges.is_empty() {
-            println!("[engine sync] no more ranges to scan, done");
+            tracing::info!("[engine sync] no more ranges to scan, done");
             break;
         }
+
+        tracing::info!("[engine sync] {} scan ranges to process", scan_ranges.len());
 
         let mut any_scanned = false;
 
@@ -385,7 +392,7 @@ async fn sync_loop(
 
             let range_start = range.block_range().start;
             let range_end = range.block_range().end;
-            println!(
+            tracing::info!(
                 "[engine sync] scanning range {:?} priority={:?}",
                 range.block_range(),
                 range.priority()
@@ -402,8 +409,16 @@ async fn sync_loop(
                     range_end,
                 );
 
+                tracing::info!(
+                    "[engine sync] downloading blocks {}..{}",
+                    u32::from(current), u32::from(batch_end)
+                );
                 let chain_state = download_chain_state(&mut lwd, current).await?;
                 let blocks = download_blocks(&mut lwd, current, batch_end).await?;
+                tracing::info!(
+                    "[engine sync] downloaded {} blocks, scanning...",
+                    blocks.len()
+                );
                 if blocks.is_empty() {
                     break;
                 }
@@ -424,18 +439,26 @@ async fn sync_loop(
 
                 match scan_result {
                     Ok(summary) => {
-                        let scanned = u32::from(summary.scanned_range().end)
+                        let scanned_end = u32::from(summary.scanned_range().end);
+                        let scanned = scanned_end
                             - u32::from(summary.scanned_range().start);
-                        println!(
-                            "[engine sync] scanned {} blocks, {} notes found",
-                            scanned,
-                            summary.received_sapling_note_count()
-                                + summary.received_orchard_note_count()
+                        let notes = summary.received_sapling_note_count()
+                            + summary.received_orchard_note_count();
+                        tracing::info!(
+                            "[engine sync] scanned {} blocks up to {}, {} notes found",
+                            scanned, scanned_end, notes
                         );
+
+                        {
+                            let mut p = SYNC_PROGRESS.lock().await;
+                            p.synced_height = scanned_end;
+                        }
+
+                        any_scanned = true;
                     }
                     Err(e) => {
                         let err_str = format!("{:?}", e);
-                        println!("[engine sync] scan error: {}", err_str);
+                        tracing::warn!("[engine sync] scan error: {}", err_str);
 
                         db_cache
                             .clear_range(u32::from(current), u32::from(batch_end))
@@ -450,7 +473,7 @@ async fn sync_loop(
                             || err_str.contains("BlockConflict")
                         {
                             let reorg_height = current - 1;
-                            println!(
+                            tracing::info!(
                                 "[engine sync] reorg detected, truncating to {}",
                                 u32::from(reorg_height)
                             );
@@ -488,7 +511,7 @@ async fn sync_loop(
         }
     }
 
-    println!("[engine sync] sync loop finished");
+    tracing::info!("[engine sync] sync loop finished");
     Ok(())
 }
 
@@ -506,7 +529,7 @@ async fn sync_inactive_wallets(
         return;
     }
 
-    println!("[engine sync] syncing {} inactive wallet(s)", wallets.len());
+    tracing::info!("[engine sync] syncing {} inactive wallet(s)", wallets.len());
 
     for wallet in &wallets {
         if SYNC_CANCEL.load(Ordering::SeqCst) {
@@ -526,7 +549,7 @@ async fn sync_inactive_wallets(
         )
         .await
         {
-            println!(
+            tracing::info!(
                 "[engine sync] inactive wallet {:?} error: {:?}",
                 wallet.db_data_path, e
             );
@@ -636,7 +659,7 @@ async fn update_subtree_roots(
         .await
         .map_err(|e| anyhow::anyhow!("sapling subtree roots: {:?}", e))?;
 
-    println!(
+    tracing::info!(
         "[engine sync] {} sapling subtree roots",
         sapling_roots.len()
     );
@@ -666,7 +689,7 @@ async fn update_subtree_roots(
         .await
         .map_err(|e| anyhow::anyhow!("orchard subtree roots: {:?}", e))?;
 
-    println!(
+    tracing::info!(
         "[engine sync] {} orchard subtree roots",
         orchard_roots.len()
     );
@@ -763,7 +786,7 @@ async fn refresh_transparent_utxos(
             continue;
         }
 
-        println!(
+        tracing::info!(
             "[engine sync] refreshing transparent UTXOs for {:?} from height {} ({} addresses)",
             account_id, start_height, addresses.len()
         );
@@ -800,7 +823,7 @@ async fn refresh_transparent_utxos(
         }
 
         if count > 0 {
-            println!("[engine sync] stored {} transparent UTXOs for {:?}", count, account_id);
+            tracing::info!("[engine sync] stored {} transparent UTXOs for {:?}", count, account_id);
         }
     }
 

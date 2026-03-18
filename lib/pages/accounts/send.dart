@@ -672,15 +672,14 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
   int _sendAmount = 0;
 
   String _cleanError(String raw) {
-    final s = raw.replaceFirst(RegExp(r'^Exception:\s*'), '');
-    if (s.contains('Shield them first') || s.contains('Shield your funds')) {
-      final match = RegExp(r'Your funds.*?shielded address\.').firstMatch(s);
+    final s = raw.replaceFirst(RegExp(r'^(Exception|AnyhowException):\s*'), '');
+    if (s.contains('transparent pool') && s.contains('Shield')) {
+      final match = RegExp(r'Your funds.*?before sending\.').firstMatch(s);
       if (match != null) return match.group(0)!;
     }
     if (s.contains('InsufficientFunds') || s.contains('insufficient funds')) {
       return 'Not enough funds to cover the transaction and network fee.';
     }
-    // Strip stack traces — keep only the meaningful part
     final first = s.split('\n').first.split('Stack backtrace').first.trim();
     if (first.length > 150) return '${first.substring(0, 150)}…';
     return first;
@@ -694,59 +693,28 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
 
   Future<void> _calculateFee() async {
     try {
-      // For MAX sends, use the full spendable as the requested amount.
-      // The SDK proposal will compute the exact fee and the real send amount.
-      final requestAmount = widget.isMax
-          ? widget.spendable
-          : widget.enteredAmount;
-
       final result = await WalletService.instance.proposeSend(
         widget.address,
-        requestAmount,
+        widget.isMax ? 0 : widget.enteredAmount,
         memo: widget.memo,
+        isMax: widget.isMax,
       );
 
       _sendAmount = result.sendAmount;
-      final fee = result.fee;
+      _fee = result.fee;
+      _feeEstimated = !result.isExact;
 
-      if (widget.isMax) {
-        // For MAX, the real sendable is balance minus the exact fee
-        _sendAmount = widget.spendable - fee;
-        if (_sendAmount <= 0) {
-          setState(() {
-            _loading = false;
-            _error = 'Balance too low to cover the network fee.';
-          });
-          return;
-        }
-        // Re-propose with the correct amount so the stored proposal matches
-        final adjusted = await WalletService.instance.proposeSend(
-          widget.address,
-          _sendAmount,
-          memo: widget.memo,
-        );
-        _sendAmount = adjusted.sendAmount;
+      if (!widget.isMax && _sendAmount + _fee > widget.spendable) {
         setState(() {
-          _fee = adjusted.fee;
-          _feeEstimated = !adjusted.isExact;
           _loading = false;
+          _error =
+              'Not enough funds. You need ${amountToString2((_sendAmount + _fee) - widget.spendable)} '
+              'ZEC more to cover the network fee.';
         });
-      } else {
-        if (_sendAmount + fee > widget.spendable) {
-          setState(() {
-            _loading = false;
-            _error =
-                'Not enough funds. You need ${amountToString2((_sendAmount + fee) - widget.spendable)} '
-                'ZEC more to cover the network fee.';
-          });
-          return;
-        }
-        setState(() {
-          _fee = fee;
-          _feeEstimated = !result.isExact;
-          _loading = false;
-        });
+        return;
       }
+
+      setState(() => _loading = false);
     } catch (e) {
       setState(() {
         _loading = false;

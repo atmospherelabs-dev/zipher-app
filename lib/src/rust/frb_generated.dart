@@ -146,7 +146,10 @@ abstract class RustLibApi extends BaseApi {
       String? dbCipherKey});
 
   Future<ProposalResult> crateApiEngineApiEngineProposeSend(
-      {required String address, required BigInt amount, String? memo});
+      {required String address,
+      required BigInt amount,
+      String? memo,
+      required bool isMax});
 
   Future<void> crateApiEngineApiEngineRegisterInactiveWallet(
       {required String dataDir});
@@ -867,13 +870,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @override
   Future<ProposalResult> crateApiEngineApiEngineProposeSend(
-      {required String address, required BigInt amount, String? memo}) {
+      {required String address,
+      required BigInt amount,
+      String? memo,
+      required bool isMax}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(address, serializer);
         sse_encode_u_64(amount, serializer);
         sse_encode_opt_String(memo, serializer);
+        sse_encode_bool(isMax, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
             funcId: 23, port: port_);
       },
@@ -882,7 +889,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         decodeErrorData: sse_decode_AnyhowException,
       ),
       constMeta: kCrateApiEngineApiEngineProposeSendConstMeta,
-      argValues: [address, amount, memo],
+      argValues: [address, amount, memo, isMax],
       apiImpl: this,
     ));
   }
@@ -890,7 +897,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiEngineApiEngineProposeSendConstMeta =>
       const TaskConstMeta(
         debugName: "engine_propose_send",
-        argNames: ["address", "amount", "memo"],
+        argNames: ["address", "amount", "memo", "isMax"],
       );
 
   @override

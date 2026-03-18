@@ -892,6 +892,7 @@ fn wire__crate__api__engine_api__engine_propose_send_impl(
             let api_address = <String>::sse_decode(&mut deserializer);
             let api_amount = <u64>::sse_decode(&mut deserializer);
             let api_memo = <Option<String>>::sse_decode(&mut deserializer);
+            let api_is_max = <bool>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
@@ -900,6 +901,7 @@ fn wire__crate__api__engine_api__engine_propose_send_impl(
                             api_address,
                             api_amount,
                             api_memo,
+                            api_is_max,
                         )
                         .await?;
                         Ok(output_ok)

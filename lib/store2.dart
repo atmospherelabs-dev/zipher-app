@@ -185,11 +185,13 @@ abstract class _SyncStatus2 with Store {
       connectionError = progress.connectionError;
       if (connectionError != null) {
         connected = false;
+        logger.w('[Sync] connection error: $connectionError');
       } else {
         connected = true;
       }
 
       final h = await WalletService.instance.getWalletSyncedHeight();
+      logger.d('[Sync] poll: progress.synced=${progress.syncedHeight} progress.latest=${progress.latestHeight} progress.isSyncing=${progress.isSyncing} walletH=$h localH=$syncedHeight');
       if (h > syncedHeight) {
         syncedHeight = h;
         eta.checkpoint(syncedHeight, DateTime.now());
