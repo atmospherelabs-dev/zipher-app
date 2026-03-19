@@ -47,7 +47,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
   double _rate = 0;
   String _cachedTAddr = '';
 
-  int get _spendableZat => aa.poolBalances.confirmed;
+  int get _spendableZat => aa.poolBalances.shielded;
 
   NearToken get _originToken => _direction == SwapDirection.fromZec ? _zecToken! : _selectedToken!;
   NearToken get _destToken => _direction == SwapDirection.fromZec ? _selectedToken! : _zecToken!;
