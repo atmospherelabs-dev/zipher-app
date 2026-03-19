@@ -692,6 +692,42 @@ class _TxRowState extends State<_TxRow> {
                       ),
                     ),
                   ],
+                  if (!isSwapDeposit && (tx.height <= 0 || tx.expiredUnmined)) ...[
+                    const Gap(6),
+                    Builder(builder: (_) {
+                      final isFailed = tx.expiredUnmined;
+                      final badgeColor = isFailed ? ZipherColors.red : ZipherColors.orange;
+                      final badgeLabel = isFailed ? 'Failed' : 'Pending';
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: badgeColor.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 5, height: 5,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: badgeColor,
+                              ),
+                            ),
+                            const Gap(4),
+                            Text(
+                              badgeLabel,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: badgeColor.withValues(alpha: 0.9),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
                   const Spacer(),
                   Text(
                     dateStr,
@@ -1151,21 +1187,28 @@ class TransactionState extends State<TransactionPage> {
       ),
       child: Column(
         children: [
-          if (tx.confirmations != null) ...[
-            _DetailRow(
+          Builder(builder: (_) {
+            final String statusText;
+            final Color statusColor;
+            if (tx.expiredUnmined) {
+              statusText = 'Failed';
+              statusColor = ZipherColors.red.withValues(alpha: 0.8);
+            } else if (tx.height > 0) {
+              statusText = 'Confirmed';
+              statusColor = ZipherColors.green.withValues(alpha: 0.8);
+            } else {
+              statusText = 'Pending';
+              statusColor = ZipherColors.orange.withValues(alpha: 0.9);
+            }
+            return _DetailRow(
               label: 'Status',
               child: Text(
-                tx.confirmations! >= 1 ? 'Confirmed' : 'Pending',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: tx.confirmations! >= 1
-                      ? ZipherColors.green.withValues(alpha: 0.8)
-                      : ZipherColors.orange.withValues(alpha: 0.9),
-                ),
+                statusText,
+                style: TextStyle(fontSize: 13, color: statusColor),
               ),
-            ),
-            _detailDivider(),
-          ],
+            );
+          }),
+          _detailDivider(),
 
           // From / Sent to — show "Private" for shielded, address for transparent
           Builder(builder: (context) {

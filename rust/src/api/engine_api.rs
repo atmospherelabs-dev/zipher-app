@@ -193,6 +193,7 @@ pub async fn engine_get_sync_progress() -> Result<EngineSyncProgress> {
         latest_height: p.latest_height,
         is_syncing: p.is_syncing,
         connection_error: p.connection_error,
+        scanning_up_to: p.scanning_up_to,
     })
 }
 
@@ -202,6 +203,7 @@ pub struct EngineSyncProgress {
     pub latest_height: u32,
     pub is_syncing: bool,
     pub connection_error: Option<String>,
+    pub scanning_up_to: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -297,4 +299,5 @@ pub struct EngineTransactionRecord {
     pub kind: String,
     pub fee: Option<u64>,
     pub memo: Option<String>,
+    pub expired_unmined: bool,
 }

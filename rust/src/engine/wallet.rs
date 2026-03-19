@@ -251,10 +251,24 @@ pub async fn open(
     Ok(())
 }
 
-/// Close the wallet (drop the engine from the singleton).
+/// Close the wallet: stop sync, wait for it, then drop the engine.
 pub async fn close() {
-    println!("[engine] close wallet");
+    tracing::info!("[engine] close wallet — stopping sync first");
+    super::sync::stop().await;
+
+    // Wait for the sync loop to finish (up to 5s)
+    for _ in 0..50 {
+        if !super::sync::is_running() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    if super::sync::is_running() {
+        tracing::warn!("[engine] sync still running after 5s, proceeding with close");
+    }
+
     *ENGINE.lock().await = None;
+    tracing::info!("[engine] wallet closed");
 }
 
 /// Delete wallet database files from disk.

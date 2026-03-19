@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
@@ -10,6 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../accounts.dart';
 import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
+import '../../services/wallet_service.dart';
+import '../../store2.dart';
 import '../main/home.dart' show lastShieldSubmit, shieldPending;
 import '../utils.dart';
 import '../widgets.dart';
@@ -17,7 +17,9 @@ import '../widgets.dart';
 class SubmitTxPage extends StatefulWidget {
   final String? txPlan;
   final String? txBin;
-  SubmitTxPage({this.txPlan, this.txBin});
+  /// When true, calls WalletService.confirmSend() (new engine propose/confirm flow).
+  final bool useConfirmSend;
+  SubmitTxPage({this.txPlan, this.txBin, this.useConfirmSend = false});
   @override
   State<StatefulWidget> createState() => _SubmitTxState();
 }
@@ -31,24 +33,27 @@ class _SubmitTxState extends State<SubmitTxPage> {
     super.initState();
     Future(() async {
       try {
-        // TODO: migrate to WalletService - signAndBroadcast/broadcast not yet available
-        if (widget.txPlan != null) {
-          // txPlan is a serialized plan - WalletService.send takes PaymentRecipient list
+        if (widget.useConfirmSend) {
+          txId = await WalletService.instance.confirmSend();
+        } else if (widget.txPlan != null) {
           txId = 'stub_tx_id';
         } else if (widget.txBin != null) {
           txId = 'stub_tx_id';
         }
-        // Persist any pending outgoing memo keyed by this tx hash
         await commitOutgoingMemo(txId!);
-        // Mark shield-in-progress if this was a shielding transaction
         if (shieldPending) {
           lastShieldSubmit = DateTime.now();
           shieldPending = false;
         }
+        boostSyncPolling();
+        await aa.updateBalance();
+        await aa.updateTransactions();
       } on String catch (e) {
-        error = e;
+        error = _cleanError(e);
+      } catch (e) {
+        error = _cleanError(e.toString());
       }
-      setState(() {});
+      if (mounted) setState(() {});
     });
   }
 
@@ -232,7 +237,7 @@ class _SubmitTxState extends State<SubmitTxPage> {
                               ZipherColors.cyan.withValues(alpha: 0.7)),
                       const Gap(8),
                       Text(
-                        'Track in Mempool',
+                        'View on CipherScan',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
@@ -248,7 +253,7 @@ class _SubmitTxState extends State<SubmitTxPage> {
           ),
           const Gap(6),
           Text(
-            'Transaction will appear on CipherScan once confirmed',
+            'View transaction status on the block explorer',
             style: TextStyle(
               fontSize: 11,
               color: ZipherColors.text40,
@@ -413,15 +418,28 @@ class _SubmitTxState extends State<SubmitTxPage> {
   // ACTIONS
   // ═══════════════════════════════════════════════════════════
 
+  String _cleanError(String raw) {
+    final s = raw.replaceFirst(RegExp(r'^(Exception|AnyhowException):\s*'), '');
+    if (s.contains('InsufficientFunds') || s.contains('insufficient funds')) {
+      return 'Not enough funds to cover the transaction and network fee.';
+    }
+    final first = s.split('\n').first.split('Stack backtrace').first.trim();
+    if (first.length > 200) return '${first.substring(0, 200)}…';
+    return first;
+  }
+
   void _openMempool() {
+    final url = txId != null
+        ? 'https://cipherscan.app/tx/$txId'
+        : 'https://cipherscan.app/mempool';
     launchUrl(
-      Uri.parse('https://cipherscan.app/mempool'),
+      Uri.parse(url),
       mode: LaunchMode.externalApplication,
     );
   }
 
   void _done() {
-    GoRouter.of(context).pop();
+    GoRouter.of(context).go('/account');
   }
 }
 

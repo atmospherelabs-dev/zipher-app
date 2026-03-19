@@ -93,8 +93,12 @@ final router = GoRouter(
                 ),
                 GoRoute(
                   path: 'submit_tx',
-                  builder: (context, state) =>
-                      SubmitTxPage(txPlan: state.extra as String),
+                  builder: (context, state) {
+                    if (state.extra == null) {
+                      return SubmitTxPage(useConfirmSend: true);
+                    }
+                    return SubmitTxPage(txPlan: state.extra as String);
+                  },
                 ),
                 GoRoute(
                   path: 'broadcast_tx',

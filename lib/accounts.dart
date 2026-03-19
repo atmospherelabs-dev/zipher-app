@@ -42,6 +42,7 @@ class PoolBalance {
   }
 
   int get confirmed => transparent + sapling + orchard;
+  int get shielded => sapling + orchard;
   int get unconfirmed =>
       unconfirmedTransparent + unconfirmedSapling + unconfirmedOrchard;
   int get total => confirmed + unconfirmed;
@@ -248,6 +249,7 @@ abstract class _ActiveAccount2 with Store {
           [],
           kind: r.kind,
           rawValue: r.rawValue.toDouble() / ZECUNIT,
+          expiredUnmined: r.status == 'expired',
         );
       }).toList();
       logger.d('[AA] updateTransactions: ${txs.items.length} txs loaded');

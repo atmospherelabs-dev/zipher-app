@@ -686,6 +686,11 @@ class WalletService {
       final engineTxs = await rust_engine.engineGetTransactions();
       return engineTxs.map((etx) {
         final v = etx.value.toInt();
+        final status = etx.expiredUnmined
+            ? 'expired'
+            : etx.height > 0
+                ? 'confirmed'
+                : 'pending';
         return rust_wallet.TransactionRecord(
           txid: etx.txid,
           height: etx.height,
@@ -693,7 +698,7 @@ class WalletService {
           value: etx.value,
           kind: etx.kind,
           fee: etx.fee,
-          status: etx.height > 0 ? 'confirmed' : 'pending',
+          status: status,
           rawValue: BigInt.from(v < 0 ? -v : v),
         );
       }).toList();

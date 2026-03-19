@@ -7,6 +7,7 @@ use tokio::sync::Mutex as TokioMutex;
 
 use zcash_client_backend::data_api::chain::{scan_cached_blocks, BlockSource, CommitmentTreeRoot};
 use zcash_client_backend::data_api::scanning::ScanPriority;
+use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
 use zcash_client_backend::data_api::{WalletCommitmentTrees, WalletRead, WalletWrite};
 use zcash_client_backend::proto::compact_formats::CompactBlock;
 use zcash_client_backend::proto::service::{
@@ -47,6 +48,7 @@ pub struct SyncProgressInfo {
     pub latest_height: u32,
     pub is_syncing: bool,
     pub connection_error: Option<String>,
+    pub scanning_up_to: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -84,6 +86,7 @@ pub async fn start() -> Result<()> {
         p.synced_height = 0;
         p.latest_height = 0;
         p.connection_error = None;
+        p.scanning_up_to = 0;
     }
 
     tokio::spawn(async move {
@@ -111,6 +114,10 @@ pub async fn start() -> Result<()> {
 
 pub async fn stop() {
     SYNC_CANCEL.store(true, Ordering::SeqCst);
+}
+
+pub fn is_running() -> bool {
+    SYNC_RUNNING.load(Ordering::SeqCst)
 }
 
 pub async fn get_progress() -> SyncProgressInfo {
@@ -264,21 +271,20 @@ async fn sync_loop_with_retry(
 ) -> Result<()> {
     let mut backoff_ms: u64 = 5_000;
     const MAX_BACKOFF_MS: u64 = 60_000;
+    let mut first_pass = true;
 
     loop {
         if SYNC_CANCEL.load(Ordering::SeqCst) {
             return Err(anyhow::anyhow!("Sync cancelled"));
         }
 
-        match sync_loop(db_data_path, db_cache_path, params, server_url, db_cipher_key).await {
+        match sync_loop(db_data_path, db_cache_path, params, server_url, db_cipher_key, first_pass).await {
             Ok(()) => {
-                // Active wallet is caught up — sync inactive wallets, then sleep
+                first_pass = false;
                 {
                     let mut p = SYNC_PROGRESS.lock().await;
                     p.connection_error = None;
                 }
-
-                sync_inactive_wallets(params, server_url, db_cipher_key).await;
 
                 // Sleep 30s then re-check for new blocks (respecting cancel)
                 for _ in 0..30 {
@@ -326,6 +332,7 @@ async fn sync_loop(
     params: Network,
     server_url: &str,
     db_cipher_key: &Option<String>,
+    update_roots: bool,
 ) -> Result<()> {
     tracing::info!("[engine sync] starting sync loop, server={}", server_url);
 
@@ -333,12 +340,16 @@ async fn sync_loop(
     let db_cache = BlockCache::open(db_cache_path, db_cipher_key)?;
     tracing::info!("[engine sync] connecting to LWD...");
     let mut lwd = connect_lwd(server_url).await?;
-    tracing::info!("[engine sync] connected, updating subtree roots...");
 
-    update_subtree_roots(&mut lwd, &mut db_data).await?;
-    tracing::info!("[engine sync] subtree roots done, entering scan loop");
+    if update_roots {
+        tracing::info!("[engine sync] connected, updating subtree roots...");
+        update_subtree_roots(&mut lwd, &mut db_data).await?;
+        tracing::info!("[engine sync] subtree roots done, entering scan loop");
+    } else {
+        tracing::info!("[engine sync] connected, skipping subtree roots (already done)");
+    }
 
-    let batch_size: u32 = 1000;
+    let batch_size: u32 = 100;
 
     loop {
         if SYNC_CANCEL.load(Ordering::SeqCst) {
@@ -374,7 +385,26 @@ async fn sync_loop(
 
         if scan_ranges.is_empty() {
             tracing::info!("[engine sync] no more ranges to scan, done");
+            let fsh = db_data
+                .get_wallet_summary(ConfirmationsPolicy::default())
+                .ok()
+                .flatten()
+                .map(|s| u32::from(s.fully_scanned_height()))
+                .unwrap_or(0);
+            if fsh > 0 {
+                let mut p = SYNC_PROGRESS.lock().await;
+                p.synced_height = fsh;
+                tracing::info!("[engine sync] set synced_height to fully_scanned_height={}", fsh);
+            }
             break;
+        }
+
+        for range in &scan_ranges {
+            tracing::info!(
+                "[engine sync] range {:?} priority={:?}",
+                range.block_range(),
+                range.priority()
+            );
         }
 
         tracing::info!("[engine sync] {} scan ranges to process", scan_ranges.len());
@@ -427,15 +457,22 @@ async fn sync_loop(
                     .insert_blocks(&blocks)
                     .map_err(|e| anyhow::anyhow!("insert_blocks: {:?}", e))?;
 
+                {
+                    let mut p = SYNC_PROGRESS.lock().await;
+                    p.scanning_up_to = u32::from(batch_end);
+                }
+
                 let batch_len = u32::from(batch_end) - u32::from(current);
-                let scan_result = scan_cached_blocks(
-                    &params,
-                    &db_cache,
-                    &mut db_data,
-                    current,
-                    &chain_state,
-                    batch_len as usize,
-                );
+                let scan_result = tokio::task::block_in_place(|| {
+                    scan_cached_blocks(
+                        &params,
+                        &db_cache,
+                        &mut db_data,
+                        current,
+                        &chain_state,
+                        batch_len as usize,
+                    )
+                });
 
                 match scan_result {
                     Ok(summary) => {
@@ -507,6 +544,18 @@ async fn sync_loop(
         }
 
         if !any_scanned {
+            tracing::info!("[engine sync] no actionable ranges, checking fully_scanned_height");
+            let fsh = db_data
+                .get_wallet_summary(ConfirmationsPolicy::default())
+                .ok()
+                .flatten()
+                .map(|s| u32::from(s.fully_scanned_height()))
+                .unwrap_or(0);
+            if fsh > 0 {
+                let mut p = SYNC_PROGRESS.lock().await;
+                p.synced_height = fsh;
+                tracing::info!("[engine sync] set synced_height to fully_scanned_height={}", fsh);
+            }
             break;
         }
     }

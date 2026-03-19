@@ -1198,35 +1198,44 @@ class _TxRowState extends State<_TxRow> {
                         ),
                       ),
                       const Gap(2),
-                      if (isPending && !isSwapDeposit)
-                        Row(
-                          children: [
-                            SizedBox(
-                              width: 10, height: 10,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 1.5,
-                                color: ZipherColors.orange.withValues(alpha: 0.8),
+                      if ((isPending || tx.expiredUnmined) && !isSwapDeposit)
+                        Builder(builder: (_) {
+                          final isFailed = tx.expiredUnmined;
+                          final statusColor = isFailed ? ZipherColors.red : ZipherColors.orange;
+                          final statusLabel = isFailed ? 'Failed' : 'Pending';
+                          return Row(
+                            children: [
+                              if (isFailed)
+                                Icon(Icons.error_outline_rounded, size: 12,
+                                    color: statusColor.withValues(alpha: 0.8))
+                              else
+                                SizedBox(
+                                  width: 10, height: 10,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.5,
+                                    color: statusColor.withValues(alpha: 0.8),
+                                  ),
+                                ),
+                              const Gap(5),
+                              Text(
+                                statusLabel,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: statusColor.withValues(alpha: 0.9),
+                                ),
                               ),
-                            ),
-                            const Gap(5),
-                            Text(
-                              'Pending',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: ZipherColors.orange.withValues(alpha: 0.9),
+                              const Spacer(),
+                              Text(
+                                timeStr,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: ZipherColors.text40,
+                                ),
                               ),
-                            ),
-                            const Spacer(),
-                            Text(
-                              timeStr,
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: ZipherColors.text40,
-                              ),
-                            ),
-                          ],
-                        )
+                            ],
+                          );
+                        })
                       else if (isSwapDeposit && swapStatusLabel != null)
                         Row(
                           children: [

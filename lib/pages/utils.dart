@@ -620,6 +620,7 @@ class Tx extends HasHeight {
   List<TxMemo> memos;
   String kind;
   double rawValue;
+  bool expiredUnmined;
 
   factory Tx.from(
     int? latestHeight,
@@ -635,10 +636,14 @@ class Tx extends HasHeight {
     List<TxMemo> memos, {
     String kind = '',
     double rawValue = 0,
+    bool expiredUnmined = false,
   }) {
-    final confirmations = latestHeight?.let((h) => h - height + 1);
+    final confirmations =
+        (height > 0 && latestHeight != null && latestHeight > 0)
+            ? latestHeight - height + 1
+            : 0;
     return Tx(id, height, confirmations, timestamp, txid, fullTxId, value,
-        address, contact, memo, memos, kind, rawValue);
+        address, contact, memo, memos, kind, rawValue, expiredUnmined);
   }
 
   Tx(
@@ -654,7 +659,8 @@ class Tx extends HasHeight {
       this.memo,
       this.memos,
       this.kind,
-      this.rawValue);
+      this.rawValue,
+      [this.expiredUnmined = false]);
 }
 
 class ZMessage extends HasHeight {

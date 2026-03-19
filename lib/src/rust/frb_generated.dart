@@ -2191,13 +2191,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   EngineSyncProgress dco_decode_engine_sync_progress(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return EngineSyncProgress(
       syncedHeight: dco_decode_u_32(arr[0]),
       latestHeight: dco_decode_u_32(arr[1]),
       isSyncing: dco_decode_bool(arr[2]),
       connectionError: dco_decode_opt_String(arr[3]),
+      scanningUpTo: dco_decode_u_32(arr[4]),
     );
   }
 
@@ -2205,8 +2206,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   EngineTransactionRecord dco_decode_engine_transaction_record(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return EngineTransactionRecord(
       txid: dco_decode_String(arr[0]),
       height: dco_decode_u_32(arr[1]),
@@ -2215,6 +2216,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       kind: dco_decode_String(arr[4]),
       fee: dco_decode_opt_box_autoadd_u_64(arr[5]),
       memo: dco_decode_opt_String(arr[6]),
+      expiredUnmined: dco_decode_bool(arr[7]),
     );
   }
 
@@ -2485,11 +2487,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_latestHeight = sse_decode_u_32(deserializer);
     var var_isSyncing = sse_decode_bool(deserializer);
     var var_connectionError = sse_decode_opt_String(deserializer);
+    var var_scanningUpTo = sse_decode_u_32(deserializer);
     return EngineSyncProgress(
         syncedHeight: var_syncedHeight,
         latestHeight: var_latestHeight,
         isSyncing: var_isSyncing,
-        connectionError: var_connectionError);
+        connectionError: var_connectionError,
+        scanningUpTo: var_scanningUpTo);
   }
 
   @protected
@@ -2503,6 +2507,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_kind = sse_decode_String(deserializer);
     var var_fee = sse_decode_opt_box_autoadd_u_64(deserializer);
     var var_memo = sse_decode_opt_String(deserializer);
+    var var_expiredUnmined = sse_decode_bool(deserializer);
     return EngineTransactionRecord(
         txid: var_txid,
         height: var_height,
@@ -2510,7 +2515,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         value: var_value,
         kind: var_kind,
         fee: var_fee,
-        memo: var_memo);
+        memo: var_memo,
+        expiredUnmined: var_expiredUnmined);
   }
 
   @protected
@@ -2822,6 +2828,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_32(self.latestHeight, serializer);
     sse_encode_bool(self.isSyncing, serializer);
     sse_encode_opt_String(self.connectionError, serializer);
+    sse_encode_u_32(self.scanningUpTo, serializer);
   }
 
   @protected
@@ -2835,6 +2842,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.kind, serializer);
     sse_encode_opt_box_autoadd_u_64(self.fee, serializer);
     sse_encode_opt_String(self.memo, serializer);
+    sse_encode_bool(self.expiredUnmined, serializer);
   }
 
   @protected

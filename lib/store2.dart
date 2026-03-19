@@ -168,7 +168,17 @@ abstract class _SyncStatus2 with Store {
         final msg = e.toString();
         final lower = msg.toLowerCase();
         if (lower.contains('already') || lower.contains('syncalreadyrunning')) {
-          logger.d('[Sync] sync engine already running');
+          logger.d('[Sync] sync still running from previous wallet, stopping...');
+          await WalletService.instance.stopSync();
+          await Future.delayed(const Duration(milliseconds: 500));
+          try {
+            await WalletService.instance.startSync();
+            logger.d('[Sync] sync restarted for current wallet');
+          } catch (e2) {
+            logger.e('[Sync] restart failed: $e2');
+            _syncStarted = false;
+            return;
+          }
         } else {
           logger.e('[Sync] start error: $e');
           _syncStarted = false;
@@ -191,9 +201,14 @@ abstract class _SyncStatus2 with Store {
       }
 
       final h = await WalletService.instance.getWalletSyncedHeight();
-      logger.d('[Sync] poll: progress.synced=${progress.syncedHeight} progress.latest=${progress.latestHeight} progress.isSyncing=${progress.isSyncing} walletH=$h localH=$syncedHeight');
-      if (h > syncedHeight) {
-        syncedHeight = h;
+      final effectiveH = progress.syncedHeight > 0
+          ? progress.syncedHeight
+          : progress.scanningUpTo > 0
+              ? progress.scanningUpTo
+              : h;
+      logger.d('[Sync] poll: synced=${progress.syncedHeight} scanning=${progress.scanningUpTo} latest=${progress.latestHeight} isSyncing=${progress.isSyncing} walletH=$h localH=$syncedHeight effectiveH=$effectiveH');
+      if (effectiveH > syncedHeight) {
+        syncedHeight = effectiveH;
         eta.checkpoint(syncedHeight, DateTime.now());
       }
 
@@ -258,6 +273,8 @@ abstract class _SyncStatus2 with Store {
     syncing = false;
     _needsInitialUpdate = true;
     connectionError = null;
+    syncedHeight = 0;
+    eta.end();
   }
 
   @action

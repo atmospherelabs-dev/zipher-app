@@ -2732,11 +2732,13 @@ impl SseDecode for crate::api::engine_api::EngineSyncProgress {
         let mut var_latestHeight = <u32>::sse_decode(deserializer);
         let mut var_isSyncing = <bool>::sse_decode(deserializer);
         let mut var_connectionError = <Option<String>>::sse_decode(deserializer);
+        let mut var_scanningUpTo = <u32>::sse_decode(deserializer);
         return crate::api::engine_api::EngineSyncProgress {
             synced_height: var_syncedHeight,
             latest_height: var_latestHeight,
             is_syncing: var_isSyncing,
             connection_error: var_connectionError,
+            scanning_up_to: var_scanningUpTo,
         };
     }
 }
@@ -2751,6 +2753,7 @@ impl SseDecode for crate::api::engine_api::EngineTransactionRecord {
         let mut var_kind = <String>::sse_decode(deserializer);
         let mut var_fee = <Option<u64>>::sse_decode(deserializer);
         let mut var_memo = <Option<String>>::sse_decode(deserializer);
+        let mut var_expiredUnmined = <bool>::sse_decode(deserializer);
         return crate::api::engine_api::EngineTransactionRecord {
             txid: var_txid,
             height: var_height,
@@ -2759,6 +2762,7 @@ impl SseDecode for crate::api::engine_api::EngineTransactionRecord {
             kind: var_kind,
             fee: var_fee,
             memo: var_memo,
+            expired_unmined: var_expiredUnmined,
         };
     }
 }
@@ -3360,6 +3364,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::engine_api::EngineSyncProgres
             self.latest_height.into_into_dart().into_dart(),
             self.is_syncing.into_into_dart().into_dart(),
             self.connection_error.into_into_dart().into_dart(),
+            self.scanning_up_to.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -3386,6 +3391,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::engine_api::EngineTransaction
             self.kind.into_into_dart().into_dart(),
             self.fee.into_into_dart().into_dart(),
             self.memo.into_into_dart().into_dart(),
+            self.expired_unmined.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -3631,6 +3637,7 @@ impl SseEncode for crate::api::engine_api::EngineSyncProgress {
         <u32>::sse_encode(self.latest_height, serializer);
         <bool>::sse_encode(self.is_syncing, serializer);
         <Option<String>>::sse_encode(self.connection_error, serializer);
+        <u32>::sse_encode(self.scanning_up_to, serializer);
     }
 }
 
@@ -3644,6 +3651,7 @@ impl SseEncode for crate::api::engine_api::EngineTransactionRecord {
         <String>::sse_encode(self.kind, serializer);
         <Option<u64>>::sse_encode(self.fee, serializer);
         <Option<String>>::sse_encode(self.memo, serializer);
+        <bool>::sse_encode(self.expired_unmined, serializer);
     }
 }
 

@@ -212,7 +212,7 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
         "SELECT
             txid,
             COALESCE(mined_height, 0) AS height,
-            COALESCE(block_time, 0) AS block_time,
+            COALESCE(block_time, CAST(strftime('%s', 'now') AS INTEGER)) AS block_time,
             account_balance_delta AS delta,
             fee_paid,
             sent_note_count,
@@ -221,7 +221,7 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
             is_shielding,
             expired_unmined
         FROM v_transactions
-        ORDER BY mined_height DESC, tx_index DESC",
+        ORDER BY mined_height IS NOT NULL, mined_height DESC, tx_index DESC",
     )?;
 
     let rows = stmt.query_map([], |row| {
@@ -234,7 +234,7 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
         let received_count: i64 = row.get(6)?;
         let has_change: bool = row.get(7)?;
         let is_shielding: bool = row.get(8)?;
-        let _expired: bool = row.get(9)?;
+        let expired: bool = row.get(9)?;
 
         let mut txid_display = txid_bytes.clone();
         txid_display.reverse();
@@ -248,9 +248,16 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
             "received"
         } else if sent_count > 0 {
             "sent"
+        } else if delta < 0 || fee_paid.is_some() {
+            "sent"
         } else {
             "unknown"
         };
+
+        tracing::info!(
+            "[TX] txid={} h={} delta={} fee={:?} sent={} recv={} expired={} kind={}",
+            &txid_hex[..12], height, delta, fee_paid, sent_count, received_count, expired, kind
+        );
 
         Ok(EngineTransactionRecord {
             txid: txid_hex,
@@ -260,12 +267,19 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
             kind: kind.to_string(),
             fee: fee_paid.map(|f| f as u64),
             memo: None,
+            expired_unmined: expired,
         })
     })?;
 
     let mut txs = Vec::new();
+    let mut seen_txids = std::collections::HashSet::new();
     for row in rows {
-        txs.push(row?);
+        let tx = row?;
+        if seen_txids.insert(tx.txid.clone()) {
+            txs.push(tx);
+        } else {
+            tracing::info!("[TX] skipping duplicate txid={}", tx.txid);
+        }
     }
 
     for tx in &mut txs {

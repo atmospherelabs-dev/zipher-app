@@ -108,7 +108,9 @@ final _data = <r.Reflectable, r.ReflectorData>{
               r'kind': 0,
               r'kind=': 1,
               r'rawValue': 0,
-              r'rawValue=': 1
+              r'rawValue=': 1,
+              r'expiredUnmined': 0,
+              r'expiredUnmined=': 1
             })
       ],
       null,
@@ -138,7 +140,8 @@ final _data = <r.Reflectable, r.ReflectorData>{
         r'memo': (dynamic instance) => instance.memo,
         r'memos': (dynamic instance) => instance.memos,
         r'kind': (dynamic instance) => instance.kind,
-        r'rawValue': (dynamic instance) => instance.rawValue
+        r'rawValue': (dynamic instance) => instance.rawValue,
+        r'expiredUnmined': (dynamic instance) => instance.expiredUnmined
       },
       {
         r'height=': (dynamic instance, value) => instance.height = value,
@@ -157,7 +160,9 @@ final _data = <r.Reflectable, r.ReflectorData>{
         r'memo=': (dynamic instance, value) => instance.memo = value,
         r'memos=': (dynamic instance, value) => instance.memos = value,
         r'kind=': (dynamic instance, value) => instance.kind = value,
-        r'rawValue=': (dynamic instance, value) => instance.rawValue = value
+        r'rawValue=': (dynamic instance, value) => instance.rawValue = value,
+        r'expiredUnmined=': (dynamic instance, value) =>
+            instance.expiredUnmined = value
       },
       null,
       [

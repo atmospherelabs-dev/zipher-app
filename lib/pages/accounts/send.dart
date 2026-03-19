@@ -80,17 +80,12 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
   String _memoText = '';
   late bool _includeReplyTo = appSettings.includeReplyTo != 0;
   bool _balanceVisible = true;
-  bool _sending = false;
-
-  int get _spendable => aa.poolBalances.confirmed;
+  int get _spendable => aa.poolBalances.shielded;
 
   bool get _isTransparentAddress =>
       _address.startsWith('t1') || _address.startsWith('t3');
 
-  bool get _isTransparentOnly =>
-      aa.poolBalances.transparent > 0 &&
-      aa.poolBalances.sapling == 0 &&
-      aa.poolBalances.orchard == 0;
+  bool get _hasUnshieldedFunds => aa.poolBalances.transparent > 0;
 
   @override
   void initState() {
@@ -243,7 +238,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
             'Spendable:  ${amountToString2(_spendable)} ZEC',
             style: TextStyle(fontSize: 13, color: ZipherColors.text40),
           ),
-          if (_isTransparentOnly && _spendable > 0) ...[
+          if (_hasUnshieldedFunds) ...[
             const Gap(8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -254,11 +249,11 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.info_outline_rounded,
+                  Icon(Icons.shield_outlined,
                       size: 13, color: ZipherColors.warm),
                   const Gap(6),
                   Text(
-                    'Transparent only — shield for best results',
+                    '${amountToString2(aa.poolBalances.transparent)} ZEC needs shielding',
                     style: TextStyle(
                       fontSize: 11,
                       color: ZipherColors.warm.withValues(alpha: 0.8),
@@ -467,20 +462,11 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
         child: SizedBox(
           width: double.infinity,
-          child: _sending
-              ? Center(
-                  child: SizedBox(
-                    width: 40,
-                    height: 40,
-                    child: CircularProgressIndicator(
-                        color: ZipherColors.cyan, strokeWidth: 2),
-                  ),
-                )
-              : ZipherWidgets.gradientButton(
-                  label: 'Send',
-                  icon: Icons.send_rounded,
-                  onPressed: _send,
-                ),
+          child: ZipherWidgets.gradientButton(
+            label: 'Send',
+            icon: Icons.send_rounded,
+            onPressed: _send,
+          ),
         ),
       ),
     );
@@ -546,33 +532,8 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
   }
 
   Future<void> _executeConfirmedSend() async {
-    setState(() => _sending = true);
-    try {
-      final txid = await WalletService.instance.confirmSend();
-      logger.i('Transaction sent: $txid');
-
-      await aa.updateBalance();
-      await aa.updateTransactions();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Transaction sent successfully'),
-            backgroundColor: ZipherColors.green,
-          ),
-        );
-        boostSyncPolling();
-        final router = GoRouter.of(context);
-        if (router.canPop()) {
-          router.pop();
-        } else {
-          router.go('/account');
-        }
-      }
-    } catch (e) {
-      _showError(_friendlyError(e.toString()));
-    } finally {
-      if (mounted) setState(() => _sending = false);
+    if (mounted) {
+      GoRouter.of(context).go('/account/submit_tx');
     }
   }
 
@@ -580,9 +541,9 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
     final r = raw.toLowerCase();
     if (r.contains('insufficientfunds') || r.contains('insufficient funds') ||
         r.contains('proposal failed')) {
-      if (_isTransparentOnly && !_isTransparentAddress) {
-        return 'Your funds are transparent but the destination is shielded. '
-            'Shield your funds first from More → Shield Funds.';
+      if (_hasUnshieldedFunds && _spendable == 0) {
+        return 'Your funds need shielding before you can send. '
+            'Use the Shield button on the home screen.';
       }
       final available = RegExp(r'available.*?(\d+)').firstMatch(raw);
       final required = RegExp(r'required.*?(\d+)').firstMatch(raw);
@@ -673,12 +634,8 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
 
   String _cleanError(String raw) {
     final s = raw.replaceFirst(RegExp(r'^(Exception|AnyhowException):\s*'), '');
-    if (s.contains('transparent pool') && s.contains('Shield')) {
-      final match = RegExp(r'Your funds.*?before sending\.').firstMatch(s);
-      if (match != null) return match.group(0)!;
-    }
     if (s.contains('InsufficientFunds') || s.contains('insufficient funds')) {
-      return 'Not enough funds to cover the transaction and network fee.';
+      return 'Not enough shielded funds to cover the transaction and network fee.';
     }
     final first = s.split('\n').first.split('Stack backtrace').first.trim();
     if (first.length > 150) return '${first.substring(0, 150)}…';

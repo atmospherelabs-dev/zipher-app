@@ -45,6 +45,8 @@ pub(crate) fn open_cipher_conn(path: &Path, key: &Option<String>) -> Result<Conn
     if let Some(k) = key {
         conn.pragma_update(None, "key", k)?;
     }
+    conn.busy_timeout(std::time::Duration::from_secs(10))?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
     Ok(conn)
 }
 

@@ -172,12 +172,14 @@ class EngineSyncProgress {
   final int latestHeight;
   final bool isSyncing;
   final String? connectionError;
+  final int scanningUpTo;
 
   const EngineSyncProgress({
     required this.syncedHeight,
     required this.latestHeight,
     required this.isSyncing,
     this.connectionError,
+    required this.scanningUpTo,
   });
 
   @override
@@ -185,7 +187,8 @@ class EngineSyncProgress {
       syncedHeight.hashCode ^
       latestHeight.hashCode ^
       isSyncing.hashCode ^
-      connectionError.hashCode;
+      connectionError.hashCode ^
+      scanningUpTo.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -195,7 +198,8 @@ class EngineSyncProgress {
           syncedHeight == other.syncedHeight &&
           latestHeight == other.latestHeight &&
           isSyncing == other.isSyncing &&
-          connectionError == other.connectionError;
+          connectionError == other.connectionError &&
+          scanningUpTo == other.scanningUpTo;
 }
 
 class EngineTransactionRecord {
@@ -206,6 +210,7 @@ class EngineTransactionRecord {
   final String kind;
   final BigInt? fee;
   final String? memo;
+  final bool expiredUnmined;
 
   const EngineTransactionRecord({
     required this.txid,
@@ -215,6 +220,7 @@ class EngineTransactionRecord {
     required this.kind,
     this.fee,
     this.memo,
+    required this.expiredUnmined,
   });
 
   @override
@@ -225,7 +231,8 @@ class EngineTransactionRecord {
       value.hashCode ^
       kind.hashCode ^
       fee.hashCode ^
-      memo.hashCode;
+      memo.hashCode ^
+      expiredUnmined.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -238,7 +245,8 @@ class EngineTransactionRecord {
           value == other.value &&
           kind == other.kind &&
           fee == other.fee &&
-          memo == other.memo;
+          memo == other.memo &&
+          expiredUnmined == other.expiredUnmined;
 }
 
 /// Proposal result returned to Dart.
