@@ -12,14 +12,15 @@ Built by [Atmosphere Labs](https://atmospherelabs.dev).
 
 Fast, shielded Zcash wallet built for simplicity and privacy. Forked from [YWallet](https://github.com/hhanh00/zwallet) by Hanh Huynh Huu — redesigned with a modern UI, secure architecture, and developer-friendly features.
 
-- **Shielded by Default** — fully private transactions with automatic shielding
+- **Shielded by Default** — sends from shielded pool only, with one-tap shielding for transparent funds
 - **Cross-Chain Swaps** — swap ZEC to BTC, ETH, SOL and more via NEAR Intents
 - **Secure Seed Storage** — seeds in iOS Keychain / Android Keystore, keys derived in RAM, wiped on close
-- **Multi-Account** — manage multiple wallets from a single app
-- **Testnet Support** — full testnet mode, built for developers
+- **Multi-Wallet** — manage multiple wallets with watch-only support
+- **Testnet Mode** — full testnet with integrated faucet, built for developers
 - **Memo Inbox** — receive and read encrypted on-chain memos
-- **Privacy Health Bar** — see your privacy status at a glance
-- **Contact Book, Coin Control, QR Scanner, Fiat Conversion** — the full toolkit
+- **Privacy Health Bar** — see your shielded vs transparent balance at a glance
+- **ZIP-321 Payments** — scan payment URIs, multi-output split payments
+- **Contact Book, QR Scanner, Fiat Conversion** — the full toolkit
 
 **Requirements:** iOS 16.4+ / Android 7.0+
 
