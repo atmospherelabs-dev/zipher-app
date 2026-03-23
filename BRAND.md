@@ -34,6 +34,7 @@ ZODL maintains the protocol. Shielded Labs does the research. We are the consume
 | Product | Role | Status |
 |---------|------|--------|
 | **Zipher** | The Wallet — financial privacy, finally user-friendly. Full testnet support for developers. | Beta |
+| **zipher-cli** | The Agent Wallet — headless, local-first ZEC for AI agents. MCP + OpenClaw. | PRD |
 | **CipherScan** | The Explorer — mainnet and testnet. Verify without revealing. | Live |
 | **CipherPay** | The Infrastructure — private payments, a few lines away | Live |
 

@@ -162,7 +162,6 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
             .ok_or_else(|| anyhow::anyhow!("No pending proposal — call propose_send first"))?
     };
 
-    // Log proposal details
     let step = proposal.steps().first();
     info!("[CONFIRM] Proposal: target_height={}, fee_rule={:?}",
         u32::from(proposal.min_target_height()), proposal.fee_rule());
@@ -204,7 +203,6 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     seed.zeroize();
     let usk = usk_result.map_err(|e| anyhow::anyhow!("USK derivation: {:?}", e))?;
 
-    // Log transparent key derivation info
     {
         use zcash_transparent::keys::NonHardenedChildIndex;
         let t_key = usk.transparent();
@@ -218,7 +216,6 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
                 error!("[CONFIRM] Failed to derive external key[0]: {:?}", e);
             }
         }
-        // Also derive via the unified method to verify
         match t_key.derive_secret_key(
             zcash_transparent::keys::TransparentKeyScope::EXTERNAL,
             NonHardenedChildIndex::ZERO,
@@ -265,7 +262,6 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     let txid = txids.first();
     info!("[CONFIRM] Transaction created OK. txid={}", txid);
 
-    // Get the transaction and serialize to bytes
     let tx = db_data
         .get_transaction(*txid)
         .map_err(|e| anyhow::anyhow!("{:?}", e))?
@@ -275,7 +271,6 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
         .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
     info!("[CONFIRM] Serialized tx: {} bytes", tx_bytes.len());
 
-    // Log first 20 bytes (header info) and last 10 bytes for diagnostics
     if tx_bytes.len() >= 20 {
         info!("[CONFIRM] tx header (first 20 bytes): {}", hex::encode(&tx_bytes[..20]));
     }
@@ -284,7 +279,6 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
         info!("[CONFIRM] tx tail (last 10 bytes): {}", hex::encode(&tx_bytes[start..]));
     }
 
-    // Parse header: bytes 0-3 = version+overwintered, 4-7 = versionGroupId, 8-11 = branchId
     if tx_bytes.len() >= 12 {
         let version = u32::from_le_bytes([tx_bytes[0], tx_bytes[1], tx_bytes[2], tx_bytes[3]]);
         let vg_id = u32::from_le_bytes([tx_bytes[4], tx_bytes[5], tx_bytes[6], tx_bytes[7]]);
@@ -292,7 +286,6 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
         info!("[CONFIRM] tx version=0x{:08x}, versionGroupId=0x{:08x}, consensusBranchId=0x{:08x}",
             version, vg_id, branch);
 
-        // NU5 = 0xC2D6D0B4, NU6 check
         let expected_branch = consensus::BranchId::for_height(
             &params,
             zcash_protocol::consensus::BlockHeight::from_u32(u32::from(proposal.min_target_height())),
@@ -300,7 +293,6 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
         info!("[CONFIRM] expected branch for target height: {:?}", expected_branch);
     }
 
-    // Also log the full tx hex for offline analysis (truncated if very large)
     if tx_bytes.len() <= 2000 {
         info!("[CONFIRM] FULL TX HEX: {}", hex::encode(&tx_bytes));
     } else {
@@ -308,7 +300,6 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
             tx_bytes.len(), hex::encode(&tx_bytes[..500]));
     }
 
-    // Broadcast
     info!("[CONFIRM] Broadcasting to {}...", server_url);
     let mut lwd = connect_lwd(&server_url).await?;
     let resp = lwd

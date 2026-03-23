@@ -1,7 +1,10 @@
+pub mod types;
 pub mod wallet;
 pub mod query;
 pub mod sync;
 pub mod send;
+pub mod policy;
+pub mod audit;
 
 use std::path::{Path, PathBuf};
 
@@ -64,7 +67,6 @@ pub(crate) fn open_wallet_db(
 /// Migrate an existing unencrypted database to SQLCipher encryption.
 /// Returns Ok(true) if migration was performed, Ok(false) if already encrypted or no key.
 pub(crate) fn migrate_to_encrypted(path: &Path, key: &str) -> Result<bool> {
-    // Try opening with the key first — if it works, already encrypted
     {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "key", key)?;
@@ -73,7 +75,6 @@ pub(crate) fn migrate_to_encrypted(path: &Path, key: &str) -> Result<bool> {
         }
     }
 
-    // Open without encryption (plain database)
     let plain_conn = Connection::open(path)?;
     let check = plain_conn.query_row(
         "SELECT count(*) FROM sqlite_master",
@@ -94,7 +95,6 @@ pub(crate) fn migrate_to_encrypted(path: &Path, key: &str) -> Result<bool> {
     ))?;
     drop(plain_conn);
 
-    // Replace the original with the encrypted version
     std::fs::rename(&enc_path, path)?;
 
     println!("[engine] migrated {:?} to encrypted", path);

@@ -1,3 +1,6 @@
+[workspace]
+members = ["crates/engine", "crates/cli", "crates/mcp-server"]
+
 [package]
 name = "rust_lib_zipher"
 version = "0.1.0"
@@ -7,6 +10,7 @@ edition = "2021"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
+zipher-engine = { path = "crates/engine" }
 flutter_rust_bridge = "=2.11.1"
 anyhow = "1"
 thiserror = "2"

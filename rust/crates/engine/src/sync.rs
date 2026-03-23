@@ -42,7 +42,7 @@ lazy_static::lazy_static! {
         TokioMutex::new(Vec::new());
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, serde::Serialize)]
 pub struct SyncProgressInfo {
     pub synced_height: u32,
     pub latest_height: u32,
@@ -293,7 +293,6 @@ async fn sync_loop_with_retry(
                     p.connection_error = None;
                 }
 
-                // Sleep 30s then re-check for new blocks (respecting cancel)
                 for _ in 0..30 {
                     if SYNC_CANCEL.load(Ordering::SeqCst) {
                         return Ok(());
@@ -314,7 +313,6 @@ async fn sync_loop_with_retry(
                     p.connection_error = Some(msg);
                 }
 
-                // Exponential backoff sleep with cancel check
                 let sleep_chunks = backoff_ms / 1000;
                 for _ in 0..sleep_chunks {
                     if SYNC_CANCEL.load(Ordering::SeqCst) {
@@ -350,7 +348,7 @@ async fn sync_loop(
 
     if update_roots {
         tracing::info!("[engine sync] connected, updating subtree roots...");
-        update_subtree_roots(&mut lwd, &mut db_data).await?;
+        update_subtree_roots(&mut lwd, &mut db_data, db_data_path, db_cipher_key).await?;
         tracing::info!("[engine sync] subtree roots done, entering scan loop");
     } else {
         tracing::info!("[engine sync] connected, skipping subtree roots (already done)");
@@ -508,9 +506,6 @@ async fn sync_loop(
                             .clear_range(u32::from(current), u32::from(batch_end))
                             .ok();
 
-                        // Reorg detection: if the error indicates chain
-                        // continuity failure, truncate the wallet DB to before
-                        // the bad range and let suggest_scan_ranges re-plan.
                         if err_str.contains("PrevHash")
                             || err_str.contains("Continuity")
                             || err_str.contains("ChainInvalid")
@@ -526,8 +521,6 @@ async fn sync_loop(
                                 .map_err(|e| {
                                     anyhow::anyhow!("truncate_to_height: {:?}", e)
                                 })?;
-                            // Break inner loop; outer loop will re-fetch
-                            // scan ranges from the corrected state.
                             any_scanned = true;
                         }
                         break;
@@ -676,7 +669,6 @@ async fn sync_inactive_wallet_batch(
             .clear_range(u32::from(range_start), u32::from(batch_end))
             .ok();
 
-        // Only one batch per inactive wallet per cycle
         break;
     }
 
@@ -687,14 +679,41 @@ async fn sync_inactive_wallet_batch(
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Query the next free shard index for a given tree table.
+/// Returns 0 if no shards exist yet, otherwise MAX(shard_index) + 1.
+fn next_shard_index(
+    db_data_path: &Path,
+    cipher_key: &Option<String>,
+    table_prefix: &str,
+) -> u64 {
+    let conn = match super::open_cipher_conn(db_data_path, cipher_key) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    let sql = format!(
+        "SELECT MAX(shard_index) FROM {}_tree_shards",
+        table_prefix
+    );
+    conn.query_row(&sql, [], |row| row.get::<_, Option<u64>>(0))
+        .unwrap_or(None)
+        .map(|max| max + 1)
+        .unwrap_or(0)
+}
+
 async fn update_subtree_roots(
     lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
     db_data: &mut WalletDb<rusqlite::Connection, Network, zcash_client_sqlite::util::SystemClock, rand::rngs::OsRng>,
+    db_data_path: &Path,
+    db_cipher_key: &Option<String>,
 ) -> Result<()> {
     use futures_util::TryStreamExt;
 
+    // --- Sapling ---
+    let sapling_start = next_shard_index(db_data_path, db_cipher_key, "sapling");
+
     let mut sapling_request = GetSubtreeRootsArg::default();
     sapling_request.set_shielded_protocol(ShieldedProtocol::Sapling);
+    sapling_request.start_index = sapling_start as u32;
 
     let sapling_stream = lwd
         .get_subtree_roots(sapling_request)
@@ -716,15 +735,22 @@ async fn update_subtree_roots(
         .map_err(|e| anyhow::anyhow!("sapling subtree roots: {:?}", e))?;
 
     tracing::info!(
-        "[engine sync] {} sapling subtree roots",
-        sapling_roots.len()
+        "[engine sync] {} new sapling subtree roots (start_index={})",
+        sapling_roots.len(),
+        sapling_start,
     );
-    db_data
-        .put_sapling_subtree_roots(0, &sapling_roots)
-        .map_err(|e| anyhow::anyhow!("put_sapling_subtree_roots: {:?}", e))?;
+    if !sapling_roots.is_empty() {
+        db_data
+            .put_sapling_subtree_roots(sapling_start, &sapling_roots)
+            .map_err(|e| anyhow::anyhow!("put_sapling_subtree_roots: {:?}", e))?;
+    }
+
+    // --- Orchard ---
+    let orchard_start = next_shard_index(db_data_path, db_cipher_key, "orchard");
 
     let mut orchard_request = GetSubtreeRootsArg::default();
     orchard_request.set_shielded_protocol(ShieldedProtocol::Orchard);
+    orchard_request.start_index = orchard_start as u32;
 
     let orchard_stream = lwd
         .get_subtree_roots(orchard_request)
@@ -746,12 +772,15 @@ async fn update_subtree_roots(
         .map_err(|e| anyhow::anyhow!("orchard subtree roots: {:?}", e))?;
 
     tracing::info!(
-        "[engine sync] {} orchard subtree roots",
-        orchard_roots.len()
+        "[engine sync] {} new orchard subtree roots (start_index={})",
+        orchard_roots.len(),
+        orchard_start,
     );
-    db_data
-        .put_orchard_subtree_roots(0, &orchard_roots)
-        .map_err(|e| anyhow::anyhow!("put_orchard_subtree_roots: {:?}", e))?;
+    if !orchard_roots.is_empty() {
+        db_data
+            .put_orchard_subtree_roots(orchard_start, &orchard_roots)
+            .map_err(|e| anyhow::anyhow!("put_orchard_subtree_roots: {:?}", e))?;
+    }
 
     Ok(())
 }

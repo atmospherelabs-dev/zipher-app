@@ -1,0 +1,38 @@
+[package]
+name = "zipher-engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+anyhow = "1"
+hex = "0.4"
+tracing = "0.1"
+tokio = { version = "1", features = ["full"] }
+rand = "0.8"
+secrecy = "0.8"
+zeroize = "1"
+lazy_static = "1"
+nonempty = "0.11"
+prost = "0.14"
+futures-util = "0.3"
+tonic = { version = "0.14", features = ["channel", "tls-ring", "tls-webpki-roots"] }
+rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
+bip0039 = { version = "0.14", features = ["rand"] }
+
+# Zcash crates
+zcash_protocol = "0.7"
+zcash_address = "0.10"
+zcash_client_backend = { version = "0.21", features = ["lightwalletd-tonic", "transparent-inputs"] }
+zcash_client_sqlite = { version = "0.19", features = ["orchard", "transparent-inputs"] }
+zcash_keys = { version = "0.12", features = ["orchard", "sapling"] }
+zcash_primitives = "0.26"
+zcash_proofs = "0.26"
+zcash_transparent = "0.6"
+zcash_script = "0.4"
+zip32 = "0.2"
+sapling-crypto = { version = "0.5", package = "sapling-crypto" }
+orchard = "0.11"
+incrementalmerkletree = "0.8"
+rustls = { version = "0.23", features = ["ring"] }

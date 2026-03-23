@@ -85,6 +85,37 @@ pub enum ChainType {
 }
 
 // ---------------------------------------------------------------------------
+// From impls: convert engine types → FRB-annotated types
+// ---------------------------------------------------------------------------
+
+impl From<zipher_engine::types::WalletBalance> for WalletBalance {
+    fn from(b: zipher_engine::types::WalletBalance) -> Self {
+        Self {
+            transparent: b.transparent,
+            sapling: b.sapling,
+            orchard: b.orchard,
+            unconfirmed_sapling: b.unconfirmed_sapling,
+            unconfirmed_orchard: b.unconfirmed_orchard,
+            unconfirmed_transparent: b.unconfirmed_transparent,
+            total_transparent: b.total_transparent,
+            total_sapling: b.total_sapling,
+            total_orchard: b.total_orchard,
+        }
+    }
+}
+
+impl From<zipher_engine::types::AddressInfo> for AddressInfo {
+    fn from(a: zipher_engine::types::AddressInfo) -> Self {
+        Self {
+            address: a.address,
+            has_transparent: a.has_transparent,
+            has_sapling: a.has_sapling,
+            has_orchard: a.has_orchard,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Legacy stubs — these functions existed in the zingolib-based wallet.
 // They are kept as stubs so that FRB-generated bindings continue to compile.
 // At runtime, the Dart side calls engine_api.rs functions instead.

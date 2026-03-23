@@ -5,8 +5,7 @@ use zcash_client_backend::data_api::{Account, WalletRead};
 use zcash_keys::keys::UnifiedAddressRequest;
 use zcash_protocol::consensus::NetworkType;
 
-use crate::api::engine_api::EngineTransactionRecord;
-use crate::api::wallet::{AddressInfo, WalletBalance};
+use crate::types::{AddressInfo, EngineTransactionRecord, WalletBalance};
 
 use super::{open_wallet_db, open_cipher_conn, ENGINE};
 

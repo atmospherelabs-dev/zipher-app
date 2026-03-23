@@ -169,6 +169,27 @@ Enables shared wallets (2-of-3), social recovery, and CipherPay escrow.
 
 ---
 
+## 6. Agent Wallet (zipher-cli)
+
+**Priority: HIGH — New product line**
+
+Headless, local-first Zcash light wallet for AI agents. Wraps the same
+Rust engine as Zipher mobile, repackaged as a standalone CLI binary with
+daemon mode, MCP server, and OpenClaw skill.
+
+**Full PRD:** [`docs/agent-wallet-prd.md`](docs/agent-wallet-prd.md)
+
+**Phases:**
+
+- [ ] Phase 0: Cargo workspace restructure — extract engine crate from FFI
+- [ ] Phase 1: `zipher-cli` binary (wallet lifecycle + sync + balance + send)
+- [ ] Phase 2: Spending policy, audit log, daemon mode, kill switch
+- [ ] Phase 3: MCP server + OpenClaw skill (equal priority)
+- [ ] Phase 4: CipherPay end-to-end integration (x402 flow)
+- [ ] Phase 5: Docker image, ARM builds, testnet CI, note consolidation
+
+---
+
 ## 5. Infrastructure
 
 - [x] Bundle ID: `dev.atmospherelabs.zipher`

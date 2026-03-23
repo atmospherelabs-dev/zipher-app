@@ -217,7 +217,6 @@ pub async fn open(
 
     println!("[engine] open wallet at {:?}", db_data_path);
 
-    // Migrate unencrypted databases on first encrypted open
     if let Some(ref key) = db_cipher_key {
         migrate_to_encrypted(&db_data_path, key).ok();
         migrate_to_encrypted(&db_cache_path, key).ok();
@@ -256,7 +255,6 @@ pub async fn close() {
     tracing::info!("[engine] close wallet — stopping sync first");
     super::sync::stop().await;
 
-    // Wait for the sync loop to finish (up to 5s)
     for _ in 0..50 {
         if !super::sync::is_running() {
             break;

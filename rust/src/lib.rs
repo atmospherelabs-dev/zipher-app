@@ -1,3 +1,3 @@
 pub mod api;
-pub mod engine;
+pub use zipher_engine as engine;
 mod frb_generated;

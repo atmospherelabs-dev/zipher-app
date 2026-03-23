@@ -107,7 +107,8 @@ pub async fn engine_delete_wallet_data(data_dir: String) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 pub async fn engine_get_addresses() -> Result<Vec<AddressInfo>> {
-    engine::query::get_addresses().await
+    let addrs = engine::query::get_addresses().await?;
+    Ok(addrs.into_iter().map(|a| a.into()).collect())
 }
 
 pub async fn engine_get_transparent_addresses() -> Result<Vec<String>> {
@@ -119,7 +120,8 @@ pub async fn engine_get_transparent_addresses() -> Result<Vec<String>> {
 // ---------------------------------------------------------------------------
 
 pub async fn engine_get_wallet_balance() -> Result<WalletBalance> {
-    engine::query::get_wallet_balance().await
+    let balance = engine::query::get_wallet_balance().await?;
+    Ok(balance.into())
 }
 
 /// Returns the maximum amount (in zatoshis) that can be sent to the given
@@ -288,7 +290,8 @@ pub async fn engine_shield_funds(seed_phrase: String) -> Result<String> {
 // ---------------------------------------------------------------------------
 
 pub async fn engine_get_transactions() -> Result<Vec<EngineTransactionRecord>> {
-    engine::query::get_transactions().await
+    let txs = engine::query::get_transactions().await?;
+    Ok(txs.into_iter().map(|t| t.into()).collect())
 }
 
 pub struct EngineTransactionRecord {
@@ -300,4 +303,19 @@ pub struct EngineTransactionRecord {
     pub fee: Option<u64>,
     pub memo: Option<String>,
     pub expired_unmined: bool,
+}
+
+impl From<zipher_engine::types::EngineTransactionRecord> for EngineTransactionRecord {
+    fn from(t: zipher_engine::types::EngineTransactionRecord) -> Self {
+        Self {
+            txid: t.txid,
+            height: t.height,
+            timestamp: t.timestamp,
+            value: t.value,
+            kind: t.kind,
+            fee: t.fee,
+            memo: t.memo,
+            expired_unmined: t.expired_unmined,
+        }
+    }
 }
