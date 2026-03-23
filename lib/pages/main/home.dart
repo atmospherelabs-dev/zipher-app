@@ -1401,6 +1401,26 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                     color: ZipherColors.text60,
                   ),
                 ),
+                if (isTestnet) ...[
+                  const Gap(8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: ZipherColors.orange.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                    ),
+                    child: Text(
+                      'TESTNET',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                        color: ZipherColors.orange,
+                      ),
+                    ),
+                  ),
+                ],
                 const Spacer(),
                 GestureDetector(
                   onTap: _addAccount,
@@ -1582,8 +1602,8 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                               ),
                               Text(
                                 isActive
-                                    ? '${_liveBalance()} ZEC'
-                                    : '${amountToString2(fa.lastBalance)} ZEC',
+                                    ? '${_liveBalance()} ${activeCoin.ticker}'
+                                    : '${amountToString2(fa.lastBalance)} ${activeCoin.ticker}',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500,

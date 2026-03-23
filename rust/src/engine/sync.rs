@@ -114,6 +114,13 @@ pub async fn start() -> Result<()> {
 
 pub async fn stop() {
     SYNC_CANCEL.store(true, Ordering::SeqCst);
+    for _ in 0..100 {
+        if !SYNC_RUNNING.load(Ordering::SeqCst) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    SYNC_RUNNING.store(false, Ordering::SeqCst);
 }
 
 pub fn is_running() -> bool {

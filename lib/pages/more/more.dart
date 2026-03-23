@@ -8,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../accounts.dart';
 import '../../services/wallet_service.dart';
 import '../../init.dart';
-import '../../services/secure_key_store.dart';
 import '../../zipher_theme.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
@@ -377,25 +376,47 @@ class _TestnetToggleState extends State<_TestnetToggle> {
     setState(() => _switching = true);
 
     try {
+      final ws = WalletService.instance;
+      final activeId = ws.activeWalletId;
+
+      // 1. Always stop sync and close the current wallet first
+      try { await ws.stopSync(); } catch (_) {}
+      if (ws.isWalletOpen) {
+        await ws.closeWallet();
+      }
+
+      // 2. Switch the network flag
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('testnet', enable);
       isTestnet = enable;
       testnetNotifier.value = enable;
-
-      // Initialize the active coin's DB paths
       await initCoins();
+      syncStatus2.resetForWalletSwitch();
 
-      // TODO: migrate to WalletService - testnet switch requires wallet reopen
-      final ws = WalletService.instance;
-      if (await ws.walletExists()) {
-        await ws.closeWallet();
-        await ws.openWallet();
+      // 3. Open or create the wallet for the target network
+      bool opened = false;
+      if (activeId != null) {
+        final exists = await ws.walletExists(walletId: activeId);
+        final hasSeed = exists && await ws.hasSeedForCurrentNetwork(activeId);
+        if (!exists || !hasSeed) {
+          if (exists && !hasSeed) {
+            await ws.deleteWalletDir(walletId: activeId);
+          }
+          await ws.createNetworkWalletForProfile(activeId);
+        }
+        await ws.openWalletById(activeId);
+        opened = true;
       }
-      setActiveAccount(activeCoin.coin, 1);
-      await aa.save(prefs);
 
-      if (mounted) {
-        GoRouter.of(context).go('/account');
+      if (opened) {
+        setActiveAccount(activeCoin.coin, 1);
+        await aa.updateAddress();
+        await aa.updateBalance();
+        aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+        await aa.save(prefs);
+        if (mounted) GoRouter.of(context).go('/account');
+      } else {
+        if (mounted) GoRouter.of(context).go('/welcome');
       }
     } catch (e) {
       logger.e('Testnet toggle error: $e');

@@ -207,7 +207,10 @@ abstract class _SyncStatus2 with Store {
               ? progress.scanningUpTo
               : h;
       logger.d('[Sync] poll: synced=${progress.syncedHeight} scanning=${progress.scanningUpTo} latest=${progress.latestHeight} isSyncing=${progress.isSyncing} walletH=$h localH=$syncedHeight effectiveH=$effectiveH');
-      if (effectiveH > syncedHeight) {
+      if (effectiveH > 0 && effectiveH < syncedHeight && progress.isSyncing) {
+        syncedHeight = effectiveH;
+        eta.checkpoint(syncedHeight, DateTime.now());
+      } else if (effectiveH > syncedHeight) {
         syncedHeight = effectiveH;
         eta.checkpoint(syncedHeight, DateTime.now());
       }

@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:screen_protector/screen_protector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../accounts.dart';
+import '../../coin/coins.dart';
 import '../../services/wallet_service.dart';
 import '../../services/wallet_registry.dart';
 import '../../services/secure_key_store.dart';
@@ -69,6 +70,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
 
   String? _keychainSeed;
 
+  bool _testnetSeedMissing = false;
+
   void _loadBackup() async {
     try {
       final ws = WalletService.instance;
@@ -85,7 +88,9 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
         return;
       }
       if (!mounted) return;
+      final hasSeed = kcSeed != null || seed != null;
       setState(() {
+        _testnetSeedMissing = isTestnet && !hasSeed;
         _backup = _Backup(
           name: aa.name,
           index: aa.id,
@@ -278,6 +283,41 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       ],
                     ),
                   ),
+
+                  if (isTestnet) ...[
+                    const Gap(12),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: ZipherColors.orange.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                        border: Border.all(
+                          color: ZipherColors.orange.withValues(alpha: 0.12),
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.science_rounded,
+                              size: 18,
+                              color: ZipherColors.orange
+                                  .withValues(alpha: 0.7)),
+                          const Gap(10),
+                          Expanded(
+                            child: Text(
+                              'You are viewing a testnet wallet. This seed is independent from your mainnet seed. Testnet coins (TAZ) have no real value.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: ZipherColors.orange
+                                    .withValues(alpha: 0.8),
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
 
                   const Gap(20),
 
@@ -540,6 +580,40 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     ),
                   ],
 
+                  if (_testnetSeedMissing) ...[
+                    const Gap(20),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: ZipherColors.cardBg,
+                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                        border: Border.all(
+                          color: ZipherColors.borderSubtle,
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.info_outline_rounded,
+                              size: 18,
+                              color: ZipherColors.text40),
+                          const Gap(10),
+                          Expanded(
+                            child: Text(
+                              'This testnet wallet was created before seed storage was enabled. '
+                              'Toggle testnet off and back on to recreate it with a stored seed.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: ZipherColors.text40,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
                   const Gap(28),
 
                   // ═══════════════════════════════════
@@ -606,10 +680,15 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                         const Gap(12),
                         Builder(builder: (ctx) {
                           final seedValue = _keychainSeed ?? backup.seed!;
+                          final seedLabel = isTestnet
+                              ? 'Testnet Seed Phrase'
+                              : 'Seed Phrase';
+                          final seedDesc = isTestnet
+                              ? 'Testnet-only seed — independent from your mainnet seed. Testnet coins have no value.'
+                              : 'Master key — derives ALL accounts and keys. If lost, funds are unrecoverable. If stolen, everything is compromised.';
                           return _KeyCard(
-                            label: 'Seed Phrase',
-                            description:
-                                'Master key — derives ALL accounts and keys. If lost, funds are unrecoverable. If stolen, everything is compromised.',
+                            label: seedLabel,
+                            description: seedDesc,
                             value: backup.index != 0
                                 ? '$seedValue [${backup.index}]'
                                 : seedValue,
@@ -620,7 +699,6 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                               setState(
                                   () => _seedRevealed = !_seedRevealed);
                               if (_seedRevealed && !_backup!.saved) {
-                                // TODO: migrate to WalletService - setBackupReminder
                                 setActiveAccount(aa.coin, aa.id);
                               }
                             },

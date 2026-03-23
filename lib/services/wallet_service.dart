@@ -164,7 +164,7 @@ class WalletService {
     _walletOpen = true;
     _activeWalletId = profile.id;
     await registry.setActive(profile.id);
-    await SecureKeyStore.storeSeedForWallet(profile.id, seed);
+    await SecureKeyStore.storeSeedForWallet(_networkSeedKey(profile.id), seed);
     await _applyFileProtection(dir);
     if (!useNewEngine) await rust_wallet.startSaveTask();
     _log.i('[WS] createNewWallet complete');
@@ -207,7 +207,7 @@ class WalletService {
     _walletOpen = true;
     _activeWalletId = profile.id;
     await registry.setActive(profile.id);
-    await SecureKeyStore.storeSeedForWallet(profile.id, seedPhrase);
+    await SecureKeyStore.storeSeedForWallet(_networkSeedKey(profile.id), seedPhrase);
     await _applyFileProtection(dir);
     if (!useNewEngine) await rust_wallet.startSaveTask();
     _log.i('[WS] restoreWallet complete');
@@ -282,6 +282,8 @@ class WalletService {
 
   /// Switch from the current wallet to another.
   /// Handles the full close-save-open lifecycle with busy locking.
+  /// If the target wallet doesn't exist on the current network (e.g. testnet),
+  /// a fresh wallet is auto-created with an independent seed.
   Future<void> switchWallet(String targetWalletId) async {
     _log.i('[WS] switchWallet from=$_activeWalletId to=$targetWalletId');
     if (_activeWalletId == targetWalletId && _walletOpen) return;
@@ -294,6 +296,17 @@ class WalletService {
       }
 
       await Future.delayed(const Duration(milliseconds: 100));
+
+      final exists = await walletExists(walletId: targetWalletId);
+      final hasSeed = exists && await hasSeedForCurrentNetwork(targetWalletId);
+      if (!exists || !hasSeed) {
+        if (exists && !hasSeed) {
+          _log.i('[WS] target wallet has no seed, deleting stale DB...');
+          await deleteWalletDir(walletId: targetWalletId);
+        }
+        _log.i('[WS] target wallet not found on current network, creating...');
+        await createNetworkWalletForProfile(targetWalletId);
+      }
 
       await _openWalletByIdInternal(targetWalletId);
       _log.i('[WS] switchWallet complete');
@@ -503,6 +516,52 @@ class WalletService {
     sw.stop();
     _walletOpen = false;
     _log.i('[WS] closeWallet done in ${sw.elapsedMilliseconds}ms');
+  }
+
+  /// Create a fresh wallet for the current network (e.g. testnet) under an
+  /// existing WalletProfile.  Uses a brand-new seed so that testnet keys are
+  /// completely independent of mainnet — preventing accidental seed leakage.
+  Future<void> createNetworkWalletForProfile(String walletId) async {
+    final dir = await walletDir(walletId: walletId);
+    int height = 0;
+    try {
+      height = await getLatestBlockHeight();
+    } catch (e) {
+      _log.w('[WS] failed to get chain height for network wallet, using 0: $e');
+    }
+    _log.i('[WS] creating fresh network wallet for $walletId in $dir at height $height');
+    final dbKey = await _getDbCipherKey();
+    final seed = await rust_engine.engineCreateWallet(
+      dataDir: dir,
+      serverUrl: serverUrl,
+      chainType: _chainType,
+      chainHeight: height,
+      dbCipherKey: dbKey,
+    );
+    await SecureKeyStore.storeSeedForWallet(_networkSeedKey(walletId), seed);
+    await rust_engine.engineCloseWallet();
+    _log.i('[WS] network wallet created (independent seed), ready for openWalletById');
+  }
+
+  /// Returns the SecureKeyStore key for the active network's seed.
+  /// Mainnet uses the wallet UUID directly; testnet appends '_testnet'
+  /// so the two seeds are never confused.
+  String _networkSeedKey(String walletId) =>
+      isTestnet ? '${walletId}_testnet' : walletId;
+
+  /// Whether a seed exists in SecureKeyStore for [walletId] on the current network.
+  Future<bool> hasSeedForCurrentNetwork(String walletId) =>
+      SecureKeyStore.hasSeedForWallet(_networkSeedKey(walletId));
+
+  /// Delete a wallet's on-disk data for the current network without touching
+  /// the engine state. Used to clean up seedless testnet wallets.
+  Future<void> deleteWalletDir({required String walletId}) async {
+    final dir = await walletDir(walletId: walletId);
+    final d = Directory(dir);
+    if (await d.exists()) {
+      await d.delete(recursive: true);
+      _log.i('[WS] deleted wallet dir: $dir');
+    }
   }
 
   /// Delete wallet data from disk. Must call closeWallet() first.
@@ -804,7 +863,8 @@ class WalletService {
 
   Future<String> _getSeedForSend() async {
     if (_activeWalletId == null) throw Exception('No active wallet');
-    final seed = await SecureKeyStore.getSeedForWallet(_activeWalletId!);
+    final key = _networkSeedKey(_activeWalletId!);
+    final seed = await SecureKeyStore.getSeedForWallet(key);
     if (seed == null) throw Exception('Seed not found in secure storage');
     return seed;
   }
@@ -898,7 +958,7 @@ class WalletService {
     _checkBusy();
     if (useNewEngine) {
       if (_activeWalletId == null) return null;
-      return SecureKeyStore.getSeedForWallet(_activeWalletId!);
+      return SecureKeyStore.getSeedForWallet(_networkSeedKey(_activeWalletId!));
     }
     return rust_wallet.getSeedPhrase();
   }
