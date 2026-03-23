@@ -5,6 +5,7 @@ pub mod sync;
 pub mod send;
 pub mod policy;
 pub mod audit;
+pub mod x402;
 
 use std::path::{Path, PathBuf};
 

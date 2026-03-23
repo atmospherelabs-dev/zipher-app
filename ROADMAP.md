@@ -185,7 +185,7 @@ daemon mode, MCP server, and OpenClaw skill.
 - [x] Phase 1: `zipher-cli` binary (wallet lifecycle + sync + balance + send)
 - [x] Phase 2: Spending policy, audit log, daemon mode, kill switch
 - [x] Phase 3: MCP server + OpenClaw skill (equal priority)
-- [ ] Phase 4: CipherPay end-to-end integration (x402 flow)
+- [x] Phase 4: CipherPay end-to-end integration (x402 flow)
 - [ ] Phase 5: Docker image, ARM builds, testnet CI, note consolidation
 
 ---

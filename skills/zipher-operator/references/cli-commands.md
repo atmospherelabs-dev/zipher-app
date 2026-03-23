@@ -149,3 +149,17 @@ Re-provide seed to re-enable spending.
 ```
 zipher-cli daemon unlock
 ```
+
+### x402 propose
+Parse an HTTP 402 response body and create a send proposal (no seed required).
+```
+zipher-cli x402 propose --body '<JSON>' [--context-id <ID>]
+```
+Reads from stdin if `--body` is omitted.
+
+### x402 pay
+Parse a 402 response, pay, and return the PAYMENT-SIGNATURE header. Requires seed.
+```
+zipher-cli x402 pay --body '<JSON>' [--context-id <ID>]
+```
+Returns `{ txid, payment_signature, amount, fee, address }`. The `payment_signature` is a base64 header value to include as `PAYMENT-SIGNATURE` when retrying the original request.

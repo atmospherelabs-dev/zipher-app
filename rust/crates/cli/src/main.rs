@@ -1,4 +1,4 @@
-use std::io::{self, BufRead, Write as _};
+use std::io::{self, BufRead, Read as _, Write as _};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -91,6 +91,10 @@ enum Commands {
     /// Daemon mode (long-running background process)
     #[command(subcommand)]
     Daemon(DaemonCmd),
+
+    /// Pay an HTTP 402 paywall (x402 protocol)
+    #[command(subcommand)]
+    X402(X402Cmd),
 }
 
 #[derive(Subcommand)]
@@ -201,6 +205,31 @@ enum DaemonCmd {
 
     /// Re-provide seed to unlock spending (reads from ZIPHER_SEED or stdin)
     Unlock,
+}
+
+#[derive(Subcommand)]
+enum X402Cmd {
+    /// Parse a 402 response and create a send proposal (no seed required)
+    Propose {
+        /// The HTTP 402 response body JSON (reads from stdin if omitted)
+        #[arg(long)]
+        body: Option<String>,
+
+        /// Context identifier for audit trail
+        #[arg(long)]
+        context_id: Option<String>,
+    },
+
+    /// Parse a 402 response, pay, and return the PAYMENT-SIGNATURE header (requires seed)
+    Pay {
+        /// The HTTP 402 response body JSON (reads from stdin if omitted)
+        #[arg(long)]
+        body: Option<String>,
+
+        /// Context identifier for audit trail
+        #[arg(long)]
+        context_id: Option<String>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -835,6 +864,150 @@ async fn cmd_shield(cfg: &Config) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// x402 commands
+// ---------------------------------------------------------------------------
+
+fn read_402_body(body: &Option<String>) -> Result<String> {
+    if let Some(b) = body {
+        return Ok(b.clone());
+    }
+    let mut buf = String::new();
+    io::stdin().lock().read_to_string(&mut buf)?;
+    let trimmed = buf.trim().to_string();
+    if trimmed.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No 402 body provided. Pass --body '<JSON>' or pipe via stdin."
+        ));
+    }
+    Ok(trimmed)
+}
+
+fn expected_network(cfg: &Config) -> &'static str {
+    if cfg.network == Network::TestNetwork {
+        "zcash:testnet"
+    } else {
+        "zcash:mainnet"
+    }
+}
+
+async fn cmd_x402_propose(
+    cfg: &Config,
+    body: Option<String>,
+    context_id: Option<String>,
+) -> Result<()> {
+    let raw = read_402_body(&body)?;
+    let req = zipher_engine::x402::parse_402_response(&raw, expected_network(cfg))?;
+    let amount = zipher_engine::x402::amount_zatoshis(&req)?;
+
+    cmd_send_propose(cfg, req.pay_to, amount, None, context_id).await
+}
+
+async fn cmd_x402_pay(
+    cfg: &Config,
+    body: Option<String>,
+    context_id: Option<String>,
+) -> Result<()> {
+    let raw = read_402_body(&body)?;
+    let req = zipher_engine::x402::parse_402_response(&raw, expected_network(cfg))?;
+    let amount = zipher_engine::x402::amount_zatoshis(&req)?;
+    let address = req.pay_to.clone();
+
+    let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
+
+    let daily_spent = zipher_engine::audit::daily_spent(&cfg.data_dir).unwrap_or(0);
+    if let Err(violation) = zipher_engine::policy::check_proposal(
+        &policy, &address, amount, &context_id, daily_spent,
+    ) {
+        zipher_engine::audit::log_event(
+            &cfg.data_dir, "x402_pay", Some(&address),
+            Some(amount), None, context_id.as_deref(),
+            None, Some(&violation.to_string()),
+        ).ok();
+        return Err(anyhow::anyhow!("{}", violation));
+    }
+
+    if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
+        zipher_engine::audit::log_event(
+            &cfg.data_dir, "x402_pay", Some(&address),
+            Some(amount), None, context_id.as_deref(),
+            None, Some(&violation.to_string()),
+        ).ok();
+        return Err(anyhow::anyhow!("{}", violation));
+    }
+
+    auto_open(cfg).await?;
+
+    let (send_amount, fee, _) =
+        zipher_engine::send::propose_send(&address, amount, None, false).await?;
+
+    if cfg.human {
+        let zec = send_amount as f64 / 1e8;
+        let fee_zec = fee as f64 / 1e8;
+        eprintln!(
+            "x402 payment: {:.8} ZEC + {:.8} fee to {}",
+            zec, fee_zec, address
+        );
+    }
+
+    let seed = read_seed()?;
+    let txid = match zipher_engine::send::confirm_send(&seed).await {
+        Ok(txid) => {
+            zipher_engine::policy::record_confirm();
+            zipher_engine::audit::log_event(
+                &cfg.data_dir, "x402_pay", Some(&address),
+                Some(send_amount), Some(fee), context_id.as_deref(),
+                Some(&txid), None,
+            ).ok();
+            txid
+        }
+        Err(e) => {
+            zipher_engine::audit::log_event(
+                &cfg.data_dir, "x402_pay", Some(&address),
+                Some(send_amount), Some(fee), context_id.as_deref(),
+                None, Some(&format!("{:#}", e)),
+            ).ok();
+            return Err(e);
+        }
+    };
+
+    delete_pending(&cfg.data_dir);
+
+    let payment_signature = zipher_engine::x402::build_payment_signature(&txid, &req);
+
+    #[derive(Serialize)]
+    struct X402PayResult {
+        txid: String,
+        payment_signature: String,
+        amount: u64,
+        fee: u64,
+        address: String,
+    }
+
+    print_ok(
+        X402PayResult {
+            txid: txid.clone(),
+            payment_signature: payment_signature.clone(),
+            amount: send_amount,
+            fee,
+            address: address.clone(),
+        },
+        cfg.human,
+        |r| {
+            println!("x402 payment broadcast.");
+            println!("  txid: {}", r.txid);
+            println!("  amount: {:.8} ZEC ({} zat)", r.amount as f64 / 1e8, r.amount);
+            println!("  fee:    {:.8} ZEC ({} zat)", r.fee as f64 / 1e8, r.fee);
+            println!();
+            println!("PAYMENT-SIGNATURE header:");
+            println!("  {}", r.payment_signature);
+        },
+    );
+
+    zipher_engine::wallet::close().await;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Policy commands
 // ---------------------------------------------------------------------------
 
@@ -1323,6 +1496,14 @@ async fn main() {
             DaemonCmd::Stop => daemon::cmd_stop(&cfg).await,
             DaemonCmd::Lock => daemon::cmd_lock(&cfg).await,
             DaemonCmd::Unlock => daemon::cmd_unlock(&cfg).await,
+        },
+        Commands::X402(sub) => match sub {
+            X402Cmd::Propose { body, context_id } => {
+                cmd_x402_propose(&cfg, body, context_id).await
+            }
+            X402Cmd::Pay { body, context_id } => {
+                cmd_x402_pay(&cfg, body, context_id).await
+            }
         },
     };
 

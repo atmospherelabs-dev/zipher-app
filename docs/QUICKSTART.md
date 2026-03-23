@@ -75,6 +75,29 @@ The seed is read from `ZIPHER_SEED` env var or stdin. It is never written to dis
 
 > **Tip:** Run propose and confirm back-to-back. Proposals expire after ~50 blocks (~60 min).
 
+## 6b. Pay an HTTP 402 paywall (x402)
+
+When an API returns HTTP 402 with an x402 payment body:
+
+```bash
+# One-step: parse the 402 body, pay, get the PAYMENT-SIGNATURE header
+ZIPHER_SEED="your seed phrase here" zipher-cli x402 pay \
+  --body '{"x402Version":2,"accepts":[{"scheme":"exact","network":"zcash:mainnet","asset":"ZEC","amount":"100000","payTo":"u1...","maxTimeoutSeconds":120}]}' \
+  --context-id "api-access"
+```
+
+Returns `txid` and `payment_signature`. Add the signature as a `PAYMENT-SIGNATURE` header when retrying the original request.
+
+Or two-step (review before paying):
+
+```bash
+# Step 1: Parse and propose (no seed needed)
+zipher-cli x402 propose --body '<402 JSON>'
+
+# Step 2: Confirm (same as regular send confirm)
+ZIPHER_SEED="..." zipher-cli send confirm
+```
+
 ## 7. Spending policy
 
 Set guardrails before giving an agent access:

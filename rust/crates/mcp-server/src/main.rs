@@ -115,6 +115,14 @@ struct ValidateAddressParams {
     address: String,
 }
 
+#[derive(Deserialize, JsonSchema)]
+struct PayX402Params {
+    /// The full HTTP 402 response body (JSON string from the x402 paywall)
+    payment_body: String,
+    /// Context identifier for audit trail
+    context_id: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // MCP Server state
 // ---------------------------------------------------------------------------
@@ -124,6 +132,7 @@ struct ZipherMcpServer {
     data_dir: String,
     seed: Arc<RwLock<Option<SecretString>>>,
     locked: Arc<std::sync::atomic::AtomicBool>,
+    network: Network,
     tool_router: rmcp::handler::server::tool::ToolRouter<Self>,
 }
 
@@ -366,6 +375,118 @@ impl ZipherMcpServer {
             }
         }
     }
+
+    #[tool(description = "Pay an HTTP 402 paywall. Pass the full 402 response body. Returns txid and a PAYMENT-SIGNATURE header value to include when retrying the original request.")]
+    async fn pay_x402(&self, Parameters(params): Parameters<PayX402Params>) -> String {
+        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
+            return err_code_response(WALLET_LOCKED, "Wallet is locked. Ask the operator to unlock.");
+        }
+
+        let seed_guard = self.seed.read().await;
+        let seed_str = match seed_guard.as_ref() {
+            Some(s) => s.clone(),
+            None => {
+                return err_code_response(WALLET_LOCKED, "No seed available. Set ZIPHER_SEED before starting the server.");
+            }
+        };
+        drop(seed_guard);
+
+        let expected_network = if self.network == Network::TestNetwork {
+            "zcash:testnet"
+        } else {
+            "zcash:mainnet"
+        };
+
+        let req = match zipher_engine::x402::parse_402_response(&params.payment_body, expected_network) {
+            Ok(r) => r,
+            Err(e) => return err_code_response(INVALID_PROPOSAL, &format!("Invalid x402 body: {e}")),
+        };
+
+        let amount = match zipher_engine::x402::amount_zatoshis(&req) {
+            Ok(a) => a,
+            Err(e) => return err_code_response(INVALID_PROPOSAL, &format!("{e}")),
+        };
+
+        let address = req.pay_to.clone();
+
+        let policy = zipher_engine::policy::load_policy(&self.data_dir);
+        let daily_spent = zipher_engine::audit::daily_spent(&self.data_dir).unwrap_or(0);
+
+        if let Err(violation) = zipher_engine::policy::check_proposal(
+            &policy, &address, amount, &params.context_id, daily_spent,
+        ) {
+            zipher_engine::audit::log_event(
+                &self.data_dir, "x402_pay", Some(&address),
+                Some(amount), None, params.context_id.as_deref(),
+                None, Some(&violation.to_string()),
+            ).ok();
+            let code = match &violation {
+                zipher_engine::policy::PolicyViolation::AddressNotAllowed { .. } => ADDRESS_NOT_ALLOWED,
+                zipher_engine::policy::PolicyViolation::ContextRequired => CONTEXT_REQUIRED,
+                _ => POLICY_EXCEEDED,
+            };
+            return err_code_response(code, &violation.to_string());
+        }
+
+        if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
+            zipher_engine::audit::log_event(
+                &self.data_dir, "x402_pay", Some(&address),
+                Some(amount), None, params.context_id.as_deref(),
+                None, Some(&violation.to_string()),
+            ).ok();
+            return err_code_response(POLICY_EXCEEDED, &violation.to_string());
+        }
+
+        let (send_amount, fee, _) = match zipher_engine::send::propose_send(&address, amount, None, false).await {
+            Ok(r) => r,
+            Err(e) => {
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "x402_pay", Some(&address),
+                    Some(amount), None, params.context_id.as_deref(),
+                    None, Some(&format!("{:#}", e)),
+                ).ok();
+                return err_response(&e);
+            }
+        };
+
+        match zipher_engine::send::confirm_send(&seed_str).await {
+            Ok(txid) => {
+                zipher_engine::policy::record_confirm();
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "x402_pay", Some(&address),
+                    Some(send_amount), Some(fee), params.context_id.as_deref(),
+                    Some(&txid), None,
+                ).ok();
+
+                let payment_signature = zipher_engine::x402::build_payment_signature(&txid, &req);
+
+                #[derive(Serialize)]
+                struct X402Result {
+                    txid: String,
+                    payment_signature: String,
+                    amount_zatoshis: u64,
+                    fee_zatoshis: u64,
+                    pay_to: String,
+                }
+
+                ok_response(X402Result {
+                    txid,
+                    payment_signature,
+                    amount_zatoshis: send_amount,
+                    fee_zatoshis: fee,
+                    pay_to: address,
+                })
+            }
+            Err(e) => {
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "x402_pay", Some(&address),
+                    Some(send_amount), Some(fee), params.context_id.as_deref(),
+                    None, Some(&format!("{:#}", e)),
+                ).ok();
+                err_response(&e)
+            }
+        }
+    }
 }
 
 #[tool_handler]
@@ -374,7 +495,11 @@ impl ServerHandler for ZipherMcpServer {
         ServerInfo::default()
             .with_instructions(
                 "Zipher: headless Zcash light wallet for AI agents. \
-                 Use propose_send then confirm_send for two-step payments. \
+                 Use propose_send then confirm_send for two-step payments, \
+                 or pay_x402 for one-step HTTP 402 paywall payments. \
+                 When you receive an HTTP 402 response, pass the full body to pay_x402 \
+                 and use the returned payment_signature as the PAYMENT-SIGNATURE header \
+                 when retrying the request. \
                  Seed is held in server memory — never pass it as a tool argument."
             )
     }
@@ -431,6 +556,7 @@ async fn main() -> Result<()> {
         data_dir: data_dir.clone(),
         seed: Arc::new(RwLock::new(seed)),
         locked: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        network,
         tool_router: ZipherMcpServer::tool_router(),
     };
 

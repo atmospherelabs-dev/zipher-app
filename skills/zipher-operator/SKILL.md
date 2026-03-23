@@ -68,6 +68,48 @@ Only after explicit user confirmation:
 
 The seed must be available in `ZIPHER_SEED`. The script will sign and broadcast the transaction, then clean up the pending proposal.
 
+### 4. x402 Paywall Payment Mode
+
+When you encounter an HTTP 402 response from an API or service, follow this flow:
+
+#### Step 1: Verify it's an x402 payment request
+
+Check that the 402 response body has `x402Version: 2` and an `accepts[]` array with a Zcash entry (`network: "zcash:mainnet"` or `"zcash:testnet"`).
+
+#### Step 2: Preflight check
+
+```bash
+./scripts/check_status.sh
+```
+
+Verify the wallet is synced and has enough balance to cover the requested amount + fee.
+
+#### Step 3: Propose and review
+
+```bash
+zipher-cli x402 propose --body '<THE 402 RESPONSE BODY JSON>' --context-id <CONTEXT>
+```
+
+Present the summary: destination, amount, fee. If the amount exceeds `approval_threshold`, ask the user for explicit approval.
+
+#### Step 4: Pay (after confirmation)
+
+```bash
+./scripts/pay_x402.sh --body '<THE 402 RESPONSE BODY JSON>' --context-id <CONTEXT>
+```
+
+This signs, broadcasts, and returns both the `txid` and a ready-to-use `PAYMENT-SIGNATURE` header value.
+
+#### Step 5: Retry the original request
+
+Add the `PAYMENT-SIGNATURE` header to your retry of the original HTTP request:
+
+```
+PAYMENT-SIGNATURE: <the payment_signature value from step 4>
+```
+
+The server will verify the payment via CipherPay and return the resource.
+
 ## Safety Boundaries
 
 1. **Never** ask the user to paste mnemonics, passphrases, or private keys into chat.
