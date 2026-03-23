@@ -15,7 +15,7 @@ Fast, shielded Zcash wallet built for simplicity and privacy. Forked from [YWall
 - **Shielded by Default** — sends from shielded pool only, with one-tap shielding for transparent funds
 - **Cross-Chain Swaps** — swap ZEC to BTC, ETH, SOL and more via NEAR Intents
 - **Secure Seed Storage** — seeds in iOS Keychain / Android Keystore, keys derived in RAM, wiped on close
-- **Multi-Wallet** — manage multiple wallets with watch-only support
+- **Multi-Wallet** — manage multiple wallets from a single app, with optional watch-only import
 - **Testnet Mode** — full testnet with integrated faucet, built for developers
 - **Memo Inbox** — receive and read encrypted on-chain memos
 - **Privacy Health Bar** — see your shielded vs transparent balance at a glance
