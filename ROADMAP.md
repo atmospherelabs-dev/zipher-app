@@ -181,10 +181,10 @@ daemon mode, MCP server, and OpenClaw skill.
 
 **Phases:**
 
-- [ ] Phase 0: Cargo workspace restructure — extract engine crate from FFI
-- [ ] Phase 1: `zipher-cli` binary (wallet lifecycle + sync + balance + send)
-- [ ] Phase 2: Spending policy, audit log, daemon mode, kill switch
-- [ ] Phase 3: MCP server + OpenClaw skill (equal priority)
+- [x] Phase 0: Cargo workspace restructure — extract engine crate from FFI
+- [x] Phase 1: `zipher-cli` binary (wallet lifecycle + sync + balance + send)
+- [x] Phase 2: Spending policy, audit log, daemon mode, kill switch
+- [x] Phase 3: MCP server + OpenClaw skill (equal priority)
 - [ ] Phase 4: CipherPay end-to-end integration (x402 flow)
 - [ ] Phase 5: Docker image, ARM builds, testnet CI, note consolidation
 

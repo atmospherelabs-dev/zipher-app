@@ -38,31 +38,25 @@ But every one of these protocols assumes the agent already has a wallet.
 
 The **Open Wallet Standard (OWS)** — backed by PayPal, Circle, Solana Foundation, and 18 others — addresses multi-chain key storage and commodity signing (ECDSA, Ed25519). But OWS cannot produce Zcash shielded transactions. Shielded sends require zero-knowledge proof generation using Sapling/Orchard circuits — fundamentally different from "hash and sign." OWS's signing interface doesn't cover this.
 
-**The gap:** there is no agent-ready wallet for private payments. Every existing Zcash wallet (Zashi, Zingo, Zallet) is designed for human consumers with a GUI. None expose a programmatic interface for autonomous agents.
+**The gap:** there is no agent-ready wallet for private payments. Existing Zcash wallets are designed for human consumers with a GUI. None expose a programmatic interface for autonomous agents.
 
 zipher-cli fills this gap. It gives agents a way to hold ZEC, construct shielded transactions, and broadcast them — all from a headless binary that runs wherever the operator deploys it: a $5 VPS, a Mac Mini, a Raspberry Pi, a Docker container, a Kubernetes pod.
 
 ---
 
-## 3. Landscape & Positioning
+## 3. Related Work
 
-| | zipher-cli | Zallet (ZalletClaw) | OWS | Zashi | Zingo |
-|---|---|---|---|---|---|
-| **Architecture** | Light client (lightwalletd) | Full node (zcashd) | Key vault only | Light client | Light client |
-| **Deploy footprint** | ~50MB params + binary | ~100GB full chain | ~10MB | Mobile app | Mobile/desktop app |
-| **Shielded sends** | Yes (Sapling + Orchard) | Yes | No (ECDSA/Ed25519 only) | Yes | Yes |
-| **Agent-ready** | MCP + OpenClaw + CLI | OpenClaw skill only | Multi-chain signing | No programmatic API | No programmatic API |
-| **Privacy** | Shielded by default | Shielded | Transparent chains | Shielded | Shielded |
-| **Daemon mode** | Yes (background sync + RPC) | Yes (zcashd is always-on) | N/A | No | No |
-| **Full node required** | No | Yes | No | No | No |
+### Open Wallet Standard (OWS)
 
-### Key positioning
+OWS defines a local-first encrypted vault with a standard storage format (AES-256-GCM, scrypt KDF) and a uniform signing interface across EVM, Solana, Bitcoin, Tron, and more. Its design principles — local-first, key isolation, keys never leave the machine — align with zipher-cli's architecture. OWS handles commodity elliptic curve signing (ECDSA, Ed25519). Zcash shielded transactions require zero-knowledge proof generation using Sapling/Orchard circuits, which OWS's signing interface does not cover. A future integration could use OWS's vault format for key storage while zipher-cli handles ZK proof generation on top.
 
-**OWS is complementary, not competitive.** OWS defines a local-first encrypted vault with a standard storage format (AES-256-GCM, scrypt KDF) and a uniform signing interface across EVM, Solana, Bitcoin, Tron, and more. Its design principles — local-first, key isolation, keys never leave the machine — align exactly with zipher-cli's architecture. But OWS handles commodity elliptic curve signing. Zcash shielded transactions require zero-knowledge proof generation that OWS's interface cannot express. A future integration could use OWS's vault format for key storage while zipher-cli handles ZK proof generation on top.
+### ZalletClaw
 
-**ZalletClaw validates the UX pattern.** Paul Brigner's OpenClaw skill for Zallet demonstrates the correct agent spending flow: preflight summary, explicit confirmation, execution, status polling, balance verification. zipher-cli adopts this exact pattern (`propose_send` / `confirm_send`). The difference: ZalletClaw requires a running Zallet full node (~100GB chain, hours of initial sync, significant hardware). zipher-cli achieves the same functionality with a light client that syncs in minutes and runs on minimal hardware.
+Paul Brigner's OpenClaw skill for Zallet demonstrates a solid agent spending flow: preflight summary, explicit confirmation, execution, status polling, balance verification. zipher-cli adopts this same pattern (`propose_send` / `confirm_send`). ZalletClaw uses Python helper scripts and JSON-RPC to communicate with a running Zallet full node. zipher-cli takes a light client approach — no full node required.
 
-**Same privacy. 1/1000th the infrastructure.**
+### Design choices
+
+zipher-cli uses a **light client** architecture (connecting to `lightwalletd` for compact block data) rather than a full node. This means faster setup, lower resource requirements (~100MB vs ~100GB), and deployment on minimal hardware — but it trusts the lightwalletd server to provide complete block data. A malicious server can withhold blocks (denial of service) but cannot forge transactions or learn wallet contents.
 
 ---
 
@@ -577,7 +571,7 @@ No wallet logic changes. No user-facing changes. Just crate boundaries.
 
 | Resource | Relevance |
 |----------|-----------|
-| [Open Wallet Standard](https://openwallet.sh) | Multi-chain key vault standard. Complementary positioning — OWS handles commodity signing, Zipher handles ZK proofs. |
+| [Open Wallet Standard](https://openwallet.sh) | Multi-chain key vault standard. OWS handles commodity signing; Zcash requires ZK proof generation on top. |
 | [ZalletClaw](https://github.com/paulbrigner/zalletclaw) | OpenClaw skill for Zallet. UX reference for agent spending flow (preflight/confirm/execute). |
 | [CipherPay](https://cipherpay.app) | Merchant payment processor. The receiving side of the agent payment loop. |
 | [x402 Protocol](https://www.x402.org/) | HTTP 402 payment protocol for AI agents. CipherPay is the facilitator. |
