@@ -59,6 +59,9 @@ enum Commands {
     /// Show wallet addresses
     Address,
 
+    /// Export viewing keys (UFVK, UIVK)
+    Keys,
+
     /// Show transaction history
     Transactions {
         /// Maximum number of transactions to show
@@ -632,6 +635,44 @@ async fn cmd_address(cfg: &Config) -> Result<()> {
                 .collect();
                 println!("  pools: {}", pools.join(", "));
             }
+        }
+    });
+
+    zipher_engine::wallet::close().await;
+    Ok(())
+}
+
+async fn cmd_keys(cfg: &Config) -> Result<()> {
+    auto_open(cfg).await?;
+
+    let ufvk = zipher_engine::query::export_ufvk().await?;
+    let uivk = zipher_engine::query::export_uivk().await?;
+
+    #[derive(Serialize)]
+    struct KeysData {
+        ufvk: Option<String>,
+        uivk: Option<String>,
+    }
+
+    let data = KeysData {
+        ufvk: ufvk.clone(),
+        uivk: uivk.clone(),
+    };
+
+    print_ok(data, cfg.human, |d| {
+        if let Some(ref k) = d.ufvk {
+            println!("UFVK (Unified Full Viewing Key):");
+            println!("  {}", k);
+            println!();
+        }
+        if let Some(ref k) = d.uivk {
+            println!("UIVK (Unified Incoming Viewing Key):");
+            println!("  {}", k);
+            println!();
+            println!("Use the UIVK to register with CipherPay for payment detection.");
+        }
+        if d.ufvk.is_none() && d.uivk.is_none() {
+            println!("No viewing keys found. Create a wallet first.");
         }
     });
 
@@ -1474,6 +1515,7 @@ async fn main() {
         },
         Commands::Balance => cmd_balance(&cfg).await,
         Commands::Address => cmd_address(&cfg).await,
+        Commands::Keys => cmd_keys(&cfg).await,
         Commands::Transactions { limit } => cmd_transactions(&cfg, limit).await,
         Commands::Send(sub) => match sub {
             SendCmd::Propose { to, amount, memo, context_id } => {

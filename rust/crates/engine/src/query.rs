@@ -334,3 +334,33 @@ pub async fn export_ufvk() -> Result<Option<String>> {
         None => Ok(None),
     }
 }
+
+pub async fn export_uivk() -> Result<Option<String>> {
+    let guard = ENGINE.lock().await;
+    let engine = guard
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
+
+    let db = open_wallet_db(&engine.db_data_path, engine.params, &engine.db_cipher_key)?;
+
+    let account_ids = db
+        .get_account_ids()
+        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+    let Some(account_id) = account_ids.first() else {
+        return Ok(None);
+    };
+
+    let account = db
+        .get_account(*account_id)
+        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+
+    match account {
+        Some(acct) => {
+            let uivk = acct
+                .ufvk()
+                .map(|k| k.to_unified_incoming_viewing_key().encode(&engine.params));
+            Ok(uivk)
+        }
+        None => Ok(None),
+    }
+}
