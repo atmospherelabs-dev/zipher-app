@@ -215,7 +215,7 @@ pub async fn open(
         ));
     }
 
-    println!("[engine] open wallet at {:?}", db_data_path);
+    tracing::debug!("open wallet at {:?}", db_data_path);
 
     if let Some(ref key) = db_cipher_key {
         migrate_to_encrypted(&db_data_path, key).ok();
@@ -236,7 +236,7 @@ pub async fn open(
     let birthday = db
         .get_account_birthday(*account_id)
         .map_err(|e| anyhow::anyhow!("get_account_birthday error: {:?}", e))?;
-    println!("[engine] opened wallet, birthday={}", u32::from(birthday));
+    tracing::debug!("opened wallet, birthday={}", u32::from(birthday));
 
     *ENGINE.lock().await = Some(ZipherEngine {
         db_data_path,

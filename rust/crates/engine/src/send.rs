@@ -3,7 +3,7 @@ use std::sync::Mutex as StdMutex;
 
 use anyhow::Result;
 use secrecy::{ExposeSecret, SecretString};
-use tracing::{info, warn, error};
+use tracing::{info, error};
 use zeroize::Zeroize;
 
 use zcash_address::ZcashAddress;

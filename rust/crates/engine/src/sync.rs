@@ -52,6 +52,7 @@ pub struct SyncProgressInfo {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub(crate) struct InactiveWallet {
     pub db_data_path: PathBuf,
     pub db_cache_path: PathBuf,
@@ -495,8 +496,6 @@ async fn sync_loop(
                             let mut p = SYNC_PROGRESS.lock().await;
                             p.synced_height = scanned_end;
                         }
-
-                        any_scanned = true;
                     }
                     Err(e) => {
                         let err_str = format!("{:?}", e);
@@ -568,6 +567,7 @@ async fn sync_loop(
 // Background sync for inactive wallets
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 async fn sync_inactive_wallets(
     params: Network,
     server_url: &str,
@@ -606,6 +606,7 @@ async fn sync_inactive_wallets(
     }
 }
 
+#[allow(dead_code)]
 async fn sync_inactive_wallet_batch(
     db_data_path: &Path,
     db_cache_path: &Path,
