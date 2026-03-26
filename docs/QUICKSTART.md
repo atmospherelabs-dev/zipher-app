@@ -20,9 +20,12 @@ cargo build -p zipher-cli --release
 
 The binary lands at `target/release/zipher-cli`. Add it to your `PATH` or use it directly.
 
-## 2. Download Sapling parameters
+## 2. Sapling parameters
 
-One-time ~50 MB download, required for proof generation:
+Sapling proving parameters (~50 MB) are required for shielded transactions.
+They are **downloaded automatically** the first time you create a wallet or send a transaction.
+
+If you prefer to download them manually:
 
 ```bash
 mkdir -p ~/.zipher
@@ -143,14 +146,14 @@ Add to your MCP client config:
       "command": "/path/to/zipher-mcp-server",
       "env": {
         "ZIPHER_SEED": "your seed phrase here",
-        "ZIPHER_NETWORK": "test"
+        "ZIPHER_TESTNET": "1"
       }
     }
   }
 }
 ```
 
-**Tools exposed:** `wallet_status`, `get_balance`, `propose_send`, `confirm_send`, `shield_funds`, `get_transactions`, `sync_status`, `validate_address`
+**Tools exposed:** `wallet_status`, `get_balance`, `propose_send`, `confirm_send`, `shield_funds`, `get_transactions`, `sync_status`, `validate_address`, `pay_x402`
 
 ### OpenClaw
 

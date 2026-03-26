@@ -203,34 +203,6 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     seed.zeroize();
     let usk = usk_result.map_err(|e| anyhow::anyhow!("USK derivation: {:?}", e))?;
 
-    {
-        use zcash_transparent::keys::NonHardenedChildIndex;
-        let t_key = usk.transparent();
-        match t_key.derive_external_secret_key(NonHardenedChildIndex::ZERO) {
-            Ok(sk) => {
-                let sk_bytes = sk.secret_bytes();
-                info!("[CONFIRM] USK external[0] secret key first 4 bytes: {}",
-                    hex::encode(&sk_bytes[..4]));
-            }
-            Err(e) => {
-                error!("[CONFIRM] Failed to derive external key[0]: {:?}", e);
-            }
-        }
-        match t_key.derive_secret_key(
-            zcash_transparent::keys::TransparentKeyScope::EXTERNAL,
-            NonHardenedChildIndex::ZERO,
-        ) {
-            Ok(sk) => {
-                let sk_bytes = sk.secret_bytes();
-                info!("[CONFIRM] USK derive_secret_key(EXTERNAL, 0) first 4 bytes: {}",
-                    hex::encode(&sk_bytes[..4]));
-            }
-            Err(e) => {
-                error!("[CONFIRM] derive_secret_key(EXTERNAL, 0) failed: {:?}", e);
-            }
-        }
-    }
-
     info!("[CONFIRM] USK derived OK, loading wallet DB...");
     let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
 

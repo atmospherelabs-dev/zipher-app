@@ -206,7 +206,7 @@ enum DaemonCmd {
     /// Zeroize seed material in memory (wallet becomes read-only, sync continues)
     Lock,
 
-    /// Re-provide seed to unlock spending (reads from ZIPHER_SEED or stdin)
+    /// Unlock spending (daemon reads ZIPHER_SEED from its own environment)
     Unlock,
 }
 
@@ -305,6 +305,95 @@ fn ensure_data_dir(data_dir: &str) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Sapling parameter auto-download
+// ---------------------------------------------------------------------------
+
+const SAPLING_SPEND_URL: &str = "https://download.z.cash/downloads/sapling-spend.params";
+const SAPLING_OUTPUT_URL: &str = "https://download.z.cash/downloads/sapling-output.params";
+const SAPLING_SPEND_SHA256: &str =
+    "8e48ffd23abb3a5fd9c5589204f32d9c31285a04b78096ba40a79b75677efc13";
+const SAPLING_OUTPUT_SHA256: &str =
+    "2f0ebbcbb9bb0bcffe95a397e7eba89c29eb4dde6191c339db88570e3f3fb0e4";
+
+async fn ensure_sapling_params(data_dir: &str) -> Result<()> {
+    let parent = std::path::Path::new(data_dir)
+        .parent()
+        .unwrap_or(std::path::Path::new(data_dir));
+    let spend_path = parent.join("sapling-spend.params");
+    let output_path = parent.join("sapling-output.params");
+
+    if spend_path.exists() && output_path.exists() {
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(parent)?;
+
+    if !spend_path.exists() {
+        download_and_verify(
+            SAPLING_SPEND_URL,
+            &spend_path,
+            SAPLING_SPEND_SHA256,
+            "sapling-spend.params (~47 MB)",
+        )
+        .await?;
+    }
+
+    if !output_path.exists() {
+        download_and_verify(
+            SAPLING_OUTPUT_URL,
+            &output_path,
+            SAPLING_OUTPUT_SHA256,
+            "sapling-output.params (~3.5 MB)",
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn download_and_verify(
+    url: &str,
+    dest: &std::path::Path,
+    expected_sha256: &str,
+    label: &str,
+) -> Result<()> {
+    eprintln!("Downloading {}...", label);
+
+    let response = reqwest::get(url)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to download {}: {}", label, e))?;
+
+    if !response.status().is_success() {
+        return Err(anyhow::anyhow!(
+            "Download failed for {}: HTTP {}",
+            label,
+            response.status()
+        ));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", label, e))?;
+
+    use sha2::Digest;
+    let hash = sha2::Sha256::digest(&bytes);
+    let hex_hash = hex::encode(hash);
+    if hex_hash != expected_sha256 {
+        return Err(anyhow::anyhow!(
+            "Checksum mismatch for {}. Expected {}, got {}",
+            label,
+            expected_sha256,
+            hex_hash
+        ));
+    }
+
+    std::fs::write(dest, &bytes)?;
+    eprintln!("  Verified and saved to {}", dest.display());
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Seed reading (env var first, then stdin)
 // ---------------------------------------------------------------------------
 
@@ -383,6 +472,52 @@ async fn auto_open(cfg: &Config) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-sync if wallet is stale
+// ---------------------------------------------------------------------------
+
+const STALE_BLOCK_THRESHOLD: u32 = 10;
+
+async fn sync_if_needed(cfg: &Config) -> Result<()> {
+    auto_open(cfg).await?;
+
+    let synced = zipher_engine::query::get_synced_height().await.unwrap_or(0);
+    let latest = zipher_engine::wallet::fetch_latest_height(&cfg.server_url)
+        .await
+        .unwrap_or(synced as u64) as u32;
+
+    if latest > synced && (latest - synced) > STALE_BLOCK_THRESHOLD {
+        eprintln!(
+            "Wallet is {} blocks behind (at {}, tip {}). Syncing...",
+            latest - synced,
+            synced,
+            latest
+        );
+
+        zipher_engine::sync::start().await?;
+
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let p = zipher_engine::sync::get_progress().await;
+
+            if p.synced_height > 0 && p.synced_height >= p.latest_height {
+                eprintln!("Synced to {}.", p.synced_height);
+                break;
+            }
+            if !p.is_syncing && !zipher_engine::sync::is_running() {
+                eprintln!("Sync finished at {}.", p.synced_height);
+                break;
+            }
+        }
+
+        zipher_engine::sync::stop().await;
+        zipher_engine::wallet::close().await;
+        auto_open(cfg).await?;
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Command handlers
 // ---------------------------------------------------------------------------
 
@@ -415,6 +550,7 @@ async fn cmd_info(cfg: &Config) {
 
 async fn cmd_wallet_create(cfg: &Config) -> Result<()> {
     ensure_data_dir(&cfg.data_dir)?;
+    ensure_sapling_params(&cfg.data_dir).await?;
 
     let height = zipher_engine::wallet::fetch_latest_height(&cfg.server_url).await? as u32;
     let seed_phrase = zipher_engine::wallet::create(
@@ -456,6 +592,7 @@ async fn cmd_wallet_create(cfg: &Config) -> Result<()> {
 
 async fn cmd_wallet_restore(cfg: &Config, birthday: u32) -> Result<()> {
     ensure_data_dir(&cfg.data_dir)?;
+    ensure_sapling_params(&cfg.data_dir).await?;
 
     let seed = read_seed()?;
     use secrecy::ExposeSecret;
@@ -593,7 +730,7 @@ async fn cmd_sync_status(cfg: &Config) -> Result<()> {
 }
 
 async fn cmd_balance(cfg: &Config) -> Result<()> {
-    auto_open(cfg).await?;
+    sync_if_needed(cfg).await?;
     let balance = zipher_engine::query::get_wallet_balance().await?;
 
     print_ok(&balance, cfg.human, |b| {
@@ -616,7 +753,7 @@ async fn cmd_balance(cfg: &Config) -> Result<()> {
 }
 
 async fn cmd_address(cfg: &Config) -> Result<()> {
-    auto_open(cfg).await?;
+    sync_if_needed(cfg).await?;
     let addresses = zipher_engine::query::get_addresses().await?;
 
     print_ok(&addresses, cfg.human, |addrs| {
@@ -718,6 +855,7 @@ async fn cmd_send_propose(
     memo: Option<String>,
     context_id: Option<String>,
 ) -> Result<()> {
+    sync_if_needed(cfg).await?;
     let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
 
     let daily_spent = zipher_engine::audit::daily_spent(&cfg.data_dir).unwrap_or(0);
@@ -785,6 +923,7 @@ async fn cmd_send_propose(
 }
 
 async fn cmd_send_confirm(cfg: &Config) -> Result<()> {
+    ensure_sapling_params(&cfg.data_dir).await?;
     let pending = load_pending(&cfg.data_dir)?;
 
     let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
@@ -885,6 +1024,7 @@ async fn cmd_send_max(cfg: &Config, to: String) -> Result<()> {
 }
 
 async fn cmd_shield(cfg: &Config) -> Result<()> {
+    ensure_sapling_params(&cfg.data_dir).await?;
     auto_open(cfg).await?;
 
     let seed = read_seed()?;
@@ -948,6 +1088,8 @@ async fn cmd_x402_pay(
     body: Option<String>,
     context_id: Option<String>,
 ) -> Result<()> {
+    ensure_sapling_params(&cfg.data_dir).await?;
+    sync_if_needed(cfg).await?;
     let raw = read_402_body(&body)?;
     let req = zipher_engine::x402::parse_402_response(&raw, expected_network(cfg))?;
     let amount = zipher_engine::x402::amount_zatoshis(&req)?;
@@ -1358,12 +1500,12 @@ mod daemon {
             }
 
             "unlock" => {
-                let seed_line = _args.trim();
-                if seed_line.is_empty() {
-                    return r#"{"ok":false,"error":"SEED_REQUIRED: provide seed after unlock command"}"#.to_string();
+                let seed_value = std::env::var("ZIPHER_SEED").unwrap_or_default();
+                if seed_value.is_empty() {
+                    return r#"{"ok":false,"error":"SEED_REQUIRED: set ZIPHER_SEED env var on the daemon process before unlocking"}"#.to_string();
                 }
                 let mut seed_guard = state.seed.write().await;
-                *seed_guard = Some(seed_line.to_string());
+                *seed_guard = Some(seed_value);
                 state.locked.store(false, Ordering::SeqCst);
 
                 zipher_engine::audit::log_event(
@@ -1472,12 +1614,10 @@ mod daemon {
     }
 
     pub async fn cmd_unlock(cfg: &Config) -> Result<()> {
-        let seed = read_seed()?;
-        use secrecy::ExposeSecret;
-        let cmd = format!("unlock {}", seed.expose_secret());
-        let resp = send_daemon_command(&cfg.data_dir, &cmd).await?;
+        let resp = send_daemon_command(&cfg.data_dir, "unlock").await?;
         if cfg.human {
             println!("Daemon: {}", resp);
+            println!("Seed read from ZIPHER_SEED env var on the daemon process.");
         } else {
             println!("{}", resp);
         }
