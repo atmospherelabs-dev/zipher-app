@@ -38,3 +38,4 @@ sapling-crypto = { version = "0.5", package = "sapling-crypto" }
 orchard = "0.11"
 incrementalmerkletree = "0.8"
 rustls = { version = "0.23", features = ["ring"] }
+reqwest = { version = "0.13", features = ["json"] }

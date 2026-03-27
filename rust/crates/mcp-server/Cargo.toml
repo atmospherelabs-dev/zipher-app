@@ -21,3 +21,4 @@ tracing-subscriber = { version = "0.3", features = ["fmt"] }
 zcash_protocol = "0.7"
 zcash_address = "0.10"
 dirs = "6"
+reqwest = "0.13"

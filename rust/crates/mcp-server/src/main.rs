@@ -123,6 +123,80 @@ struct PayX402Params {
     context_id: Option<String>,
 }
 
+#[derive(Deserialize, JsonSchema)]
+struct PayUrlParams {
+    /// The URL to pay for (will auto-detect x402 or MPP protocol)
+    url: String,
+    /// HTTP method (GET, POST, PUT). Defaults to GET.
+    method: Option<String>,
+    /// Context identifier for audit trail
+    context_id: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct SwapQuoteParams {
+    /// Destination asset symbol (e.g., "USDC", "ETH", "BTC")
+    to_symbol: String,
+    /// Destination blockchain (e.g., "eth", "sol", "arb"). Required if symbol exists on multiple chains.
+    chain: Option<String>,
+    /// Amount in zatoshis to swap
+    amount: u64,
+    /// Recipient address on the destination chain
+    recipient: String,
+    /// Slippage tolerance in basis points (default: 100 = 1%)
+    slippage: Option<u32>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct SwapExecuteParams {
+    /// Destination asset symbol (e.g., "USDC", "ETH", "BTC")
+    to_symbol: String,
+    /// Destination blockchain (e.g., "eth", "sol", "arb")
+    chain: Option<String>,
+    /// Amount in zatoshis to swap
+    amount: u64,
+    /// Recipient address on the destination chain
+    recipient: String,
+    /// Slippage tolerance in basis points (default: 100 = 1%)
+    slippage: Option<u32>,
+    /// Context identifier for audit trail
+    context_id: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct SwapStatusParams {
+    /// The deposit address from the swap quote
+    deposit_address: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct SessionOpenParams {
+    /// Server URL to create a session for
+    server_url: String,
+    /// Amount in zatoshis to deposit as prepaid credit
+    deposit: u64,
+    /// Merchant ID on CipherPay
+    merchant_id: String,
+    /// Merchant's Zcash payment address
+    pay_to: String,
+    /// Context identifier for audit trail
+    context_id: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct SessionRequestParams {
+    /// URL to request using session bearer token
+    url: String,
+    /// HTTP method (default: GET)
+    method: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct SessionCloseParams {
+    /// Session ID to close
+    session_id: String,
+}
+
 // ---------------------------------------------------------------------------
 // MCP Server state
 // ---------------------------------------------------------------------------
@@ -376,6 +450,406 @@ impl ZipherMcpServer {
         }
     }
 
+    #[tool(description = "List available tokens for cross-chain swaps via Near Intents. Returns token symbols, blockchains, and prices.")]
+    async fn swap_tokens(&self) -> String {
+        match zipher_engine::swap::get_tokens().await {
+            Ok(tokens) => {
+                let swappable: Vec<_> = zipher_engine::swap::swappable_tokens(&tokens)
+                    .into_iter()
+                    .map(|t| serde_json::json!({
+                        "asset_id": t.asset_id,
+                        "symbol": t.symbol,
+                        "blockchain": t.blockchain,
+                        "decimals": t.decimals,
+                        "price": t.price,
+                    }))
+                    .collect();
+                let zec_id = zipher_engine::swap::find_zec_token(&tokens)
+                    .map(|t| t.asset_id.clone());
+                ok_response(serde_json::json!({
+                    "zec_asset_id": zec_id,
+                    "total": swappable.len(),
+                    "tokens": swappable,
+                }))
+            }
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Get a swap quote: ZEC to another asset via Near Intents. Shows expected output amount and deposit address. Does NOT execute the swap.")]
+    async fn swap_quote(&self, Parameters(params): Parameters<SwapQuoteParams>) -> String {
+        let tokens = match zipher_engine::swap::get_tokens().await {
+            Ok(t) => t,
+            Err(e) => return err_response(&e),
+        };
+
+        let zec = match zipher_engine::swap::find_zec_token(&tokens) {
+            Some(t) => t,
+            None => return err_code_response(INTERNAL_ERROR, "ZEC not found in token list"),
+        };
+
+        let dest = match find_dest_token(&tokens, &params.to_symbol, params.chain.as_deref()) {
+            Ok(t) => t,
+            Err(e) => return err_code_response(INVALID_PROPOSAL, &format!("{e}")),
+        };
+
+        let refund_addr = match zipher_engine::query::get_addresses().await {
+            Ok(addrs) => addrs.first().map(|a| a.address.clone()).unwrap_or_default(),
+            Err(e) => return err_response(&e),
+        };
+
+        match zipher_engine::swap::get_quote(
+            &zec.asset_id,
+            &dest.asset_id,
+            &params.amount.to_string(),
+            &params.recipient,
+            &refund_addr,
+            params.slippage.unwrap_or(100),
+        ).await {
+            Ok(quote) => ok_response(&quote),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Execute a cross-chain swap: send ZEC to Near Intents deposit address and receive another asset. Requires seed. Privacy note: ZEC side is shielded, destination is public.")]
+    async fn swap_execute(&self, Parameters(params): Parameters<SwapExecuteParams>) -> String {
+        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
+            return err_code_response(WALLET_LOCKED, "Wallet is locked.");
+        }
+
+        let seed_guard = self.seed.read().await;
+        let seed_str = match seed_guard.as_ref() {
+            Some(s) => s.clone(),
+            None => return err_code_response(WALLET_LOCKED, "No seed available."),
+        };
+        drop(seed_guard);
+
+        let tokens = match zipher_engine::swap::get_tokens().await {
+            Ok(t) => t,
+            Err(e) => return err_response(&e),
+        };
+
+        let zec = match zipher_engine::swap::find_zec_token(&tokens) {
+            Some(t) => t,
+            None => return err_code_response(INTERNAL_ERROR, "ZEC not found in token list"),
+        };
+
+        let dest = match find_dest_token(&tokens, &params.to_symbol, params.chain.as_deref()) {
+            Ok(t) => t,
+            Err(e) => return err_code_response(INVALID_PROPOSAL, &format!("{e}")),
+        };
+
+        let refund_addr = match zipher_engine::query::get_addresses().await {
+            Ok(addrs) => addrs.first().map(|a| a.address.clone()).unwrap_or_default(),
+            Err(e) => return err_response(&e),
+        };
+
+        let quote = match zipher_engine::swap::get_quote(
+            &zec.asset_id,
+            &dest.asset_id,
+            &params.amount.to_string(),
+            &params.recipient,
+            &refund_addr,
+            params.slippage.unwrap_or(100),
+        ).await {
+            Ok(q) => q,
+            Err(e) => return err_response(&e),
+        };
+
+        if quote.deposit_address.is_empty() {
+            return err_code_response(INTERNAL_ERROR, "No deposit address in quote");
+        }
+
+        let (send_amount, fee, _) = match zipher_engine::send::propose_send(
+            &quote.deposit_address, params.amount, None, false,
+        ).await {
+            Ok(r) => r,
+            Err(e) => return err_response(&e),
+        };
+
+        let txid = match zipher_engine::send::confirm_send(&seed_str).await {
+            Ok(txid) => {
+                zipher_engine::policy::record_confirm();
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "swap_execute", Some(&quote.deposit_address),
+                    Some(send_amount), Some(fee), params.context_id.as_deref(),
+                    Some(&txid), None,
+                ).ok();
+                txid
+            }
+            Err(e) => {
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "swap_execute", Some(&quote.deposit_address),
+                    Some(send_amount), Some(fee), params.context_id.as_deref(),
+                    None, Some(&format!("{:#}", e)),
+                ).ok();
+                return err_response(&e);
+            }
+        };
+
+        let _ = zipher_engine::swap::submit_deposit(&txid, &quote.deposit_address).await;
+
+        ok_response(serde_json::json!({
+            "txid": txid,
+            "deposit_address": quote.deposit_address,
+            "amount_in": quote.amount_in,
+            "amount_out": quote.amount_out,
+            "destination_symbol": params.to_symbol,
+            "destination_chain": dest.blockchain,
+            "recipient": params.recipient,
+            "fee_zatoshis": fee,
+        }))
+    }
+
+    #[tool(description = "Check the status of a cross-chain swap by its deposit address.")]
+    async fn swap_status(&self, Parameters(params): Parameters<SwapStatusParams>) -> String {
+        match zipher_engine::swap::get_status(&params.deposit_address).await {
+            Ok(status) => ok_response(&status),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Open a prepaid session: send ZEC once, get a bearer token for many instant requests. Requires seed.")]
+    async fn session_open(&self, Parameters(params): Parameters<SessionOpenParams>) -> String {
+        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
+            return err_code_response(WALLET_LOCKED, "Wallet is locked.");
+        }
+
+        let seed_guard = self.seed.read().await;
+        let seed_str = match seed_guard.as_ref() {
+            Some(s) => s.clone(),
+            None => return err_code_response(WALLET_LOCKED, "No seed available."),
+        };
+        drop(seed_guard);
+
+        let memo = format!("zipher:session:{}", params.merchant_id);
+
+        let (send_amount, fee, _) = match zipher_engine::send::propose_send(
+            &params.pay_to, params.deposit, Some(memo), false,
+        ).await {
+            Ok(r) => r,
+            Err(e) => return err_response(&e),
+        };
+
+        let txid = match zipher_engine::send::confirm_send(&seed_str).await {
+            Ok(txid) => {
+                zipher_engine::policy::record_confirm();
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "session_open", Some(&params.pay_to),
+                    Some(send_amount), Some(fee), params.context_id.as_deref(),
+                    Some(&txid), None,
+                ).ok();
+                txid
+            }
+            Err(e) => {
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "session_open", Some(&params.pay_to),
+                    Some(send_amount), Some(fee), params.context_id.as_deref(),
+                    None, Some(&format!("{:#}", e)),
+                ).ok();
+                return err_response(&e);
+            }
+        };
+
+        match zipher_engine::session::open_session(
+            None,
+            &txid,
+            &params.merchant_id,
+            &params.server_url,
+            &self.data_dir,
+        ).await {
+            Ok(session) => ok_response(&session),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Make a request using an active session's bearer token. No payment needed — uses prepaid credit.")]
+    async fn session_request(&self, Parameters(params): Parameters<SessionRequestParams>) -> String {
+        let host = params.url
+            .split("//")
+            .nth(1)
+            .and_then(|s| s.split('/').next())
+            .unwrap_or(&params.url);
+        let server_url = format!(
+            "{}//{}",
+            params.url.split("//").next().unwrap_or("https:"),
+            host
+        );
+
+        let session = match zipher_engine::session::find_session(&self.data_dir, &server_url) {
+            Some(s) => s,
+            None => return err_code_response(INVALID_PROPOSAL, &format!("No active session for {server_url}")),
+        };
+
+        let method = params.method.as_deref().unwrap_or("GET");
+        match zipher_engine::session::session_request(&session, &params.url, method).await {
+            Ok((status, body, remaining)) => {
+                if let Some(rem) = remaining {
+                    let mut store = zipher_engine::session::load_sessions(&self.data_dir);
+                    if let Some(s) = store.sessions.iter_mut().find(|s| s.session_id == session.session_id) {
+                        s.balance_remaining = rem;
+                    }
+                    zipher_engine::session::save_sessions(&self.data_dir, &store).ok();
+                }
+                ok_response(serde_json::json!({
+                    "status": status,
+                    "session_id": session.session_id,
+                    "balance_remaining": remaining,
+                    "response": body,
+                }))
+            }
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "List all active sessions with their balances.")]
+    async fn session_list(&self) -> String {
+        let sessions = zipher_engine::session::list_sessions(&self.data_dir);
+        ok_response(serde_json::json!({
+            "total": sessions.len(),
+            "sessions": sessions,
+        }))
+    }
+
+    #[tool(description = "Close a session and get final usage summary.")]
+    async fn session_close(&self, Parameters(params): Parameters<SessionCloseParams>) -> String {
+        match zipher_engine::session::close_session(None, &params.session_id, &self.data_dir).await {
+            Ok(summary) => ok_response(&summary),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Pay any 402 paywall by URL. Automatically detects x402 or MPP protocol, pays, retries the request, and returns the response. This is the simplest way to access a paid API.")]
+    async fn pay_url(&self, Parameters(params): Parameters<PayUrlParams>) -> String {
+        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
+            return err_code_response(WALLET_LOCKED, "Wallet is locked.");
+        }
+
+        let seed_guard = self.seed.read().await;
+        let seed_str = match seed_guard.as_ref() {
+            Some(s) => s.clone(),
+            None => return err_code_response(WALLET_LOCKED, "No seed available."),
+        };
+        drop(seed_guard);
+
+        let expected_network = if self.network == Network::TestNetwork {
+            "zcash:testnet"
+        } else {
+            "zcash:mainnet"
+        };
+
+        let client = reqwest::Client::new();
+        let http_method = params.method.as_deref().unwrap_or("GET");
+        let initial_resp = match http_method.to_uppercase().as_str() {
+            "POST" => client.post(&params.url).send().await,
+            "PUT" => client.put(&params.url).send().await,
+            _ => client.get(&params.url).send().await,
+        };
+        let initial_resp = match initial_resp {
+            Ok(r) => r,
+            Err(e) => return err_code_response(NETWORK_TIMEOUT, &format!("HTTP request failed: {e}")),
+        };
+
+        if initial_resp.status() != reqwest::StatusCode::PAYMENT_REQUIRED {
+            let status = initial_resp.status();
+            let body = initial_resp.text().await.unwrap_or_default();
+            if status.is_success() {
+                return ok_response(serde_json::json!({ "status": status.as_u16(), "response": body }));
+            }
+            return err_code_response(INTERNAL_ERROR, &format!("Expected HTTP 402, got {status}"));
+        }
+
+        let mut headers = std::collections::HashMap::new();
+        for (k, v) in initial_resp.headers() {
+            if let Ok(val) = v.to_str() {
+                headers.insert(k.as_str().to_lowercase(), val.to_string());
+            }
+        }
+        let body = initial_resp.text().await.unwrap_or_default();
+
+        let protocol = match zipher_engine::payment::detect_protocol(&headers, &body, expected_network) {
+            Ok(p) => p,
+            Err(e) => return err_code_response(INVALID_PROPOSAL, &format!("{e}")),
+        };
+
+        let address = match protocol.address() {
+            Ok(a) => a,
+            Err(e) => return err_code_response(INVALID_PROPOSAL, &format!("{e}")),
+        };
+        let amount = match protocol.amount_zatoshis() {
+            Ok(a) => a,
+            Err(e) => return err_code_response(INVALID_PROPOSAL, &format!("{e}")),
+        };
+
+        let policy = zipher_engine::policy::load_policy(&self.data_dir);
+        let daily_spent = zipher_engine::audit::daily_spent(&self.data_dir).unwrap_or(0);
+        if let Err(violation) = zipher_engine::policy::check_proposal(
+            &policy, &address, amount, &params.context_id, daily_spent,
+        ) {
+            zipher_engine::audit::log_event(
+                &self.data_dir, "pay_url", Some(&address),
+                Some(amount), None, params.context_id.as_deref(),
+                None, Some(&violation.to_string()),
+            ).ok();
+            return err_code_response(POLICY_EXCEEDED, &violation.to_string());
+        }
+        if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
+            return err_code_response(POLICY_EXCEEDED, &violation.to_string());
+        }
+
+        let (send_amount, fee, _) = match zipher_engine::send::propose_send(&address, amount, None, false).await {
+            Ok(r) => r,
+            Err(e) => return err_response(&e),
+        };
+
+        let txid = match zipher_engine::send::confirm_send(&seed_str).await {
+            Ok(txid) => {
+                zipher_engine::policy::record_confirm();
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "pay_url", Some(&address),
+                    Some(send_amount), Some(fee), params.context_id.as_deref(),
+                    Some(&txid), None,
+                ).ok();
+                txid
+            }
+            Err(e) => {
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "pay_url", Some(&address),
+                    Some(send_amount), Some(fee), params.context_id.as_deref(),
+                    None, Some(&format!("{:#}", e)),
+                ).ok();
+                return err_response(&e);
+            }
+        };
+
+        let (cred_header, cred_value) = protocol.build_credential(&txid);
+
+        let retry_resp = match http_method.to_uppercase().as_str() {
+            "POST" => client.post(&params.url).header(&cred_header, &cred_value).send().await,
+            "PUT" => client.put(&params.url).header(&cred_header, &cred_value).send().await,
+            _ => client.get(&params.url).header(&cred_header, &cred_value).send().await,
+        };
+        let retry_resp = match retry_resp {
+            Ok(r) => r,
+            Err(e) => return err_code_response(NETWORK_TIMEOUT, &format!("Retry request failed: {e}")),
+        };
+
+        let retry_status = retry_resp.status().as_u16();
+        let response_body = retry_resp.text().await.unwrap_or_default();
+
+        let info = protocol.info().ok();
+
+        ok_response(serde_json::json!({
+            "txid": txid,
+            "protocol": info.as_ref().map(|i| &i.protocol),
+            "amount_zatoshis": send_amount,
+            "fee_zatoshis": fee,
+            "pay_to": address,
+            "retry_status": retry_status,
+            "response": response_body,
+        }))
+    }
+
     #[tool(description = "Pay an HTTP 402 paywall. Pass the full 402 response body. Returns txid and a PAYMENT-SIGNATURE header value to include when retrying the original request.")]
     async fn pay_x402(&self, Parameters(params): Parameters<PayX402Params>) -> String {
         if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
@@ -495,13 +969,45 @@ impl ServerHandler for ZipherMcpServer {
         ServerInfo::default()
             .with_instructions(
                 "Zipher: headless Zcash light wallet for AI agents. \
-                 Use propose_send then confirm_send for two-step payments, \
-                 or pay_x402 for one-step HTTP 402 paywall payments. \
-                 When you receive an HTTP 402 response, pass the full body to pay_x402 \
-                 and use the returned payment_signature as the PAYMENT-SIGNATURE header \
-                 when retrying the request. \
+                 Use pay_url to access any paid API — it auto-detects x402 or MPP protocol, \
+                 pays, and returns the API response in one call. \
+                 Use swap_execute to convert ZEC to other assets (USDC, ETH, etc.) via Near Intents. \
+                 For manual two-step payments, use propose_send then confirm_send. \
                  Seed is held in server memory — never pass it as a tool argument."
             )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Swap helpers
+// ---------------------------------------------------------------------------
+
+fn find_dest_token<'a>(
+    tokens: &'a [zipher_engine::swap::SwapToken],
+    symbol: &str,
+    chain: Option<&str>,
+) -> anyhow::Result<&'a zipher_engine::swap::SwapToken> {
+    let matches: Vec<&zipher_engine::swap::SwapToken> = tokens
+        .iter()
+        .filter(|t| t.symbol.eq_ignore_ascii_case(symbol))
+        .filter(|t| chain.map_or(true, |c| t.blockchain.eq_ignore_ascii_case(c)))
+        .collect();
+
+    match matches.len() {
+        0 => Err(anyhow::anyhow!(
+            "Token '{}' not found{}",
+            symbol,
+            chain.map_or(String::new(), |c| format!(" on chain '{}'", c))
+        )),
+        1 => Ok(matches[0]),
+        _ => {
+            let chains: Vec<String> = matches.iter().map(|t| t.blockchain.clone()).collect();
+            Err(anyhow::anyhow!(
+                "'{}' exists on multiple chains: {}. Specify chain.",
+                symbol,
+                chains.join(", ")
+            ))
+        }
     }
 }
 

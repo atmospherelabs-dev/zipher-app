@@ -1,0 +1,29 @@
+FROM rust:1.82-slim-bookworm AS builder
+
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    cmake \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY rust/ ./
+
+RUN cargo build --release -p zipher-cli -p zipher-mcp-server
+
+# --- Runtime ---
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/target/release/zipher-cli /usr/local/bin/
+COPY --from=builder /build/target/release/zipher-mcp-server /usr/local/bin/
+
+RUN mkdir -p /root/.zipher/mainnet /root/.zipher/testnet
+
+ENV ZIPHER_DATA_DIR=/root/.zipher/mainnet
+
+ENTRYPOINT ["zipher-cli"]

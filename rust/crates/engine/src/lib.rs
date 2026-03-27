@@ -6,6 +6,10 @@ pub mod send;
 pub mod policy;
 pub mod audit;
 pub mod x402;
+pub mod mpp;
+pub mod payment;
+pub mod swap;
+pub mod session;
 
 use std::path::{Path, PathBuf};
 

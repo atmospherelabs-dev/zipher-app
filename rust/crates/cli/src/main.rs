@@ -98,6 +98,137 @@ enum Commands {
     /// Pay an HTTP 402 paywall (x402 protocol)
     #[command(subcommand)]
     X402(X402Cmd),
+
+    /// Pay any 402 paywall by URL (auto-detects x402 or MPP protocol)
+    Pay {
+        /// The URL to pay for
+        url: String,
+
+        /// Context identifier for audit trail
+        #[arg(long)]
+        context_id: Option<String>,
+
+        /// HTTP method to use (default: GET)
+        #[arg(long, default_value = "GET")]
+        method: String,
+    },
+
+    /// Cross-chain swaps via Near Intents
+    #[command(subcommand)]
+    Swap(SwapCmd),
+
+    /// Session-based payments (prepaid credit via CipherPay)
+    #[command(subcommand)]
+    Session(SessionCmd),
+}
+
+#[derive(Subcommand)]
+enum SwapCmd {
+    /// List available swap tokens
+    Tokens,
+
+    /// Get a swap quote (ZEC to another asset)
+    Quote {
+        /// Destination asset symbol (e.g., USDC, ETH, BTC)
+        #[arg(long)]
+        to: String,
+
+        /// Destination blockchain (e.g., eth, sol, arb). Auto-detected if unambiguous.
+        #[arg(long)]
+        chain: Option<String>,
+
+        /// Amount in zatoshis to swap
+        #[arg(long)]
+        amount: u64,
+
+        /// Recipient address on the destination chain
+        #[arg(long)]
+        recipient: String,
+
+        /// Slippage tolerance in basis points (default: 100 = 1%)
+        #[arg(long, default_value = "100")]
+        slippage: u32,
+    },
+
+    /// Execute a swap (get quote + send ZEC to deposit address)
+    Execute {
+        /// Destination asset symbol (e.g., USDC, ETH, BTC)
+        #[arg(long)]
+        to: String,
+
+        /// Destination blockchain (e.g., eth, sol, arb)
+        #[arg(long)]
+        chain: Option<String>,
+
+        /// Amount in zatoshis to swap
+        #[arg(long)]
+        amount: u64,
+
+        /// Recipient address on the destination chain
+        #[arg(long)]
+        recipient: String,
+
+        /// Slippage tolerance in basis points (default: 100 = 1%)
+        #[arg(long, default_value = "100")]
+        slippage: u32,
+
+        /// Context identifier for audit trail
+        #[arg(long)]
+        context_id: Option<String>,
+    },
+
+    /// Check swap status by deposit address
+    Status {
+        /// The deposit address from the swap quote
+        #[arg(long)]
+        deposit_address: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum SessionCmd {
+    /// Open a new session (pay once, get bearer token for many requests)
+    Open {
+        /// Server URL to create a session for
+        #[arg(long)]
+        server_url: String,
+
+        /// Amount in zatoshis to deposit as credit
+        #[arg(long)]
+        deposit: u64,
+
+        /// Merchant ID on CipherPay
+        #[arg(long)]
+        merchant_id: String,
+
+        /// Merchant's Zcash payment address
+        #[arg(long)]
+        pay_to: String,
+
+        /// Context identifier for audit trail
+        #[arg(long)]
+        context_id: Option<String>,
+    },
+
+    /// Make a request using an active session
+    Request {
+        /// URL to request
+        url: String,
+
+        /// HTTP method (default: GET)
+        #[arg(long, default_value = "GET")]
+        method: String,
+    },
+
+    /// List active sessions
+    List,
+
+    /// Close a session
+    Close {
+        /// Session ID to close
+        #[arg(long)]
+        session_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1191,6 +1322,614 @@ async fn cmd_x402_pay(
 }
 
 // ---------------------------------------------------------------------------
+// Universal pay command (auto-detects x402 or MPP)
+// ---------------------------------------------------------------------------
+
+async fn cmd_pay(
+    cfg: &Config,
+    url: String,
+    context_id: Option<String>,
+    http_method: String,
+) -> Result<()> {
+    ensure_sapling_params(&cfg.data_dir).await?;
+    sync_if_needed(cfg).await?;
+
+    let client = reqwest::Client::new();
+    let initial_resp = match http_method.to_uppercase().as_str() {
+        "POST" => client.post(&url).send().await,
+        "PUT" => client.put(&url).send().await,
+        _ => client.get(&url).send().await,
+    }
+    .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
+
+    if initial_resp.status() != reqwest::StatusCode::PAYMENT_REQUIRED {
+        let status = initial_resp.status();
+        let body = initial_resp.text().await.unwrap_or_default();
+        if status.is_success() {
+            println!("{}", body);
+            return Ok(());
+        }
+        return Err(anyhow::anyhow!("Expected HTTP 402, got {}: {}", status, body));
+    }
+
+    let mut headers = std::collections::HashMap::new();
+    for (k, v) in initial_resp.headers() {
+        if let Ok(val) = v.to_str() {
+            headers.insert(k.as_str().to_lowercase(), val.to_string());
+        }
+    }
+    let body = initial_resp.text().await.unwrap_or_default();
+
+    let network = expected_network(cfg);
+    let protocol = zipher_engine::payment::detect_protocol(&headers, &body, network)?;
+    let info = protocol.info()?;
+
+    if cfg.human {
+        eprintln!(
+            "402 detected ({} protocol). {} zat to {}",
+            info.protocol, info.amount, info.address
+        );
+    }
+
+    let address = protocol.address()?;
+    let amount = protocol.amount_zatoshis()?;
+
+    let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
+    let daily_spent = zipher_engine::audit::daily_spent(&cfg.data_dir).unwrap_or(0);
+    if let Err(violation) = zipher_engine::policy::check_proposal(
+        &policy, &address, amount, &context_id, daily_spent,
+    ) {
+        zipher_engine::audit::log_event(
+            &cfg.data_dir, "pay", Some(&address),
+            Some(amount), None, context_id.as_deref(),
+            None, Some(&violation.to_string()),
+        ).ok();
+        return Err(anyhow::anyhow!("{}", violation));
+    }
+    if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
+        return Err(anyhow::anyhow!("{}", violation));
+    }
+
+    auto_open(cfg).await?;
+
+    let (send_amount, fee, _) =
+        zipher_engine::send::propose_send(&address, amount, None, false).await?;
+
+    let seed = read_seed()?;
+    let txid = match zipher_engine::send::confirm_send(&seed).await {
+        Ok(txid) => {
+            zipher_engine::policy::record_confirm();
+            zipher_engine::audit::log_event(
+                &cfg.data_dir, "pay", Some(&address),
+                Some(send_amount), Some(fee), context_id.as_deref(),
+                Some(&txid), None,
+            ).ok();
+            txid
+        }
+        Err(e) => {
+            zipher_engine::audit::log_event(
+                &cfg.data_dir, "pay", Some(&address),
+                Some(send_amount), Some(fee), context_id.as_deref(),
+                None, Some(&format!("{:#}", e)),
+            ).ok();
+            return Err(e);
+        }
+    };
+
+    delete_pending(&cfg.data_dir);
+
+    let (cred_header, cred_value) = protocol.build_credential(&txid);
+
+    let retry_resp = match http_method.to_uppercase().as_str() {
+        "POST" => client.post(&url).header(&cred_header, &cred_value).send().await,
+        "PUT" => client.put(&url).header(&cred_header, &cred_value).send().await,
+        _ => client.get(&url).header(&cred_header, &cred_value).send().await,
+    }
+    .map_err(|e| anyhow::anyhow!("Retry request failed: {}", e))?;
+
+    let retry_status = retry_resp.status();
+    let receipt = retry_resp
+        .headers()
+        .get("payment-receipt")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let response_body = retry_resp.text().await.unwrap_or_default();
+
+    #[derive(Serialize)]
+    struct PayResult {
+        txid: String,
+        protocol: String,
+        credential_header: String,
+        credential_value: String,
+        amount: u64,
+        fee: u64,
+        address: String,
+        retry_status: u16,
+        receipt: Option<String>,
+        response: String,
+    }
+
+    print_ok(
+        PayResult {
+            txid: txid.clone(),
+            protocol: info.protocol.clone(),
+            credential_header: cred_header.clone(),
+            credential_value: cred_value.clone(),
+            amount: send_amount,
+            fee,
+            address: address.clone(),
+            retry_status: retry_status.as_u16(),
+            receipt,
+            response: response_body.clone(),
+        },
+        cfg.human,
+        |r| {
+            println!("Payment complete ({} protocol).", r.protocol);
+            println!("  txid:   {}", r.txid);
+            println!("  amount: {:.8} ZEC ({} zat)", r.amount as f64 / 1e8, r.amount);
+            println!("  fee:    {:.8} ZEC ({} zat)", r.fee as f64 / 1e8, r.fee);
+            println!("  retry:  HTTP {}", r.retry_status);
+            println!();
+            if r.response.len() < 2000 {
+                println!("Response:");
+                println!("{}", r.response);
+            } else {
+                println!("Response: ({} bytes)", r.response.len());
+            }
+        },
+    );
+
+    zipher_engine::wallet::close().await;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Swap commands (Near Intents)
+// ---------------------------------------------------------------------------
+
+async fn cmd_swap_tokens(cfg: &Config) -> Result<()> {
+    let tokens = zipher_engine::swap::get_tokens().await?;
+
+    #[derive(Serialize)]
+    struct TokenInfo {
+        asset_id: String,
+        symbol: String,
+        blockchain: String,
+        decimals: u32,
+        price: Option<f64>,
+    }
+
+    let list: Vec<TokenInfo> = zipher_engine::swap::swappable_tokens(&tokens)
+        .into_iter()
+        .map(|t| TokenInfo {
+            asset_id: t.asset_id.clone(),
+            symbol: t.symbol.clone(),
+            blockchain: t.blockchain.clone(),
+            decimals: t.decimals,
+            price: t.price,
+        })
+        .collect();
+
+    let zec = zipher_engine::swap::find_zec_token(&tokens);
+
+    #[derive(Serialize)]
+    struct TokensResult {
+        zec_asset_id: Option<String>,
+        available_tokens: Vec<TokenInfo>,
+        total: usize,
+    }
+
+    let total = list.len();
+    print_ok(
+        TokensResult {
+            zec_asset_id: zec.map(|t| t.asset_id.clone()),
+            available_tokens: list,
+            total,
+        },
+        cfg.human,
+        |r| {
+            if let Some(ref zec_id) = r.zec_asset_id {
+                println!("ZEC asset ID: {}", zec_id);
+            }
+            println!("{} swappable tokens available.", r.total);
+            for t in &r.available_tokens {
+                let price = t.price.map_or("n/a".into(), |p| format!("${:.2}", p));
+                println!("  {} ({}) — {} — {}", t.symbol, t.blockchain, t.asset_id, price);
+            }
+        },
+    );
+    Ok(())
+}
+
+async fn cmd_swap_quote(
+    cfg: &Config,
+    to_symbol: String,
+    chain: Option<String>,
+    amount: u64,
+    recipient: String,
+    slippage: u32,
+) -> Result<()> {
+    let tokens = zipher_engine::swap::get_tokens().await?;
+
+    let zec = zipher_engine::swap::find_zec_token(&tokens)
+        .ok_or_else(|| anyhow::anyhow!("ZEC not found in Near Intents token list"))?;
+
+    let dest = find_destination_token(&tokens, &to_symbol, chain.as_deref())?;
+
+    auto_open(cfg).await?;
+    let addresses = zipher_engine::query::get_addresses().await?;
+    let refund_addr = addresses
+        .first()
+        .map(|a| a.address.clone())
+        .unwrap_or_default();
+
+    let quote = zipher_engine::swap::get_quote(
+        &zec.asset_id,
+        &dest.asset_id,
+        &amount.to_string(),
+        &recipient,
+        &refund_addr,
+        slippage,
+    )
+    .await?;
+
+    print_ok(&quote, cfg.human, |q| {
+        println!("Swap quote received:");
+        println!("  Send:    {} zat ZEC", q.amount_in);
+        println!("  Receive: {} {} ({})", q.amount_out, to_symbol, dest.blockchain);
+        if let Some(ref min) = q.min_amount_out {
+            println!("  Min out: {}", min);
+        }
+        println!("  Deposit: {}", q.deposit_address);
+        println!("  Deadline: {}", q.deadline);
+        println!();
+        println!("To execute: zipher-cli swap execute --to {} --amount {} --recipient {}", to_symbol, amount, recipient);
+    });
+
+    zipher_engine::wallet::close().await;
+    Ok(())
+}
+
+async fn cmd_swap_execute(
+    cfg: &Config,
+    to_symbol: String,
+    chain: Option<String>,
+    amount: u64,
+    recipient: String,
+    slippage: u32,
+    context_id: Option<String>,
+) -> Result<()> {
+    ensure_sapling_params(&cfg.data_dir).await?;
+    sync_if_needed(cfg).await?;
+
+    let tokens = zipher_engine::swap::get_tokens().await?;
+    let zec = zipher_engine::swap::find_zec_token(&tokens)
+        .ok_or_else(|| anyhow::anyhow!("ZEC not found in Near Intents token list"))?;
+    let dest = find_destination_token(&tokens, &to_symbol, chain.as_deref())?;
+
+    auto_open(cfg).await?;
+    let addresses = zipher_engine::query::get_addresses().await?;
+    let refund_addr = addresses
+        .first()
+        .map(|a| a.address.clone())
+        .unwrap_or_default();
+
+    let quote = zipher_engine::swap::get_quote(
+        &zec.asset_id,
+        &dest.asset_id,
+        &amount.to_string(),
+        &recipient,
+        &refund_addr,
+        slippage,
+    )
+    .await?;
+
+    if quote.deposit_address.is_empty() {
+        return Err(anyhow::anyhow!("No deposit address in quote"));
+    }
+
+    if cfg.human {
+        eprintln!(
+            "Sending {} zat to deposit address {} (swap to {} {})",
+            amount, quote.deposit_address, to_symbol, dest.blockchain
+        );
+    }
+
+    let (send_amount, fee, _) =
+        zipher_engine::send::propose_send(&quote.deposit_address, amount, None, false).await?;
+
+    let seed = read_seed()?;
+    let txid = match zipher_engine::send::confirm_send(&seed).await {
+        Ok(txid) => {
+            zipher_engine::policy::record_confirm();
+            zipher_engine::audit::log_event(
+                &cfg.data_dir, "swap_execute", Some(&quote.deposit_address),
+                Some(send_amount), Some(fee), context_id.as_deref(),
+                Some(&txid), None,
+            ).ok();
+            txid
+        }
+        Err(e) => {
+            zipher_engine::audit::log_event(
+                &cfg.data_dir, "swap_execute", Some(&quote.deposit_address),
+                Some(send_amount), Some(fee), context_id.as_deref(),
+                None, Some(&format!("{:#}", e)),
+            ).ok();
+            return Err(e);
+        }
+    };
+
+    delete_pending(&cfg.data_dir);
+
+    if let Err(e) = zipher_engine::swap::submit_deposit(&txid, &quote.deposit_address).await {
+        if cfg.human {
+            eprintln!("Warning: deposit submit notification failed: {}. Swap may still proceed.", e);
+        }
+    }
+
+    #[derive(Serialize)]
+    struct SwapResult {
+        txid: String,
+        deposit_address: String,
+        amount_in: String,
+        amount_out: String,
+        destination_symbol: String,
+        destination_chain: String,
+        recipient: String,
+        fee: u64,
+    }
+
+    print_ok(
+        SwapResult {
+            txid: txid.clone(),
+            deposit_address: quote.deposit_address.clone(),
+            amount_in: quote.amount_in.clone(),
+            amount_out: quote.amount_out.clone(),
+            destination_symbol: to_symbol.clone(),
+            destination_chain: dest.blockchain.clone(),
+            recipient: recipient.clone(),
+            fee,
+        },
+        cfg.human,
+        |r| {
+            println!("Swap initiated.");
+            println!("  ZEC txid:     {}", r.txid);
+            println!("  Deposit addr: {}", r.deposit_address);
+            println!("  Amount in:    {} zat", r.amount_in);
+            println!("  Amount out:   {} {} ({})", r.amount_out, r.destination_symbol, r.destination_chain);
+            println!("  Recipient:    {}", r.recipient);
+            println!("  Fee:          {} zat", r.fee);
+            println!();
+            println!("Check status: zipher-cli swap status --deposit-address {}", r.deposit_address);
+        },
+    );
+
+    zipher_engine::wallet::close().await;
+    Ok(())
+}
+
+async fn cmd_swap_status(cfg: &Config, deposit_address: String) -> Result<()> {
+    let status = zipher_engine::swap::get_status(&deposit_address).await?;
+
+    print_ok(&status, cfg.human, |s| {
+        println!("Swap status: {}", s.status);
+        if let Some(ref h) = s.tx_hash_in {
+            println!("  TX in:  {}", h);
+        }
+        if let Some(ref h) = s.tx_hash_out {
+            println!("  TX out: {}", h);
+        }
+    });
+    Ok(())
+}
+
+fn find_destination_token<'a>(
+    tokens: &'a [zipher_engine::swap::SwapToken],
+    symbol: &str,
+    chain: Option<&str>,
+) -> Result<&'a zipher_engine::swap::SwapToken> {
+    let matches: Vec<&zipher_engine::swap::SwapToken> = tokens
+        .iter()
+        .filter(|t| t.symbol.eq_ignore_ascii_case(symbol))
+        .filter(|t| {
+            chain.map_or(true, |c| t.blockchain.eq_ignore_ascii_case(c))
+        })
+        .collect();
+
+    match matches.len() {
+        0 => Err(anyhow::anyhow!(
+            "Token '{}' not found{}",
+            symbol,
+            chain.map_or(String::new(), |c| format!(" on chain '{}'", c))
+        )),
+        1 => Ok(matches[0]),
+        _ => {
+            let chains: Vec<String> = matches.iter().map(|t| t.blockchain.clone()).collect();
+            Err(anyhow::anyhow!(
+                "'{}' exists on multiple chains: {}. Use --chain to specify.",
+                symbol,
+                chains.join(", ")
+            ))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Session commands
+// ---------------------------------------------------------------------------
+
+async fn cmd_session_open(
+    cfg: &Config,
+    server_url: String,
+    deposit: u64,
+    merchant_id: String,
+    pay_to: String,
+    context_id: Option<String>,
+) -> Result<()> {
+    ensure_sapling_params(&cfg.data_dir).await?;
+    sync_if_needed(cfg).await?;
+
+    let memo = format!("zipher:session:{}", merchant_id);
+
+    auto_open(cfg).await?;
+    let (send_amount, fee, _) =
+        zipher_engine::send::propose_send(&pay_to, deposit, Some(memo), false).await?;
+
+    let seed = read_seed()?;
+    let txid = match zipher_engine::send::confirm_send(&seed).await {
+        Ok(txid) => {
+            zipher_engine::policy::record_confirm();
+            zipher_engine::audit::log_event(
+                &cfg.data_dir, "session_open", Some(&pay_to),
+                Some(send_amount), Some(fee), context_id.as_deref(),
+                Some(&txid), None,
+            ).ok();
+            txid
+        }
+        Err(e) => {
+            zipher_engine::audit::log_event(
+                &cfg.data_dir, "session_open", Some(&pay_to),
+                Some(send_amount), Some(fee), context_id.as_deref(),
+                None, Some(&format!("{:#}", e)),
+            ).ok();
+            return Err(e);
+        }
+    };
+
+    delete_pending(&cfg.data_dir);
+
+    let session = zipher_engine::session::open_session(
+        None,
+        &txid,
+        &merchant_id,
+        &server_url,
+        &cfg.data_dir,
+    )
+    .await?;
+
+    print_ok(&session, cfg.human, |s| {
+        println!("Session opened.");
+        println!("  ID:       {}", s.session_id);
+        println!("  Balance:  {} zat", s.balance_remaining);
+        println!("  Expires:  {}", s.expires_at);
+        println!("  Cost/req: {} zat", s.cost_per_request);
+        println!("  Deposit:  {}", s.deposit_txid);
+    });
+
+    zipher_engine::wallet::close().await;
+    Ok(())
+}
+
+async fn cmd_session_request(
+    cfg: &Config,
+    url: String,
+    method: String,
+) -> Result<()> {
+    let host = url
+        .split("//")
+        .nth(1)
+        .and_then(|s| s.split('/').next())
+        .unwrap_or(&url);
+    let server_url = format!(
+        "{}//{}",
+        url.split("//").next().unwrap_or("https:"),
+        host
+    );
+
+    let session = zipher_engine::session::find_session(&cfg.data_dir, &server_url)
+        .ok_or_else(|| anyhow::anyhow!(
+            "No active session for {}. Use `session open` first.", server_url
+        ))?;
+
+    let (status, body, remaining) =
+        zipher_engine::session::session_request(&session, &url, &method).await?;
+
+    if let Some(rem) = remaining {
+        let mut store = zipher_engine::session::load_sessions(&cfg.data_dir);
+        if let Some(s) = store.sessions.iter_mut().find(|s| s.session_id == session.session_id) {
+            s.balance_remaining = rem;
+        }
+        zipher_engine::session::save_sessions(&cfg.data_dir, &store).ok();
+    }
+
+    #[derive(Serialize)]
+    struct SessionRequestResult {
+        status: u16,
+        session_id: String,
+        balance_remaining: Option<u64>,
+        response: String,
+    }
+
+    print_ok(
+        SessionRequestResult {
+            status,
+            session_id: session.session_id.clone(),
+            balance_remaining: remaining,
+            response: body.clone(),
+        },
+        cfg.human,
+        |r| {
+            println!("HTTP {} (session {})", r.status, r.session_id);
+            if let Some(bal) = r.balance_remaining {
+                println!("  Balance remaining: {} zat", bal);
+            }
+            println!();
+            if r.response.len() < 2000 {
+                println!("{}", r.response);
+            } else {
+                println!("({} bytes)", r.response.len());
+            }
+        },
+    );
+    Ok(())
+}
+
+async fn cmd_session_list(cfg: &Config) -> Result<()> {
+    let sessions = zipher_engine::session::list_sessions(&cfg.data_dir);
+
+    #[derive(Serialize)]
+    struct ListResult {
+        total: usize,
+        sessions: Vec<zipher_engine::session::Session>,
+    }
+
+    print_ok(
+        ListResult {
+            total: sessions.len(),
+            sessions: sessions.clone(),
+        },
+        cfg.human,
+        |r| {
+            if r.sessions.is_empty() {
+                println!("No active sessions.");
+            } else {
+                for s in &r.sessions {
+                    println!(
+                        "  {} — {} — {} zat remaining (expires {})",
+                        s.session_id, s.server_url, s.balance_remaining, s.expires_at
+                    );
+                }
+            }
+        },
+    );
+    Ok(())
+}
+
+async fn cmd_session_close(cfg: &Config, session_id: String) -> Result<()> {
+    let summary = zipher_engine::session::close_session(None, &session_id, &cfg.data_dir).await?;
+
+    print_ok(&summary, cfg.human, |s| {
+        println!("Session closed.");
+        println!("  ID:             {}", s.session_id);
+        println!("  Status:         {}", s.status);
+        println!("  Requests made:  {}", s.requests_made);
+        println!("  Balance used:   {} zat", s.balance_used);
+        println!("  Balance left:   {} zat", s.balance_remaining);
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Policy commands
 // ---------------------------------------------------------------------------
 
@@ -1686,6 +2425,31 @@ async fn main() {
             X402Cmd::Pay { body, context_id } => {
                 cmd_x402_pay(&cfg, body, context_id).await
             }
+        },
+        Commands::Pay { url, context_id, method } => {
+            cmd_pay(&cfg, url, context_id, method).await
+        }
+        Commands::Swap(sub) => match sub {
+            SwapCmd::Tokens => cmd_swap_tokens(&cfg).await,
+            SwapCmd::Quote { to, chain, amount, recipient, slippage } => {
+                cmd_swap_quote(&cfg, to, chain, amount, recipient, slippage).await
+            }
+            SwapCmd::Execute { to, chain, amount, recipient, slippage, context_id } => {
+                cmd_swap_execute(&cfg, to, chain, amount, recipient, slippage, context_id).await
+            }
+            SwapCmd::Status { deposit_address } => {
+                cmd_swap_status(&cfg, deposit_address).await
+            }
+        },
+        Commands::Session(sub) => match sub {
+            SessionCmd::Open { server_url, deposit, merchant_id, pay_to, context_id } => {
+                cmd_session_open(&cfg, server_url, deposit, merchant_id, pay_to, context_id).await
+            }
+            SessionCmd::Request { url, method } => {
+                cmd_session_request(&cfg, url, method).await
+            }
+            SessionCmd::List => cmd_session_list(&cfg).await,
+            SessionCmd::Close { session_id } => cmd_session_close(&cfg, session_id).await,
         },
     };
 

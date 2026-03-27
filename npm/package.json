@@ -1,0 +1,33 @@
+{
+  "name": "@atmospherelabs/zipher-cli",
+  "version": "0.1.0",
+  "description": "Headless Zcash light wallet for AI agents",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AthosphereLabs/zipher-app"
+  },
+  "homepage": "https://zipher.app",
+  "keywords": [
+    "zcash",
+    "wallet",
+    "ai-agent",
+    "payments",
+    "x402",
+    "mcp",
+    "privacy"
+  ],
+  "bin": {
+    "zipher": "./bin/zipher"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "bin/",
+    "install.js"
+  ],
+  "engines": {
+    "node": ">=16"
+  }
+}
