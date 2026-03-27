@@ -616,13 +616,34 @@ async fn sync_if_needed(cfg: &Config) -> Result<()> {
         .await
         .unwrap_or(synced as u64) as u32;
 
-    if latest > synced && (latest - synced) > STALE_BLOCK_THRESHOLD {
-        eprintln!(
-            "Wallet is {} blocks behind (at {}, tip {}). Syncing...",
-            latest - synced,
-            synced,
-            latest
-        );
+    let blocks_behind = if latest > synced { latest - synced } else { 0 };
+
+    let has_unconfirmed = if blocks_behind <= STALE_BLOCK_THRESHOLD {
+        let bal = zipher_engine::query::get_wallet_balance().await.ok();
+        bal.map(|b| {
+            b.unconfirmed_sapling > 0
+                || b.unconfirmed_orchard > 0
+                || b.unconfirmed_transparent > 0
+                || (b.total_orchard > b.orchard)
+                || (b.total_sapling > b.sapling)
+                || (b.total_transparent > b.transparent)
+        })
+        .unwrap_or(false)
+    } else {
+        false
+    };
+
+    let needs_sync = blocks_behind > STALE_BLOCK_THRESHOLD || (blocks_behind > 0 && has_unconfirmed);
+
+    if needs_sync {
+        if has_unconfirmed {
+            eprintln!("Unconfirmed outputs detected. Syncing to pick up confirmations...");
+        } else {
+            eprintln!(
+                "Wallet is {} blocks behind (at {}, tip {}). Syncing...",
+                blocks_behind, synced, latest
+            );
+        }
 
         zipher_engine::sync::start().await?;
 
