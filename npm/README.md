@@ -1,11 +1,11 @@
-# @atmospherelabs/zipher-cli
+# @cipherpay/zipher-cli
 
 Headless Zcash light wallet for AI agents. Private payments, cross-chain swaps, and 402 paywall access — from the command line or via MCP.
 
 ## Install
 
 ```bash
-npm install -g @atmospherelabs/zipher-cli
+npm install -g @cipherpay/zipher-cli
 ```
 
 ## Quick start

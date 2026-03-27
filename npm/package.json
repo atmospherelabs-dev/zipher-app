@@ -1,5 +1,5 @@
 {
-  "name": "@atmospherelabs/zipher-cli",
+  "name": "@cipherpay/zipher-cli",
   "version": "0.1.0",
   "description": "Headless Zcash light wallet for AI agents",
   "license": "MIT",
