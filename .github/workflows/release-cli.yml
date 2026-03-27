@@ -68,7 +68,7 @@ jobs:
           mkdir -p dist
           cp target/${{ matrix.target }}/release/zipher-cli dist/${{ matrix.artifact }}
           chmod +x dist/${{ matrix.artifact }}
-          cd dist && sha256sum ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
+          cd dist && (sha256sum ${{ matrix.artifact }} 2>/dev/null || shasum -a 256 ${{ matrix.artifact }}) > ${{ matrix.artifact }}.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

@@ -6,7 +6,7 @@ const path = require("path");
 const https = require("https");
 const http = require("http");
 
-const REPO = "AthosphereLabs/zipher-app";
+const REPO = "atmospherelabs-dev/zipher-app";
 const BIN_DIR = path.join(__dirname, "bin");
 const BIN_PATH = path.join(BIN_DIR, process.platform === "win32" ? "zipher-cli.exe" : "zipher-cli");
 
