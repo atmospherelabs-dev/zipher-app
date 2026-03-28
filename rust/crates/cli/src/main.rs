@@ -525,10 +525,32 @@ async fn download_and_verify(
 }
 
 // ---------------------------------------------------------------------------
-// Seed reading (env var first, then stdin)
+// Seed reading: vault (preferred) -> ZIPHER_SEED env -> stdin
 // ---------------------------------------------------------------------------
 
-fn read_seed() -> Result<SecretString> {
+fn vault_passphrase() -> String {
+    std::env::var("ZIPHER_VAULT_PASS").unwrap_or_default()
+}
+
+fn read_seed_from_vault(data_dir: &str) -> Option<SecretString> {
+    if !zipher_engine::vault::Vault::exists(data_dir) {
+        return None;
+    }
+    let passphrase = vault_passphrase();
+    match zipher_engine::wallet::decrypt_vault(data_dir, &passphrase) {
+        Ok(seed) => Some(seed),
+        Err(e) => {
+            eprintln!("Vault exists but decryption failed: {}", e);
+            None
+        }
+    }
+}
+
+fn read_seed(data_dir: &str) -> Result<SecretString> {
+    if let Some(seed) = read_seed_from_vault(data_dir) {
+        return Ok(seed);
+    }
+
     if let Ok(seed) = std::env::var("ZIPHER_SEED") {
         if !seed.is_empty() {
             return Ok(SecretString::new(seed));
@@ -541,7 +563,9 @@ fn read_seed() -> Result<SecretString> {
     io::stdin().lock().read_line(&mut line)?;
     let trimmed = line.trim().to_string();
     if trimmed.is_empty() {
-        return Err(anyhow::anyhow!("No seed phrase provided. Set ZIPHER_SEED or pipe via stdin."));
+        return Err(anyhow::anyhow!(
+            "No seed phrase available. Create a vault with `wallet create`, set ZIPHER_SEED, or pipe via stdin."
+        ));
     }
     Ok(SecretString::new(trimmed))
 }
@@ -704,6 +728,7 @@ async fn cmd_wallet_create(cfg: &Config) -> Result<()> {
     ensure_data_dir(&cfg.data_dir)?;
     ensure_sapling_params(&cfg.data_dir).await?;
 
+    let passphrase = vault_passphrase();
     let height = zipher_engine::wallet::fetch_latest_height(&cfg.server_url).await? as u32;
     let seed_phrase = zipher_engine::wallet::create(
         &cfg.data_dir,
@@ -711,6 +736,7 @@ async fn cmd_wallet_create(cfg: &Config) -> Result<()> {
         cfg.network,
         height,
         None,
+        Some(&passphrase),
     )
     .await?;
 
@@ -719,25 +745,27 @@ async fn cmd_wallet_create(cfg: &Config) -> Result<()> {
         seed_phrase: String,
         birthday: u32,
         data_dir: String,
+        vault: bool,
     }
 
     let result = CreateResult {
         seed_phrase: seed_phrase.clone(),
         birthday: height,
         data_dir: cfg.data_dir.clone(),
+        vault: true,
     };
 
     print_ok(result, cfg.human, |r| {
-        println!("Wallet created.");
+        println!("Wallet created (seed stored in encrypted vault).");
         println!();
-        println!("  SEED PHRASE (write this down, store it safely):");
+        println!("  SEED PHRASE (write this down as backup):");
         println!("  {}", r.seed_phrase);
         println!();
         println!("  Birthday: {}", r.birthday);
         println!("  Data dir: {}", r.data_dir);
         println!();
-        println!("  WARNING: This seed phrase is the ONLY way to recover your wallet.");
-        println!("  It will NOT be shown again.");
+        println!("  The seed is encrypted in the vault. Set ZIPHER_VAULT_PASS to");
+        println!("  protect it with a passphrase, or leave empty for agent mode.");
     });
     Ok(())
 }
@@ -746,7 +774,9 @@ async fn cmd_wallet_restore(cfg: &Config, birthday: u32) -> Result<()> {
     ensure_data_dir(&cfg.data_dir)?;
     ensure_sapling_params(&cfg.data_dir).await?;
 
-    let seed = read_seed()?;
+    let seed = read_seed(&cfg.data_dir)?;
+    let passphrase = vault_passphrase();
+
     use secrecy::ExposeSecret;
     zipher_engine::wallet::restore(
         &cfg.data_dir,
@@ -755,6 +785,7 @@ async fn cmd_wallet_restore(cfg: &Config, birthday: u32) -> Result<()> {
         seed.expose_secret(),
         birthday,
         None,
+        Some(&passphrase),
     )
     .await?;
 
@@ -762,13 +793,14 @@ async fn cmd_wallet_restore(cfg: &Config, birthday: u32) -> Result<()> {
     struct RestoreResult {
         birthday: u32,
         data_dir: String,
+        vault: bool,
     }
 
     print_ok(
-        RestoreResult { birthday, data_dir: cfg.data_dir.clone() },
+        RestoreResult { birthday, data_dir: cfg.data_dir.clone(), vault: true },
         cfg.human,
         |r| {
-            println!("Wallet restored.");
+            println!("Wallet restored (seed stored in encrypted vault).");
             println!("  Birthday: {}", r.birthday);
             println!("  Data dir: {}", r.data_dir);
             println!("  Run `zipher-cli sync start` to scan the blockchain.");
@@ -1104,7 +1136,7 @@ async fn cmd_send_confirm(cfg: &Config) -> Result<()> {
         eprintln!("Confirming: {:.8} ZEC + {:.8} fee to {}", zec, fee_zec, pending.address);
     }
 
-    let seed = read_seed()?;
+    let seed = read_seed(&cfg.data_dir)?;
     let txid = match zipher_engine::send::confirm_send(&seed).await {
         Ok(txid) => {
             zipher_engine::policy::record_confirm();
@@ -1179,7 +1211,7 @@ async fn cmd_shield(cfg: &Config) -> Result<()> {
     ensure_sapling_params(&cfg.data_dir).await?;
     auto_open(cfg).await?;
 
-    let seed = read_seed()?;
+    let seed = read_seed(&cfg.data_dir)?;
     let txid = zipher_engine::send::shield_funds(&seed).await?;
 
     #[derive(Serialize)]
@@ -1284,7 +1316,7 @@ async fn cmd_x402_pay(
         );
     }
 
-    let seed = read_seed()?;
+    let seed = read_seed(&cfg.data_dir)?;
     let txid = match zipher_engine::send::confirm_send(&seed).await {
         Ok(txid) => {
             zipher_engine::policy::record_confirm();
@@ -1416,7 +1448,7 @@ async fn cmd_pay(
     let (send_amount, fee, _) =
         zipher_engine::send::propose_send(&address, amount, None, false).await?;
 
-    let seed = read_seed()?;
+    let seed = read_seed(&cfg.data_dir)?;
     let txid = match zipher_engine::send::confirm_send(&seed).await {
         Ok(txid) => {
             zipher_engine::policy::record_confirm();
@@ -1659,7 +1691,7 @@ async fn cmd_swap_execute(
     let (send_amount, fee, _) =
         zipher_engine::send::propose_send(&quote.deposit_address, amount, None, false).await?;
 
-    let seed = read_seed()?;
+    let seed = read_seed(&cfg.data_dir)?;
     let txid = match zipher_engine::send::confirm_send(&seed).await {
         Ok(txid) => {
             zipher_engine::policy::record_confirm();
@@ -1796,7 +1828,7 @@ async fn cmd_session_open(
     let (send_amount, fee, _) =
         zipher_engine::send::propose_send(&pay_to, deposit, Some(memo), false).await?;
 
-    let seed = read_seed()?;
+    let seed = read_seed(&cfg.data_dir)?;
     let txid = match zipher_engine::send::confirm_send(&seed).await {
         Ok(txid) => {
             zipher_engine::policy::record_confirm();
@@ -2135,7 +2167,7 @@ mod daemon {
         ensure_data_dir(&cfg.data_dir)?;
         write_pid(&cfg.data_dir);
 
-        let seed_str = read_seed()?;
+        let seed_str = read_seed(&cfg.data_dir)?;
         use secrecy::ExposeSecret;
         let seed_value = seed_str.expose_secret().to_string();
 

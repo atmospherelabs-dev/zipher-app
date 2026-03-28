@@ -31,6 +31,7 @@ pub async fn engine_create_wallet(
         to_network(chain_type),
         chain_height,
         db_cipher_key,
+        None,
     )
     .await
 }
@@ -51,6 +52,7 @@ pub async fn engine_restore_from_seed(
         &seed_phrase,
         birthday,
         db_cipher_key,
+        None,
     )
     .await
 }

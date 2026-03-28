@@ -1,4 +1,5 @@
 pub mod types;
+pub mod vault;
 pub mod wallet;
 pub mod query;
 pub mod sync;
