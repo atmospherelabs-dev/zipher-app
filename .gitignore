@@ -62,3 +62,7 @@ lib/src/version.dart
 *.a
 .cargo/
 missing.arb
+
+# Private docs — never commit
+docs/zcg-forum-post.md
+docs/zcg-grant-ows-zcash.md
