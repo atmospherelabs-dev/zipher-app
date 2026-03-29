@@ -1,5 +1,5 @@
 use anyhow::Result;
-use secrecy::SecretVec;
+use secrecy::{SecretString, SecretVec};
 
 use zcash_client_backend::data_api::{AccountBirthday, WalletRead, WalletWrite};
 use zcash_client_backend::proto::service::{
@@ -8,6 +8,7 @@ use zcash_client_backend::proto::service::{
 use zcash_client_sqlite::wallet::init::init_wallet_db;
 use zcash_protocol::consensus::{BlockHeight, Network};
 
+use super::vault::Vault;
 use super::{db_paths, open_wallet_db, migrate_to_encrypted, ZipherEngine, ENGINE};
 
 // ---------------------------------------------------------------------------
@@ -54,12 +55,17 @@ pub async fn fetch_latest_height(server_url: &str) -> Result<u64> {
 // ---------------------------------------------------------------------------
 
 /// Create a brand-new wallet. Returns the 24-word BIP39 seed phrase.
+///
+/// If `vault_passphrase` is `Some`, the seed is encrypted and stored in a
+/// vault file alongside the wallet database. Pass `Some("")` for headless /
+/// agent mode (no passphrase protection, still encrypted at rest).
 pub async fn create(
     data_dir: &str,
     server_url: &str,
     params: Network,
     chain_height: u32,
     db_cipher_key: Option<String>,
+    vault_passphrase: Option<&str>,
 ) -> Result<String> {
     println!("[engine] create wallet dir={} height={}", data_dir, chain_height);
 
@@ -85,6 +91,11 @@ pub async fn create(
         .map_err(|e| anyhow::anyhow!("create_account error: {:?}", e))?;
     println!("[engine] created account {:?}", account_id);
 
+    if let Some(passphrase) = vault_passphrase {
+        let secret = SecretString::new(phrase.clone());
+        Vault::create(data_dir, &secret, passphrase)?;
+    }
+
     *ENGINE.lock().await = Some(ZipherEngine {
         db_data_path,
         db_cache_path,
@@ -98,6 +109,9 @@ pub async fn create(
 }
 
 /// Restore a wallet from an existing BIP39 seed phrase.
+///
+/// If `vault_passphrase` is `Some`, the seed is encrypted and stored in a
+/// vault file alongside the wallet database.
 pub async fn restore(
     data_dir: &str,
     server_url: &str,
@@ -105,6 +119,7 @@ pub async fn restore(
     seed_phrase: &str,
     birthday_height: u32,
     db_cipher_key: Option<String>,
+    vault_passphrase: Option<&str>,
 ) -> Result<()> {
     println!(
         "[engine] restore wallet dir={} birthday={}",
@@ -133,6 +148,11 @@ pub async fn restore(
         .create_account("Restored", &seed, &birthday, None)
         .map_err(|e| anyhow::anyhow!("create_account error: {:?}", e))?;
     println!("[engine] restored account {:?}", account_id);
+
+    if let Some(passphrase) = vault_passphrase {
+        let secret = SecretString::new(seed_phrase.to_string());
+        Vault::create(data_dir, &secret, passphrase)?;
+    }
 
     *ENGINE.lock().await = Some(ZipherEngine {
         db_data_path,
@@ -269,9 +289,18 @@ pub async fn close() {
     tracing::info!("[engine] wallet closed");
 }
 
-/// Delete wallet database files from disk.
+/// Decrypt the seed phrase from the vault.
+/// Returns the seed as a SecretString; zeroized on drop.
+pub fn decrypt_vault(data_dir: &str, passphrase: &str) -> Result<SecretString> {
+    let vault = Vault::open(data_dir)?;
+    vault.decrypt_seed(passphrase)
+}
+
+/// Delete wallet database files and vault from disk.
 pub fn delete(data_dir: &str) -> Result<()> {
     let (db_data_path, db_cache_path) = db_paths(data_dir);
+
+    let vault_path = Vault::vault_path(data_dir);
 
     for path in &[
         db_data_path.clone(),
@@ -280,6 +309,7 @@ pub fn delete(data_dir: &str) -> Result<()> {
         db_data_path.with_extension("sqlite-shm"),
         db_cache_path.with_extension("sqlite-wal"),
         db_cache_path.with_extension("sqlite-shm"),
+        vault_path,
     ] {
         if path.exists() {
             std::fs::remove_file(path).ok();
