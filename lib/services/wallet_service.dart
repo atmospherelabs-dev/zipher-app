@@ -298,14 +298,35 @@ class WalletService {
       await Future.delayed(const Duration(milliseconds: 100));
 
       final exists = await walletExists(walletId: targetWalletId);
-      final hasSeed = exists && await hasSeedForCurrentNetwork(targetWalletId);
-      if (!exists || !hasSeed) {
-        if (exists && !hasSeed) {
-          _log.i('[WS] target wallet has no seed, deleting stale DB...');
-          await deleteWalletDir(walletId: targetWalletId);
+      if (exists) {
+        final hasSeed = await hasSeedForCurrentNetwork(targetWalletId);
+        if (!hasSeed) {
+          _log.w('[WS] wallet DB exists but seed missing from keychain — '
+              'opening as-is (may be watch-only)');
         }
-        _log.i('[WS] target wallet not found on current network, creating...');
-        await createNetworkWalletForProfile(targetWalletId);
+      } else {
+        final hasSeed = await hasSeedForCurrentNetwork(targetWalletId);
+        if (hasSeed) {
+          _log.i('[WS] seed found but no DB — restoring wallet...');
+          final seed = await SecureKeyStore.getSeedForWallet(
+              _networkSeedKey(targetWalletId));
+          if (seed != null) {
+            final dir = await walletDir(walletId: targetWalletId);
+            final dbKey = await _getDbCipherKey();
+            await rust_engine.engineRestoreFromSeed(
+              dataDir: dir,
+              serverUrl: serverUrl,
+              chainType: _chainType,
+              seedPhrase: seed,
+              birthday: 0,
+              dbCipherKey: dbKey,
+            );
+            await rust_engine.engineCloseWallet();
+          }
+        } else {
+          _log.i('[WS] no wallet or seed — creating fresh wallet');
+          await createNetworkWalletForProfile(targetWalletId);
+        }
       }
 
       await _openWalletByIdInternal(targetWalletId);
@@ -614,29 +635,6 @@ class WalletService {
   // Sync
   // -----------------------------------------------------------------------
 
-  Future<rust_wallet.SyncResultInfo> syncAndAwait() async {
-    _checkBusy();
-    if (useNewEngine) {
-      await rust_engine.engineStartSync();
-      int lastHeight = 0;
-      while (true) {
-        await Future.delayed(const Duration(seconds: 2));
-        final p = await rust_engine.engineGetSyncProgress();
-        lastHeight = p.syncedHeight;
-        if (!p.isSyncing) break;
-      }
-      await snapshotAfterSync();
-      return rust_wallet.SyncResultInfo(
-        startHeight: 0,
-        endHeight: lastHeight,
-        blocksScanned: lastHeight,
-      );
-    }
-    final result = await rust_wallet.syncWallet();
-    await snapshotAfterSync();
-    return result;
-  }
-
   Future<void> startSync() async {
     _checkBusy();
     if (useNewEngine) {
@@ -644,18 +642,6 @@ class WalletService {
       return;
     }
     await rust_wallet.startSync();
-  }
-
-  Future<void> pauseSync() async {
-    _checkBusy();
-    if (useNewEngine) return;
-    await rust_wallet.pauseSync();
-  }
-
-  Future<void> resumeSync() async {
-    _checkBusy();
-    if (useNewEngine) return;
-    await rust_wallet.resumeSync();
   }
 
   Future<void> stopSync() async {
@@ -666,27 +652,15 @@ class WalletService {
     await rust_wallet.stopSync();
   }
 
-  Future<rust_wallet.SyncResultInfo> rescan() async {
+  /// Trigger a full rescan from the wallet's birthday height.
+  /// Stops sync, truncates the DB, and restarts.
+  Future<void> rescanFromBirthday() async {
     _checkBusy();
     if (useNewEngine) {
-      await rust_engine.engineStartSync();
-      int lastHeight = 0;
-      while (true) {
-        await Future.delayed(const Duration(seconds: 2));
-        final p = await rust_engine.engineGetSyncProgress();
-        lastHeight = p.syncedHeight;
-        if (!p.isSyncing) break;
-      }
-      await snapshotAfterSync();
-      return rust_wallet.SyncResultInfo(
-        startHeight: 0,
-        endHeight: lastHeight,
-        blocksScanned: lastHeight,
-      );
+      await rust_engine.engineRescanFromBirthday();
+      return;
     }
-    final result = await rust_wallet.rescanWallet();
-    await snapshotAfterSync();
-    return result;
+    await rust_wallet.rescanWallet();
   }
 
   Future<rust_wallet.SyncStatusInfo> getSyncStatus() async {

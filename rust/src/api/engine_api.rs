@@ -190,6 +190,12 @@ pub async fn engine_stop_sync() -> Result<()> {
     Ok(())
 }
 
+/// Rescan the wallet from its birthday height by truncating and restarting sync.
+pub async fn engine_rescan_from_birthday() -> Result<()> {
+    let birthday = engine::query::get_birthday().await?;
+    engine::sync::rescan_from(birthday).await
+}
+
 pub async fn engine_get_sync_progress() -> Result<EngineSyncProgress> {
     let p = engine::sync::get_progress().await;
     Ok(EngineSyncProgress {

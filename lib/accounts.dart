@@ -195,9 +195,7 @@ abstract class _ActiveAccount2 with Store {
   Future<void> updateBalance() async {
     if (id == 0) return;
     try {
-      final ws = WalletService.instance;
-      final balance = await ws.getAccountBalance(accountIndex)
-          .catchError((_) => ws.getBalance());
+      final balance = await WalletService.instance.getBalance();
       poolBalances = PoolBalance.fromRust(balance);
       logger.d('[AA] updateBalance: confirmed=${poolBalances.confirmed} unconfirmed=${poolBalances.unconfirmed}');
     } catch (e) {
@@ -208,13 +206,19 @@ abstract class _ActiveAccount2 with Store {
   @action
   Future<void> updateAddress() async {
     if (id == 0) return;
-    try {
-      final addrs = await WalletService.instance.getAddresses();
-      if (addrs.isNotEmpty) {
-        diversifiedAddress = addrs.first.address;
+    for (int attempt = 0; attempt < 3; attempt++) {
+      try {
+        final addrs = await WalletService.instance.getAddresses();
+        if (addrs.isNotEmpty) {
+          diversifiedAddress = addrs.first.address;
+          return;
+        }
+      } catch (e) {
+        logger.e('updateAddress error (attempt $attempt): $e');
       }
-    } catch (e) {
-      logger.e('updateAddress error: $e');
+      if (attempt < 2) {
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
     }
   }
 

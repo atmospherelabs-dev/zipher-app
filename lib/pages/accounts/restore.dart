@@ -651,7 +651,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
       await aa.save(prefs);
 
       aa.reset(birthday);
-      syncStatus2.prepareRescan(birthday);
+      syncStatus2.resetForWalletSwitch();
 
       if (mounted) GoRouter.of(context).go('/account');
     } catch (e) {

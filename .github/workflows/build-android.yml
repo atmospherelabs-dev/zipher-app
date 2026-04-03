@@ -14,8 +14,6 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: env
         run: cat build.env >> $GITHUB_ENV
@@ -38,7 +36,6 @@ jobs:
           flutter precache --android
           flutter pub get
           dart run build_runner build -d
-          (cd packages/warp_api_ffi; flutter pub get)
           flutter build apk --release
           flutter build appbundle --release
           BUILD_DIR=build/app/outputs/flutter-apk

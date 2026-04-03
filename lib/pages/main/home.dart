@@ -64,7 +64,6 @@ class _HomeState extends State<HomePageInner> {
     super.initState();
     _loadAccountEmoji();
     try {
-      syncStatus2.update();
       Future(marketPrice.update);
       _loadSwapsAndPoll();
     } catch (e) {
@@ -157,7 +156,7 @@ class _HomeState extends State<HomePageInner> {
 
   Future<void> _onRefresh() async {
     if (syncStatus2.syncing) return;
-    if (syncStatus2.paused) syncStatus2.setPause(false);
+    if (syncStatus2.paused) syncStatus2.paused = false;
     syncStatus2.sync();
     await Future.delayed(const Duration(milliseconds: 800));
   }
@@ -175,12 +174,12 @@ class _HomeState extends State<HomePageInner> {
           aa.poolBalances;
           syncStatus2.changed;
 
-          final totalBal = aa.poolBalances.transparent +
-              aa.poolBalances.sapling +
-              aa.poolBalances.orchard;
-          final shieldedBal =
-              aa.poolBalances.sapling + aa.poolBalances.orchard;
-          final transparentBal = aa.poolBalances.transparent;
+          final totalBal = aa.poolBalances.total;
+          final shieldedBal = aa.poolBalances.shielded +
+              aa.poolBalances.unconfirmedSapling +
+              aa.poolBalances.unconfirmedOrchard;
+          final transparentBal = aa.poolBalances.transparent +
+              aa.poolBalances.unconfirmedTransparent;
 
           final fiatPrice = marketPrice.price;
           final fiatBalance =
@@ -445,6 +444,18 @@ class _HomeState extends State<HomePageInner> {
                                     ),
                                   ],
                                 ),
+
+                          // Pending indicator
+                          if (aa.poolBalances.hasUnconfirmed && !_balanceHidden) ...[
+                            const Gap(4),
+                            Text(
+                              '${amountToString2(aa.poolBalances.unconfirmed)} pending',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: ZipherColors.warm.withValues(alpha: 0.8),
+                              ),
+                            ),
+                          ],
 
                           // Fiat value
                           if (fiatStr != null && !_balanceHidden) ...[
@@ -1669,10 +1680,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
   }
 
   String _liveBalance() {
-    final total = aa.poolBalances.transparent +
-        aa.poolBalances.sapling +
-        aa.poolBalances.orchard;
-    return amountToString2(total);
+    return amountToString2(aa.poolBalances.total);
   }
 
   void _switchToAccount(FlatAccount fa) async {
@@ -1804,7 +1812,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
               .toList();
           if (remaining.isNotEmpty) {
             final next = remaining.first;
-            final balance = await WalletService.instance.getAccountBalance(next.accountIndex);
+            final balance = await WalletService.instance.getBalance();
             final addrs = await WalletService.instance.getAddresses();
             aa = ActiveAccount2.fromWallet(
               coin: activeCoin.coin,
@@ -2126,7 +2134,7 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
       }
 
       // Switch active account to the new one
-      final balance = await ws.getAccountBalance(newIndex);
+      final balance = await ws.getBalance();
       final addrs = await ws.getAddresses();
       aa = ActiveAccount2.fromWallet(
         coin: activeCoin.coin,

@@ -393,10 +393,9 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
     final confirmed = await showConfirmDialog(context, 'Rewind',
         'Roll back to block ${cp.height}? This is quick and safe.');
     if (!confirmed) return;
-    // TODO: migrate to WalletService - rewindTo not yet available
-    syncStatus2.prepareRescan(cp.height);
+    await syncStatus2.triggerRescan();
     Future(() => syncStatus2.sync());
-    GoRouter.of(context).pop();
+    if (mounted) GoRouter.of(context).pop();
   }
 
   void _rescan() async {
@@ -419,9 +418,9 @@ class _RescanState extends State<RescanPage> with WithLoadingAnimation {
               'This may take a while but your funds are safe.');
       if (!confirmed) return;
       aa.reset(height);
-      syncStatus2.prepareRescan(height);
+      await syncStatus2.triggerRescan();
       Future(() => syncStatus2.sync());
-      GoRouter.of(context).pop();
+      if (mounted) GoRouter.of(context).pop();
     });
   }
 }

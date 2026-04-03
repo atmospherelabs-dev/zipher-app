@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import 'package:timeago/timeago.dart' as timeago;
 
 import '../../generated/intl/messages.dart';
 import '../../store2.dart';
@@ -20,7 +18,6 @@ class SyncStatusState extends State<SyncStatusWidget>
     super.initState();
     Future(() async {
       try {
-        await syncStatus2.update();
         await startAutoSync();
       } catch (e) {
         logger.e('Sync status init error: $e');
@@ -42,34 +39,21 @@ class SyncStatusState extends State<SyncStatusWidget>
     if (syncStatus2.paused) return s.syncPaused;
     if (!syncStatus2.syncing) return '';
 
-    final timestamp = syncStatus2.timestamp?.let(timeago.format) ?? s.na;
-    final downloadedSize = syncStatus2.downloadedSize;
-    final trialDecryptionCount = syncStatus2.trialDecryptionCount;
-
     final remaining = syncStatus2.eta.remaining;
     final percent = syncStatus2.eta.progress;
-    final downloadedSize2 = NumberFormat.compact().format(downloadedSize);
-    final trialDecryptionCount2 =
-        NumberFormat.compact().format(trialDecryptionCount);
 
-    switch (display) {
+    switch (display % 4) {
       case 0:
         return 'Syncing $syncedHeight / $latestHeight';
       case 1:
         final m = syncStatus2.isRescan ? s.rescan : s.catchup;
-        return '$m $percent%';
+        return '$m ${percent ?? 0}%';
       case 2:
         return remaining != null ? '$remaining remaining' : '';
       case 3:
-        return timestamp;
-      case 4:
-        return '${syncStatus2.eta.timeRemaining}';
-      case 5:
-        return '\u{2193} $downloadedSize2';
-      case 6:
-        return '\u{2192} $trialDecryptionCount2';
+        return syncStatus2.eta.timeRemaining;
     }
-    throw Exception('Unreachable');
+    return '';
   }
 
   @override
@@ -160,10 +144,10 @@ class SyncStatusState extends State<SyncStatusWidget>
   _onSync() {
     if (syncStatus2.syncing) {
       setState(() {
-        display = (display + 1) % 7;
+        display = (display + 1) % 4;
       });
     } else {
-      if (syncStatus2.paused) syncStatus2.setPause(false);
+      if (syncStatus2.paused) syncStatus2.paused = false;
       Future(() => syncStatus2.sync());
     }
   }

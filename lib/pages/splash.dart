@@ -39,6 +39,7 @@ class _SplashState extends State<SplashPage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future(() async {
+        final minDisplayTime = Future.delayed(const Duration(milliseconds: 1500));
         try {
           if (!GetIt.I.isRegistered<S>()) {
             GetIt.I.registerSingleton<S>(S.of(context));
@@ -90,6 +91,7 @@ class _SplashState extends State<SplashPage> {
                 print('[Splash] fallback to wallet $activeId');
                 await registry.setActive(activeId);
               } else {
+                await minDisplayTime;
                 print('[Splash] no wallets on disk, going to /welcome');
                 appStore.initialized = true;
                 GoRouter.of(context).go('/welcome');
@@ -145,6 +147,7 @@ class _SplashState extends State<SplashPage> {
 
             appStore.initialized = true;
 
+            await minDisplayTime;
             if (applinkUri != null) {
               handleUri(applinkUri);
             } else if (quickAction != null) {
@@ -154,12 +157,14 @@ class _SplashState extends State<SplashPage> {
               GoRouter.of(context).go('/account');
             }
           } else {
+            await minDisplayTime;
             print('[Splash] no wallets, going to /welcome');
             appStore.initialized = true;
             GoRouter.of(context).go('/welcome');
           }
         } catch (e, st) {
           logger.e('Splash init error: $e\n$st');
+          await minDisplayTime;
           if (mounted) {
             appStore.initialized = true;
             GoRouter.of(context).go('/welcome');

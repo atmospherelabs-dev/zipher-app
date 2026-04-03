@@ -2,14 +2,12 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:freezed_annotation/freezed_annotation.dart';
-import 'package:get_it/get_it.dart';
 import 'package:mobx/mobx.dart';
 
 import 'appsettings.dart';
 import 'pages/utils.dart';
 import 'accounts.dart';
 import 'coin/coins.dart';
-import 'generated/intl/messages.dart';
 import 'services/wallet_service.dart';
 
 part 'store2.g.dart';
@@ -74,19 +72,10 @@ abstract class _SyncStatus2 with Store {
   int? latestHeight;
 
   @observable
-  DateTime? timestamp;
-
-  @observable
   bool syncing = false;
 
   @observable
   bool paused = false;
-
-  @observable
-  int downloadedSize = 0;
-
-  @observable
-  int trialDecryptionCount = 0;
 
   @observable
   String? connectionError;
@@ -123,27 +112,9 @@ abstract class _SyncStatus2 with Store {
     connectionError = null;
   }
 
-  @action
-  Future<void> update() async {
-    try {
-      if (!WalletService.instance.isWalletOpen) return;
-
-      final tip = await WalletService.instance.getLatestBlockHeight();
-      final oldTip = latestHeight;
-      latestHeight = tip;
-      if (oldTip == null && latestHeight != null) {
-        await aa.update(latestHeight);
-      }
-
-      connected = true;
-    } catch (e) {
-      logger.e('Sync update error: $e');
-      connected = false;
-    }
-  }
-
   bool _syncStarted = false;
   bool _needsInitialUpdate = true;
+  bool _syncInProgress = false;
 
   /// Called by the adaptive timer (5s while syncing, 30s when caught up).
   /// Starts the sync engine once, then polls heights and connection status.
@@ -151,13 +122,17 @@ abstract class _SyncStatus2 with Store {
   Future<void> sync() async {
     if (paused) return;
     if (!WalletService.instance.isWalletOpen) return;
+    if (_syncInProgress) return;
+    _syncInProgress = true;
 
     try {
-      await update();
-    } catch (e) {
-      logger.e('Sync update error: $e');
+      await _syncInternal();
+    } finally {
+      _syncInProgress = false;
     }
+  }
 
+  Future<void> _syncInternal() async {
     // Start sync once — it runs forever after this
     if (!_syncStarted) {
       _syncStarted = true;
@@ -191,13 +166,15 @@ abstract class _SyncStatus2 with Store {
     try {
       final progress = await WalletService.instance.getEngineSyncProgress();
 
-      // Surface connection errors from the Rust retry loop
       connectionError = progress.connectionError;
+      connected = connectionError == null;
       if (connectionError != null) {
-        connected = false;
         logger.w('[Sync] connection error: $connectionError');
-      } else {
-        connected = true;
+      }
+
+      // Use the engine's chain tip instead of a separate LWD call
+      if (progress.latestHeight > 0) {
+        latestHeight = progress.latestHeight;
       }
 
       final h = await WalletService.instance.getWalletSyncedHeight();
@@ -215,7 +192,6 @@ abstract class _SyncStatus2 with Store {
         eta.checkpoint(syncedHeight, DateTime.now());
       }
 
-      // On first poll after wallet open/switch, refresh balance + txs eagerly
       if (_needsInitialUpdate) {
         _needsInitialUpdate = false;
         await aa.update(syncedHeight);
@@ -225,7 +201,6 @@ abstract class _SyncStatus2 with Store {
       final lh = latestHeight;
 
       if (lh != null && syncedHeight < lh - 1) {
-        // Still catching up
         if (!syncing) {
           syncing = true;
           startSyncedHeight = syncedHeight;
@@ -234,17 +209,16 @@ abstract class _SyncStatus2 with Store {
           logger.d('[Sync] catching up from $syncedHeight to $lh');
         }
       } else if (lh != null && syncedHeight >= lh - 1) {
-        // Caught up to chain tip
-        if (syncing) {
+        if (syncing || isRescan) {
           syncedHeight = lh;
           await WalletService.instance.snapshotAfterSync();
           contacts.fetchContacts();
           marketPrice.update();
           syncing = false;
+          isRescan = false;
           eta.end();
           logger.d('[Sync] completed at $syncedHeight');
         }
-        // Refresh balance + txs every poll to pick up mempool changes
         await aa.update(syncedHeight);
       }
     } catch (e) {
@@ -252,21 +226,18 @@ abstract class _SyncStatus2 with Store {
     }
   }
 
-  /// Prepare for a rescan from a specific height (e.g. after restore).
-  /// The actual sync is kicked off by the auto-sync timer.
+  /// Trigger a real rescan: stops sync, truncates wallet DB to birthday,
+  /// and restarts. The auto-sync timer picks up the new state.
   @action
-  void prepareRescan(int height) {
-    paused = false;
+  Future<void> triggerRescan() async {
+    isRescan = true;
     syncing = false;
     _syncStarted = false;
-    isRescan = true;
-    syncedHeight = height;
-  }
-
-  @action
-  void setPause(bool v) {
-    paused = v;
-    if (v) _syncStarted = false;
+    try {
+      await WalletService.instance.rescanFromBirthday();
+    } catch (e) {
+      logger.e('[Sync] rescan failed: $e');
+    }
   }
 
   /// Reset sync state for a newly opened wallet so the sync engine restarts.

@@ -13,24 +13,15 @@ jobs:
         run: /usr/bin/xcodebuild -version
       - name: checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Build vars
         run: |
           cat build.env >> $GITHUB_ENV
-      - name: Build Rust
+      - name: Setup Sapling params
         run: |
           mkdir -p $HOME/.zcash-params
           curl https://download.z.cash/downloads/sapling-output.params --output $HOME/.zcash-params/sapling-output.params
           curl https://download.z.cash/downloads/sapling-spend.params --output $HOME/.zcash-params/sapling-spend.params
           ln -s $HOME/.zcash-params/* assets/
-          rustup target add aarch64-apple-ios
-          cargo install cargo-lipo
-          sed -e 's/cdylib/staticlib/' < native/zcash-sync/Cargo.toml >/tmp/out.toml
-          mv /tmp/out.toml native/zcash-sync/Cargo.toml
-          CFLAGS="-fno-stack-check" cargo lipo --release --features=dart_ffi --targets=aarch64-apple-ios
-          mv target/aarch64-apple-ios/release/libwarp_api_ffi.a packages/warp_api_ffi/ios
-          cp native/zcash-sync/binding.h packages/warp_api_ffi/ios/Classes
       - name: Install the Apple certificate and provisioning profile
         env:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -50,7 +41,6 @@ jobs:
           flutter precache --ios
           flutter pub get
           dart run build_runner build -d
-          (cd packages/warp_api_ffi; flutter pub get)
           flutter build ipa
       - name: Upload xcarchive
         uses: actions/upload-artifact@v4

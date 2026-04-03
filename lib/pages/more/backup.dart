@@ -75,12 +75,16 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   void _loadBackup() async {
     try {
       final ws = WalletService.instance;
-      final kcSeed = await SecureKeyStore.getSeed(aa.coin, aa.id);
+      final walletSeed = aa.walletId.isNotEmpty
+          ? await SecureKeyStore.getSeedForWallet(
+              isTestnet ? '${aa.walletId}_testnet' : aa.walletId)
+          : null;
+      final kcSeed = walletSeed ?? await SecureKeyStore.getSeed(aa.coin, aa.id);
       String? uvk;
       String? seed;
       try {
         uvk = await ws.exportUfvk();
-        seed = await ws.getSeedPhrase();
+        if (kcSeed == null) seed = await ws.getSeedPhrase();
       } catch (_) {}
       final hasKey = kcSeed != null || seed != null || uvk != null;
       if (!hasKey) {

@@ -25,10 +25,15 @@ class _PaymentURIState extends State<PaymentURIPage> {
   @override
   void initState() {
     super.initState();
-    _loadTransparentAddress();
+    _loadAddresses();
   }
 
-  Future<void> _loadTransparentAddress() async {
+  Future<void> _loadAddresses() async {
+    // Fetch shielded address eagerly if not yet cached
+    if (aa.diversifiedAddress.isEmpty) {
+      await aa.updateAddress();
+      if (mounted) setState(() {});
+    }
     try {
       final addrs = await WalletService.instance.getTransparentAddresses();
       if (addrs.isNotEmpty && mounted) {

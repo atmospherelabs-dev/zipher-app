@@ -118,7 +118,6 @@ flutter_icons:
 flutter_native_splash:
   color_dark: "#0A0E2A"
   color: "#0A0E2A"
-  image: "assets/zipher_logo.png"
 
 
 # For information on the generic Dart part of this file, see the

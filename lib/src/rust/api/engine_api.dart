@@ -8,6 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'wallet.dart';
 
 // These functions are ignored because they are not marked as `pub`: `to_network`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`
 
 /// Create a new wallet. Returns the 24-word seed phrase.
 Future<String> engineCreateWallet(
@@ -119,6 +120,10 @@ Future<void> engineStartSync() =>
 
 Future<void> engineStopSync() =>
     RustLib.instance.api.crateApiEngineApiEngineStopSync();
+
+/// Rescan the wallet from its birthday height by truncating and restarting sync.
+Future<void> engineRescanFromBirthday() =>
+    RustLib.instance.api.crateApiEngineApiEngineRescanFromBirthday();
 
 Future<EngineSyncProgress> engineGetSyncProgress() =>
     RustLib.instance.api.crateApiEngineApiEngineGetSyncProgress();

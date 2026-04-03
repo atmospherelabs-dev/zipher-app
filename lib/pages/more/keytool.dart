@@ -5,6 +5,7 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import '../../router.dart';
 import '../../accounts.dart';
+import '../../coin/coins.dart';
 import '../../services/secure_key_store.dart';
 import '../../zipher_theme.dart';
 import '../../coin/coins.dart';
@@ -44,7 +45,12 @@ class _KeyToolState extends State<KeyToolPage> with WithLoadingAnimation {
   }
 
   void _loadSeed() async {
-    final kcSeed = await SecureKeyStore.getSeed(aa.coin, aa.id);
+    String? walletSeed;
+    if (aa.walletId.isNotEmpty) {
+      final key = isTestnet ? '${aa.walletId}_testnet' : aa.walletId;
+      walletSeed = await SecureKeyStore.getSeedForWallet(key);
+    }
+    final kcSeed = walletSeed ?? await SecureKeyStore.getSeed(aa.coin, aa.id);
     if (mounted) setState(() => seed = kcSeed ?? '');
   }
 
