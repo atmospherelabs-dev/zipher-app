@@ -120,6 +120,10 @@ enum Commands {
     /// Session-based payments (prepaid credit via CipherPay)
     #[command(subcommand)]
     Session(SessionCmd),
+
+    /// Prediction market operations via Myriad (ZEC → USDT → bet)
+    #[command(subcommand)]
+    Market(MarketCmd),
 }
 
 #[derive(Subcommand)]
@@ -290,6 +294,21 @@ enum SendCmd {
         #[arg(long)]
         to: String,
     },
+
+    /// Create a PCZT (unsigned transaction) for external signing via OWS
+    Pczt {
+        /// Destination address
+        #[arg(long)]
+        to: String,
+
+        /// Amount in zatoshis
+        #[arg(long)]
+        amount: u64,
+
+        /// Optional memo (shielded only)
+        #[arg(long)]
+        memo: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -339,6 +358,52 @@ enum DaemonCmd {
 
     /// Unlock spending (daemon reads ZIPHER_SEED from its own environment)
     Unlock,
+}
+
+#[derive(Subcommand)]
+enum MarketCmd {
+    /// Search prediction markets on Myriad
+    List {
+        /// Search keyword
+        #[arg(long)]
+        keyword: Option<String>,
+
+        /// Max results
+        #[arg(long, default_value = "20")]
+        limit: u32,
+    },
+
+    /// Show market details with outcome prices
+    Show {
+        /// Market ID
+        id: u64,
+    },
+
+    /// Place a bet: ZEC → USDT → approve → buy shares
+    Bet {
+        /// Market ID
+        #[arg(long)]
+        id: u64,
+
+        /// Outcome index (0, 1, ...)
+        #[arg(long)]
+        outcome: u64,
+
+        /// Amount in USDT
+        #[arg(long)]
+        amount: f64,
+
+        /// OWS wallet name for signing
+        #[arg(long, env = "OWS_WALLET")]
+        ows_wallet: String,
+    },
+
+    /// Show open positions
+    Positions {
+        /// OWS wallet name
+        #[arg(long, env = "OWS_WALLET")]
+        ows_wallet: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -627,8 +692,47 @@ async fn auto_open(cfg: &Config) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Auto-sync if wallet is stale
+// Sync helpers
 // ---------------------------------------------------------------------------
+
+/// Unconditionally sync the wallet to the chain tip.
+/// Essential before creating transactions to ensure spent notes are detected.
+async fn force_sync(cfg: &Config) -> Result<()> {
+    auto_open(cfg).await?;
+
+    let synced = zipher_engine::query::get_synced_height().await.unwrap_or(0);
+    let latest = zipher_engine::wallet::fetch_latest_height(&cfg.server_url)
+        .await
+        .unwrap_or(synced as u64) as u32;
+
+    let blocks_behind = if latest > synced { latest - synced } else { 0 };
+
+    if blocks_behind == 0 {
+        return Ok(());
+    }
+
+    eprintln!("Syncing wallet ({} blocks behind)...", blocks_behind);
+    zipher_engine::sync::start().await?;
+
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let p = zipher_engine::sync::get_progress().await;
+
+        if p.synced_height > 0 && p.synced_height >= p.latest_height {
+            eprintln!("Synced to {}.", p.synced_height);
+            break;
+        }
+        if !p.is_syncing && !zipher_engine::sync::is_running() {
+            eprintln!("Sync finished at {}.", p.synced_height);
+            break;
+        }
+    }
+
+    zipher_engine::sync::stop().await;
+    zipher_engine::wallet::close().await;
+    auto_open(cfg).await?;
+    Ok(())
+}
 
 const STALE_BLOCK_THRESHOLD: u32 = 10;
 
@@ -2418,6 +2522,438 @@ mod daemon {
 }
 
 // ---------------------------------------------------------------------------
+// OWS subprocess helper
+// ---------------------------------------------------------------------------
+
+async fn run_ows(args: &[&str]) -> Result<String> {
+    let ows_bin = std::env::var("OWS_CLI").unwrap_or_else(|_| "ows".to_string());
+    let output = tokio::process::Command::new(&ows_bin)
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to run ows CLI ({}): {}", ows_bin, e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow::anyhow!("ows {} failed: {}", args.join(" "), stderr));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Parse an EVM address from `ows wallet list` output for the given wallet name.
+/// EVM addresses are the same across all EVM chains (eip155:*).
+async fn get_ows_evm_address(wallet: &str) -> Result<String> {
+    let output = run_ows(&["wallet", "list"]).await?;
+    let mut in_wallet = false;
+    for line in output.lines() {
+        if line.starts_with("Name:") && line.contains(wallet) {
+            in_wallet = true;
+        }
+        if in_wallet && line.contains("eip155:") && line.contains('→') {
+            if let Some(addr) = line.split('→').nth(1) {
+                return Ok(addr.trim().to_string());
+            }
+        }
+        if in_wallet && line.is_empty() {
+            break;
+        }
+    }
+    Err(anyhow::anyhow!("EVM address not found for wallet '{}'", wallet))
+}
+
+// ---------------------------------------------------------------------------
+// PCZT send command
+// ---------------------------------------------------------------------------
+
+async fn cmd_send_pczt(
+    cfg: &Config,
+    to: String,
+    amount: u64,
+    memo: Option<String>,
+) -> Result<()> {
+    ensure_sapling_params(&cfg.data_dir).await?;
+    sync_if_needed(cfg).await?;
+
+    auto_open(cfg).await?;
+
+    let (_send_amount, fee, _) =
+        zipher_engine::send::propose_send(&to, amount, memo, false).await?;
+
+    if cfg.human {
+        eprintln!("Creating unsigned Zcash transaction (PCZT)...");
+        eprintln!("  Amount: {:.8} ZEC + {} zat fee", amount as f64 / 1e8, fee);
+    }
+
+    let pczt_bytes = zipher_engine::send::create_pczt().await?;
+    let pczt_hex = hex::encode(&pczt_bytes);
+
+    #[derive(Serialize)]
+    struct PcztResult {
+        pczt_hex: String,
+        size_bytes: usize,
+        address: String,
+        amount: u64,
+        fee: u64,
+    }
+
+    print_ok(
+        PcztResult {
+            pczt_hex: pczt_hex.clone(),
+            size_bytes: pczt_bytes.len(),
+            address: to.clone(),
+            amount,
+            fee,
+        },
+        cfg.human,
+        |r| {
+            println!("PCZT created ({} bytes).", r.size_bytes);
+            println!("  To:     {}", r.address);
+            println!("  Amount: {} zat", r.amount);
+            println!("  Fee:    {} zat", r.fee);
+            println!();
+            println!("Sign and broadcast via OWS:");
+            println!("  ows send-tx --chain zcash:mainnet --wallet <name> --tx {}", &r.pczt_hex[..64.min(r.pczt_hex.len())]);
+        },
+    );
+
+    zipher_engine::wallet::close().await;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Market commands (Myriad prediction markets)
+// ---------------------------------------------------------------------------
+
+async fn cmd_market_list(cfg: &Config, keyword: Option<String>, limit: u32) -> Result<()> {
+    let markets = zipher_engine::myriad::get_markets(keyword.as_deref(), limit).await?;
+
+    print_ok(&markets, cfg.human, |markets| {
+        if markets.is_empty() {
+            println!("No markets found.");
+        } else {
+            for m in markets.iter() {
+                let state = m.state.as_deref().unwrap_or("unknown");
+                println!("  #{} [{}] {}", m.id, state, m.title);
+                if !m.outcomes.is_empty() {
+                    let outcomes: Vec<String> = m.outcomes.iter()
+                        .map(|o| format!("{}: {:.1}%", o.title, o.price * 100.0))
+                        .collect();
+                    println!("      {}", outcomes.join(" | "));
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
+async fn cmd_market_show(cfg: &Config, id: u64) -> Result<()> {
+    let market = zipher_engine::myriad::get_market(id).await?;
+
+    print_ok(&market, cfg.human, |m| {
+        println!("Market #{}: {}", m.id, m.title);
+        if let Some(ref desc) = m.description {
+            println!("  {}", desc);
+        }
+        println!("  State: {}", m.state.as_deref().unwrap_or("unknown"));
+        println!("  Network: {}", m.network_id.unwrap_or(0));
+        println!();
+        for (i, o) in m.outcomes.iter().enumerate() {
+            println!("  Outcome {}: {} — {:.1}% (${:.4})", i, o.title, o.price * 100.0, o.price);
+        }
+    });
+    Ok(())
+}
+
+async fn cmd_market_bet(
+    cfg: &Config,
+    market_id: u64,
+    outcome: u64,
+    amount_usdt: f64,
+    ows_wallet: String,
+) -> Result<()> {
+    ensure_sapling_params(&cfg.data_dir).await?;
+    force_sync(cfg).await?;
+
+    if cfg.human {
+        eprintln!();
+        eprintln!("=== Placing prediction market bet with ZEC ===");
+        eprintln!("    Chains: Zcash → NEAR → BNB Chain (BSC)");
+        eprintln!();
+        eprintln!("[1/6] (BNB Chain) Resolving your BSC address via OWS...");
+    }
+    let bsc_address = get_ows_evm_address(&ows_wallet).await?;
+
+    if cfg.human {
+        eprintln!("       BSC address: {}", bsc_address);
+    }
+
+    let tokens = zipher_engine::swap::get_tokens().await?;
+    let zec = zipher_engine::swap::find_zec_token(&tokens)
+        .ok_or_else(|| anyhow::anyhow!("ZEC not found in NEAR Intents"))?;
+    let zec_price = zec.price.unwrap_or(30.0);
+
+    auto_open(cfg).await?;
+    let addresses = zipher_engine::query::get_addresses().await?;
+    let refund_addr = addresses.first()
+        .map(|a| a.address.clone())
+        .unwrap_or_default();
+
+    // -- Step 2: Check BNB balance and auto-fund gas if needed ----------------
+    if cfg.human {
+        eprintln!();
+        eprintln!("[2/6] (BNB Chain) Checking BNB gas balance...");
+    }
+    let bnb_balance = zipher_engine::myriad::get_bnb_balance(
+        zipher_engine::myriad::BSC_RPC, &bsc_address,
+    ).await?;
+
+    let needs_gas = bnb_balance < zipher_engine::myriad::MIN_BNB_FOR_GAS;
+    if needs_gas {
+        if cfg.human {
+            eprintln!("       BNB balance: {:.6} — not enough for gas, auto-funding...",
+                bnb_balance as f64 / 1e18);
+        }
+
+        let bnb_token = tokens.iter()
+            .find(|t| t.symbol.eq_ignore_ascii_case("BNB") && t.blockchain.eq_ignore_ascii_case("bsc"))
+            .ok_or_else(|| anyhow::anyhow!("BNB on BSC not found in NEAR Intents"))?;
+
+        // 0.005 BNB ≈ $3 — enough for many transactions
+        let bnb_target = 0.005_f64;
+        let bnb_usd_price = bnb_token.price.unwrap_or(600.0);
+        let bnb_cost_usd = bnb_target * bnb_usd_price;
+        let zec_for_bnb = (bnb_cost_usd / zec_price * 1e8) as u64;
+
+        if cfg.human {
+            eprintln!("       (Zcash → NEAR → BSC) Swapping {:.8} ZEC → {:.4} BNB for gas...",
+                zec_for_bnb as f64 / 1e8, bnb_target);
+        }
+
+        let bnb_swap_quote = zipher_engine::swap::get_quote(
+            &zec.asset_id, &bnb_token.asset_id,
+            &zec_for_bnb.to_string(), &bsc_address, &refund_addr, 200,
+        ).await?;
+
+        let (_send_amount, _fee, _) = zipher_engine::send::propose_send(
+            &bnb_swap_quote.deposit_address, zec_for_bnb, None, false,
+        ).await?;
+        let pczt_bytes = zipher_engine::send::create_pczt().await?;
+        let pczt_hex = hex::encode(&pczt_bytes);
+
+        let bnb_tx = run_ows(&[
+            "sign", "send-tx", "--chain", "zcash:mainnet", "--wallet", &ows_wallet,
+            "--rpc-url", &cfg.server_url, "--tx", &pczt_hex,
+        ]).await?;
+
+        if cfg.human {
+            eprintln!("       (Zcash) Sent {:.8} ZEC for gas — tx: {}...",
+                zec_for_bnb as f64 / 1e8, &bnb_tx[..16.min(bnb_tx.len())]);
+        }
+
+        zipher_engine::swap::submit_deposit(&bnb_tx, &bnb_swap_quote.deposit_address).await.ok();
+
+        if cfg.human {
+            eprintln!("       (NEAR)  Waiting for BNB gas swap to settle...");
+        }
+        for _ in 0..60 {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            let status = zipher_engine::swap::get_status(&bnb_swap_quote.deposit_address).await?;
+            if status.status == "SUCCESS" || status.status == "COMPLETED" {
+                if cfg.human {
+                    eprintln!("       (BSC)   BNB gas received!");
+                }
+                break;
+            }
+            if status.status == "FAILED" {
+                return Err(anyhow::anyhow!("BNB gas swap failed"));
+            }
+        }
+
+        // Close wallet so in-memory state drops the spent notes,
+        // then force-sync to pick up the mined transaction's nullifiers.
+        zipher_engine::wallet::close().await;
+        force_sync(cfg).await?;
+    } else {
+        if cfg.human {
+            eprintln!("       BNB balance: {:.6} — enough for gas ✓",
+                bnb_balance as f64 / 1e18);
+        }
+    }
+
+    // -- Step 3: Swap ZEC → USDT via NEAR Intents -----------------------------
+    if cfg.human {
+        eprintln!();
+        eprintln!("[3/6] (Zcash → NEAR → BSC) Swapping ZEC → USDT via NEAR Intents...");
+    }
+
+    let usdt_matches: Vec<_> = tokens.iter()
+        .filter(|t| t.symbol.eq_ignore_ascii_case("USDT") && t.blockchain.eq_ignore_ascii_case("bsc"))
+        .collect();
+    let usdt = usdt_matches.first()
+        .ok_or_else(|| anyhow::anyhow!("USDT on BSC not found in NEAR Intents"))?;
+
+    let usdt_needed = amount_usdt * 1.02;
+    let zec_needed = (usdt_needed / zec_price * 1e8) as u64;
+
+    let swap_quote = zipher_engine::swap::get_quote(
+        &zec.asset_id, &usdt.asset_id,
+        &zec_needed.to_string(), &bsc_address, &refund_addr, 100,
+    ).await?;
+
+    let (_send_amount, _fee, _) = zipher_engine::send::propose_send(
+        &swap_quote.deposit_address, zec_needed, None, false,
+    ).await?;
+
+    let pczt_bytes = zipher_engine::send::create_pczt().await?;
+    let pczt_hex = hex::encode(&pczt_bytes);
+
+    if cfg.human {
+        eprintln!("       (Zcash) Signing PCZT via OWS...");
+    }
+    let zcash_tx = run_ows(&[
+        "sign", "send-tx", "--chain", "zcash:mainnet", "--wallet", &ows_wallet,
+        "--rpc-url", &cfg.server_url, "--tx", &pczt_hex,
+    ]).await?;
+
+    if cfg.human {
+        eprintln!("       (Zcash) Sent {:.8} ZEC — tx: {}...",
+            zec_needed as f64 / 1e8, &zcash_tx[..16.min(zcash_tx.len())]);
+    }
+
+    zipher_engine::swap::submit_deposit(&zcash_tx, &swap_quote.deposit_address).await.ok();
+
+    if cfg.human {
+        eprintln!("       (NEAR)  Waiting for cross-chain swap to settle...");
+    }
+    for _ in 0..60 {
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        let status = zipher_engine::swap::get_status(&swap_quote.deposit_address).await?;
+        if status.status == "SUCCESS" || status.status == "COMPLETED" {
+            if cfg.human {
+                eprintln!("       (BSC)   Swap complete! USDT received on BNB Chain.");
+            }
+            break;
+        }
+        if status.status == "FAILED" {
+            return Err(anyhow::anyhow!("Swap failed"));
+        }
+    }
+
+    // -- Step 4: Fresh quote (price may have shifted during swap) -------------
+    if cfg.human {
+        eprintln!();
+        eprintln!("[4/6] (BNB Chain) Refreshing prediction market quote...");
+    }
+    let quote = zipher_engine::myriad::get_quote(market_id, outcome, "buy", amount_usdt, 0.01).await?;
+
+    if cfg.human {
+        eprintln!("       You'll get {:.4} shares for ${:.2} USDT (fresh quote)", quote.shares, amount_usdt);
+    }
+
+    // -- Step 5: Approve USDT for Myriad --------------------------------------
+    if cfg.human {
+        eprintln!();
+        eprintln!("[5/6] (BNB Chain) Approving USDT for Myriad contract...");
+    }
+    let approve_data = zipher_engine::myriad::build_erc20_approve_calldata(
+        zipher_engine::myriad::PM_CONTRACT,
+        &format!("{:064x}", u128::MAX),
+    );
+    let nonce = zipher_engine::myriad::get_nonce(
+        zipher_engine::myriad::BSC_RPC, &bsc_address,
+    ).await?;
+    let approve_tx = zipher_engine::myriad::build_unsigned_eip1559_tx(
+        56, nonce, 1_000_000_000, 5_000_000_000, 100_000,
+        zipher_engine::myriad::USDT_BSC, 0, &approve_data,
+    );
+    let approve_hex = hex::encode(&approve_tx);
+    run_ows(&[
+        "sign", "send-tx", "--chain", "eip155:56", "--wallet", &ows_wallet, "--tx", &approve_hex,
+    ]).await?;
+
+    if cfg.human {
+        eprintln!("       Approval signed via OWS and sent to BSC.");
+    }
+
+    // -- Step 6: Place the bet ------------------------------------------------
+    if cfg.human {
+        eprintln!();
+        eprintln!("[6/6] (BNB Chain) Placing bet on Myriad prediction market...");
+    }
+    let bet_data = hex::decode(quote.calldata.trim_start_matches("0x"))
+        .map_err(|e| anyhow::anyhow!("Invalid calldata: {}", e))?;
+    let bet_nonce = nonce + 1;
+    let bet_tx = zipher_engine::myriad::build_unsigned_eip1559_tx(
+        56, bet_nonce, 1_000_000_000, 5_000_000_000, 300_000,
+        zipher_engine::myriad::PM_CONTRACT, 0, &bet_data,
+    );
+    let bet_hex = hex::encode(&bet_tx);
+    let bet_result = run_ows(&[
+        "sign", "send-tx", "--chain", "eip155:56", "--wallet", &ows_wallet, "--tx", &bet_hex,
+    ]).await?;
+
+    #[derive(Serialize)]
+    struct BetResult {
+        market_id: u64,
+        outcome: u64,
+        amount_usdt: f64,
+        shares: f64,
+        zec_spent: u64,
+        bsc_tx: String,
+    }
+
+    print_ok(
+        BetResult {
+            market_id,
+            outcome,
+            amount_usdt,
+            shares: quote.shares,
+            zec_spent: zec_needed,
+            bsc_tx: bet_result.clone(),
+        },
+        cfg.human,
+        |r| {
+            println!();
+            println!("=== Bet placed successfully! ===");
+            println!();
+            println!("  Market:     #{}", r.market_id);
+            println!("  Outcome:    {}", r.outcome);
+            println!("  Amount:     ${:.2} USDT", r.amount_usdt);
+            println!("  Shares:     {:.4}", r.shares);
+            println!("  ZEC spent:  {:.8} ZEC", r.zec_spent as f64 / 1e8);
+            println!("  BSC tx:     {}", r.bsc_tx);
+            println!();
+            println!("  Flow: ZEC → NEAR Intents → USDT (BSC) → Myriad bet");
+            println!("  All signing handled by Open Wallet Standard (OWS).");
+        },
+    );
+
+    zipher_engine::wallet::close().await;
+    Ok(())
+}
+
+async fn cmd_market_positions(cfg: &Config, ows_wallet: String) -> Result<()> {
+    let bsc_address = get_ows_evm_address(&ows_wallet).await?;
+
+    let positions = zipher_engine::myriad::get_portfolio(&bsc_address).await?;
+
+    print_ok(&positions, cfg.human, |positions| {
+        if positions.is_empty() {
+            println!("No open positions.");
+        } else {
+            for p in positions.iter() {
+                println!("  Market #{} — Outcome {} — {:.4} shares", p.market_id, p.outcome_id, p.shares);
+                if let Some(ref title) = p.market_title {
+                    println!("    {}", title);
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -2426,8 +2962,16 @@ async fn main() {
     let cli = Cli::parse();
     let cfg = resolve_config(&cli);
 
+    let log_level = if cli.human {
+        tracing::Level::INFO
+    } else {
+        std::env::var("ZIPHER_LOG")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(tracing::Level::WARN)
+    };
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
+        .with_max_level(log_level)
         .with_target(false)
         .init();
 
@@ -2455,6 +2999,9 @@ async fn main() {
             }
             SendCmd::Confirm => cmd_send_confirm(&cfg).await,
             SendCmd::Max { to } => cmd_send_max(&cfg, to).await,
+            SendCmd::Pczt { to, amount, memo } => {
+                cmd_send_pczt(&cfg, to, amount, memo).await
+            }
         },
         Commands::Shield => cmd_shield(&cfg).await,
         Commands::Policy(sub) => match sub {
@@ -2503,6 +3050,14 @@ async fn main() {
             }
             SessionCmd::List => cmd_session_list(&cfg).await,
             SessionCmd::Close { session_id } => cmd_session_close(&cfg, session_id).await,
+        },
+        Commands::Market(sub) => match sub {
+            MarketCmd::List { keyword, limit } => cmd_market_list(&cfg, keyword, limit).await,
+            MarketCmd::Show { id } => cmd_market_show(&cfg, id).await,
+            MarketCmd::Bet { id, outcome, amount, ows_wallet } => {
+                cmd_market_bet(&cfg, id, outcome, amount, ows_wallet).await
+            }
+            MarketCmd::Positions { ows_wallet } => cmd_market_positions(&cfg, ows_wallet).await,
         },
     };
 

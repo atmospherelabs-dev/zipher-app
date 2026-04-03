@@ -3,12 +3,13 @@ use std::sync::Mutex as StdMutex;
 
 use anyhow::Result;
 use secrecy::{ExposeSecret, SecretString};
-use tracing::{info, error};
+use tracing::{debug, info, error};
 use zeroize::Zeroize;
 
 use zcash_address::ZcashAddress;
 use zcash_client_backend::data_api::wallet::{
-    create_proposed_transactions, propose_send_max_transfer, propose_standard_transfer_to_address,
+    create_pczt_from_proposal, create_proposed_transactions,
+    propose_send_max_transfer, propose_standard_transfer_to_address,
     propose_shielding, ConfirmationsPolicy, SpendingKeys,
 };
 use zcash_client_backend::data_api::{InputSource, MaxSpendMode, WalletRead};
@@ -96,10 +97,9 @@ pub async fn propose_send(
 
     let confirmations = ConfirmationsPolicy::MIN;
 
-    info!("[PROPOSE] address={}, amount={}, is_max={}", address, amount, is_max);
+    info!("Preparing send proposal to {}...", &address[..address.len().min(20)]);
 
     if is_max {
-        info!("[PROPOSE] Using SDK propose_send_max_transfer");
         let proposal = propose_send_max_transfer::<_, _, _, std::convert::Infallible>(
             &mut db_data,
             &params,
@@ -123,14 +123,14 @@ pub async fn propose_send(
             .map(|p| u64::from(p.amount()))
             .sum();
 
-        info!("[PROPOSE] MAX proposal OK. send_amount={}, fee={}", send_amount, fee);
+        info!("Proposal ready: {:.8} ZEC + {:.8} ZEC fee", send_amount as f64 / 1e8, fee as f64 / 1e8);
         *PENDING_SEND.lock().unwrap() = Some(proposal);
         Ok((send_amount, fee, true))
     } else {
         let send_zat = Zatoshis::from_u64(amount)
             .map_err(|_| anyhow::anyhow!("Invalid amount"))?;
 
-        info!("[PROPOSE] Using SDK propose_standard_transfer_to_address");
+        
         let proposal = propose_standard_transfer_to_address::<_, _, std::convert::Infallible>(
             &mut db_data,
             &params,
@@ -146,7 +146,7 @@ pub async fn propose_send(
         .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))?;
 
         let fee = u64::from(proposal.steps().first().balance().fee_required());
-        info!("[PROPOSE] Proposal OK. fee={}", fee);
+        info!("Proposal ready: {:.8} ZEC + {:.8} ZEC fee", amount as f64 / 1e8, fee as f64 / 1e8);
         *PENDING_SEND.lock().unwrap() = Some(proposal);
         Ok((amount, fee, true))
     }
@@ -154,7 +154,7 @@ pub async fn propose_send(
 
 /// Step 2: Build + broadcast from the stored proposal.
 pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
-    info!("[CONFIRM] ====== confirm_send START ======");
+    info!("Signing and broadcasting transaction...");
 
     let proposal = {
         let mut lock = PENDING_SEND.lock().unwrap();
@@ -163,26 +163,9 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     };
 
     let step = proposal.steps().first();
-    info!("[CONFIRM] Proposal: target_height={}, fee_rule={:?}",
-        u32::from(proposal.min_target_height()), proposal.fee_rule());
-    info!("[CONFIRM] Proposal step: n_transparent_inputs={}, n_payments={}, fee_required={}, is_shielding={}",
-        step.transparent_inputs().len(),
-        step.transaction_request().payments().len(),
-        u64::from(step.balance().fee_required()),
-        step.is_shielding());
-    for (idx, payment) in step.transaction_request().payments() {
-        info!("[CONFIRM]   payment[{}]: addr={}, amount={}", idx,
-            payment.recipient_address(), u64::from(payment.amount()));
-    }
-    for (i, utxo) in step.transparent_inputs().iter().enumerate() {
-        info!("[CONFIRM]   t_input[{}]: outpoint={}:{}, value={}", i,
-            hex::encode(utxo.outpoint().hash()), utxo.outpoint().n(),
-            u64::from(utxo.txout().value()));
-    }
-    info!("[CONFIRM]   involves transparent={}, sapling={}, orchard={}",
-        step.involves(PoolType::TRANSPARENT),
-        step.involves(PoolType::Shielded(ShieldedProtocol::Sapling)),
-        step.involves(PoolType::Shielded(ShieldedProtocol::Orchard)));
+    let fee = u64::from(step.balance().fee_required());
+    let n_payments = step.transaction_request().payments().len();
+    info!("Transaction: {} payment(s), {} zat fee", n_payments, fee);
 
     let engine_guard = ENGINE.lock().await;
     let engine = engine_guard
@@ -203,11 +186,10 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     seed.zeroize();
     let usk = usk_result.map_err(|e| anyhow::anyhow!("USK derivation: {:?}", e))?;
 
-    info!("[CONFIRM] USK derived OK, loading wallet DB...");
+    info!("Deriving keys and building ZK proofs...");
     let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
 
     let prover = load_prover_from_path(&db_data_path)?;
-    info!("[CONFIRM] Prover loaded OK. Calling create_proposed_transactions...");
     let spending_keys = SpendingKeys::from_unified_spending_key(usk);
 
     let txids = create_proposed_transactions::<
@@ -227,12 +209,12 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
         &proposal,
     )
     .map_err(|e| {
-        error!("[CONFIRM] create_proposed_transactions FAILED: {:?}", e);
+        error!("Transaction creation failed: {:?}", e);
         anyhow::anyhow!("Create tx failed: {:?}", e)
     })?;
 
     let txid = txids.first();
-    info!("[CONFIRM] Transaction created OK. txid={}", txid);
+    info!("Transaction built: {}", txid);
 
     let tx = db_data
         .get_transaction(*txid)
@@ -241,38 +223,11 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     let mut tx_bytes = Vec::new();
     tx.write(&mut tx_bytes)
         .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
-    info!("[CONFIRM] Serialized tx: {} bytes", tx_bytes.len());
 
-    if tx_bytes.len() >= 20 {
-        info!("[CONFIRM] tx header (first 20 bytes): {}", hex::encode(&tx_bytes[..20]));
-    }
-    if tx_bytes.len() >= 10 {
-        let start = tx_bytes.len() - 10;
-        info!("[CONFIRM] tx tail (last 10 bytes): {}", hex::encode(&tx_bytes[start..]));
-    }
+    debug!("[TX] {} bytes, header: {}", tx_bytes.len(),
+        if tx_bytes.len() >= 20 { hex::encode(&tx_bytes[..20]) } else { hex::encode(&tx_bytes) });
 
-    if tx_bytes.len() >= 12 {
-        let version = u32::from_le_bytes([tx_bytes[0], tx_bytes[1], tx_bytes[2], tx_bytes[3]]);
-        let vg_id = u32::from_le_bytes([tx_bytes[4], tx_bytes[5], tx_bytes[6], tx_bytes[7]]);
-        let branch = u32::from_le_bytes([tx_bytes[8], tx_bytes[9], tx_bytes[10], tx_bytes[11]]);
-        info!("[CONFIRM] tx version=0x{:08x}, versionGroupId=0x{:08x}, consensusBranchId=0x{:08x}",
-            version, vg_id, branch);
-
-        let expected_branch = consensus::BranchId::for_height(
-            &params,
-            zcash_protocol::consensus::BlockHeight::from_u32(u32::from(proposal.min_target_height())),
-        );
-        info!("[CONFIRM] expected branch for target height: {:?}", expected_branch);
-    }
-
-    if tx_bytes.len() <= 2000 {
-        info!("[CONFIRM] FULL TX HEX: {}", hex::encode(&tx_bytes));
-    } else {
-        info!("[CONFIRM] TX HEX (truncated, {} bytes total): {}...",
-            tx_bytes.len(), hex::encode(&tx_bytes[..500]));
-    }
-
-    info!("[CONFIRM] Broadcasting to {}...", server_url);
+    info!("Broadcasting to network...");
     let mut lwd = connect_lwd(&server_url).await?;
     let resp = lwd
         .send_transaction(RawTransaction {
@@ -281,16 +236,14 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
         })
         .await
         .map_err(|e| {
-            error!("[CONFIRM] Broadcast gRPC call FAILED: {:?}", e);
+            error!("Broadcast failed: {:?}", e);
             anyhow::anyhow!("Broadcast failed: {:?}", e)
         })?;
 
     let resp = resp.into_inner();
-    info!("[CONFIRM] Broadcast response: error_code={}, error_message='{}'",
-        resp.error_code, resp.error_message);
 
     if resp.error_code != 0 {
-        error!("[CONFIRM] BROADCAST REJECTED: code={}, msg={}", resp.error_code, resp.error_message);
+        error!("Broadcast rejected: {} (code {})", resp.error_message, resp.error_code);
         return Err(anyhow::anyhow!(
             "Broadcast rejected: {} (code {})",
             resp.error_message,
@@ -298,10 +251,87 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
         ));
     }
 
-    info!("[CONFIRM] ====== confirm_send SUCCESS txid={} ======", txid);
+    info!("Transaction confirmed! txid={}", txid);
     Ok(txid.to_string())
 }
 
+
+// ---------------------------------------------------------------------------
+// PCZT creation (Creator + Prover — no signing key needed)
+// ---------------------------------------------------------------------------
+
+/// Create a PCZT from the pending proposal (Creator + Prover roles).
+///
+/// Returns serialized PCZT bytes ready for external signing via OWS.
+/// The Signer role (spending key) is NOT needed here — only OWS needs the seed.
+pub async fn create_pczt() -> Result<Vec<u8>> {
+    let proposal = {
+        let mut lock = PENDING_SEND.lock().unwrap();
+        lock.take()
+            .ok_or_else(|| anyhow::anyhow!("No pending proposal — call propose_send first"))?
+    };
+
+    let engine_guard = ENGINE.lock().await;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
+
+    let db_data_path = engine.db_data_path.clone();
+    let params = engine.params;
+    let db_cipher_key = engine.db_cipher_key.clone();
+    drop(engine_guard);
+
+    let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
+
+    let account_id = db_data
+        .get_account_ids()
+        .map_err(|e| anyhow::anyhow!("{:?}", e))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No accounts"))?;
+
+    info!("Building unsigned Zcash transaction (PCZT)...");
+    let pczt = create_pczt_from_proposal::<
+        _,
+        _,
+        std::convert::Infallible,
+        _,
+        std::convert::Infallible,
+        _,
+    >(
+        &mut db_data,
+        &params,
+        account_id,
+        OvkPolicy::Sender,
+        &proposal,
+    )
+    .map_err(|e| anyhow::anyhow!("PCZT creation failed: {:?}", e))?;
+
+    info!("Adding zero-knowledge proofs...");
+    let tx_prover = load_prover_from_path(&db_data_path)?;
+
+    let mut prover = pczt::roles::prover::Prover::new(pczt);
+
+    if prover.requires_sapling_proofs() {
+        info!("  Sapling proofs...");
+        prover = prover
+            .create_sapling_proofs(&tx_prover, &tx_prover)
+            .map_err(|e| anyhow::anyhow!("Sapling proving failed: {:?}", e))?;
+    }
+
+    if prover.requires_orchard_proof() {
+        info!("  Orchard proof...");
+        let orchard_pk = orchard::circuit::ProvingKey::build();
+        prover = prover
+            .create_orchard_proof(&orchard_pk)
+            .map_err(|e| anyhow::anyhow!("Orchard proving failed: {:?}", e))?;
+    }
+
+    let proved_pczt = prover.finish();
+    let bytes = proved_pczt.serialize();
+    info!("PCZT ready ({} bytes) — awaiting external signing", bytes.len());
+    Ok(bytes)
+}
 
 // ---------------------------------------------------------------------------
 // Max sendable (for the send page balance display)
