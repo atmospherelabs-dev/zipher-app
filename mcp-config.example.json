@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "zipher": {
+      "command": "zipher-mcp-server",
+      "env": {
+        "ZIPHER_SEED": "your 24-word seed phrase here",
+        "ZIPHER_DATA_DIR": "/path/to/.zipher/mainnet",
+        "FIRECRAWL_API_KEY": "fc-..."
+      }
+    },
+    "cipherpay": {
+      "command": "npx",
+      "args": ["-y", "@anthropic/cipherpay-mcp-server"],
+      "env": {
+        "CIPHERPAY_API_KEY": "your-cipherpay-api-key"
+      }
+    }
+  }
+}

@@ -170,6 +170,50 @@ struct SwapStatusParams {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct MarketScanParams {
+    /// Optional keyword to filter markets (e.g. "bitcoin", "election", "AI")
+    keyword: Option<String>,
+    /// Maximum number of markets to return (default 30)
+    limit: Option<u32>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct MarketResearchParams {
+    /// Search query — typically the market title or topic (e.g. "Bitcoin price above 100k by July 2026")
+    query: String,
+    /// Number of web results to fetch (default 5, max 10)
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct MarketAnalyzeParams {
+    /// Market ID to analyze
+    market_id: u64,
+    /// Which outcome index the agent believes is underpriced (0, 1, ...)
+    outcome_index: usize,
+    /// Agent's estimated probability for that outcome (0.0 to 1.0).
+    /// This is the LLM's judgment after reading market data + research.
+    estimated_prob: f64,
+    /// How confident the agent is in its probability estimate (0.0 = very uncertain, 1.0 = very confident).
+    /// Controls fractional Kelly: 0.0 → quarter Kelly, 1.0 → half Kelly.
+    confidence: f64,
+    /// Total available bankroll in USDT (used for Kelly position sizing)
+    bankroll_usdt: f64,
+    /// Maximum bet amount in USDT (hard risk cap)
+    max_bet_usdt: Option<f64>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct MarketQuoteParams {
+    /// Market ID on Myriad
+    market_id: u64,
+    /// Outcome index (0, 1, ...)
+    outcome: u64,
+    /// Amount in USDT to bet
+    amount_usdt: f64,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct SessionOpenParams {
     /// Server URL to create a session for
     server_url: String,
@@ -769,7 +813,30 @@ impl ZipherMcpServer {
 
         let protocol = match zipher_engine::payment::detect_protocol(&headers, &body, expected_network) {
             Ok(p) => p,
-            Err(e) => return err_code_response(INVALID_PROPOSAL, &format!("{e}")),
+            Err(zec_err) => {
+                // Try cross-chain EVM x402 detection
+                if let Ok(evm_info) = zipher_engine::evm_pay::parse_evm_x402(&body) {
+                    let amount_human = evm_info.amount_raw.parse::<f64>().unwrap_or(0.0)
+                        / 10f64.powi(evm_info.decimals as i32);
+                    return ok_response(serde_json::json!({
+                        "cross_chain_required": true,
+                        "chain": evm_info.chain.name,
+                        "network": evm_info.network,
+                        "asset": evm_info.asset_symbol,
+                        "asset_contract": evm_info.asset_contract,
+                        "amount_raw": evm_info.amount_raw,
+                        "amount_human": format!("{:.6}", amount_human),
+                        "pay_to": evm_info.pay_to,
+                        "action_required": format!(
+                            "This API requires {} {} on {}. Use swap_execute to convert ZEC → {} on {}, \
+                             then use the CLI 'pay_url' command which handles cross-chain x402 automatically.",
+                            amount_human, evm_info.asset_symbol, evm_info.chain.name,
+                            evm_info.asset_symbol, evm_info.chain.near_intents_blockchain
+                        ),
+                    }));
+                }
+                return err_code_response(INVALID_PROPOSAL, &format!("{zec_err}"));
+            }
         };
 
         let address = match protocol.address() {
@@ -848,6 +915,127 @@ impl ZipherMcpServer {
             "retry_status": retry_status,
             "response": response_body,
         }))
+    }
+
+    #[tool(description = "Scan prediction markets on Myriad (BNB Chain). Returns open markets ranked by uncertainty — the most contested markets are where information edge is most valuable. Use market_research to gather news, then market_analyze to size a bet.")]
+    async fn market_scan(&self, Parameters(params): Parameters<MarketScanParams>) -> String {
+        match zipher_engine::myriad::get_markets(
+            params.keyword.as_deref(),
+            params.limit.unwrap_or(30),
+        ).await {
+            Ok(markets) => {
+                let scanned = zipher_engine::myriad::rank_for_research(&markets);
+                let items: Vec<_> = scanned.iter().map(|s| {
+                    serde_json::json!({
+                        "id": s.market.id,
+                        "title": s.market.title,
+                        "uncertainty": format!("{:.0}%", s.uncertainty * 100.0),
+                        "book_sum": s.book_sum,
+                        "outcomes": s.market.outcomes.iter().enumerate().map(|(i, o)| serde_json::json!({
+                            "index": i,
+                            "title": o.title,
+                            "price": o.price,
+                            "implied_prob": s.implied_probs.get(i).copied().unwrap_or(0.0),
+                        })).collect::<Vec<_>>(),
+                    })
+                }).collect();
+                ok_response(serde_json::json!({
+                    "total_fetched": markets.len(),
+                    "researchable": items.len(),
+                    "markets": items,
+                    "next_step": "Pick a market, call market_research with its title, then estimate a probability and call market_analyze.",
+                }))
+            }
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Research a prediction market topic using web search (Firecrawl). Returns news articles, snippets, and a summary the LLM can use to estimate probabilities. Set FIRECRAWL_API_KEY for web search; works without it but returns no external data.")]
+    async fn market_research(&self, Parameters(params): Parameters<MarketResearchParams>) -> String {
+        match zipher_engine::research::search_news(
+            &params.query,
+            params.limit.unwrap_or(5),
+        ).await {
+            Ok(report) => ok_response(serde_json::json!({
+                "query": report.query,
+                "source": report.source,
+                "summary": report.summary,
+                "items": report.items.iter().map(|item| serde_json::json!({
+                    "title": item.title,
+                    "url": item.url,
+                    "snippet": item.snippet,
+                    "content": item.content,
+                })).collect::<Vec<_>>(),
+                "next_step": "Read the research, form a probability estimate (0.0-1.0) for the outcome you think is underpriced, then call market_analyze with your estimate.",
+            })),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Analyze a prediction market bet using Kelly Criterion. Pass your probability estimate (from research) and get a mathematically optimal bet size. Uses fractional Kelly (quarter to half Kelly) to prevent overbetting. This is the agent's decision engine.")]
+    async fn market_analyze(&self, Parameters(params): Parameters<MarketAnalyzeParams>) -> String {
+        let market = match zipher_engine::myriad::get_market(params.market_id).await {
+            Ok(m) => m,
+            Err(e) => return err_response(&e),
+        };
+
+        let max_bet = params.max_bet_usdt.unwrap_or(10.0);
+
+        match zipher_engine::myriad::analyze_opportunity(
+            &market,
+            params.outcome_index,
+            params.estimated_prob,
+            params.confidence,
+            params.bankroll_usdt,
+            max_bet,
+        ) {
+            Some(signal) => ok_response(serde_json::json!({
+                "action": "trade",
+                "market_id": signal.market_id,
+                "market_title": signal.market_title,
+                "outcome_index": signal.outcome_index,
+                "outcome_title": signal.outcome_title,
+                "market_prob": signal.market_prob,
+                "estimated_prob": signal.estimated_prob,
+                "edge": format!("{:.1}%", signal.edge * 100.0),
+                "expected_value": format!("${:.3} per $1", signal.expected_value),
+                "kelly_fraction": format!("{:.1}%", signal.kelly_fraction * 100.0),
+                "recommended_bet_usdt": signal.recommended_bet_usdt,
+                "confidence": signal.confidence,
+                "reason": signal.reason,
+                "next_step": format!(
+                    "To execute: call market_quote with market_id={}, outcome={}, amount_usdt={:.2}. Then use swap_execute for ZEC→USDT funding.",
+                    signal.market_id, signal.outcome_index, signal.recommended_bet_usdt
+                ),
+            })),
+            None => ok_response(serde_json::json!({
+                "action": "no_trade",
+                "market_id": params.market_id,
+                "reason": "No positive edge. Your estimated probability is at or below the market price — no bet recommended.",
+            })),
+        }
+    }
+
+    #[tool(description = "Get a trade quote for a prediction market bet. Returns shares, price, and calldata. Use with swap_execute to fund the trade with ZEC.")]
+    async fn market_quote(&self, Parameters(params): Parameters<MarketQuoteParams>) -> String {
+        match zipher_engine::myriad::get_quote(
+            params.market_id,
+            params.outcome,
+            "buy",
+            params.amount_usdt,
+            0.01,
+        ).await {
+            Ok(quote) => ok_response(serde_json::json!({
+                "market_id": params.market_id,
+                "outcome": params.outcome,
+                "amount_usdt": params.amount_usdt,
+                "shares": quote.shares,
+                "price_per_share": if quote.shares > 0.0 { params.amount_usdt / quote.shares } else { 0.0 },
+                "calldata": quote.calldata,
+                "next_step": "To execute: 1) swap_execute ZEC→USDT on BSC, 2) approve USDT for Myriad contract, 3) send calldata to Myriad PM contract. Use zipher-cli 'market bet' for the full automated flow.",
+            })),
+            Err(e) => err_response(&e),
+        }
     }
 
     #[tool(description = "Pay an HTTP 402 paywall. Pass the full 402 response body. Returns txid and a PAYMENT-SIGNATURE header value to include when retrying the original request.")]
@@ -968,11 +1156,16 @@ impl ServerHandler for ZipherMcpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::default()
             .with_instructions(
-                "Zipher: headless Zcash light wallet for AI agents. \
-                 Use pay_url to access any paid API — it auto-detects x402 or MPP protocol, \
-                 pays, and returns the API response in one call. \
-                 Use swap_execute to convert ZEC to other assets (USDC, ETH, etc.) via Near Intents. \
-                 For manual two-step payments, use propose_send then confirm_send. \
+                "Zipher: headless Zcash wallet + multi-chain agent toolkit for AI. \
+                 Prediction market agent flow: \
+                 1) market_scan → find contestable markets ranked by uncertainty. \
+                 2) market_research → fetch news/analysis for a market topic via Firecrawl. \
+                 3) Read the research, estimate a probability (0.0-1.0) for the underpriced outcome. \
+                 4) market_analyze → get Kelly-sized bet recommendation based on your estimate. \
+                 5) market_quote → get trade calldata. \
+                 6) swap_execute → fund with ZEC via cross-chain swap. \
+                 Paid APIs: pay_url auto-detects x402/MPP, pays, returns response. \
+                 Cross-chain: swap_execute converts ZEC to any asset via Near Intents. \
                  Seed is held in server memory — never pass it as a tool argument."
             )
     }

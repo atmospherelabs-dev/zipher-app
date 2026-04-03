@@ -12,6 +12,8 @@ pub mod payment;
 pub mod swap;
 pub mod session;
 pub mod myriad;
+pub mod research;
+pub mod evm_pay;
 
 use std::path::{Path, PathBuf};
 
