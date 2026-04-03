@@ -13,7 +13,7 @@ No full node. No cloud custody. Keys never leave your machine.
 ## 1. Build
 
 ```bash
-git clone https://github.com/AthosphereLabs/zipher-app.git
+git clone https://github.com/atmospherelabs-dev/zipher-app.git
 cd zipher-app/rust
 cargo build -p zipher-cli --release
 ```

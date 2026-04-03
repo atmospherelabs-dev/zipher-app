@@ -26,11 +26,16 @@ Then we built an autonomous agent stack on top: a prediction market agent with K
 ### Build
 
 ```bash
+# Clone the OWS fork alongside zipher-app (required for zipher-cli)
+git clone --branch feat/zcash-support https://github.com/Kenbak/core.git ../ows-core
+
 cd rust
 cargo build --release -p zipher-cli -p zipher-mcp-server
 ```
 
 Binaries are in `rust/target/release/`.
+
+> **Note:** `zipher-cli` depends on `ows-lib` via a sibling path (`../ows-core/ows/crates/ows-lib`). Clone the OWS fork as shown above. `zipher-mcp-server` builds independently without it.
 
 ### Create a Wallet
 

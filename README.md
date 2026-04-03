@@ -6,6 +6,8 @@ Zipher is a privacy-first Zcash wallet — for humans and AI agents. One Rust en
 
 Built by [Atmosphere Labs](https://atmospherelabs.dev).
 
+> **OWS Hackathon judges:** Start with [`docs/hackathon-ows.md`](docs/hackathon-ows.md) for the submission narrative, tracks, and demo instructions. The relevant code is in `rust/crates/{engine,cli,mcp-server}`. The mobile app uses the same Rust engine via FFI but is not part of this submission.
+
 ---
 
 ## Why Zcash
@@ -124,13 +126,14 @@ Fast, shielded Zcash wallet built for simplicity and privacy. Forked from [YWall
 
 ```
 rust/crates/
-├── engine/              # Shared wallet engine (15 modules)
+├── engine/              # Shared wallet engine (16 modules)
 │   ├── wallet.rs        # Wallet lifecycle, key derivation, open/close
 │   ├── sync.rs          # lightwalletd sync (Sapling + Orchard)
 │   ├── send.rs          # Transaction construction, PCZT creation
 │   ├── myriad.rs        # Myriad API, Kelly Criterion, EVM tx building
 │   ├── research.rs      # Firecrawl web search, news agent
 │   ├── swap.rs          # NEAR Intents cross-chain swaps
+│   ├── evm_pay.rs       # Multi-chain EVM x402 detection, cross-chain funding
 │   ├── x402.rs          # x402 payment protocol
 │   ├── mpp.rs           # MPP payment protocol
 │   ├── payment.rs       # Protocol auto-detection (x402 vs MPP)
@@ -191,10 +194,6 @@ Default servers powered by [CipherScan](https://cipherscan.app) infrastructure.
 | **zipher-mcp-server** | LLM orchestration — 22 tools for autonomous agents | Alpha |
 | [**CipherScan**](https://cipherscan.app) | The Explorer — mainnet and testnet | Live |
 | [**CipherPay**](https://cipherpay.app) | The Infrastructure — invoices, x402 verify, sessions | Live |
-
-## Credits
-
-Zipher is built on top of YWallet's Rust backend, created by **Hanh Huynh Huu**. The original project is licensed under MIT. We are grateful for his work on making Zcash wallets fast.
 
 ## License
 
