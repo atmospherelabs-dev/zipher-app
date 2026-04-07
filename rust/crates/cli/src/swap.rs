@@ -152,6 +152,27 @@ pub async fn cmd_swap_execute(
         );
     }
 
+    let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
+    let daily_spent = zipher_engine::audit::daily_spent(&cfg.data_dir).unwrap_or(0);
+    if let Err(violation) = zipher_engine::policy::check_proposal(
+        &policy, &quote.deposit_address, amount, &context_id, daily_spent,
+    ) {
+        zipher_engine::audit::log_event(
+            &cfg.data_dir, "swap_execute", Some(&quote.deposit_address),
+            Some(amount), None, context_id.as_deref(),
+            None, Some(&violation.to_string()),
+        ).ok();
+        return Err(anyhow::anyhow!("{}", violation));
+    }
+    if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
+        zipher_engine::audit::log_event(
+            &cfg.data_dir, "swap_execute", Some(&quote.deposit_address),
+            Some(amount), None, context_id.as_deref(),
+            None, Some(&violation.to_string()),
+        ).ok();
+        return Err(anyhow::anyhow!("{}", violation));
+    }
+
     let (send_amount, fee, _) =
         zipher_engine::send::propose_send(&quote.deposit_address, amount, None, false).await?;
 
