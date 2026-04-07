@@ -63,4 +63,7 @@ lib/src/version.dart
 .cargo/
 missing.arb
 
+# iOS signing materials
+ios/certs/*.p12
+ios/certs/*.mobileprovision
 
