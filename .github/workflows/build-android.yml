@@ -6,6 +6,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 env:
   JKS_PASSWORD: ${{ secrets.JKS_PASSWD }}
 
@@ -42,12 +45,14 @@ jobs:
           echo "BUILD_DIR=$BUILD_DIR" >> $GITHUB_OUTPUT
 
       - name: Release
-        uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/v')
-        with:
-          files: |
-            ${{ steps.build.outputs.BUILD_DIR }}/app-release.apk
-            build/app/outputs/bundle/release/app-release.aab
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            "${{ steps.build.outputs.BUILD_DIR }}/app-release.apk" \
+            "build/app/outputs/bundle/release/app-release.aab" \
+            --clobber
 
       - name: publish
         uses: r0adkll/upload-google-play@v1
