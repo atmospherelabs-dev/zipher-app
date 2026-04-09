@@ -89,9 +89,15 @@ jobs:
           merge-multiple: true
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
-          generate_release_notes: true
-          draft: false
-          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [[ "${GITHUB_REF}" == *"-rc"* || "${GITHUB_REF}" == *"-beta"* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --generate-notes \
+            --verify-tag \
+            ${PRERELEASE_FLAG}

@@ -18,6 +18,27 @@ pub async fn cmd_session_open(
     let memo = format!("zipher:session:{}", merchant_id);
 
     auto_open(cfg).await?;
+    let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
+    let daily_spent = zipher_engine::audit::daily_spent(&cfg.data_dir).unwrap_or(0);
+    if let Err(violation) = zipher_engine::policy::check_proposal(
+        &policy, &pay_to, deposit, &context_id, daily_spent,
+    ) {
+        zipher_engine::audit::log_event(
+            &cfg.data_dir, "session_open", Some(&pay_to),
+            Some(deposit), None, context_id.as_deref(),
+            None, Some(&violation.to_string()),
+        ).ok();
+        return Err(anyhow::anyhow!("{}", violation));
+    }
+    if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
+        zipher_engine::audit::log_event(
+            &cfg.data_dir, "session_open", Some(&pay_to),
+            Some(deposit), None, context_id.as_deref(),
+            None, Some(&violation.to_string()),
+        ).ok();
+        return Err(anyhow::anyhow!("{}", violation));
+    }
+
     let (send_amount, fee, _) =
         zipher_engine::send::propose_send(&pay_to, deposit, Some(memo), false).await?;
 

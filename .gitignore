@@ -63,4 +63,11 @@ lib/src/version.dart
 .cargo/
 missing.arb
 
+# iOS signing materials
+ios/certs/*.p12
+ios/certs/*.mobileprovision
 
+
+# Local Yarn v4 metadata in l10n tooling
+lib/l10n/.yarn/
+lib/l10n/.yarnrc.yml

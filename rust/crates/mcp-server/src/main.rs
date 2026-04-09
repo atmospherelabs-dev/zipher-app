@@ -604,6 +604,32 @@ impl ZipherMcpServer {
             return err_code_response(INTERNAL_ERROR, "No deposit address in quote");
         }
 
+        let policy = zipher_engine::policy::load_policy(&self.data_dir);
+        let daily_spent = zipher_engine::audit::daily_spent(&self.data_dir).unwrap_or(0);
+        if let Err(violation) = zipher_engine::policy::check_proposal(
+            &policy, &quote.deposit_address, params.amount, &params.context_id, daily_spent,
+        ) {
+            zipher_engine::audit::log_event(
+                &self.data_dir, "swap_execute", Some(&quote.deposit_address),
+                Some(params.amount), None, params.context_id.as_deref(),
+                None, Some(&violation.to_string()),
+            ).ok();
+            let code = match &violation {
+                zipher_engine::policy::PolicyViolation::AddressNotAllowed { .. } => ADDRESS_NOT_ALLOWED,
+                zipher_engine::policy::PolicyViolation::ContextRequired => CONTEXT_REQUIRED,
+                _ => POLICY_EXCEEDED,
+            };
+            return err_code_response(code, &violation.to_string());
+        }
+        if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
+            zipher_engine::audit::log_event(
+                &self.data_dir, "swap_execute", Some(&quote.deposit_address),
+                Some(params.amount), None, params.context_id.as_deref(),
+                None, Some(&violation.to_string()),
+            ).ok();
+            return err_code_response(POLICY_EXCEEDED, &violation.to_string());
+        }
+
         let (send_amount, fee, _) = match zipher_engine::send::propose_send(
             &quote.deposit_address, params.amount, None, false,
         ).await {
@@ -667,6 +693,31 @@ impl ZipherMcpServer {
         drop(seed_guard);
 
         let memo = format!("zipher:session:{}", params.merchant_id);
+        let policy = zipher_engine::policy::load_policy(&self.data_dir);
+        let daily_spent = zipher_engine::audit::daily_spent(&self.data_dir).unwrap_or(0);
+        if let Err(violation) = zipher_engine::policy::check_proposal(
+            &policy, &params.pay_to, params.deposit, &params.context_id, daily_spent,
+        ) {
+            zipher_engine::audit::log_event(
+                &self.data_dir, "session_open", Some(&params.pay_to),
+                Some(params.deposit), None, params.context_id.as_deref(),
+                None, Some(&violation.to_string()),
+            ).ok();
+            let code = match &violation {
+                zipher_engine::policy::PolicyViolation::AddressNotAllowed { .. } => ADDRESS_NOT_ALLOWED,
+                zipher_engine::policy::PolicyViolation::ContextRequired => CONTEXT_REQUIRED,
+                _ => POLICY_EXCEEDED,
+            };
+            return err_code_response(code, &violation.to_string());
+        }
+        if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
+            zipher_engine::audit::log_event(
+                &self.data_dir, "session_open", Some(&params.pay_to),
+                Some(params.deposit), None, params.context_id.as_deref(),
+                None, Some(&violation.to_string()),
+            ).ok();
+            return err_code_response(POLICY_EXCEEDED, &violation.to_string());
+        }
 
         let (send_amount, fee, _) = match zipher_engine::send::propose_send(
             &params.pay_to, params.deposit, Some(memo), false,
