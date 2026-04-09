@@ -155,7 +155,7 @@ class TableListKeyMetadata extends TableListItemMetadata<KeyPackT> {
                     Gap(8),
                     Panel(s.address, text: address),
                     Gap(8),
-                    Panel(s.secretKey, text: key),
+                    Panel(s.secretKey, text: key, sensitive: true),
                     Gap(8),
                     IconButton(
                       onPressed: () => addSubAccount(

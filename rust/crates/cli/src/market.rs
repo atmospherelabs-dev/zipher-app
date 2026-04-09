@@ -329,9 +329,10 @@ pub async fn cmd_market_bet(
         eprintln!();
         eprintln!("[5/6] (BNB Chain) Approving USDT for Myriad contract...");
     }
+    let approve_amount = ((amount_usdt * 1.05) * 1e6) as u128;
     let approve_data = zipher_engine::myriad::build_erc20_approve_calldata(
         zipher_engine::myriad::PM_CONTRACT,
-        &format!("{:064x}", u128::MAX),
+        &format!("{:064x}", approve_amount),
     );
     let nonce = zipher_engine::myriad::get_nonce(
         zipher_engine::myriad::BSC_RPC, &bsc_address,

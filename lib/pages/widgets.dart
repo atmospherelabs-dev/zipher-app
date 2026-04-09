@@ -26,7 +26,8 @@ class Panel extends StatelessWidget {
   final int? maxLines;
   final Widget? child;
   final bool save;
-  Panel(this.title, {this.text, this.maxLines, this.child, this.save = false});
+  final bool sensitive;
+  Panel(this.title, {this.text, this.maxLines, this.child, this.save = false, this.sensitive = false});
 
   @override
   Widget build(BuildContext context) {
@@ -77,8 +78,33 @@ class Panel extends StatelessWidget {
     );
   }
 
-  _copy(BuildContext context) {
+  _copy(BuildContext context) async {
     final s = S.of(context);
+    if (sensitive) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: ZipherColors.surface,
+          title: const Text('Copy sensitive data?',
+            style: TextStyle(color: ZipherColors.textPrimary)),
+          content: const Text(
+            'This will place a secret key on your clipboard. '
+            'Any app can read clipboard contents. '
+            'Clear your clipboard after use.',
+            style: TextStyle(color: ZipherColors.textMuted)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Copy anyway',
+                style: TextStyle(color: ZipherColors.warm))),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
     Clipboard.setData(ClipboardData(text: text!));
     showSnackBar(s.copiedToClipboard);
   }

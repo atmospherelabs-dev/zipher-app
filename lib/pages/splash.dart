@@ -399,14 +399,18 @@ bool setActiveAccountOf(int coin) {
   return aa.id != 0;
 }
 
-void handleUri(Uri uri) {
+void handleUri(Uri uri) async {
   final scheme = uri.scheme;
   final coinDef = coins.where((c) => c.currency == scheme).firstOrNull;
   if (coinDef == null) return;
   final coin = coinDef.coin;
   if (coin == activeCoin.coin && aa.id != 0) {
-    SendContext? sc = SendContext.fromPaymentURI(uri.toString());
     final context = rootNavigatorKey.currentContext!;
+    if (appSettings.protectSend) {
+      final authed = await authBarrier(context, dismissable: true);
+      if (!authed) return;
+    }
+    SendContext? sc = SendContext.fromPaymentURI(uri.toString());
     GoRouter.of(context).go('/account/quick_send', extra: sc);
   }
 }
@@ -415,7 +419,7 @@ Future<Uri?> registerURLHandler() async {
   final _appLinks = AppLinks();
 
   subUniLinks = _appLinks.uriLinkStream.listen((uri) {
-    logger.d(uri);
+    logger.d('Deep link received: ${uri.scheme}://...');
     handleUri(uri);
   });
 
@@ -423,13 +427,17 @@ Future<Uri?> registerURLHandler() async {
   return uri;
 }
 
-void handleQuickAction(BuildContext context, String quickAction) {
+void handleQuickAction(BuildContext context, String quickAction) async {
   final t = quickAction.split(".");
   final shortcut = t[1];
   switch (shortcut) {
     case 'receive':
       GoRouter.of(context).go('/account/pay_uri');
     case 'send':
+      if (appSettings.protectSend) {
+        final authed = await authBarrier(context, dismissable: true);
+        if (!authed) return;
+      }
       GoRouter.of(context).go('/account/quick_send');
   }
 }

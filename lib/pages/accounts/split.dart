@@ -31,75 +31,79 @@ class Zip321Payment {
 }
 
 List<Zip321Payment>? parseZip321Uri(String uri) {
-  final scheme = activeCoin.ticker.toLowerCase();
-  final lower = uri.toLowerCase();
-  if (!lower.startsWith('$scheme:') && !lower.startsWith('zcash:')) return null;
+  try {
+    final scheme = activeCoin.ticker.toLowerCase();
+    final lower = uri.toLowerCase();
+    if (!lower.startsWith('$scheme:') && !lower.startsWith('zcash:')) return null;
 
-  final colonIdx = uri.indexOf(':');
-  final afterScheme = uri.substring(colonIdx + 1);
+    final colonIdx = uri.indexOf(':');
+    final afterScheme = uri.substring(colonIdx + 1);
 
-  final qIdx = afterScheme.indexOf('?');
-  if (qIdx == -1) {
-    return [Zip321Payment(address: afterScheme)];
-  }
+    final qIdx = afterScheme.indexOf('?');
+    if (qIdx == -1) {
+      return [Zip321Payment(address: afterScheme)];
+    }
 
-  String? baseAddress = afterScheme.substring(0, qIdx);
-  final queryString = afterScheme.substring(qIdx + 1);
+    String? baseAddress = afterScheme.substring(0, qIdx);
+    final queryString = afterScheme.substring(qIdx + 1);
 
-  if (baseAddress.isEmpty) baseAddress = null;
+    if (baseAddress.isEmpty) baseAddress = null;
 
-  final params = Uri.splitQueryString(queryString);
-  final payments = <int, Zip321Payment>{};
+    final params = Uri.splitQueryString(queryString);
+    final payments = <int, Zip321Payment>{};
 
-  for (final entry in params.entries) {
-    final key = entry.key;
-    final value = entry.value;
+    for (final entry in params.entries) {
+      final key = entry.key;
+      final value = entry.value;
 
-    int index = 0;
-    String baseName = key;
+      int index = 0;
+      String baseName = key;
 
-    final dotIdx = key.lastIndexOf('.');
-    if (dotIdx != -1) {
-      final suffix = key.substring(dotIdx + 1);
-      final parsed = int.tryParse(suffix);
-      if (parsed != null) {
-        index = parsed;
-        baseName = key.substring(0, dotIdx);
+      final dotIdx = key.lastIndexOf('.');
+      if (dotIdx != -1) {
+        final suffix = key.substring(dotIdx + 1);
+        final parsed = int.tryParse(suffix);
+        if (parsed != null) {
+          index = parsed;
+          baseName = key.substring(0, dotIdx);
+        }
+      }
+
+      payments.putIfAbsent(index, () => Zip321Payment(address: ''));
+
+      switch (baseName) {
+        case 'address':
+          payments[index]!.address = value;
+          break;
+        case 'amount':
+          final parsed = double.tryParse(value);
+          if (parsed != null) {
+            payments[index]!.amountZat = (parsed * ZECUNIT).round();
+          }
+          break;
+        case 'memo':
+          try {
+            payments[index]!.memo =
+                utf8.decode(base64Url.decode(base64Url.normalize(value)));
+          } catch (_) {
+            payments[index]!.memo = value;
+          }
+          break;
       }
     }
 
-    payments.putIfAbsent(index, () => Zip321Payment(address: ''));
-
-    switch (baseName) {
-      case 'address':
-        payments[index]!.address = value;
-        break;
-      case 'amount':
-        final parsed = double.tryParse(value);
-        if (parsed != null) {
-          payments[index]!.amountZat = (parsed * ZECUNIT).round();
-        }
-        break;
-      case 'memo':
-        try {
-          payments[index]!.memo =
-              utf8.decode(base64Url.decode(base64Url.normalize(value)));
-        } catch (_) {
-          payments[index]!.memo = value;
-        }
-        break;
+    if (baseAddress != null && payments.containsKey(0)) {
+      if (payments[0]!.address.isEmpty) {
+        payments[0]!.address = baseAddress;
+      }
     }
-  }
 
-  if (baseAddress != null && payments.containsKey(0)) {
-    if (payments[0]!.address.isEmpty) {
-      payments[0]!.address = baseAddress;
-    }
+    final sorted = payments.keys.toList()..sort();
+    final result = sorted.map((k) => payments[k]!).toList();
+    return result.isEmpty ? null : result;
+  } catch (_) {
+    return null;
   }
-
-  final sorted = payments.keys.toList()..sort();
-  final result = sorted.map((k) => payments[k]!).toList();
-  return result.isEmpty ? null : result;
 }
 
 bool isMultiOutputUri(String uri) {

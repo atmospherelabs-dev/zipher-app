@@ -159,7 +159,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
       final recipient = _direction == SwapDirection.fromZec ? addr : tAddr;
 
       logger.i('[Swap] getQuote: origin=${_originToken.assetId} dest=${_destToken.assetId} '
-          'recipient=$recipient refund=$refund slippage=$_slippageBps');
+          'slippage=$_slippageBps');
 
       final quote = await _nearApi.getQuote(
         dry: false,

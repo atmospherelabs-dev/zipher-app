@@ -90,6 +90,12 @@ pub async fn cmd_start(cfg: &Config) -> Result<()> {
     }
     let listener = UnixListener::bind(&sock)?;
 
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o600))?;
+    }
+
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
     ctrlc::set_handler(move || {

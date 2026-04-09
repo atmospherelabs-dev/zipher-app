@@ -21,28 +21,31 @@ class SendContext {
   SendContext(this.address, this.pools, this.amount, this.memo);
 
   static SendContext? fromPaymentURI(String puri) {
-    // ZIP-321 parsing — extract address, amount, and memo from URI
-    String? scheme;
-    if (puri.startsWith('zcash:')) {
-      scheme = 'zcash:';
-    } else if (puri.startsWith('zcash-test:')) {
-      scheme = 'zcash-test:';
-    }
-    if (scheme != null) {
-      final parts = puri.substring(scheme.length).split('?');
-      final addr = parts.first;
-      int amount = 0;
-      String memo = '';
-      if (parts.length > 1) {
-        final params = Uri.splitQueryString(parts[1]);
-        if (params.containsKey('amount')) {
-          amount = stringToAmount(params['amount']!);
-        }
-        if (params.containsKey('memo')) {
-          memo = params['memo']!;
-        }
+    try {
+      String? scheme;
+      if (puri.startsWith('zcash:')) {
+        scheme = 'zcash:';
+      } else if (puri.startsWith('zcash-test:')) {
+        scheme = 'zcash-test:';
       }
-      return SendContext(addr, 7, Amount(amount, false), MemoData(false, '', memo));
+      if (scheme != null) {
+        final parts = puri.substring(scheme.length).split('?');
+        final addr = parts.first;
+        int amount = 0;
+        String memo = '';
+        if (parts.length > 1) {
+          final params = Uri.splitQueryString(parts[1]);
+          if (params.containsKey('amount')) {
+            amount = stringToAmount(params['amount']!);
+          }
+          if (params.containsKey('memo')) {
+            memo = params['memo']!;
+          }
+        }
+        return SendContext(addr, 7, Amount(amount, false), MemoData(false, '', memo));
+      }
+    } catch (_) {
+      return null;
     }
     return null;
   }
