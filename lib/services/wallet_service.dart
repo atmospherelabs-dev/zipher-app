@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -11,6 +13,7 @@ import '../src/rust/api/engine_api.dart' as rust_engine;
 import '../src/rust/frb_generated.dart';
 import 'wallet_registry.dart';
 import 'secure_key_store.dart';
+import 'market_venue.dart' show polymarketGammaMarketPassesQuality;
 
 final _log = Logger();
 
@@ -689,6 +692,24 @@ class WalletService {
     return rust_wallet.getWalletBalance();
   }
 
+  /// Like [getBalance] but returns an all-zero balance (instead of throwing)
+  /// when the engine has no wallet summary yet (fresh wallet open / mid-init).
+  ///
+  /// Use this in wallet/account-switch flows where "balance not ready" is a
+  /// normal startup state — the next sync poll will fill in the real value.
+  /// **Do not** use this in the polling balance refresh; there we want the
+  /// thrown error so [ActiveAccount2.updateBalance] preserves the previous
+  /// (last known good) balance instead of overwriting with zero.
+  Future<rust_wallet.WalletBalance> getBalanceOrZero() async {
+    try {
+      return await getBalance();
+    } catch (e) {
+      _log.w('[WalletService] getBalance failed during init, '
+          'falling back to zero: $e');
+      return rust_wallet.WalletBalance.default_();
+    }
+  }
+
   // -----------------------------------------------------------------------
   // Addresses
   // -----------------------------------------------------------------------
@@ -981,5 +1002,251 @@ class WalletService {
   Future<String> getServerInfo() async {
     _checkBusy();
     return rust_wallet.getServerInfo();
+  }
+
+  // -----------------------------------------------------------------------
+  // Prediction Markets (Myriad API — direct HTTP until engine FFI is ready)
+  // -----------------------------------------------------------------------
+
+  Future<List<Map<String, dynamic>>> searchMarkets(String? keyword) async {
+    final uri = Uri.parse(
+      'https://api-v2.myriadprotocol.com/markets'
+      '?network_id=56&limit=20&state=open'
+      '${keyword != null && keyword.isNotEmpty ? '&keyword=${Uri.encodeComponent(keyword)}' : ''}',
+    );
+    final response = await http.get(uri);
+    if (response.statusCode != 200) return [];
+
+    final body = json.decode(utf8.decode(response.bodyBytes));
+    final List<dynamic> data = body is Map ? (body['data'] ?? []) : (body is List ? body : []);
+    return data.map((m) => m as Map<String, dynamic>).toList();
+  }
+
+  /// Polymarket open positions for a Polygon `0x…` address (Data API via Rust engine).
+  Future<List<Map<String, dynamic>>> getPolymarketPortfolio(String polygonAddress) async {
+    try {
+      final jsonStr =
+          await rust_engine.enginePolymarketGetPositions(address: polygonAddress);
+      final decoded = json.decode(jsonStr);
+      if (decoded is! List) return [];
+      return decoded.map<Map<String, dynamic>>((e) {
+        final raw = e as Map<String, dynamic>;
+        return <String, dynamic>{
+          '_provider': 'polymarket',
+          'market_title': raw['title'],
+          'title': raw['title'],
+          'outcome': raw['outcome'],
+          'outcome_title': raw['outcome'],
+          'shares': (raw['size'] as num?)?.toDouble() ?? 0.0,
+          'current_price': (raw['curPrice'] as num?)?.toDouble() ?? 0.0,
+          'cur_price': raw['curPrice'],
+          'condition_id': raw['conditionId'],
+          'conditionId': raw['conditionId'],
+          'asset': raw['asset'],
+          'negative_risk': raw['negativeRisk'],
+          'negativeRisk': raw['negativeRisk'],
+          'cash_pnl': raw['cashPnl'],
+          'percent_pnl': raw['percentPnl'],
+          'current_value': raw['currentValue'],
+          'avg_price': raw['avgPrice'],
+          'market_id': 0,
+        };
+      }).toList();
+    } catch (e, st) {
+      _log.e('[Polymarket] portfolio failed: $e\n$st');
+      return [];
+    }
+  }
+
+  /// Fetch the user's open prediction market positions.
+  Future<List<Map<String, dynamic>>> getPortfolio(String bscAddress) async {
+    final uri = Uri.parse(
+      'https://api-v2.myriadprotocol.com/users/$bscAddress/portfolio?network_id=56&min_shares=0&limit=100',
+    );
+    final response = await http.get(uri);
+    if (response.statusCode != 200) return [];
+
+    final body = json.decode(utf8.decode(response.bodyBytes));
+    final List<dynamic> data = body is Map ? (body['data'] ?? []) : (body is List ? body : []);
+    return data.map((m) => m as Map<String, dynamic>).toList();
+  }
+
+  /// Fetch a single market's details including all outcomes.
+  Future<Map<String, dynamic>?> getMarketDetails(int marketId) async {
+    final uri = Uri.parse(
+      'https://api-v2.myriadprotocol.com/markets/$marketId?network_id=56',
+    );
+    final response = await http.get(uri);
+    if (response.statusCode != 200) return null;
+
+    final body = json.decode(utf8.decode(response.bodyBytes));
+    if (body is Map<String, dynamic>) {
+      // API may wrap in {"data": ...} or return directly
+      return (body.containsKey('data') && body['data'] is Map)
+          ? body['data'] as Map<String, dynamic>
+          : body;
+    }
+    return null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Polymarket — Gamma API (public, unauthenticated)
+  // -------------------------------------------------------------------------
+
+  static const _gammaApi = 'https://gamma-api.polymarket.com';
+
+  static double _gammaF64(dynamic v) {
+    if (v is num) return v.toDouble();
+    return double.tryParse(v?.toString() ?? '') ?? 0;
+  }
+
+  /// Polymarket discovery rows (same grouping/quality as CLI `polymarket list`).
+  ///
+  /// Returns `PolymarketListRow`-shaped maps: `kind`, `title`, `market_count`,
+  /// `volume_24hr`, `neg_risk`, `top_runners` (each runner: `label`, `price`,
+  /// `volume_24hr`, `condition_id`).
+  Future<List<Map<String, dynamic>>> polymarketDiscoveryRows({
+    String? keyword,
+    int limit = 20,
+  }) async {
+    try {
+      final jsonStr = await rust_engine.enginePolymarketDiscover(
+        keyword: keyword,
+        limit: limit,
+      );
+      final decoded = json.decode(jsonStr) as Map<String, dynamic>;
+      final rows = decoded['rows'];
+      if (rows is! List) return [];
+      _log.i('[Polymarket] Discovery ${decoded['events_fetched']} events → ${rows.length} rows');
+      return rows
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+    } catch (e, st) {
+      _log.e('[Polymarket] discovery failed: $e\n$st');
+      return [];
+    }
+  }
+
+  /// Normalize a Polymarket market/event to unified format.
+  Map<String, dynamic> _normalizePolymarket(Map<String, dynamic> m) {
+    final conditionId = m['condition_id'] ?? m['conditionId'] ?? '';
+    final question = m['question'] ?? m['title'] ?? '';
+    final outcomePricesRaw = m['outcomePrices'] ?? m['outcome_prices'];
+    final outcomePrices = outcomePricesRaw is String ? outcomePricesRaw : (outcomePricesRaw != null ? json.encode(outcomePricesRaw) : '[]');
+    final outcomeLabelsRaw = m['outcomes'];
+    final outcomeLabels = outcomeLabelsRaw is String ? outcomeLabelsRaw : (outcomeLabelsRaw != null ? json.encode(outcomeLabelsRaw) : '["Yes","No"]');
+    final tokenIdsRaw = m['clobTokenIds'] ?? m['clob_token_ids'];
+    final tokenIds = tokenIdsRaw is String ? tokenIdsRaw : (tokenIdsRaw != null ? json.encode(tokenIdsRaw) : '[]');
+    final negRiskRaw = m['neg_risk'] ?? m['negRisk'];
+    final negRisk = negRiskRaw is bool ? negRiskRaw : (negRiskRaw?.toString() == 'true');
+
+    List<dynamic> prices = [];
+    List<dynamic> labels = [];
+    List<dynamic> tokens = [];
+    try { prices = json.decode(outcomePrices) as List; } catch (_) {}
+    try { labels = json.decode(outcomeLabels) as List; } catch (_) {}
+    try { tokens = json.decode(tokenIds) as List; } catch (_) {}
+
+    final outcomes = <Map<String, dynamic>>[];
+    for (var i = 0; i < labels.length; i++) {
+      outcomes.add({
+        'title': labels[i]?.toString() ?? 'Outcome $i',
+        'price': i < prices.length
+            ? (double.tryParse(prices[i].toString()) ?? 0)
+            : 0.0,
+        'outcome_id': i,
+        'token_id': i < tokens.length ? tokens[i].toString() : '',
+      });
+    }
+
+    final volumeRaw = m['volume'];
+    final volume = volumeRaw is num ? volumeRaw.toDouble() : (double.tryParse(volumeRaw?.toString() ?? '') ?? 0);
+    final volume24 = _gammaF64(m['volume24hr'] ?? m['volume24Hr']);
+    final acceptingOrders = m['acceptingOrders'] == true || m['accepting_orders'] == true;
+    final bestBid = m['bestBid'] ?? m['best_bid'];
+    final bestAsk = m['bestAsk'] ?? m['best_ask'];
+    final spread = m['spread'];
+    final groupTitle = m['groupItemTitle'] ?? m['group_item_title'];
+
+    return {
+      'id': conditionId,
+      'conditionId': conditionId,
+      'condition_id': conditionId,
+      'title': question,
+      'state': 'open',
+      'outcomes': outcomes,
+      'volume': volume,
+      'volume24hr': volume24,
+      'accepting_orders': acceptingOrders,
+      'best_bid': bestBid is num ? bestBid : double.tryParse(bestBid?.toString() ?? ''),
+      'best_ask': bestAsk is num ? bestAsk : double.tryParse(bestAsk?.toString() ?? ''),
+      'spread': spread is num ? spread : double.tryParse(spread?.toString() ?? ''),
+      'group_item_title': groupTitle?.toString(),
+      'neg_risk': negRisk,
+      '_provider': 'polymarket',
+      '_condition_id': conditionId,
+    };
+  }
+
+  /// Search Polymarket markets directly by text query.
+  Future<List<Map<String, dynamic>>> searchPolymarketMarkets(String query) async {
+    final uri = Uri.parse('$_gammaApi/markets').replace(queryParameters: {
+      'active': 'true',
+      'closed': 'false',
+      'limit': '20',
+      'order': 'volume24hr',
+      'ascending': 'false',
+      if (query.isNotEmpty) 'tag_slug': query,
+    });
+    _log.d('[Polymarket] GET $uri');
+    final response = await http.get(uri);
+    if (response.statusCode != 200) {
+      _log.e('[Polymarket] Markets API returned ${response.statusCode}: ${response.body.substring(0, response.body.length.clamp(0, 200))}');
+      return [];
+    }
+
+    final body = json.decode(utf8.decode(response.bodyBytes));
+    if (body is List) {
+      final normalized = <Map<String, dynamic>>[];
+      for (final e in body) {
+        final mm = e as Map<String, dynamic>;
+        if (await polymarketGammaMarketPassesQuality(mm)) {
+          normalized.add(_normalizePolymarket(mm));
+        }
+      }
+      _log.i('[Polymarket] Markets returned ${normalized.length} results (quality-filtered)');
+      return normalized;
+    }
+    return [];
+  }
+
+  /// Fetch a single Polymarket event by slug or ID.
+  Future<Map<String, dynamic>?> getPolymarketEvent(String slug) async {
+    final uri = Uri.parse('$_gammaApi/events/$slug');
+    final response = await http.get(uri);
+    if (response.statusCode != 200) return null;
+
+    final body = json.decode(utf8.decode(response.bodyBytes));
+    if (body is Map<String, dynamic>) return body;
+    return null;
+  }
+
+  /// Fetch a single Polymarket market by condition_id (Gamma `condition_ids` query).
+  Future<Map<String, dynamic>?> getPolymarketMarket(String conditionId) async {
+    var hex = conditionId.trim();
+    if (!hex.startsWith('0x')) hex = '0x$hex';
+    final uri = Uri.parse('$_gammaApi/markets').replace(queryParameters: {'condition_ids': hex});
+    _log.d('[Polymarket] GET $uri');
+    final response = await http.get(uri);
+    if (response.statusCode != 200) {
+      _log.e('[Polymarket] getPolymarketMarket HTTP ${response.statusCode}');
+      return null;
+    }
+
+    final body = json.decode(utf8.decode(response.bodyBytes));
+    if (body is! List || body.isEmpty) return null;
+    final first = body.first;
+    if (first is! Map<String, dynamic>) return null;
+    return _normalizePolymarket(first);
   }
 }

@@ -36,6 +36,15 @@ void boostSyncPolling() {
   _boostUntil = DateTime.now().add(const Duration(minutes: 2));
 }
 
+/// True while we're in the post-action "fast poll" window. Used by
+/// [ActiveAccount2.updateBalance] to detect "transient" state windows where
+/// a brief all-zero balance reading from the engine should not overwrite the
+/// previously-known good balance.
+bool isSyncBoosted() {
+  final until = _boostUntil;
+  return until != null && DateTime.now().isBefore(until);
+}
+
 Future<void> startAutoSync() async {
   if (syncTimer == null) {
     await syncStatus2.sync();

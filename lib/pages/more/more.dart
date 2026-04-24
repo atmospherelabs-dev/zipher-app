@@ -58,6 +58,12 @@ class _MorePageState extends State<MorePage> {
               const Gap(8),
               _card([
                 _SettingsItem(
+                  icon: Icons.bolt_rounded,
+                  label: 'Action',
+                  subtitle: 'Command your wallet with text',
+                  onTap: () => _nav('/account/action'),
+                ),
+                _SettingsItem(
                   icon: Icons.receipt_long_rounded,
                   label: 'Activity',
                   subtitle: 'Full transaction history',

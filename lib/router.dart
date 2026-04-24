@@ -30,6 +30,7 @@ import 'pages/more/keytool.dart';
 import 'pages/more/memos.dart';
 import 'pages/more/more.dart';
 import 'pages/more/sweep.dart';
+import 'pages/action/action.dart';
 import 'pages/tx.dart';
 import 'pages/scan.dart';
 import 'pages/showqr.dart';
@@ -139,6 +140,10 @@ final router = GoRouter(
                 GoRoute(
                   path: 'pay_uri',
                   builder: (context, state) => PaymentURIPage(),
+                ),
+                GoRoute(
+                  path: 'action',
+                  builder: (context, state) => const ActionPage(),
                 ),
                 GoRoute(
                   path: 'split',

@@ -392,7 +392,7 @@ class _AccountManagerState extends State<AccountManagerPage> {
       final ws = WalletService.instance;
       await ws.switchWallet(w.id);
 
-      final balance = await ws.getBalance();
+      final balance = await ws.getBalanceOrZero();
       final addrs = await ws.getAddresses();
       aa = ActiveAccount2.fromWallet(
         coin: activeCoin.coin,

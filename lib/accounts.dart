@@ -8,7 +8,9 @@ import 'appsettings.dart';
 import 'coin/coins.dart';
 import 'pages/utils.dart';
 import 'services/wallet_service.dart';
+import 'src/rust/api/engine_api.dart' as rust_engine;
 import 'src/rust/api/wallet.dart' as rust_wallet;
+import 'store2.dart' as store2;
 
 part 'accounts.g.dart';
 
@@ -173,6 +175,10 @@ abstract class _ActiveAccount2 with Store {
 
   @observable
   PoolBalance poolBalances = PoolBalance();
+
+  @observable
+  rust_engine.EngineMultiChainAddresses? chainAddresses;
+
   Notes notes;
   Txs txs;
   Messages messages;
@@ -183,6 +189,7 @@ abstract class _ActiveAccount2 with Store {
   @action
   void reset(int resetHeight) {
     poolBalances = PoolBalance();
+    chainAddresses = null;
     notes.clear();
     txs.clear();
     messages.clear();
@@ -196,7 +203,37 @@ abstract class _ActiveAccount2 with Store {
     if (id == 0) return;
     try {
       final balance = await WalletService.instance.getBalance();
-      poolBalances = PoolBalance.fromRust(balance);
+      final next = PoolBalance.fromRust(balance);
+
+      // Defensive: never overwrite a known-good balance with an all-zero
+      // reading while the wallet is in a transient state. This guards
+      // against two real failure modes seen in the field:
+      //
+      //   1. The SDK briefly reports `spendable + pending == 0` right
+      //      after `create_proposed_transactions` writes spent notes
+      //      but before the change output is reflected in the summary.
+      //      A user mid-send would see "Balance: 0" and panic.
+      //
+      //   2. A reorg triggers `truncate_to_height` in the engine and the
+      //      affected range hasn't been rescanned yet.
+      //
+      // We only accept a zero reading if sync is fully caught up AND the
+      // post-action boost window has expired — i.e. when zero is most
+      // likely to be the truth.
+      final hadBalance = poolBalances.total > 0;
+      final newAllZero = next.total == 0;
+      if (hadBalance && newAllZero) {
+        final transient = store2.syncStatus2.syncing || store2.isSyncBoosted();
+        if (transient) {
+          logger.w('[AA] suppressed transient zero balance '
+              '(prev=${poolBalances.total} zat, '
+              'syncing=${store2.syncStatus2.syncing}, '
+              'boosted=${store2.isSyncBoosted()})');
+          return;
+        }
+      }
+
+      poolBalances = next;
       logger.d('[AA] updateBalance: confirmed=${poolBalances.confirmed} unconfirmed=${poolBalances.unconfirmed}');
     } catch (e) {
       logger.e('updateBalance error: $e');
@@ -219,6 +256,21 @@ abstract class _ActiveAccount2 with Store {
       if (attempt < 2) {
         await Future.delayed(const Duration(milliseconds: 500));
       }
+    }
+  }
+
+  @action
+  Future<void> updateChainAddresses() async {
+    if (id == 0) return;
+    try {
+      final seed = await WalletService.instance.getSeedPhrase();
+      if (seed == null) return;
+      chainAddresses = await rust_engine.engineDeriveMultiChainAddresses(
+        seedPhrase: seed,
+      );
+      logger.d('[AA] chainAddresses: evm=${chainAddresses?.evm}, sol=${chainAddresses?.solana}, btc=${chainAddresses?.bitcoin}');
+    } catch (e) {
+      logger.e('updateChainAddresses error: $e');
     }
   }
 
@@ -268,6 +320,7 @@ abstract class _ActiveAccount2 with Store {
     await updateAddress();
     await updateBalance();
     await updateTransactions();
+    if (chainAddresses == null) await updateChainAddresses();
     currency = appSettings.currency;
     if (newHeight != null) height = newHeight;
   }

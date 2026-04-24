@@ -125,4 +125,53 @@ class SecureKeyStore {
     await _storage.write(key: key, value: hex);
     return hex;
   }
+
+  // ── Third-party API keys (read-only services; never store seeds here) ──
+
+  static String _apiKeyKey(String service) =>
+      'api_key_${service.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_-]'), '_')}';
+
+  /// Optional override for e.g. Alchemy (`alchemy`). Prefer [storeApiKey] from settings when added.
+  static Future<String?> getApiKey(String service) async {
+    try {
+      final v = await _storage.read(key: _apiKeyKey(service));
+      if (v != null && v.isNotEmpty) return v;
+    } on PlatformException catch (e) {
+      _logger.e('Keystore read API key failed for $service: $e');
+    }
+    return null;
+  }
+
+  static Future<void> storeApiKey(String service, String key) async {
+    await _storage.write(key: _apiKeyKey(service), value: key.trim());
+  }
+
+  static Future<void> deleteApiKey(String service) async {
+    await _storage.delete(key: _apiKeyKey(service));
+  }
+
+  // ── Gas reserve (USD) for EVM bridge-then-swap flows ──
+
+  static const _gasReserveUsdKey = 'gas_reserve_usd';
+
+  /// Default \$0.50 of native gas token kept after bridging when swapping to collateral.
+  static Future<double> getGasReserveUsd() async {
+    try {
+      final v = await _storage.read(key: _gasReserveUsdKey);
+      if (v != null && v.isNotEmpty) {
+        final d = double.tryParse(v);
+        if (d != null && d >= 0 && d <= 5000) return d;
+      }
+    } on PlatformException catch (e) {
+      _logger.e('Keystore read gas reserve failed: $e');
+    }
+    return 0.5;
+  }
+
+  static Future<void> setGasReserveUsd(double usd) async {
+    if (usd < 0 || usd > 5000) {
+      throw ArgumentError('gas reserve USD must be between 0 and 5000');
+    }
+    await _storage.write(key: _gasReserveUsdKey, value: usd.toString());
+  }
 }

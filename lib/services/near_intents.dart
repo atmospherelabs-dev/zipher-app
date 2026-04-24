@@ -9,7 +9,7 @@ const _quoteWaitingTimeMs = 3000;
 const _affiliateAddress = 'cipherscan.near';
 const _affiliateFeeBps = 50; // 0.5%
 const _referral = 'zipher';
-const _apiKey = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjIwMjUtMDEtMTItdjEifQ.eyJ2IjoxLCJrZXlfdHlwZSI6ImRpc3RyaWJ1dGlvbl9jaGFubmVsIiwicGFydG5lcl9pZCI6ImNpcGhlcnNjYW4iLCJpYXQiOjE3NzEzMTg2NjEsImV4cCI6MTgwMjg1NDY2MX0.Lcyle1wo7WnNT8eXrL7oOk3cpZakyjkGqBYjCpoFCkxtQC_Et1FE_3mK0nRODoYwutOuDPkw-JIRl47hmGhSmdCl-5r8R3Tw4LrQk-UY0g5a6WWfyjlrqTPeyexnRyKN-ry6Mm3kDwJm4g9uDxUFhea11lOnbNyD4SyuWRi_6Tp3Ch_ucTV2O6il5m8ZRhWi3yKV9yl4SUf324chPtLefwiTxJB-psA05vU0jurKpjO18t37Vuty6On1rgAQqMfm_h2KOwtjxhFk5ey5vk6dvfMfTsvsH08_bYeK45nLihtDtsPyKQKV1snhSwyjdzWZB5R5fZHSn7x4gw_bEf91FA'; // TODO: paste your JWT token from NEAR Intents here
+const _apiKey = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjIwMjUtMDEtMTItdjEifQ.eyJ2IjoxLCJrZXlfdHlwZSI6ImRpc3RyaWJ1dGlvbl9jaGFubmVsIiwicGFydG5lcl9pZCI6ImNpcGhlcnNjYW4iLCJpYXQiOjE3NzEzMTg2NjEsImV4cCI6MTgwMjg1NDY2MX0.Lcyle1wo7WnNT8eXrL7oOk3cpZakyjkGqBYjCpoFCkxtQC_Et1FE_3mK0nRODoYwutOuDPkw-JIRl47hmGhSmdCl-5r8R3Tw4LrQk-UY0g5a6WWfyjlrqTPeyexnRyKN-ry6Mm3kDwJm4g9uDxUFhea11lOnbNyD4SyuWRi_6Tp3Ch_ucTV2O6il5m8ZRhWi3yKV9yl4SUf324chPtLefwiTxJB-psA05vU0jurKpjO18t37Vuty6On1rgAQqMfm_h2KOwtjxhFk5ey5vk6dvfMfTsvsH08_bYeK45nLihtDtsPyKQKV1snhSwyjdzWZB5R5fZHSn7x4gw_bEf91FA';
 
 class NearIntentsService {
   static final NearIntentsService _instance = NearIntentsService._();
@@ -288,7 +288,7 @@ class NearIntentsException implements Exception {
 }
 
 // ---------------------------------------------------------------------------
-// Token icon widget (local bundled assets, like Zodl)
+// Token icon widget (local bundled assets)
 // ---------------------------------------------------------------------------
 
 class TokenIcon extends StatelessWidget {
@@ -315,13 +315,11 @@ class TokenIcon extends StatelessWidget {
     'GNO': 'gno', 'FRAX': 'frax', 'WIF': 'wif', 'WNEAR': 'wnear',
     'ZEC': 'zec', 'XMR': 'xmr',
     '\$WIF': 'wif', 'XBTC': 'xbtc', 'MATIC': 'matic',
-    // Batch 2
     'AURORA': 'aurora', 'BOME': 'bome', 'BRETT': 'brett', 'CFI': 'cfi',
     'COW': 'cow', 'EURE': 'eure', 'GBPE': 'gbpe', 'GMX': 'gmx',
     'HAPI': 'hapi', 'INX': 'inx', 'KNC': 'knc', 'MELANIA': 'melania',
     'MOG': 'mog', 'OKB': 'okb', 'PENGU': 'pengu', 'SAFE': 'safe',
     'SPX': 'spx', 'TURBO': 'turbo', 'WETH': 'weth',
-    // Aliases (wrapped/pegged variants)
     'SUSDC': 'susdc', 'USDCX': 'usdcx', 'USDF': 'usdf',
     'USAD': 'usad', 'XDAI': 'xdai',
   };
@@ -347,7 +345,6 @@ class TokenIcon extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // Main token logo
           ClipOval(
             child: assetKey != null
                 ? Image.asset(
@@ -359,7 +356,6 @@ class TokenIcon extends StatelessWidget {
                   )
                 : _fallbackCircle(size),
           ),
-          // Chain badge (bottom-right)
           if (showChainBadge && !_isNativeChain)
             Positioned(
               right: -2,
@@ -583,7 +579,7 @@ class CurrencyIcon extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Local swap storage (SharedPreferences — avoids native FFI crash)
+// Local swap storage (SharedPreferences)
 // ---------------------------------------------------------------------------
 
 class StoredSwap {
@@ -743,7 +739,7 @@ String? chainAddressValidator(String? v, String chainId) {
   if (v == null || v.trim().isEmpty) return 'Address is required';
   final addr = v.trim();
   final patterns = _chainAddressPatterns[chainId];
-  if (patterns == null) return null; // no validation for unknown chains
+  if (patterns == null) return null;
   for (final pattern in patterns) {
     if (pattern.hasMatch(addr)) return null;
   }
@@ -752,8 +748,8 @@ String? chainAddressValidator(String? v, String chainId) {
 
 final _chainAddressPatterns = <String, List<RegExp>>{
   'btc': [
-    RegExp(r'^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$'),       // P2PKH / P2SH
-    RegExp(r'^bc1[a-zA-HJ-NP-Z0-9]{25,90}$'),            // Bech32 / Bech32m
+    RegExp(r'^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$'),
+    RegExp(r'^bc1[a-zA-HJ-NP-Z0-9]{25,90}$'),
   ],
   'eth': [RegExp(r'^0x[0-9a-fA-F]{40}$')],
   'sol': [RegExp(r'^[1-9A-HJ-NP-Za-km-z]{32,44}$')],
@@ -767,19 +763,19 @@ final _chainAddressPatterns = <String, List<RegExp>>{
   'bera': [RegExp(r'^0x[0-9a-fA-F]{40}$')],
   'starknet': [RegExp(r'^0x[0-9a-fA-F]{40,66}$')],
   'near': [
-    RegExp(r'^[a-z0-9_\-]+(\.[a-z0-9_\-]+)*\.near$'),    // named
-    RegExp(r'^[0-9a-fA-F]{64}$'),                          // implicit
+    RegExp(r'^[a-z0-9_\-]+(\.[a-z0-9_\-]+)*\.near$'),
+    RegExp(r'^[0-9a-fA-F]{64}$'),
   ],
   'tron': [RegExp(r'^T[a-zA-HJ-NP-Z1-9]{33}$')],
   'xrp': [RegExp(r'^r[1-9A-HJ-NP-Za-km-z]{24,34}$')],
   'doge': [RegExp(r'^D[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}$')],
   'ltc': [
-    RegExp(r'^[LM3][a-km-zA-HJ-NP-Z1-9]{26,33}$'),       // Legacy
-    RegExp(r'^ltc1[a-zA-HJ-NP-Z0-9]{25,90}$'),            // Bech32
+    RegExp(r'^[LM3][a-km-zA-HJ-NP-Z1-9]{26,33}$'),
+    RegExp(r'^ltc1[a-zA-HJ-NP-Z0-9]{25,90}$'),
   ],
   'bch': [
-    RegExp(r'^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$'),         // Legacy
-    RegExp(r'^(bitcoincash:)?[qp][a-z0-9]{41}$'),          // CashAddr
+    RegExp(r'^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$'),
+    RegExp(r'^(bitcoincash:)?[qp][a-z0-9]{41}$'),
   ],
   'sui': [RegExp(r'^0x[0-9a-fA-F]{64}$')],
   'ton': [RegExp(r'^(EQ|UQ)[a-zA-Z0-9_\-]{46}$')],
@@ -822,4 +818,130 @@ class ContactChainStore {
   }
 
   static Future<Map<String, String>> loadAll() => _loadAll();
+}
+
+// ---------------------------------------------------------------------------
+// Thin untyped client used by ActionExecutor for raw Map-based flows
+// ---------------------------------------------------------------------------
+
+class NearIntents {
+  NearIntents._();
+  static final instance = NearIntents._();
+
+  Map<String, String> get _headers => {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_apiKey',
+      };
+
+  Future<List<Map<String, dynamic>>> getTokens() async {
+    final resp = await http.get(Uri.parse('$_baseUrl/tokens'), headers: _headers);
+    if (resp.statusCode >= 300) throw Exception('Failed to fetch NEAR Intents tokens');
+    return (jsonDecode(resp.body) as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Map<String, dynamic>? findToken(
+    List<Map<String, dynamic>> tokens,
+    String symbol, [
+    String? blockchain,
+  ]) {
+    return tokens.cast<Map<String, dynamic>?>().firstWhere(
+      (t) {
+        final sym = (t?['symbol'] as String? ?? '').toLowerCase();
+        final chain = (t?['blockchain'] as String? ?? '').toLowerCase();
+        if (sym != symbol.toLowerCase()) return false;
+        if (blockchain != null && chain != blockchain.toLowerCase()) return false;
+        return true;
+      },
+      orElse: () => null,
+    );
+  }
+
+  Future<Map<String, dynamic>> getQuote({
+    required String originAsset,
+    required String destAsset,
+    required String amount,
+    required String recipient,
+    required String refundTo,
+    int slippageBps = 200,
+  }) async {
+    final now = DateTime.now().toUtc();
+    final deadline = now.add(const Duration(hours: 2)).toIso8601String();
+
+    final resp = await http.post(
+      Uri.parse('$_baseUrl/quote'),
+      headers: _headers,
+      body: jsonEncode({
+        'dry': false,
+        'swapType': 'EXACT_INPUT',
+        'slippageTolerance': slippageBps,
+        'originAsset': originAsset,
+        'depositType': 'ORIGIN_CHAIN',
+        'destinationAsset': destAsset,
+        'amount': amount,
+        'refundTo': refundTo,
+        'refundType': 'ORIGIN_CHAIN',
+        'recipient': recipient,
+        'recipientType': 'DESTINATION_CHAIN',
+        'deadline': deadline,
+        'quoteWaitingTimeMs': _quoteWaitingTimeMs,
+        'appFees': [
+          {'recipient': _affiliateAddress, 'fee': _affiliateFeeBps}
+        ],
+        'referral': _referral,
+      }),
+    );
+    if (resp.statusCode >= 300) {
+      throw Exception('NEAR Intents quote failed (${resp.statusCode}): '
+          '${resp.body.substring(0, resp.body.length.clamp(0, 200))}');
+    }
+    return jsonDecode(resp.body) as Map<String, dynamic>;
+  }
+
+  Future<void> submitDeposit(String txHash, String depositAddress) async {
+    await http.post(
+      Uri.parse('$_baseUrl/deposit/submit'),
+      headers: _headers,
+      body: jsonEncode({'txHash': txHash, 'depositAddress': depositAddress}),
+    );
+  }
+
+  Future<String> pollStatus(String depositAddress, {int maxWaitSec = 600}) async {
+    final deadline = DateTime.now().add(Duration(seconds: maxWaitSec));
+    int poll = 0;
+    while (DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(seconds: 10));
+      poll++;
+      try {
+        final resp = await http.get(
+          Uri.parse('$_baseUrl/status?depositAddress=$depositAddress'),
+          headers: _headers,
+        );
+        if (resp.statusCode == 200) {
+          final data = jsonDecode(resp.body);
+          final status = (data['status'] as String? ?? '').toUpperCase();
+          debugPrint('[NearIntents] poll #$poll status=$status for $depositAddress');
+          if (status == 'SUCCESS' || status == 'COMPLETED') return 'success';
+          if (status == 'FAILED' || status == 'EXPIRED') return 'failed';
+          if (status == 'REFUNDED') return 'refunded';
+          if (status == 'INCOMPLETE_DEPOSIT') return 'incomplete';
+          // PENDING_DEPOSIT, KNOWN_DEPOSIT_TX, PROCESSING → keep polling
+        } else {
+          debugPrint('[NearIntents] poll #$poll HTTP ${resp.statusCode} for $depositAddress');
+        }
+      } catch (e) {
+        debugPrint('[NearIntents] poll #$poll error: $e');
+      }
+    }
+    debugPrint('[NearIntents] poll timed out after ${maxWaitSec}s for $depositAddress');
+    return 'timeout';
+  }
+
+  Future<List<Map<String, dynamic>>> getSweepableBscTokens() async {
+    final tokens = await getTokens();
+    return tokens.where((t) {
+      final chain = (t['blockchain'] as String? ?? '').toLowerCase();
+      final symbol = (t['symbol'] as String? ?? '').toUpperCase();
+      return chain == 'bsc' && symbol != 'BNB';
+    }).toList();
+  }
 }

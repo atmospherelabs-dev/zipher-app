@@ -1812,7 +1812,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
               .toList();
           if (remaining.isNotEmpty) {
             final next = remaining.first;
-            final balance = await WalletService.instance.getBalance();
+            final balance = await WalletService.instance.getBalanceOrZero();
             final addrs = await WalletService.instance.getAddresses();
             aa = ActiveAccount2.fromWallet(
               coin: activeCoin.coin,
@@ -2134,7 +2134,7 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
       }
 
       // Switch active account to the new one
-      final balance = await ws.getBalance();
+      final balance = await ws.getBalanceOrZero();
       final addrs = await ws.getAddresses();
       aa = ActiveAccount2.fromWallet(
         coin: activeCoin.coin,

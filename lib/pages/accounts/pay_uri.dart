@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -29,7 +30,6 @@ class _PaymentURIState extends State<PaymentURIPage> {
   }
 
   Future<void> _loadAddresses() async {
-    // Fetch shielded address eagerly if not yet cached
     if (aa.diversifiedAddress.isEmpty) {
       await aa.updateAddress();
       if (mounted) setState(() {});
@@ -40,6 +40,10 @@ class _PaymentURIState extends State<PaymentURIPage> {
         setState(() => _transparentAddress = addrs.first);
       }
     } catch (_) {}
+    if (aa.chainAddresses == null) {
+      await aa.updateChainAddresses();
+      if (mounted) setState(() {});
+    }
   }
 
   String _truncate(String addr) {
@@ -111,6 +115,65 @@ class _PaymentURIState extends State<PaymentURIPage> {
                   onQR: () => _showQR(transparent, 'Transparent Address'),
                   warning: true,
                 ),
+
+              // Multi-chain addresses (derived from the same seed)
+              Observer(builder: (_) {
+                final chain = aa.chainAddresses;
+                if (chain == null) return const SizedBox.shrink();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Gap(24),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 10),
+                      child: Text(
+                        'OTHER CHAINS',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.2,
+                          color: ZipherColors.text20,
+                        ),
+                      ),
+                    ),
+                    _AddressCard(
+                      label: 'EVM (ETH / BSC)',
+                      hint: 'Ethereum, BNB Chain, and other EVM networks',
+                      address: chain.evm,
+                      truncated: _truncate(chain.evm),
+                      icon: Icons.hexagon_outlined,
+                      accentColor: ZipherColors.cyan,
+                      primary: false,
+                      onCopy: () => _copy(chain.evm),
+                      onQR: () => _showQR(chain.evm, 'EVM Address'),
+                    ),
+                    const Gap(10),
+                    _AddressCard(
+                      label: 'Solana',
+                      hint: 'Solana blockchain',
+                      address: chain.solana,
+                      truncated: _truncate(chain.solana),
+                      icon: Icons.blur_on_rounded,
+                      accentColor: const Color(0xFF9945FF),
+                      primary: false,
+                      onCopy: () => _copy(chain.solana),
+                      onQR: () => _showQR(chain.solana, 'Solana Address'),
+                    ),
+                    const Gap(10),
+                    _AddressCard(
+                      label: 'Bitcoin',
+                      hint: 'Native SegWit (bech32)',
+                      address: chain.bitcoin,
+                      truncated: _truncate(chain.bitcoin),
+                      icon: Icons.currency_bitcoin_rounded,
+                      accentColor: const Color(0xFFF7931A),
+                      primary: false,
+                      onCopy: () => _copy(chain.bitcoin),
+                      onQR: () => _showQR(chain.bitcoin, 'Bitcoin Address'),
+                    ),
+                  ],
+                );
+              }),
 
               const Gap(32),
 

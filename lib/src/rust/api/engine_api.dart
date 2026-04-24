@@ -171,6 +171,243 @@ Future<String> engineShieldFunds({required String seedPhrase}) =>
 Future<List<EngineTransactionRecord>> engineGetTransactions() =>
     RustLib.instance.api.crateApiEngineApiEngineGetTransactions();
 
+Future<List<MarketInfo>> engineGetMarkets(
+        {String? keyword, required int limit}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineGetMarkets(keyword: keyword, limit: limit);
+
+Future<TradeSignalInfo?> engineAnalyzeOpportunity(
+        {required BigInt marketId,
+        required int outcomeIndex,
+        required double estimatedProb,
+        required double confidence,
+        required double bankroll,
+        required double maxBet}) =>
+    RustLib.instance.api.crateApiEngineApiEngineAnalyzeOpportunity(
+        marketId: marketId,
+        outcomeIndex: outcomeIndex,
+        estimatedProb: estimatedProb,
+        confidence: confidence,
+        bankroll: bankroll,
+        maxBet: maxBet);
+
+/// Derive the EVM (BSC/ETH) address from the wallet's BIP-39 seed phrase.
+/// Uses the standard BIP-44 path m/44'/60'/0'/0/0.
+Future<String> engineDeriveEvmAddress({required String seedPhrase}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineDeriveEvmAddress(seedPhrase: seedPhrase);
+
+/// Derive addresses for EVM, Solana, and Bitcoin from a single seed phrase.
+/// All derivation is CPU-only (no network calls).
+Future<EngineMultiChainAddresses> engineDeriveMultiChainAddresses(
+        {required String seedPhrase}) =>
+    RustLib.instance.api.crateApiEngineApiEngineDeriveMultiChainAddresses(
+        seedPhrase: seedPhrase);
+
+/// Sign an unsigned EVM transaction and return the broadcast-ready signed bytes.
+Future<String> engineSignEvmTx(
+        {required String seedPhrase, required String unsignedTxHex}) =>
+    RustLib.instance.api.crateApiEngineApiEngineSignEvmTx(
+        seedPhrase: seedPhrase, unsignedTxHex: unsignedTxHex);
+
+/// Sign an unsigned EVM transaction, broadcast it via JSON-RPC, and return the tx hash.
+Future<String> engineSignAndBroadcastEvmTx(
+        {required String seedPhrase,
+        required String unsignedTxHex,
+        required String rpcUrl}) =>
+    RustLib.instance.api.crateApiEngineApiEngineSignAndBroadcastEvmTx(
+        seedPhrase: seedPhrase, unsignedTxHex: unsignedTxHex, rpcUrl: rpcUrl);
+
+/// Load a GGUF model and tokenizer from the given file paths.
+/// Must be called before `engine_llm_infer`. Blocks while loading (~1-5s).
+Future<void> engineLlmLoad(
+        {required String modelPath, required String tokenizerPath}) =>
+    RustLib.instance.api.crateApiEngineApiEngineLlmLoad(
+        modelPath: modelPath, tokenizerPath: tokenizerPath);
+
+/// Unload the LLM from memory.
+Future<void> engineLlmUnload() =>
+    RustLib.instance.api.crateApiEngineApiEngineLlmUnload();
+
+/// Check if an LLM model is currently loaded.
+Future<bool> engineLlmIsLoaded() =>
+    RustLib.instance.api.crateApiEngineApiEngineLlmIsLoaded();
+
+/// Run LLM inference on a raw prompt. Returns the generated text.
+Future<String> engineLlmInfer(
+        {required String prompt,
+        required int maxTokens,
+        required double temperature}) =>
+    RustLib.instance.api.crateApiEngineApiEngineLlmInfer(
+        prompt: prompt, maxTokens: maxTokens, temperature: temperature);
+
+/// Build an intent-classification prompt from the user's natural language input.
+/// The returned prompt is ready to pass to `engine_llm_infer`.
+Future<String> engineLlmBuildIntentPrompt({required String userInput}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineLlmBuildIntentPrompt(userInput: userInput);
+
+/// Get the recommended model filename, display name, and expected size in bytes.
+Future<EngineLlmModelInfo> engineLlmRecommendedModel() =>
+    RustLib.instance.api.crateApiEngineApiEngineLlmRecommendedModel();
+
+/// Sign the CLOB L1 auth message to derive API credentials.
+/// Returns (polygon_address, eip712_signature_hex).
+Future<PolymarketAuthResult> enginePolymarketSignAuth(
+        {required String seedPhrase,
+        required BigInt timestamp,
+        required BigInt nonce}) =>
+    RustLib.instance.api.crateApiEngineApiEnginePolymarketSignAuth(
+        seedPhrase: seedPhrase, timestamp: timestamp, nonce: nonce);
+
+/// Sign a Polymarket CLOB order with EIP-712.
+/// Returns the hex-encoded signature.
+Future<String> enginePolymarketSignOrder(
+        {required String seedPhrase,
+        required String salt,
+        required String maker,
+        required String signer,
+        required String taker,
+        required String tokenId,
+        required String makerAmount,
+        required String takerAmount,
+        required String expiration,
+        required String nonce,
+        required String feeRateBps,
+        required int side,
+        required int signatureType,
+        required bool negRisk}) =>
+    RustLib.instance.api.crateApiEngineApiEnginePolymarketSignOrder(
+        seedPhrase: seedPhrase,
+        salt: salt,
+        maker: maker,
+        signer: signer,
+        taker: taker,
+        tokenId: tokenId,
+        makerAmount: makerAmount,
+        takerAmount: takerAmount,
+        expiration: expiration,
+        nonce: nonce,
+        feeRateBps: feeRateBps,
+        side: side,
+        signatureType: signatureType,
+        negRisk: negRisk);
+
+/// Whether one Gamma `/markets` or nested event market object passes the default
+/// tradability filter (same rules as `zipher-cli polymarket list`). Pure JSON — no wallet.
+Future<bool> enginePolymarketGammaMarketPassesQualityFilter(
+        {required String marketJson, required bool relaxed}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEnginePolymarketGammaMarketPassesQualityFilter(
+            marketJson: marketJson, relaxed: relaxed);
+
+/// Polymarket discovery: Gamma events + Rust grouping/quality (same as CLI `polymarket list`).
+/// Returns JSON `PolymarketDiscoverySummary`.
+Future<String> enginePolymarketDiscover(
+        {String? keyword, required int limit}) =>
+    RustLib.instance.api.crateApiEngineApiEnginePolymarketDiscover(
+        keyword: keyword, limit: limit);
+
+/// Polymarket open positions for `user` (0x + 40 hex) via public Data API.
+/// Returns JSON array of `PolymarketPosition`.
+Future<String> enginePolymarketGetPositions({required String address}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEnginePolymarketGetPositions(address: address);
+
+/// Get a ParaSwap quote for a same-chain EVM swap.
+Future<EvmSwapQuoteResult> engineEvmSwapQuote(
+        {required BigInt chainId,
+        required String srcToken,
+        required int srcDecimals,
+        required String destToken,
+        required int destDecimals,
+        required String amountRaw,
+        required String userAddress}) =>
+    RustLib.instance.api.crateApiEngineApiEngineEvmSwapQuote(
+        chainId: chainId,
+        srcToken: srcToken,
+        srcDecimals: srcDecimals,
+        destToken: destToken,
+        destDecimals: destDecimals,
+        amountRaw: amountRaw,
+        userAddress: userAddress);
+
+/// Execute a full same-chain EVM swap: quote -> approve (if ERC-20) -> build -> sign -> broadcast -> wait.
+/// All RLP encoding, signing, and broadcasting happens in Rust.
+Future<EvmSwapExecuteResult> engineEvmSwapExecute(
+        {required String rpcUrl,
+        required String seedPhrase,
+        required BigInt chainId,
+        required String userAddress,
+        required String srcToken,
+        required int srcDecimals,
+        required String destToken,
+        required int destDecimals,
+        required String amountRaw,
+        required int slippageBps}) =>
+    RustLib.instance.api.crateApiEngineApiEngineEvmSwapExecute(
+        rpcUrl: rpcUrl,
+        seedPhrase: seedPhrase,
+        chainId: chainId,
+        userAddress: userAddress,
+        srcToken: srcToken,
+        srcDecimals: srcDecimals,
+        destToken: destToken,
+        destDecimals: destDecimals,
+        amountRaw: amountRaw,
+        slippageBps: slippageBps);
+
+/// Info about the recommended LLM model.
+class EngineLlmModelInfo {
+  final String filename;
+  final String displayName;
+  final BigInt sizeBytes;
+
+  const EngineLlmModelInfo({
+    required this.filename,
+    required this.displayName,
+    required this.sizeBytes,
+  });
+
+  @override
+  int get hashCode =>
+      filename.hashCode ^ displayName.hashCode ^ sizeBytes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineLlmModelInfo &&
+          runtimeType == other.runtimeType &&
+          filename == other.filename &&
+          displayName == other.displayName &&
+          sizeBytes == other.sizeBytes;
+}
+
+/// Multi-chain addresses returned to Dart.
+class EngineMultiChainAddresses {
+  final String evm;
+  final String solana;
+  final String bitcoin;
+
+  const EngineMultiChainAddresses({
+    required this.evm,
+    required this.solana,
+    required this.bitcoin,
+  });
+
+  @override
+  int get hashCode => evm.hashCode ^ solana.hashCode ^ bitcoin.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineMultiChainAddresses &&
+          runtimeType == other.runtimeType &&
+          evm == other.evm &&
+          solana == other.solana &&
+          bitcoin == other.bitcoin;
+}
+
 /// Sync progress reported to Dart.
 class EngineSyncProgress {
   final int syncedHeight;
@@ -254,6 +491,176 @@ class EngineTransactionRecord {
           expiredUnmined == other.expiredUnmined;
 }
 
+/// Swap execution result returned to Dart.
+class EvmSwapExecuteResult {
+  final String txHash;
+  final bool success;
+  final BigInt blockNumber;
+  final BigInt gasUsed;
+  final String srcAmount;
+  final String destAmountExpected;
+
+  const EvmSwapExecuteResult({
+    required this.txHash,
+    required this.success,
+    required this.blockNumber,
+    required this.gasUsed,
+    required this.srcAmount,
+    required this.destAmountExpected,
+  });
+
+  @override
+  int get hashCode =>
+      txHash.hashCode ^
+      success.hashCode ^
+      blockNumber.hashCode ^
+      gasUsed.hashCode ^
+      srcAmount.hashCode ^
+      destAmountExpected.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EvmSwapExecuteResult &&
+          runtimeType == other.runtimeType &&
+          txHash == other.txHash &&
+          success == other.success &&
+          blockNumber == other.blockNumber &&
+          gasUsed == other.gasUsed &&
+          srcAmount == other.srcAmount &&
+          destAmountExpected == other.destAmountExpected;
+}
+
+/// Quote result returned to Dart.
+class EvmSwapQuoteResult {
+  final String srcToken;
+  final String srcAmount;
+  final int srcDecimals;
+  final String destToken;
+  final String destAmount;
+  final int destDecimals;
+
+  /// Serialized JSON of the priceRoute (opaque to Dart, passed back to execute).
+  final String priceRouteJson;
+  final String tokenTransferProxy;
+
+  const EvmSwapQuoteResult({
+    required this.srcToken,
+    required this.srcAmount,
+    required this.srcDecimals,
+    required this.destToken,
+    required this.destAmount,
+    required this.destDecimals,
+    required this.priceRouteJson,
+    required this.tokenTransferProxy,
+  });
+
+  @override
+  int get hashCode =>
+      srcToken.hashCode ^
+      srcAmount.hashCode ^
+      srcDecimals.hashCode ^
+      destToken.hashCode ^
+      destAmount.hashCode ^
+      destDecimals.hashCode ^
+      priceRouteJson.hashCode ^
+      tokenTransferProxy.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EvmSwapQuoteResult &&
+          runtimeType == other.runtimeType &&
+          srcToken == other.srcToken &&
+          srcAmount == other.srcAmount &&
+          srcDecimals == other.srcDecimals &&
+          destToken == other.destToken &&
+          destAmount == other.destAmount &&
+          destDecimals == other.destDecimals &&
+          priceRouteJson == other.priceRouteJson &&
+          tokenTransferProxy == other.tokenTransferProxy;
+}
+
+class MarketInfo {
+  final BigInt id;
+  final String title;
+  final String? description;
+  final String? state;
+  final List<MarketOutcome> outcomes;
+
+  const MarketInfo({
+    required this.id,
+    required this.title,
+    this.description,
+    this.state,
+    required this.outcomes,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      title.hashCode ^
+      description.hashCode ^
+      state.hashCode ^
+      outcomes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MarketInfo &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          title == other.title &&
+          description == other.description &&
+          state == other.state &&
+          outcomes == other.outcomes;
+}
+
+class MarketOutcome {
+  final String title;
+  final double price;
+  final BigInt? outcomeId;
+
+  const MarketOutcome({
+    required this.title,
+    required this.price,
+    this.outcomeId,
+  });
+
+  @override
+  int get hashCode => title.hashCode ^ price.hashCode ^ outcomeId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MarketOutcome &&
+          runtimeType == other.runtimeType &&
+          title == other.title &&
+          price == other.price &&
+          outcomeId == other.outcomeId;
+}
+
+class PolymarketAuthResult {
+  final String address;
+  final String signature;
+
+  const PolymarketAuthResult({
+    required this.address,
+    required this.signature,
+  });
+
+  @override
+  int get hashCode => address.hashCode ^ signature.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PolymarketAuthResult &&
+          runtimeType == other.runtimeType &&
+          address == other.address &&
+          signature == other.signature;
+}
+
 /// Proposal result returned to Dart.
 class ProposalResult {
   final BigInt sendAmount;
@@ -277,4 +684,67 @@ class ProposalResult {
           sendAmount == other.sendAmount &&
           fee == other.fee &&
           isExact == other.isExact;
+}
+
+class TradeSignalInfo {
+  final BigInt marketId;
+  final String marketTitle;
+  final int outcomeIndex;
+  final String outcomeTitle;
+  final double marketProb;
+  final double estimatedProb;
+  final double edge;
+  final double kellyFraction;
+  final double recommendedBetUsdt;
+  final double expectedValue;
+  final double confidence;
+  final String reason;
+
+  const TradeSignalInfo({
+    required this.marketId,
+    required this.marketTitle,
+    required this.outcomeIndex,
+    required this.outcomeTitle,
+    required this.marketProb,
+    required this.estimatedProb,
+    required this.edge,
+    required this.kellyFraction,
+    required this.recommendedBetUsdt,
+    required this.expectedValue,
+    required this.confidence,
+    required this.reason,
+  });
+
+  @override
+  int get hashCode =>
+      marketId.hashCode ^
+      marketTitle.hashCode ^
+      outcomeIndex.hashCode ^
+      outcomeTitle.hashCode ^
+      marketProb.hashCode ^
+      estimatedProb.hashCode ^
+      edge.hashCode ^
+      kellyFraction.hashCode ^
+      recommendedBetUsdt.hashCode ^
+      expectedValue.hashCode ^
+      confidence.hashCode ^
+      reason.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TradeSignalInfo &&
+          runtimeType == other.runtimeType &&
+          marketId == other.marketId &&
+          marketTitle == other.marketTitle &&
+          outcomeIndex == other.outcomeIndex &&
+          outcomeTitle == other.outcomeTitle &&
+          marketProb == other.marketProb &&
+          estimatedProb == other.estimatedProb &&
+          edge == other.edge &&
+          kellyFraction == other.kellyFraction &&
+          recommendedBetUsdt == other.recommendedBetUsdt &&
+          expectedValue == other.expectedValue &&
+          confidence == other.confidence &&
+          reason == other.reason;
 }

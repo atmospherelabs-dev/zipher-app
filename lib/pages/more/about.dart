@@ -425,7 +425,7 @@ class _DisclaimerState extends State<DisclaimerPage> {
         print('[Disclaimer] wallet created');
         await SecureKeyStore.storeSeed(activeCoin.coin, 1, seed, 0);
 
-        final balance = await ws.getBalance();
+        final balance = await ws.getBalanceOrZero();
         final addrs = await ws.getAddresses();
         final profile = await WalletRegistry.instance
             .getById(ws.activeWalletId!);
