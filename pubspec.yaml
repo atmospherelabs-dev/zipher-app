@@ -93,6 +93,7 @@ dependencies:
     path: rust_builder
   protobuf: ^3.1.0
   encrypt: ^5.0.3
+  crypto: ^3.0.7
 
 dependency_overrides:
   intl: ^0.18.0

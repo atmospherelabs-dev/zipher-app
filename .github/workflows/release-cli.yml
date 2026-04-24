@@ -58,16 +58,22 @@ jobs:
             rust/target
           key: ${{ matrix.target }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
 
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} -p zipher-cli
+      - name: Build release binaries
+        run: cargo build --release --target ${{ matrix.target }} -p zipher-cli -p zipher-mcp-server
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
-      - name: Package binary
+      - name: Package binaries
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/zipher-cli dist/${{ matrix.artifact }}
           chmod +x dist/${{ matrix.artifact }}
+          if [ -f target/${{ matrix.target }}/release/zipher-mcp-server ]; then
+            MCP_NAME=$(echo "${{ matrix.artifact }}" | sed 's/zipher-cli/zipher-mcp-server/')
+            cp target/${{ matrix.target }}/release/zipher-mcp-server dist/${MCP_NAME}
+            chmod +x dist/${MCP_NAME}
+            cd dist && (sha256sum ${MCP_NAME} 2>/dev/null || shasum -a 256 ${MCP_NAME}) > ${MCP_NAME}.sha256
+          fi
           cd dist && (sha256sum ${{ matrix.artifact }} 2>/dev/null || shasum -a 256 ${{ matrix.artifact }}) > ${{ matrix.artifact }}.sha256
 
       - name: Upload artifact

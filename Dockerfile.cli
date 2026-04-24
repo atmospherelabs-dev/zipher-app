@@ -13,7 +13,7 @@ COPY rust/ ./
 RUN cargo build --release -p zipher-cli -p zipher-mcp-server
 
 # --- Runtime ---
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS base
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
@@ -24,6 +24,15 @@ COPY --from=builder /build/target/release/zipher-mcp-server /usr/local/bin/
 
 RUN mkdir -p /root/.zipher/mainnet /root/.zipher/testnet
 
-ENV ZIPHER_DATA_DIR=/root/.zipher/mainnet
+# --- CLI image ---
+FROM base AS cli
 
+ENV ZIPHER_DATA_DIR=/root/.zipher/mainnet
 ENTRYPOINT ["zipher-cli"]
+
+# --- MCP server image ---
+FROM base AS mcp-server
+
+ENV ZIPHER_DATA_DIR=/root/.zipher/mainnet
+EXPOSE 3000
+ENTRYPOINT ["zipher-mcp-server"]

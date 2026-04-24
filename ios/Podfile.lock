@@ -92,7 +92,7 @@ DEPENDENCIES:
   - awesome_notifications (from `.symlinks/plugins/awesome_notifications/ios`)
   - awesome_notifications_core (from `.symlinks/plugins/awesome_notifications_core/ios`)
   - connectivity_plus (from `.symlinks/plugins/connectivity_plus/ios`)
-  - DKImagePickerController/PhotoGallery (from `https://github.com/zhangao0086/DKImagePickerController.git`)
+  - DKImagePickerController/PhotoGallery (from `https://github.com/zhangao0086/DKImagePickerController.git`, commit `0bdfeacefa308545adde07bef86e349186335915`)
   - file_picker (from `.symlinks/plugins/file_picker/ios`)
   - Flutter (from `Flutter`)
   - flutter_native_splash (from `.symlinks/plugins/flutter_native_splash/ios`)
@@ -130,6 +130,7 @@ EXTERNAL SOURCES:
   connectivity_plus:
     :path: ".symlinks/plugins/connectivity_plus/ios"
   DKImagePickerController:
+    :commit: 0bdfeacefa308545adde07bef86e349186335915
     :git: https://github.com/zhangao0086/DKImagePickerController.git
   file_picker:
     :path: ".symlinks/plugins/file_picker/ios"
@@ -201,6 +202,6 @@ SPEC CHECKSUMS:
   url_launcher_ios: 5334b05cef931de560670eeae103fd3e431ac3fe
   workmanager: 0afdcf5628bbde6924c21af7836fed07b42e30e6
 
-PODFILE CHECKSUM: af326bba6e7fbf108b4c22ee0d31ddfa675a7649
+PODFILE CHECKSUM: 68fccf5388302d0b68522eac68cb852b4ff3c387
 
 COCOAPODS: 1.16.2
