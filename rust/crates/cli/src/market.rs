@@ -152,6 +152,8 @@ pub async fn cmd_market_bet(
     outcome: u64,
     amount_usdt: f64,
     ows_wallet: String,
+    slippage: f64,
+    max_price_move: f64,
 ) -> Result<()> {
     ensure_sapling_params(&cfg.data_dir).await?;
     force_sync(cfg).await?;
@@ -160,8 +162,9 @@ pub async fn cmd_market_bet(
         eprintln!();
         eprintln!("=== Placing prediction market bet with ZEC ===");
         eprintln!("    Chains: Zcash → NEAR → BNB Chain (BSC)");
+        eprintln!("    Slippage: {:.1}%, Max price move: {:.1}%", slippage * 100.0, max_price_move);
         eprintln!();
-        eprintln!("[1/6] (BNB Chain) Resolving your BSC address via OWS...");
+        eprintln!("[1/7] (BNB Chain) Resolving your BSC address via OWS...");
     }
     let bsc_address = get_ows_evm_address(&ows_wallet).await?;
 
@@ -172,7 +175,18 @@ pub async fn cmd_market_bet(
     let tokens = zipher_engine::swap::get_tokens().await?;
     let zec = zipher_engine::swap::find_zec_token(&tokens)
         .ok_or_else(|| anyhow::anyhow!("ZEC not found in NEAR Intents"))?;
-    let zec_price = zec.price.unwrap_or(30.0);
+    let zec_price = zec.price
+        .ok_or_else(|| anyhow::anyhow!("ZEC price unavailable from NEAR Intents — cannot size swap safely"))?;
+
+    if cfg.human {
+        eprintln!("       Live ZEC price: ${:.2} (from NEAR Intents)", zec_price);
+    }
+
+    let pre_quote = zipher_engine::myriad::get_quote(market_id, outcome, "buy", amount_usdt, slippage).await?;
+    let initial_price = pre_quote.price;
+    if cfg.human {
+        eprintln!("       Pre-swap quote: {:.4} shares @ {:.4} price", pre_quote.shares, initial_price);
+    }
 
     auto_open(cfg).await?;
     let addresses = zipher_engine::query::get_addresses().await?;
@@ -182,7 +196,7 @@ pub async fn cmd_market_bet(
 
     if cfg.human {
         eprintln!();
-        eprintln!("[2/6] (BNB Chain) Checking BNB gas balance...");
+        eprintln!("[2/7] (BNB Chain) Checking BNB gas balance...");
     }
     let bnb_balance = zipher_engine::myriad::get_bnb_balance(
         zipher_engine::myriad::BSC_RPC, &bsc_address,
@@ -224,6 +238,7 @@ pub async fn cmd_market_bet(
             "sign", "send-tx", "--chain", "zcash:mainnet", "--wallet", &ows_wallet,
             "--rpc-url", &cfg.server_url, "--tx", &pczt_hex,
         ]).await?;
+        zipher_engine::send::clear_pczt_lock(&cfg.data_dir);
 
         if cfg.human {
             eprintln!("       (Zcash) Sent {:.8} ZEC for gas — tx: {}...",
@@ -235,6 +250,7 @@ pub async fn cmd_market_bet(
         if cfg.human {
             eprintln!("       (NEAR)  Waiting for BNB gas swap to settle...");
         }
+        let mut gas_settled = false;
         for _ in 0..60 {
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             let status = zipher_engine::swap::get_status(&bnb_swap_quote.deposit_address).await?;
@@ -242,24 +258,26 @@ pub async fn cmd_market_bet(
                 if cfg.human {
                     eprintln!("       (BSC)   BNB gas received!");
                 }
+                gas_settled = true;
                 break;
             }
             if status.status == "FAILED" {
                 return Err(anyhow::anyhow!("BNB gas swap failed"));
             }
         }
+        if !gas_settled {
+            return Err(anyhow::anyhow!("BNB gas swap timed out after 10 minutes"));
+        }
 
         zipher_engine::wallet::close().await;
         force_sync(cfg).await?;
-    } else {
-        if cfg.human {
-            eprintln!("       BNB balance: {:.6} — enough for gas", bnb_balance as f64 / 1e18);
-        }
+    } else if cfg.human {
+        eprintln!("       BNB balance: {:.6} — enough for gas", bnb_balance as f64 / 1e18);
     }
 
     if cfg.human {
         eprintln!();
-        eprintln!("[3/6] (Zcash → NEAR → BSC) Swapping ZEC → USDT via NEAR Intents...");
+        eprintln!("[3/7] (Zcash → NEAR → BSC) Swapping ZEC → USDT via NEAR Intents...");
     }
 
     let usdt_matches: Vec<_> = tokens.iter()
@@ -290,6 +308,7 @@ pub async fn cmd_market_bet(
         "sign", "send-tx", "--chain", "zcash:mainnet", "--wallet", &ows_wallet,
         "--rpc-url", &cfg.server_url, "--tx", &pczt_hex,
     ]).await?;
+    zipher_engine::send::clear_pczt_lock(&cfg.data_dir);
 
     if cfg.human {
         eprintln!("       (Zcash) Sent {:.8} ZEC — tx: {}...",
@@ -301,6 +320,7 @@ pub async fn cmd_market_bet(
     if cfg.human {
         eprintln!("       (NEAR)  Waiting for cross-chain swap to settle...");
     }
+    let mut swap_settled = false;
     for _ in 0..60 {
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         let status = zipher_engine::swap::get_status(&swap_quote.deposit_address).await?;
@@ -308,28 +328,74 @@ pub async fn cmd_market_bet(
             if cfg.human {
                 eprintln!("       (BSC)   Swap complete! USDT received on BNB Chain.");
             }
+            swap_settled = true;
             break;
         }
         if status.status == "FAILED" {
             return Err(anyhow::anyhow!("Swap failed"));
         }
     }
-
-    if cfg.human {
-        eprintln!();
-        eprintln!("[4/6] (BNB Chain) Refreshing prediction market quote...");
-    }
-    let quote = zipher_engine::myriad::get_quote(market_id, outcome, "buy", amount_usdt, 0.01).await?;
-
-    if cfg.human {
-        eprintln!("       You'll get {:.4} shares for ${:.2} USDT (fresh quote)", quote.shares, amount_usdt);
+    if !swap_settled {
+        return Err(anyhow::anyhow!("ZEC → USDT swap timed out after 10 minutes"));
     }
 
     if cfg.human {
         eprintln!();
-        eprintln!("[5/6] (BNB Chain) Approving USDT for Myriad contract...");
+        eprintln!("[4/7] (BNB Chain) Verifying USDT balance on BSC...");
     }
-    let approve_amount = ((amount_usdt * 1.05) * 1e6) as u128;
+    let usdt_balance = zipher_engine::evm_pay::get_erc20_balance(
+        zipher_engine::myriad::BSC_RPC,
+        zipher_engine::myriad::USDT_BSC,
+        &bsc_address,
+    ).await.unwrap_or(0);
+
+    let usdt_balance_f = usdt_balance as f64 / 1e18; // BSC USDT = 18 decimals
+    if cfg.human {
+        eprintln!("       USDT balance: ${:.2}", usdt_balance_f);
+    }
+    if usdt_balance_f < 0.50 {
+        return Err(anyhow::anyhow!(
+            "Swap failed: only ${:.2} USDT arrived. Swap may have failed or is still settling.",
+            usdt_balance_f
+        ));
+    }
+
+    // Adjust bet to actual balance (swap fees/slippage eat 1-5%)
+    let actual_bet = if usdt_balance_f < amount_usdt { usdt_balance_f } else { amount_usdt };
+    let adjusted = actual_bet < amount_usdt;
+    if adjusted && cfg.human {
+        eprintln!("       Adjusting bet: ${:.2} → ${:.2} (swap fees)", amount_usdt, actual_bet);
+    }
+
+    if cfg.human {
+        eprintln!();
+        eprintln!("[5/7] (BNB Chain) Refreshing prediction market quote + price check...");
+    }
+    let quote = zipher_engine::myriad::get_quote(market_id, outcome, "buy", actual_bet, slippage).await?;
+
+    let current_price = quote.price;
+    if initial_price > 0.0 && current_price > 0.0 {
+        let price_move_pct = ((current_price - initial_price) / initial_price * 100.0).abs();
+        if cfg.human {
+            eprintln!("       Price: {:.4} → {:.4} ({:+.1}% change)", initial_price, current_price, price_move_pct);
+        }
+        if price_move_pct > max_price_move {
+            return Err(anyhow::anyhow!(
+                "Price moved {:.1}% (limit: {:.1}%). Pre-swap: {:.4}, now: {:.4}. Aborting to protect against adverse movement.",
+                price_move_pct, max_price_move, initial_price, current_price
+            ));
+        }
+    }
+
+    if cfg.human {
+        eprintln!("       You'll get {:.4} shares for ${:.2} USDT (fresh quote)", quote.shares, actual_bet);
+    }
+
+    if cfg.human {
+        eprintln!();
+        eprintln!("[6/7] (BNB Chain) Approving USDT for Myriad contract...");
+    }
+    let approve_amount = ((actual_bet * 1.05) * 1e18) as u128; // BSC USDT = 18 decimals
     let approve_data = zipher_engine::myriad::build_erc20_approve_calldata(
         zipher_engine::myriad::PM_CONTRACT,
         &format!("{:064x}", approve_amount),
@@ -352,7 +418,7 @@ pub async fn cmd_market_bet(
 
     if cfg.human {
         eprintln!();
-        eprintln!("[6/6] (BNB Chain) Placing bet on Myriad prediction market...");
+        eprintln!("[7/7] (BNB Chain) Placing bet on Myriad prediction market...");
     }
     let bet_data = hex::decode(quote.calldata.trim_start_matches("0x"))
         .map_err(|e| anyhow::anyhow!("Invalid calldata: {}", e))?;
@@ -374,16 +440,20 @@ pub async fn cmd_market_bet(
         shares: f64,
         zec_spent: u64,
         bsc_tx: String,
+        initial_price: f64,
+        final_price: f64,
     }
 
     print_ok(
         BetResult {
             market_id,
             outcome,
-            amount_usdt,
+            amount_usdt: actual_bet,
             shares: quote.shares,
             zec_spent: zec_needed,
             bsc_tx: bet_result.clone(),
+            initial_price,
+            final_price: current_price,
         },
         cfg.human,
         |r| {
@@ -395,6 +465,7 @@ pub async fn cmd_market_bet(
             println!("  Amount:     ${:.2} USDT", r.amount_usdt);
             println!("  Shares:     {:.4}", r.shares);
             println!("  ZEC spent:  {:.8} ZEC", r.zec_spent as f64 / 1e8);
+            println!("  Price:      {:.4} → {:.4}", r.initial_price, r.final_price);
             println!("  BSC tx:     {}", r.bsc_tx);
             println!();
             println!("  Flow: ZEC → NEAR Intents → USDT (BSC) → Myriad bet");
@@ -414,12 +485,15 @@ pub async fn cmd_market_agent(
     scan_limit: u32,
     ows_wallet: String,
     dry_run: bool,
+    slippage: f64,
+    max_price_move: f64,
 ) -> Result<()> {
     if cfg.human {
         eprintln!();
         eprintln!("=== Autonomous Market Agent ===");
         eprintln!("    Strategy: scan → research → Kelly-sized bet");
         eprintln!("    Bankroll: ${:.2}, max bet: ${:.2}, min edge: {:.1}%", bankroll, max_bet, min_edge_pct);
+        eprintln!("    Slippage: {:.1}%, Max price move: {:.1}%", slippage * 100.0, max_price_move);
         if dry_run { eprintln!("    Mode: DRY RUN (no trades executed)"); }
         eprintln!();
     }
@@ -595,6 +669,8 @@ pub async fn cmd_market_agent(
         signal.outcome_index as u64,
         signal.recommended_bet_usdt,
         ows_wallet,
+        slippage,
+        max_price_move,
     ).await?;
 
     Ok(())
@@ -791,5 +867,210 @@ pub async fn cmd_market_sweep(
         zipher_engine::wallet::close().await;
     }
 
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Polymarket (Gamma API — discovery & inspection, no wallet)
+// ---------------------------------------------------------------------------
+
+fn fmt_usd(n: f64) -> String {
+    if n >= 1_000_000.0 {
+        format!("${:.1}M", n / 1_000_000.0)
+    } else if n >= 1_000.0 {
+        format!("${:.1}k", n / 1_000.0)
+    } else {
+        format!("${:.0}", n)
+    }
+}
+
+#[derive(Serialize)]
+struct PolymarketShowOutput {
+    question: String,
+    condition_id: String,
+    outcomes: Vec<PolymarketOutcomeLine>,
+    best_bid: Option<f64>,
+    best_ask: Option<f64>,
+    spread: Option<f64>,
+    volume_24hr: f64,
+    liquidity: f64,
+    neg_risk: bool,
+    accepting_orders: bool,
+    clob_token_ids: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct PolymarketOutcomeLine {
+    label: String,
+    price: f64,
+    price_pct: String,
+}
+
+pub async fn cmd_polymarket_list(
+    cfg: &Config,
+    keyword: Option<String>,
+    limit: u32,
+    show_all: bool,
+) -> Result<()> {
+    let summary =
+        zipher_engine::polymarket::polymarket_discover(keyword.as_deref(), limit, show_all).await?;
+
+    print_ok(&summary, cfg.human, |s| {
+        println!();
+        println!("=== Polymarket — Top events (Gamma) ===");
+        if show_all {
+            println!("(Quality filters disabled: --all)");
+        }
+        println!();
+
+        for row in &s.rows {
+            let tag = if row.kind == "grouped" {
+                if row.neg_risk {
+                    "[MULTI]"
+                } else {
+                    "[GROUP]"
+                }
+            } else {
+                "[BINARY]"
+            };
+
+            println!("  {} {}", tag, row.title);
+            println!(
+                "      {} sub-markets · {} vol/24h (event)",
+                row.market_count,
+                fmt_usd(row.volume_24hr)
+            );
+
+            if row.top_runners.is_empty() {
+                println!("      (no sub-markets passed quality filters — try --all)");
+            } else {
+                let parts: Vec<String> = row
+                    .top_runners
+                    .iter()
+                    .map(|r| format!("{}: {:.1}%", r.label, r.price * 100.0))
+                    .collect();
+                println!("      {}", parts.join("  |  "));
+            }
+            println!();
+        }
+
+        println!(
+            "  {} events → {} sub-markets total, {} after quality filter, {} display rows",
+            s.events_fetched,
+            s.total_submarkets,
+            s.submarkets_after_filter,
+            s.rows.len()
+        );
+        println!();
+    });
+
+    Ok(())
+}
+
+pub async fn cmd_polymarket_show(cfg: &Config, condition_id: String) -> Result<()> {
+    let m = zipher_engine::polymarket::polymarket_gamma_get_market_by_condition(&condition_id).await?;
+
+    let labels = m.outcome_labels();
+    let prices = m.outcome_prices_vec();
+    let mut outcomes = Vec::new();
+    for (i, lab) in labels.iter().enumerate() {
+        let price = prices.get(i).copied().unwrap_or(0.0);
+        outcomes.push(PolymarketOutcomeLine {
+            label: lab.clone(),
+            price,
+            price_pct: format!("{:.2}%", price * 100.0),
+        });
+    }
+
+    let out = PolymarketShowOutput {
+        question: m.display_title(),
+        condition_id: m.condition_id_str(),
+        outcomes,
+        best_bid: m.best_bid_f(),
+        best_ask: m.best_ask_f(),
+        spread: m.spread_f(),
+        volume_24hr: m.volume_24hr(),
+        liquidity: m.liquidity_num_f(),
+        neg_risk: m.neg_risk_effective(),
+        accepting_orders: m.accepting_orders_effective(),
+        clob_token_ids: m.clob_token_ids_vec(),
+    };
+
+    print_ok(&out, cfg.human, |o| {
+        println!();
+        println!("{}", o.question);
+        println!("  condition_id: {}", o.condition_id);
+        println!();
+        print!("  Outcomes: ");
+        let parts: Vec<String> = o
+            .outcomes
+            .iter()
+            .map(|x| format!("{} ({})", x.label, x.price_pct))
+            .collect();
+        println!("{}", parts.join("  |  "));
+        println!();
+        println!(
+            "  Bid: {}  Ask: {}  Spread: {}",
+            o.best_bid.map(|x| format!("{:.4}", x)).unwrap_or_else(|| "—".into()),
+            o.best_ask.map(|x| format!("{:.4}", x)).unwrap_or_else(|| "—".into()),
+            o.spread
+                .map(|x| format!("{:.2}%", x * 100.0))
+                .unwrap_or_else(|| "—".into())
+        );
+        println!(
+            "  Volume 24h: {}  Liquidity: {}",
+            fmt_usd(o.volume_24hr),
+            fmt_usd(o.liquidity)
+        );
+        println!(
+            "  negRisk: {}  Accepting orders: {}",
+            o.neg_risk, o.accepting_orders
+        );
+        println!();
+        println!("  CLOB token IDs:");
+        for tid in &o.clob_token_ids {
+            let short = if tid.len() > 24 {
+                format!("{}…{}", &tid[..12], &tid[tid.len() - 8..])
+            } else {
+                tid.clone()
+            };
+            println!("    {}", short);
+        }
+        println!();
+    });
+
+    Ok(())
+}
+
+/// Open positions for a Polygon wallet (Polymarket Data API — read-only).
+pub async fn cmd_polymarket_positions(cfg: &Config, user: String) -> Result<()> {
+    let positions = zipher_engine::polymarket::polymarket_get_positions(&user).await?;
+    print_ok(positions, cfg.human, |rows| {
+        println!();
+        println!("=== Polymarket — Open positions (Data API) ===");
+        println!("  user: {}", user);
+        println!();
+        if rows.is_empty() {
+            println!("  (no open positions)\n");
+            return;
+        }
+        for p in rows {
+            let title = p.title.as_deref().unwrap_or("(no title)");
+            let out = p.outcome.as_deref().unwrap_or("?");
+            println!("  {} — {}", title, out);
+            println!(
+                "    size: {:.4}  avg {:.2}%  cur {:.2}%  value {}  PnL {} ({:+.1}%)",
+                p.size,
+                p.avg_price * 100.0,
+                p.cur_price * 100.0,
+                fmt_usd(p.current_value),
+                fmt_usd(p.cash_pnl),
+                p.percent_pnl
+            );
+            println!("    condition_id: {}", p.condition_id);
+            println!("    asset (token): {}", p.asset);
+            println!();
+        }
+    });
     Ok(())
 }

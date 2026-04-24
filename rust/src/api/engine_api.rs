@@ -327,3 +327,368 @@ impl From<zipher_engine::types::EngineTransactionRecord> for EngineTransactionRe
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Market / Prediction Markets
+// ---------------------------------------------------------------------------
+
+pub struct MarketInfo {
+    pub id: u64,
+    pub title: String,
+    pub description: Option<String>,
+    pub state: Option<String>,
+    pub outcomes: Vec<MarketOutcome>,
+}
+
+pub struct MarketOutcome {
+    pub title: String,
+    pub price: f64,
+    pub outcome_id: Option<u64>,
+}
+
+pub async fn engine_get_markets(keyword: Option<String>, limit: u32) -> Result<Vec<MarketInfo>> {
+    let markets = zipher_engine::myriad::get_markets(keyword.as_deref(), limit).await?;
+    Ok(markets.into_iter().map(|m| MarketInfo {
+        id: m.id,
+        title: m.title,
+        description: m.description,
+        state: m.state,
+        outcomes: m.outcomes.into_iter().map(|o| MarketOutcome {
+            title: o.title,
+            price: o.price,
+            outcome_id: o.outcome_id,
+        }).collect(),
+    }).collect())
+}
+
+pub struct TradeSignalInfo {
+    pub market_id: u64,
+    pub market_title: String,
+    pub outcome_index: u32,
+    pub outcome_title: String,
+    pub market_prob: f64,
+    pub estimated_prob: f64,
+    pub edge: f64,
+    pub kelly_fraction: f64,
+    pub recommended_bet_usdt: f64,
+    pub expected_value: f64,
+    pub confidence: f64,
+    pub reason: String,
+}
+
+pub fn engine_analyze_opportunity(
+    market_id: u64,
+    outcome_index: u32,
+    estimated_prob: f64,
+    confidence: f64,
+    bankroll: f64,
+    max_bet: f64,
+) -> Result<Option<TradeSignalInfo>> {
+    let rt = tokio::runtime::Handle::try_current()
+        .map_err(|_| anyhow::anyhow!("No tokio runtime"))?;
+
+    let markets = rt.block_on(zipher_engine::myriad::get_market(market_id))?;
+
+    let signal = zipher_engine::myriad::analyze_opportunity(
+        &markets,
+        outcome_index as usize,
+        estimated_prob,
+        confidence,
+        bankroll,
+        max_bet,
+    );
+
+    Ok(signal.map(|s| TradeSignalInfo {
+        market_id: s.market_id,
+        market_title: s.market_title,
+        outcome_index: s.outcome_index as u32,
+        outcome_title: s.outcome_title,
+        market_prob: s.market_prob,
+        estimated_prob: s.estimated_prob,
+        edge: s.edge,
+        kelly_fraction: s.kelly_fraction,
+        recommended_bet_usdt: s.recommended_bet_usdt,
+        expected_value: s.expected_value,
+        confidence: s.confidence,
+        reason: s.reason,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// EVM / OWS — On-device EVM signing via ows-signer
+// ---------------------------------------------------------------------------
+
+/// Derive the EVM (BSC/ETH) address from the wallet's BIP-39 seed phrase.
+/// Uses the standard BIP-44 path m/44'/60'/0'/0/0.
+pub fn engine_derive_evm_address(seed_phrase: String) -> Result<String> {
+    zipher_engine::ows::derive_evm_address(&seed_phrase)
+}
+
+/// Derive addresses for EVM, Solana, and Bitcoin from a single seed phrase.
+/// All derivation is CPU-only (no network calls).
+pub fn engine_derive_multi_chain_addresses(seed_phrase: String) -> Result<EngineMultiChainAddresses> {
+    let addrs = zipher_engine::ows::derive_all_addresses(&seed_phrase)?;
+    Ok(EngineMultiChainAddresses {
+        evm: addrs.evm,
+        solana: addrs.solana,
+        bitcoin: addrs.bitcoin,
+    })
+}
+
+/// Multi-chain addresses returned to Dart.
+pub struct EngineMultiChainAddresses {
+    pub evm: String,
+    pub solana: String,
+    pub bitcoin: String,
+}
+
+/// Sign an unsigned EVM transaction and return the broadcast-ready signed bytes.
+pub fn engine_sign_evm_tx(seed_phrase: String, unsigned_tx_hex: String) -> Result<String> {
+    let unsigned_bytes = hex::decode(&unsigned_tx_hex)
+        .map_err(|e| anyhow::anyhow!("Invalid hex: {}", e))?;
+    let signed_bytes = zipher_engine::ows::sign_evm_tx(&seed_phrase, &unsigned_bytes)?;
+    Ok(hex::encode(signed_bytes))
+}
+
+/// Sign an unsigned EVM transaction, broadcast it via JSON-RPC, and return the tx hash.
+pub async fn engine_sign_and_broadcast_evm_tx(
+    seed_phrase: String,
+    unsigned_tx_hex: String,
+    rpc_url: String,
+) -> Result<String> {
+    let unsigned_bytes = hex::decode(&unsigned_tx_hex)
+        .map_err(|e| anyhow::anyhow!("Invalid hex: {}", e))?;
+    zipher_engine::ows::sign_and_broadcast_evm_tx(&seed_phrase, &unsigned_bytes, &rpc_url).await
+}
+
+// ---------------------------------------------------------------------------
+// On-device LLM — candle-based GGUF inference
+// ---------------------------------------------------------------------------
+
+/// Load a GGUF model and tokenizer from the given file paths.
+/// Must be called before `engine_llm_infer`. Blocks while loading (~1-5s).
+pub fn engine_llm_load(model_path: String, tokenizer_path: String) -> Result<()> {
+    zipher_engine::llm::load_model(&model_path, &tokenizer_path)
+}
+
+/// Unload the LLM from memory.
+pub fn engine_llm_unload() -> Result<()> {
+    zipher_engine::llm::unload_model()
+}
+
+/// Check if an LLM model is currently loaded.
+pub fn engine_llm_is_loaded() -> bool {
+    zipher_engine::llm::is_model_loaded()
+}
+
+/// Run LLM inference on a raw prompt. Returns the generated text.
+pub fn engine_llm_infer(prompt: String, max_tokens: u32, temperature: f64) -> Result<String> {
+    zipher_engine::llm::infer(&prompt, max_tokens, temperature)
+}
+
+/// Build an intent-classification prompt from the user's natural language input.
+/// The returned prompt is ready to pass to `engine_llm_infer`.
+pub fn engine_llm_build_intent_prompt(user_input: String) -> String {
+    zipher_engine::llm::build_intent_prompt(&user_input)
+}
+
+/// Get the recommended model filename, display name, and expected size in bytes.
+pub fn engine_llm_recommended_model() -> EngineLlmModelInfo {
+    let (filename, name, size) = zipher_engine::llm::recommended_model();
+    EngineLlmModelInfo {
+        filename: filename.to_string(),
+        display_name: name.to_string(),
+        size_bytes: size,
+    }
+}
+
+/// Info about the recommended LLM model.
+pub struct EngineLlmModelInfo {
+    pub filename: String,
+    pub display_name: String,
+    pub size_bytes: u64,
+}
+
+// ---------------------------------------------------------------------------
+// Polymarket — EIP-712 signing for CLOB orders and auth
+// ---------------------------------------------------------------------------
+
+/// Sign the CLOB L1 auth message to derive API credentials.
+/// Returns (polygon_address, eip712_signature_hex).
+pub fn engine_polymarket_sign_auth(
+    seed_phrase: String,
+    timestamp: u64,
+    nonce: u64,
+) -> Result<PolymarketAuthResult> {
+    let (address, signature) =
+        zipher_engine::polymarket::sign_clob_auth(&seed_phrase, timestamp, nonce)?;
+    Ok(PolymarketAuthResult { address, signature })
+}
+
+pub struct PolymarketAuthResult {
+    pub address: String,
+    pub signature: String,
+}
+
+/// Sign a Polymarket CLOB order with EIP-712.
+/// Returns the hex-encoded signature.
+pub fn engine_polymarket_sign_order(
+    seed_phrase: String,
+    salt: String,
+    maker: String,
+    signer: String,
+    taker: String,
+    token_id: String,
+    maker_amount: String,
+    taker_amount: String,
+    expiration: String,
+    nonce: String,
+    fee_rate_bps: String,
+    side: u8,
+    signature_type: u8,
+    neg_risk: bool,
+) -> Result<String> {
+    let order = zipher_engine::polymarket::PolymarketOrder {
+        salt,
+        maker,
+        signer,
+        taker,
+        token_id,
+        maker_amount,
+        taker_amount,
+        expiration,
+        nonce,
+        fee_rate_bps,
+        side,
+        signature_type,
+    };
+    zipher_engine::polymarket::sign_order(&seed_phrase, &order, neg_risk)
+}
+
+/// Whether one Gamma `/markets` or nested event market object passes the default
+/// tradability filter (same rules as `zipher-cli polymarket list`). Pure JSON — no wallet.
+pub fn engine_polymarket_gamma_market_passes_quality_filter(
+    market_json: String,
+    relaxed: bool,
+) -> bool {
+    match serde_json::from_str::<zipher_engine::polymarket::PolymarketMarket>(&market_json) {
+        Ok(m) => zipher_engine::polymarket::polymarket_market_passes_quality(&m, relaxed),
+        Err(_) => false,
+    }
+}
+
+/// Polymarket discovery: Gamma events + Rust grouping/quality (same as CLI `polymarket list`).
+/// Returns JSON `PolymarketDiscoverySummary`.
+pub async fn engine_polymarket_discover(
+    keyword: Option<String>,
+    limit: u32,
+) -> Result<String> {
+    let summary =
+        zipher_engine::polymarket::polymarket_discover(keyword.as_deref(), limit, false).await?;
+    Ok(serde_json::to_string(&summary)?)
+}
+
+/// Polymarket open positions for `user` (0x + 40 hex) via public Data API.
+/// Returns JSON array of `PolymarketPosition`.
+pub async fn engine_polymarket_get_positions(address: String) -> Result<String> {
+    let positions = zipher_engine::polymarket::polymarket_get_positions(&address).await?;
+    Ok(serde_json::to_string(&positions)?)
+}
+
+// ---------------------------------------------------------------------------
+// EVM Swap — same-chain token swaps via ParaSwap (DEX aggregator)
+// ---------------------------------------------------------------------------
+
+/// Quote result returned to Dart.
+pub struct EvmSwapQuoteResult {
+    pub src_token: String,
+    pub src_amount: String,
+    pub src_decimals: u32,
+    pub dest_token: String,
+    pub dest_amount: String,
+    pub dest_decimals: u32,
+    /// Serialized JSON of the priceRoute (opaque to Dart, passed back to execute).
+    pub price_route_json: String,
+    pub token_transfer_proxy: String,
+}
+
+/// Get a ParaSwap quote for a same-chain EVM swap.
+pub async fn engine_evm_swap_quote(
+    chain_id: u64,
+    src_token: String,
+    src_decimals: u32,
+    dest_token: String,
+    dest_decimals: u32,
+    amount_raw: String,
+    user_address: String,
+) -> Result<EvmSwapQuoteResult> {
+    let quote = zipher_engine::evm_swap::get_quote(
+        chain_id,
+        &src_token,
+        src_decimals,
+        &dest_token,
+        dest_decimals,
+        &amount_raw,
+        &user_address,
+    ).await?;
+
+    Ok(EvmSwapQuoteResult {
+        src_token: quote.src_token,
+        src_amount: quote.src_amount,
+        src_decimals: quote.src_decimals,
+        dest_token: quote.dest_token,
+        dest_amount: quote.dest_amount,
+        dest_decimals: quote.dest_decimals,
+        price_route_json: serde_json::to_string(&quote.price_route_json)?,
+        token_transfer_proxy: quote.token_transfer_proxy,
+    })
+}
+
+/// Swap execution result returned to Dart.
+pub struct EvmSwapExecuteResult {
+    pub tx_hash: String,
+    pub success: bool,
+    pub block_number: u64,
+    pub gas_used: u64,
+    pub src_amount: String,
+    pub dest_amount_expected: String,
+}
+
+/// Execute a full same-chain EVM swap: quote -> approve (if ERC-20) -> build -> sign -> broadcast -> wait.
+/// All RLP encoding, signing, and broadcasting happens in Rust.
+pub async fn engine_evm_swap_execute(
+    rpc_url: String,
+    seed_phrase: String,
+    chain_id: u64,
+    user_address: String,
+    src_token: String,
+    src_decimals: u32,
+    dest_token: String,
+    dest_decimals: u32,
+    amount_raw: String,
+    slippage_bps: u32,
+) -> Result<EvmSwapExecuteResult> {
+    let params = zipher_engine::evm_swap::SwapParams {
+        rpc_url,
+        seed_phrase,
+        chain_id,
+        user_address,
+        src_token,
+        src_decimals,
+        dest_token,
+        dest_decimals,
+        amount_raw,
+        slippage_bps,
+    };
+
+    let result = zipher_engine::evm_swap::execute_swap(&params).await?;
+
+    Ok(EvmSwapExecuteResult {
+        tx_hash: result.tx_hash,
+        success: result.receipt.status,
+        block_number: result.receipt.block_number,
+        gas_used: result.receipt.gas_used,
+        src_amount: result.src_amount,
+        dest_amount_expected: result.dest_amount_expected,
+    })
+}

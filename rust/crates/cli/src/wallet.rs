@@ -539,3 +539,83 @@ pub async fn cmd_shield(cfg: &Config) -> Result<()> {
     zipher_engine::wallet::close().await;
     Ok(())
 }
+
+pub async fn cmd_consolidate(cfg: &Config) -> Result<()> {
+    ensure_sapling_params(&cfg.data_dir).await?;
+    force_sync(cfg).await?;
+    auto_open(cfg).await?;
+
+    let addresses = zipher_engine::query::get_addresses().await?;
+    let own_addr = addresses
+        .first()
+        .map(|a| a.address.clone())
+        .ok_or_else(|| anyhow::anyhow!("No address found — wallet may not be initialized"))?;
+
+    if cfg.human {
+        eprintln!("Consolidating shielded notes (send-to-self)...");
+        eprintln!("  Destination: {}...{}", &own_addr[..12], &own_addr[own_addr.len()-8..]);
+    }
+
+    let (send_amount, fee, _) =
+        zipher_engine::send::propose_send(&own_addr, 0, None, true).await?;
+
+    if cfg.human {
+        eprintln!("  Amount: {:.8} ZEC (max minus fee)", send_amount as f64 / 1e8);
+        eprintln!("  Fee:    {} zat", fee);
+    }
+
+    let seed = read_seed(&cfg.data_dir)?;
+    let txid = zipher_engine::send::confirm_send(&seed).await?;
+
+    #[derive(Serialize)]
+    struct ConsolidateResult {
+        txid: String,
+        amount: u64,
+        fee: u64,
+    }
+
+    print_ok(
+        ConsolidateResult { txid: txid.clone(), amount: send_amount, fee },
+        cfg.human,
+        |r| {
+            println!("Notes consolidated successfully.");
+            println!("  txid:   {}", r.txid);
+            println!("  Amount: {:.8} ZEC", r.amount as f64 / 1e8);
+            println!("  Fee:    {} zat", r.fee);
+        },
+    );
+
+    zipher_engine::wallet::close().await;
+    Ok(())
+}
+
+pub async fn cmd_store_signed_pczt(cfg: &Config, pczt_hex: String) -> Result<()> {
+    let pczt_bytes = hex::decode(&pczt_hex)
+        .map_err(|e| anyhow::anyhow!("Invalid hex: {}", e))?;
+
+    ensure_data_dir(&cfg.data_dir)?;
+    auto_open(cfg).await?;
+
+    if cfg.human {
+        eprintln!("Storing signed PCZT in wallet DB ({} bytes)...", pczt_bytes.len());
+    }
+
+    let txid = zipher_engine::send::store_signed_pczt(&pczt_bytes).await?;
+
+    #[derive(Serialize)]
+    struct StorePcztResult {
+        txid: String,
+    }
+
+    print_ok(
+        StorePcztResult { txid: txid.clone() },
+        cfg.human,
+        |r| {
+            println!("Transaction stored: {}", r.txid);
+            println!("Notes marked as spent — safe to create new PCZTs.");
+        },
+    );
+
+    zipher_engine::wallet::close().await;
+    Ok(())
+}

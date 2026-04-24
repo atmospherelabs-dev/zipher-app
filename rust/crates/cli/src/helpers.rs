@@ -206,6 +206,7 @@ pub fn load_pending(data_dir: &str) -> Result<PendingProposal> {
 pub fn delete_pending(data_dir: &str) {
     let path = pending_path(data_dir);
     std::fs::remove_file(path).ok();
+    zipher_engine::send::clear_pczt_lock(data_dir);
 }
 
 // ---------------------------------------------------------------------------

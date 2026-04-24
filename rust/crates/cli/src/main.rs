@@ -4,6 +4,7 @@ use serde::Serialize;
 use zcash_protocol::consensus::Network;
 
 mod daemon;
+mod evm_swap;
 mod helpers;
 mod market;
 mod payment;
@@ -80,6 +81,9 @@ enum Commands {
     /// Shield transparent funds into the shielded pool
     Shield,
 
+    /// Consolidate shielded notes (send-to-self to reduce note count)
+    Consolidate,
+
     /// Spending policy management
     #[command(subcommand)]
     Policy(PolicyCmd),
@@ -129,6 +133,10 @@ enum Commands {
     #[command(subcommand)]
     Market(MarketCmd),
 
+    /// Polymarket discovery via Gamma API (read-only; no wallet)
+    #[command(subcommand)]
+    Polymarket(PolymarketCmd),
+
     /// Start a paid HTTP API server (x402 pay-per-call)
     Serve {
         /// Port to listen on
@@ -152,6 +160,37 @@ enum Commands {
 
         /// OWS wallet name for EVM signing
         #[arg(long, default_value = "default")]
+        ows_wallet: String,
+    },
+
+    /// Same-chain EVM token swap via ParaSwap (DEX aggregator)
+    EvmSwap {
+        /// Chain name: polygon, bsc, ethereum, base, arbitrum
+        #[arg(long)]
+        chain: Option<String>,
+
+        /// Source token symbol or address (interactive if omitted)
+        #[arg(long)]
+        from: Option<String>,
+
+        /// Destination token symbol or address (interactive if omitted)
+        #[arg(long)]
+        to: Option<String>,
+
+        /// Amount to swap (human-readable, e.g. "1.5") or "max"
+        #[arg(long)]
+        amount: Option<String>,
+
+        /// Slippage tolerance in basis points (default: 200 = 2%)
+        #[arg(long, default_value = "200")]
+        slippage: u32,
+
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+
+        /// OWS wallet name for EVM signing
+        #[arg(long, env = "OWS_WALLET", default_value = "default")]
         ows_wallet: String,
     },
 }
@@ -339,6 +378,13 @@ enum SendCmd {
         #[arg(long)]
         memo: Option<String>,
     },
+
+    /// Store a signed PCZT back into the wallet DB (prevents double-spends)
+    StorePczt {
+        /// Hex-encoded signed PCZT bytes
+        #[arg(long)]
+        pczt: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -426,6 +472,14 @@ enum MarketCmd {
         /// OWS wallet name for signing
         #[arg(long, env = "OWS_WALLET")]
         ows_wallet: String,
+
+        /// Myriad slippage tolerance (0.0-1.0, default 0.01 = 1%)
+        #[arg(long, default_value = "0.01")]
+        slippage: f64,
+
+        /// Max acceptable price movement (%) between quote and execution (default 5%)
+        #[arg(long, default_value = "5.0")]
+        max_price_move: f64,
     },
 
     /// Show open positions
@@ -471,6 +525,44 @@ enum MarketCmd {
         /// Dry run: scan, research, analyze but don't execute
         #[arg(long)]
         dry_run: bool,
+
+        /// Myriad slippage tolerance (0.0-1.0, default 0.01 = 1%)
+        #[arg(long, default_value = "0.01")]
+        slippage: f64,
+
+        /// Max acceptable price movement (%) between analysis and execution (default 5%)
+        #[arg(long, default_value = "5.0")]
+        max_price_move: f64,
+    },
+}
+
+#[derive(Subcommand)]
+enum PolymarketCmd {
+    /// List top events with quality filters (grouped multi-outcome events)
+    List {
+        /// Optional tag / keyword (Gamma `tag` query)
+        #[arg(long)]
+        keyword: Option<String>,
+
+        /// Max events to fetch from Gamma
+        #[arg(long, default_value = "20")]
+        limit: u32,
+
+        /// Disable quality filters (show illiquid / edge markets too)
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Show one market by condition id (0x…)
+    Show {
+        /// Polymarket condition id (hex)
+        condition_id: String,
+    },
+
+    /// List open Polymarket positions for a Polygon address (Data API; read-only)
+    Positions {
+        /// Wallet address (0x + 40 hex) — Polygon account that holds positions
+        user: String,
     },
 }
 
@@ -617,8 +709,12 @@ async fn main() {
             SendCmd::Pczt { to, amount, memo } => {
                 market::cmd_send_pczt(&cfg, to, amount, memo).await
             }
+            SendCmd::StorePczt { pczt } => {
+                wallet::cmd_store_signed_pczt(&cfg, pczt).await
+            }
         },
         Commands::Shield => wallet::cmd_shield(&cfg).await,
+        Commands::Consolidate => wallet::cmd_consolidate(&cfg).await,
         Commands::Policy(sub) => match sub {
             PolicyCmd::Show => policy::cmd_policy_show(&cfg).await,
             PolicyCmd::Set { field, value } => policy::cmd_policy_set(&cfg, field, value).await,
@@ -669,14 +765,23 @@ async fn main() {
         Commands::Market(sub) => match sub {
             MarketCmd::List { keyword, limit } => market::cmd_market_list(&cfg, keyword, limit).await,
             MarketCmd::Show { id } => market::cmd_market_show(&cfg, id).await,
-            MarketCmd::Bet { id, outcome, amount, ows_wallet } => {
-                market::cmd_market_bet(&cfg, id, outcome, amount, ows_wallet).await
+            MarketCmd::Bet { id, outcome, amount, ows_wallet, slippage, max_price_move } => {
+                market::cmd_market_bet(&cfg, id, outcome, amount, ows_wallet, slippage, max_price_move).await
             }
             MarketCmd::Positions { ows_wallet } => market::cmd_market_positions(&cfg, ows_wallet).await,
             MarketCmd::Sweep { ows_wallet, to_zec } => market::cmd_market_sweep(&cfg, ows_wallet, to_zec).await,
-            MarketCmd::Agent { max_bet, min_edge_pct, bankroll, scan_limit, ows_wallet, dry_run } => {
-                market::cmd_market_agent(&cfg, max_bet, min_edge_pct, bankroll, scan_limit, ows_wallet, dry_run).await
+            MarketCmd::Agent { max_bet, min_edge_pct, bankroll, scan_limit, ows_wallet, dry_run, slippage, max_price_move } => {
+                market::cmd_market_agent(&cfg, max_bet, min_edge_pct, bankroll, scan_limit, ows_wallet, dry_run, slippage, max_price_move).await
             }
+        },
+        Commands::Polymarket(sub) => match sub {
+            PolymarketCmd::List { keyword, limit, all } => {
+                market::cmd_polymarket_list(&cfg, keyword, limit, all).await
+            }
+            PolymarketCmd::Show { condition_id } => {
+                market::cmd_polymarket_show(&cfg, condition_id).await
+            }
+            PolymarketCmd::Positions { user } => market::cmd_polymarket_positions(&cfg, user).await,
         },
         Commands::Serve { port, price } => {
             serve::cmd_serve(&cfg, port, price).await;
@@ -684,6 +789,9 @@ async fn main() {
         },
         Commands::Sweep { token, chain, ows_wallet } => {
             payment::cmd_sweep(&cfg, token, chain, ows_wallet).await
+        },
+        Commands::EvmSwap { chain, from, to, amount, slippage, yes, ows_wallet } => {
+            evm_swap::cmd_evm_swap(&cfg, chain, from, to, amount, slippage, yes, ows_wallet).await
         },
     };
 

@@ -211,6 +211,8 @@ struct MarketQuoteParams {
     outcome: u64,
     /// Amount in USDT to bet
     amount_usdt: f64,
+    /// Slippage tolerance (0.0-1.0, default 0.01 = 1%)
+    slippage: Option<f64>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -1069,20 +1071,23 @@ impl ZipherMcpServer {
 
     #[tool(description = "Get a trade quote for a prediction market bet. Returns shares, price, and calldata. Use with swap_execute to fund the trade with ZEC.")]
     async fn market_quote(&self, Parameters(params): Parameters<MarketQuoteParams>) -> String {
+        let slippage = params.slippage.unwrap_or(0.01);
         match zipher_engine::myriad::get_quote(
             params.market_id,
             params.outcome,
             "buy",
             params.amount_usdt,
-            0.01,
+            slippage,
         ).await {
             Ok(quote) => ok_response(serde_json::json!({
                 "market_id": params.market_id,
                 "outcome": params.outcome,
                 "amount_usdt": params.amount_usdt,
                 "shares": quote.shares,
+                "price": quote.price,
                 "price_per_share": if quote.shares > 0.0 { params.amount_usdt / quote.shares } else { 0.0 },
                 "calldata": quote.calldata,
+                "slippage": slippage,
                 "next_step": "To execute: 1) swap_execute ZEC→USDT on BSC, 2) approve USDT for Myriad contract, 3) send calldata to Myriad PM contract. Use zipher-cli 'market bet' for the full automated flow.",
             })),
             Err(e) => err_response(&e),
