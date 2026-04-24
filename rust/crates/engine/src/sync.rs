@@ -375,6 +375,14 @@ async fn sync_once(
     let db_cache = BlockCache::open(db_cache_path, db_cipher_key)?;
     let mut lwd = connect_lwd(server_url).await?;
 
+    // We have a live gRPC connection to lightwalletd — clear any stale error
+    // from a previous failed pass so UI/CLI stop showing "connection lost"
+    // during the (potentially slow) subtree-roots update below.
+    {
+        let mut p = SYNC_PROGRESS.lock().await;
+        p.connection_error = None;
+    }
+
     // 1) Always update subtree roots (idempotent with start_index=0)
     tracing::info!("[sync] updating subtree roots...");
     update_subtree_roots(&mut lwd, &mut db_data).await?;

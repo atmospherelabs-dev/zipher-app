@@ -106,20 +106,25 @@ pub async fn get_wallet_balance() -> Result<WalletBalance> {
         .get_wallet_summary(ConfirmationsPolicy::MIN)
         .map_err(|e| anyhow::anyhow!("{:?}", e))?;
 
-    let Some(summary) = summary else {
-        return Ok(WalletBalance::default());
-    };
+    // IMPORTANT: do NOT silently return all-zero balances here. Returning
+    // `Ok(WalletBalance::default())` from any of these "no data yet" branches
+    // causes the mobile UI to overwrite a known-good balance with 0 — which
+    // looks to a user mid-send like their funds disappeared. Surface them as
+    // explicit errors so Dart `updateBalance` can preserve the last balance.
+    let summary = summary.ok_or_else(|| {
+        anyhow::anyhow!("wallet summary not yet available (sync in progress)")
+    })?;
 
     let account_ids = db
         .get_account_ids()
         .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-    let Some(account_id) = account_ids.first() else {
-        return Ok(WalletBalance::default());
-    };
+    let account_id = account_ids
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("wallet has no accounts"))?;
 
-    let Some(ab) = summary.account_balances().get(account_id) else {
-        return Ok(WalletBalance::default());
-    };
+    let ab = summary.account_balances().get(account_id).ok_or_else(|| {
+        anyhow::anyhow!("account balance entry missing for account {:?}", account_id)
+    })?;
 
     Ok(WalletBalance {
         transparent: u64::from(ab.unshielded_balance().spendable_value()),

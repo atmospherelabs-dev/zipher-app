@@ -39,6 +39,8 @@ pub struct TradeQuote {
     pub shares: f64,
     #[serde(default)]
     pub value: f64,
+    #[serde(default)]
+    pub price: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -9,6 +9,7 @@ use zeroize::Zeroize;
 use zcash_address::ZcashAddress;
 use zcash_client_backend::data_api::wallet::{
     create_pczt_from_proposal, create_proposed_transactions,
+    extract_and_store_transaction_from_pczt,
     propose_send_max_transfer, propose_standard_transfer_to_address,
     propose_shielding, ConfirmationsPolicy, SpendingKeys,
 };
@@ -39,6 +40,48 @@ use zcash_client_sqlite::util::SystemClock;
 
 static PENDING_SEND: StdMutex<Option<ProposalType>> = StdMutex::new(None);
 
+const PCZT_LOCK_EXPIRY_SECS: u64 = 600; // 10 minutes
+
+fn pczt_lock_path(db_data_path: &Path) -> std::path::PathBuf {
+    db_data_path
+        .parent()
+        .unwrap_or(db_data_path)
+        .join("pending_pczt.lock")
+}
+
+fn check_pczt_lock(db_data_path: &Path) -> Result<()> {
+    let lock = pczt_lock_path(db_data_path);
+    if lock.exists() {
+        if let Ok(meta) = std::fs::metadata(&lock) {
+            if let Ok(modified) = meta.modified() {
+                let age = modified.elapsed().unwrap_or_default();
+                if age.as_secs() > PCZT_LOCK_EXPIRY_SECS {
+                    info!("Stale PCZT lock ({}s old), removing", age.as_secs());
+                    std::fs::remove_file(&lock).ok();
+                    return Ok(());
+                }
+            }
+        }
+        return Err(anyhow::anyhow!(
+            "A PCZT is already pending signing/broadcast. \
+             Wait for it to confirm, or delete {} to cancel.",
+            lock.display()
+        ));
+    }
+    Ok(())
+}
+
+fn set_pczt_lock(db_data_path: &Path) {
+    let lock = pczt_lock_path(db_data_path);
+    std::fs::write(&lock, "").ok();
+}
+
+/// Clear the pending PCZT lock (call after successful broadcast or cancellation).
+pub fn clear_pczt_lock(data_dir: &str) {
+    let lock = std::path::Path::new(data_dir).join("pending_pczt.lock");
+    std::fs::remove_file(&lock).ok();
+}
+
 // ---------------------------------------------------------------------------
 // Propose / confirm (two-step send flow)
 // ---------------------------------------------------------------------------
@@ -67,6 +110,8 @@ pub async fn propose_send(
     drop(engine_guard);
 
     let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
+
+    check_pczt_lock(&db_data_path)?;
 
     let account_id = db_data
         .get_account_ids()
@@ -251,6 +296,7 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
         ));
     }
 
+    clear_pczt_lock(db_data_path.parent().unwrap_or(&db_data_path).to_str().unwrap_or(""));
     info!("Transaction confirmed! txid={}", txid);
     Ok(txid.to_string())
 }
@@ -329,8 +375,54 @@ pub async fn create_pczt() -> Result<Vec<u8>> {
 
     let proved_pczt = prover.finish();
     let bytes = proved_pczt.serialize();
+    set_pczt_lock(&db_data_path);
     info!("PCZT ready ({} bytes) — awaiting external signing", bytes.len());
     Ok(bytes)
+}
+
+// ---------------------------------------------------------------------------
+// Store a signed PCZT back into the wallet DB (marks notes as spent)
+// ---------------------------------------------------------------------------
+
+/// After external signing (e.g. via OWS), feed the signed PCZT bytes back
+/// so the wallet DB records the spent notes and prevents double-spends.
+///
+/// This is the SDK's intended workflow:
+///   create_pczt_from_proposal → sign externally → extract_and_store
+pub async fn store_signed_pczt(signed_pczt_bytes: &[u8]) -> Result<String> {
+    let signed_pczt = pczt::Pczt::parse(signed_pczt_bytes)
+        .map_err(|e| anyhow::anyhow!("Failed to parse signed PCZT: {:?}", e))?;
+
+    let engine_guard = ENGINE.lock().await;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
+
+    let db_data_path = engine.db_data_path.clone();
+    let params = engine.params;
+    let db_cipher_key = engine.db_cipher_key.clone();
+    drop(engine_guard);
+
+    let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
+
+    let tx_prover = load_prover_from_path(&db_data_path)?;
+    let (spend_vk, output_vk) = tx_prover.verifying_keys();
+    let orchard_vk = orchard::circuit::VerifyingKey::build();
+
+    info!("Extracting and storing signed transaction in wallet DB...");
+    let txid = extract_and_store_transaction_from_pczt::<DbType, Network>(
+        &mut db_data,
+        signed_pczt,
+        Some((&spend_vk, &output_vk)),
+        Some(&orchard_vk),
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to extract/store PCZT: {:?}", e))?;
+
+    let lock_dir = db_data_path.parent().unwrap_or(&db_data_path);
+    std::fs::remove_file(lock_dir.join("pending_pczt.lock")).ok();
+
+    info!("Transaction stored: {}", txid);
+    Ok(txid.to_string())
 }
 
 // ---------------------------------------------------------------------------

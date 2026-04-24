@@ -41,6 +41,15 @@ incrementalmerkletree = "0.8"
 rustls = { version = "0.23", features = ["ring"] }
 reqwest = { version = "0.13", features = ["json"] }
 
+# EVM signing (OWS signer — no tonic/prost, just crypto)
+ows-signer = { path = "../../../../ows-core/ows/crates/ows-signer", version = "=1.0.0" }
+
+# On-device LLM inference (candle — pure Rust, no C++ needed)
+candle-core = "0.10"
+candle-nn = "0.10"
+candle-transformers = "0.10"
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+
 # Vault encryption
 aes-gcm = "0.10"
 scrypt = "0.11"
