@@ -590,6 +590,54 @@ pub async fn polymarket_get_positions(user_address: &str) -> Result<Vec<Polymark
 }
 
 // ---------------------------------------------------------------------------
+// uint256 helper
+// ---------------------------------------------------------------------------
+
+/// Convert a decimal string that may exceed u128 to `0x`-prefixed hex.
+/// Values that fit in u128 are passed through as-is (the EIP-712 encoder handles them).
+fn decimal_to_hex256(dec: &str) -> Result<String> {
+    if dec.starts_with("0x") || dec.starts_with("0X") {
+        return Ok(dec.to_string());
+    }
+    match dec.parse::<u128>() {
+        Ok(_) => Ok(dec.to_string()),
+        Err(_) => {
+            // Manual base-10 → base-16 for values > u128
+            let mut bytes = [0u8; 32];
+            let mut val = dec.as_bytes().to_vec();
+            // Repeated division by 256 to extract big-endian bytes
+            let mut pos = 31i32;
+            while !is_zero(&val) && pos >= 0 {
+                let rem = div_by_256(&mut val);
+                bytes[pos as usize] = rem;
+                pos -= 1;
+            }
+            if !is_zero(&val) {
+                return Err(anyhow::anyhow!("Value exceeds uint256: {}", dec));
+            }
+            Ok(format!("0x{}", hex::encode(bytes)))
+        }
+    }
+}
+
+fn is_zero(digits: &[u8]) -> bool {
+    digits.iter().all(|&d| d == b'0')
+}
+
+fn div_by_256(digits: &mut Vec<u8>) -> u8 {
+    let mut carry: u16 = 0;
+    for d in digits.iter_mut() {
+        let cur = carry * 10 + (*d - b'0') as u16;
+        *d = (cur / 256) as u8 + b'0';
+        carry = cur % 256;
+    }
+    while digits.len() > 1 && digits[0] == b'0' {
+        digits.remove(0);
+    }
+    carry as u8
+}
+
+// ---------------------------------------------------------------------------
 // Order signing types
 // ---------------------------------------------------------------------------
 
@@ -691,6 +739,10 @@ pub fn sign_order(seed_phrase: &str, order: &PolymarketOrder, neg_risk: bool) ->
     let privkey = derive_evm_privkey(seed_phrase)?;
     let exchange = if neg_risk { NEG_RISK_CTF_EXCHANGE } else { CTF_EXCHANGE };
 
+    // Polymarket tokenIds are full uint256 — convert large decimals to hex
+    // so the EIP-712 encoder doesn't overflow on u128.
+    let token_id_hex = decimal_to_hex256(&order.token_id)?;
+
     let typed_data_json = serde_json::json!({
         "types": {
             "EIP712Domain": [
@@ -726,7 +778,7 @@ pub fn sign_order(seed_phrase: &str, order: &PolymarketOrder, neg_risk: bool) ->
             "maker": order.maker,
             "signer": order.signer,
             "taker": order.taker,
-            "tokenId": order.token_id,
+            "tokenId": token_id_hex,
             "makerAmount": order.maker_amount,
             "takerAmount": order.taker_amount,
             "expiration": order.expiration,

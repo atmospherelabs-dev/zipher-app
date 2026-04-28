@@ -624,6 +624,84 @@ pub async fn get_erc20_allowance(rpc_url: &str, token: &str, owner: &str, spende
 }
 
 // ---------------------------------------------------------------------------
+// ERC-1155 helpers
+// ---------------------------------------------------------------------------
+
+/// `isApprovedForAll(address,address)` — selector 0xe985e9c5
+pub async fn erc1155_is_approved_for_all(
+    rpc_url: &str,
+    owner: &str,
+    token_contract: &str,
+    operator: &str,
+) -> Result<bool> {
+    let owner_clean = owner.trim_start_matches("0x");
+    let op_clean = operator.trim_start_matches("0x");
+
+    let mut data = vec![0xe9, 0x85, 0xe9, 0xc5];
+    data.extend_from_slice(&[0u8; 12]);
+    data.extend_from_slice(&hex::decode(owner_clean).map_err(|e| anyhow!("bad owner: {e}"))?);
+    data.extend_from_slice(&[0u8; 12]);
+    data.extend_from_slice(&hex::decode(op_clean).map_err(|e| anyhow!("bad operator: {e}"))?);
+
+    let resp = rpc_call(
+        rpc_url,
+        "eth_call",
+        serde_json::json!([{
+            "to": token_contract,
+            "data": format!("0x{}", hex::encode(&data)),
+        }, "latest"]),
+    ).await?;
+
+    let hex_str = resp["result"].as_str().unwrap_or("0x0");
+    let val = parse_hex_u128(hex_str).unwrap_or(0);
+    Ok(val != 0)
+}
+
+/// `setApprovalForAll(address,bool)` — selector 0xa22cb465.
+/// Signs, broadcasts, and waits for receipt. Returns the tx hash.
+pub async fn erc1155_set_approval_for_all(
+    rpc_url: &str,
+    seed_phrase: &str,
+    owner: &str,
+    token_contract: &str,
+    operator: &str,
+    approved: bool,
+    chain_id: u64,
+    fees: &Eip1559Fees,
+) -> Result<String> {
+    let op_clean = operator.trim_start_matches("0x");
+
+    let mut calldata = vec![0xa2, 0x2c, 0xb4, 0x65];
+    calldata.extend_from_slice(&[0u8; 12]);
+    calldata.extend_from_slice(&hex::decode(op_clean).map_err(|e| anyhow!("bad operator: {e}"))?);
+    calldata.extend_from_slice(&[0u8; 31]);
+    calldata.push(if approved { 1 } else { 0 });
+
+    let nonce = get_nonce(rpc_url, owner).await?;
+    let gas = estimate_gas(rpc_url, owner, token_contract, &calldata, None)
+        .await
+        .unwrap_or(80_000);
+    let gas_with_buffer = gas + gas / 5;
+
+    let unsigned = build_unsigned_eip1559_tx(
+        chain_id,
+        nonce,
+        fees.max_priority_fee_per_gas,
+        fees.max_fee_per_gas,
+        gas_with_buffer,
+        token_contract,
+        &[],
+        &calldata,
+    );
+
+    let tx_hash = sign_and_broadcast(seed_phrase, &unsigned, rpc_url).await?;
+    info!("ERC-1155 setApprovalForAll tx: {}", tx_hash);
+
+    wait_for_receipt(rpc_url, &tx_hash, 120).await?;
+    Ok(tx_hash)
+}
+
+// ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
 

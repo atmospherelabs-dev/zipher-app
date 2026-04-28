@@ -144,6 +144,104 @@ pub async fn engine_get_wallet_synced_height() -> Result<u32> {
     engine::query::get_synced_height().await
 }
 
+// ---------------------------------------------------------------------------
+// EVM queries (all via reqwest — bypasses Dart HTTP issues on iOS)
+// ---------------------------------------------------------------------------
+
+/// Native balance in raw wei as decimal string.
+pub async fn engine_get_native_balance(rpc_url: String, address: String) -> Result<String> {
+    let raw = engine::evm::get_native_balance(&rpc_url, &address).await?;
+    Ok(raw.to_string())
+}
+
+/// ERC-20 balance in raw token units as decimal string.
+pub async fn engine_get_erc20_balance(
+    rpc_url: String,
+    token_contract: String,
+    owner_address: String,
+) -> Result<String> {
+    let raw = engine::evm::get_erc20_balance(&rpc_url, &token_contract, &owner_address).await?;
+    Ok(raw.to_string())
+}
+
+/// Pending nonce for an address.
+pub async fn engine_get_nonce(rpc_url: String, address: String) -> Result<u64> {
+    engine::evm::get_nonce(&rpc_url, &address).await
+}
+
+/// Suggested EIP-1559 gas fees. Returns (maxPriorityFeePerGas, maxFeePerGas) in wei.
+pub async fn engine_suggest_eip1559_fees(
+    rpc_url: String,
+    chain_id: u64,
+) -> Result<EvmFees> {
+    let fees = engine::evm::suggest_eip1559_fees(&rpc_url, chain_id).await?;
+    Ok(EvmFees {
+        max_priority_fee_per_gas: fees.max_priority_fee_per_gas,
+        max_fee_per_gas: fees.max_fee_per_gas,
+    })
+}
+
+/// ERC-20 approve: sign + broadcast + wait. Returns tx hash.
+pub async fn engine_approve_erc20(
+    rpc_url: String,
+    seed_phrase: String,
+    owner_address: String,
+    token_address: String,
+    spender_address: String,
+    amount_raw: String,
+    chain_id: u64,
+) -> Result<String> {
+    let amount: u128 = amount_raw
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Invalid amount: {e}"))?;
+    let fees = engine::evm::suggest_eip1559_fees(&rpc_url, chain_id).await?;
+    engine::evm::approve_erc20(
+        &rpc_url, &seed_phrase, &owner_address, &token_address,
+        &spender_address, amount, chain_id, &fees,
+    ).await
+}
+
+/// Wait for a tx receipt. Returns (success, block_number).
+pub async fn engine_wait_for_receipt(
+    rpc_url: String,
+    tx_hash: String,
+) -> Result<EvmReceipt> {
+    let r = engine::evm::wait_for_receipt(&rpc_url, &tx_hash, 90).await?;
+    Ok(EvmReceipt {
+        success: r.status,
+        block_number: r.block_number,
+        gas_used: r.gas_used,
+        tx_hash: r.tx_hash,
+    })
+}
+
+/// ERC-1155 isApprovedForAll check.
+pub async fn engine_erc1155_is_approved_for_all(
+    rpc_url: String,
+    owner: String,
+    token_contract: String,
+    operator: String,
+) -> Result<bool> {
+    engine::evm::erc1155_is_approved_for_all(&rpc_url, &owner, &token_contract, &operator).await
+}
+
+/// ERC-1155 setApprovalForAll: sign + broadcast + wait. Returns tx hash.
+pub async fn engine_erc1155_set_approval_for_all(
+    rpc_url: String,
+    seed_phrase: String,
+    owner_address: String,
+    token_contract: String,
+    operator: String,
+    approved: bool,
+    chain_id: u64,
+) -> Result<String> {
+    let fees = engine::evm::suggest_eip1559_fees(&rpc_url, chain_id).await?;
+    engine::evm::erc1155_set_approval_for_all(
+        &rpc_url, &seed_phrase, &owner_address, &token_contract,
+        &operator, approved, chain_id, &fees,
+    ).await
+}
+
 pub async fn engine_has_spending_key() -> Result<bool> {
     engine::query::has_spending_key().await
 }
@@ -593,6 +691,22 @@ pub async fn engine_polymarket_discover(
 pub async fn engine_polymarket_get_positions(address: String) -> Result<String> {
     let positions = zipher_engine::polymarket::polymarket_get_positions(&address).await?;
     Ok(serde_json::to_string(&positions)?)
+}
+
+// ---------------------------------------------------------------------------
+// EVM shared types
+// ---------------------------------------------------------------------------
+
+pub struct EvmFees {
+    pub max_priority_fee_per_gas: u64,
+    pub max_fee_per_gas: u64,
+}
+
+pub struct EvmReceipt {
+    pub success: bool,
+    pub block_number: u64,
+    pub gas_used: u64,
+    pub tx_hash: String,
 }
 
 // ---------------------------------------------------------------------------

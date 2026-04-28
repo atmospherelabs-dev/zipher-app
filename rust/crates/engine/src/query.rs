@@ -102,9 +102,13 @@ pub async fn get_wallet_balance() -> Result<WalletBalance> {
 
     let db = open_wallet_db(&engine.db_data_path, engine.params, &engine.db_cipher_key)?;
 
-    let summary = db
-        .get_wallet_summary(ConfirmationsPolicy::MIN)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+    // catch_unwind guards against a known zcash_client_sqlite panic in
+    // subtree_scan_progress on freshly created wallets with no scanned blocks.
+    let summary = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        db.get_wallet_summary(ConfirmationsPolicy::MIN)
+    }))
+    .map_err(|_| anyhow::anyhow!("wallet summary not yet available (scan progress panic)"))?
+    .map_err(|e| anyhow::anyhow!("{:?}", e))?;
 
     // IMPORTANT: do NOT silently return all-zero balances here. Returning
     // `Ok(WalletBalance::default())` from any of these "no data yet" branches
@@ -164,9 +168,12 @@ pub async fn get_synced_height() -> Result<u32> {
 
     let db = open_wallet_db(&engine.db_data_path, engine.params, &engine.db_cipher_key)?;
 
-    let summary = db
-        .get_wallet_summary(ConfirmationsPolicy::default())
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+    let summary = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        db.get_wallet_summary(ConfirmationsPolicy::default())
+    }))
+    .ok()
+    .and_then(|r| r.ok())
+    .flatten();
 
     if let Some(s) = summary {
         Ok(u32::from(s.fully_scanned_height()))
