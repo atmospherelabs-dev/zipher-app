@@ -38,9 +38,11 @@ jobs:
           echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
           echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
           security import "$CERTIFICATE_PATH" -P $KEY_PASSWORD -A -t cert -f pkcs12 -k $HOME/build.keychain
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k R5qx5GGokNBm $HOME/build.keychain
           security list-keychain -d user -s $HOME/build.keychain
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$(/usr/bin/security cms -D -i "$PROFILE_PATH")")
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision"
       - name: Build flutter
         run: |
           export PATH=$PATH:$HOME/flutter/bin
@@ -48,7 +50,7 @@ jobs:
           flutter precache --ios
           flutter pub get
           dart run build_runner build -d
-          flutter build ipa
+          flutter build ipa --export-options-plist=ios/ExportOptions.plist
       - name: Upload xcarchive
         uses: actions/upload-artifact@v4
         with:
