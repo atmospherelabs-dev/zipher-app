@@ -101,7 +101,7 @@ class PolymarketClient {
     String path,
     String body,
   ) {
-    final timestamp = (DateTime.now().millisecondsSinceEpoch / 1000).toString();
+    final timestamp = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
     final message = '$timestamp$method$path$body';
 
     final secretBytes = base64.decode(creds['secret'] ?? '');
