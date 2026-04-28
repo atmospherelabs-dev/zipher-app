@@ -22,7 +22,7 @@ jobs:
           mkdir -p $HOME/.zcash-params
           curl https://download.z.cash/downloads/sapling-output.params --output $HOME/.zcash-params/sapling-output.params
           curl https://download.z.cash/downloads/sapling-spend.params --output $HOME/.zcash-params/sapling-spend.params
-          ln -s $HOME/.zcash-params/* assets/
+          ln -sf $HOME/.zcash-params/* assets/
       - name: Install the Apple certificate and provisioning profile
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
