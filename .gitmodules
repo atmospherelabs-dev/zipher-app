@@ -1,0 +1,3 @@
+[submodule "ows-core"]
+	path = ows-core
+	url = https://github.com/Kenbak/core.git

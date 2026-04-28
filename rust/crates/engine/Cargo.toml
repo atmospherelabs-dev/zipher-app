@@ -42,7 +42,7 @@ rustls = { version = "0.23", features = ["ring"] }
 reqwest = { version = "0.13", features = ["json"] }
 
 # EVM signing (OWS signer — no tonic/prost, just crypto)
-ows-signer = { path = "../../../../ows-core/ows/crates/ows-signer", version = "=1.0.0" }
+ows-signer = { path = "../../../ows-core/ows/crates/ows-signer", version = "=1.0.0" }
 
 # On-device LLM inference (candle — pure Rust, no C++ needed)
 candle-core = "0.10"
