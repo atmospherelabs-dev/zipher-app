@@ -349,6 +349,7 @@ async fn sync_forever(
 ) -> Result<()> {
     let mut backoff_ms: u64 = 5_000;
     const MAX_BACKOFF_MS: u64 = 60_000;
+    let mut consecutive_failures: u32 = 0;
 
     loop {
         check_cancel()?;
@@ -360,6 +361,7 @@ async fn sync_forever(
                     p.connection_error = None;
                 }
                 backoff_ms = 5_000;
+                consecutive_failures = 0;
 
                 for _ in 0..30 {
                     if SYNC_CANCEL.load(Ordering::SeqCst) {
@@ -373,8 +375,12 @@ async fn sync_forever(
                     return Err(e);
                 }
 
-                tracing::warn!("[sync] error, retrying in {}ms: {:?}", backoff_ms, e);
-                {
+                consecutive_failures += 1;
+                tracing::warn!("[sync] error (attempt {}), retrying in {}ms: {:?}", consecutive_failures, backoff_ms, e);
+
+                // Only surface the error to UI after 2+ consecutive failures
+                // to avoid flashing "connection lost" on transient hiccups
+                if consecutive_failures >= 2 {
                     let mut p = SYNC_PROGRESS.lock().await;
                     p.connection_error = Some(format!("{:?}", e));
                 }

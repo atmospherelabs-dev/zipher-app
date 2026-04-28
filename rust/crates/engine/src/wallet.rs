@@ -21,7 +21,11 @@ pub(crate) async fn connect_lwd(
     let tls = tonic::transport::ClientTlsConfig::new()
         .with_webpki_roots();
     let endpoint = tonic::transport::Channel::from_shared(server_url.to_string())?
-        .tls_config(tls)?;
+        .tls_config(tls)?
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(120))
+        .keep_alive_timeout(std::time::Duration::from_secs(20))
+        .http2_keep_alive_interval(std::time::Duration::from_secs(30));
     let channel = endpoint.connect().await?;
     Ok(CompactTxStreamerClient::new(channel))
 }
