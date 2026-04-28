@@ -28,7 +28,8 @@
   },
   "files": [
     "bin/",
-    "install.js"
+    "install.js",
+    "mcp.json"
   ],
   "engines": {
     "node": ">=16"

@@ -1,0 +1,76 @@
+{
+  "name": "zipher-mcp-server",
+  "title": "Zipher — Shielded Wallet for AI Agents",
+  "version": "0.2.0",
+  "description": "Headless Zcash wallet with encrypted vault, spending policies, and x402 paywall access",
+  "homepage": "https://zipher.app",
+  "repository": "https://github.com/atmospherelabs-dev/zipher-app",
+  "transport": "stdio",
+  "install": {
+    "npm": "npm install -g @cipherpay/zipher-cli",
+    "setup": "zipher wallet init"
+  },
+  "config": {
+    "command": "zipher-mcp-server"
+  },
+  "tools": [
+    {
+      "name": "wallet_status",
+      "description": "Get wallet balance, sync height, seed source, and lock state"
+    },
+    {
+      "name": "wallet_lock",
+      "description": "Clear seed from memory — wallet becomes read-only until unlocked"
+    },
+    {
+      "name": "wallet_unlock",
+      "description": "Re-decrypt seed from vault and restore wallet operations"
+    },
+    {
+      "name": "propose_send",
+      "description": "Create a shielded ZEC transaction proposal (policy-checked, not yet signed)"
+    },
+    {
+      "name": "confirm_send",
+      "description": "Sign and broadcast a proposed transaction"
+    },
+    {
+      "name": "approve_send",
+      "description": "Approve a transaction flagged for human-in-the-loop review"
+    },
+    {
+      "name": "get_pending_approval",
+      "description": "Check if a transaction is awaiting human approval"
+    },
+    {
+      "name": "pay_url",
+      "description": "Pay an x402/MPP paywall — auto-detects protocol, pays, returns response"
+    },
+    {
+      "name": "session_open",
+      "description": "Open a prepaid session with a CipherPay-enabled API"
+    },
+    {
+      "name": "session_request",
+      "description": "Make a request using an active prepaid session"
+    },
+    {
+      "name": "swap_quote",
+      "description": "Get a cross-chain swap quote (ZEC to any asset via Near Intents)"
+    },
+    {
+      "name": "swap_execute",
+      "description": "Execute a cross-chain swap"
+    },
+    {
+      "name": "get_policy",
+      "description": "View current spending policy limits"
+    },
+    {
+      "name": "set_policy",
+      "description": "Update spending policy (per-tx limit, daily cap, approval threshold, allowlist)"
+    }
+  ],
+  "platforms": ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"],
+  "license": "MIT"
+}

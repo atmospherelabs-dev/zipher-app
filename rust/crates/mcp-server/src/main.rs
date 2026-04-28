@@ -1446,7 +1446,15 @@ impl ZipherMcpServer {
 #[tool_handler]
 impl ServerHandler for ZipherMcpServer {
     fn get_info(&self) -> ServerInfo {
+        let mut info = rmcp::model::Implementation::from_build_env();
+        info.name = "zipher-mcp-server".into();
+        info.version = env!("CARGO_PKG_VERSION").into();
+        info.title = Some("Zipher — Shielded Wallet for AI Agents".into());
+        info.description = Some("Headless Zcash wallet with encrypted vault, spending policies, and x402 paywall access".into());
+        info.website_url = Some("https://zipher.app".into());
+
         ServerInfo::default()
+            .with_server_info(info)
             .with_instructions(
                 "Zipher: headless Zcash wallet + multi-chain agent toolkit for AI. \
                  Seed is secured in an encrypted vault (OWS or Zipher) — never pass it as a tool argument. \
