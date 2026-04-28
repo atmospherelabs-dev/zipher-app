@@ -124,13 +124,14 @@ pub fn query_log(
     Ok(entries)
 }
 
-/// Sum of amounts from successful confirm_send actions in the last 24 hours.
+/// Sum of amounts from all successful spend actions in the last 24 hours.
 pub fn daily_spent(data_dir: &str) -> Result<u64> {
     let conn = open_audit_db(data_dir)?;
     let total: i64 = conn.query_row(
         "SELECT COALESCE(SUM(amount), 0) FROM audit_log
-         WHERE action = 'confirm_send'
+         WHERE action IN ('confirm_send', 'pay_url', 'pay_x402', 'swap_execute', 'session_open')
          AND error IS NULL
+         AND amount > 0
          AND timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 day')",
         [],
         |r| r.get(0),

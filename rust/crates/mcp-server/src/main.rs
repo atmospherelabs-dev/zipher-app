@@ -12,6 +12,47 @@ use tokio::sync::RwLock;
 use zcash_protocol::consensus::Network;
 
 // ---------------------------------------------------------------------------
+// Seed source tracking — used to re-decrypt on unlock
+// ---------------------------------------------------------------------------
+
+#[derive(Clone)]
+enum SeedSource {
+    ZipherVault { data_dir: String, passphrase: String },
+    OwsVault { wallet_name: String, passphrase: String },
+    EnvVar(SecretString),
+    None,
+}
+
+impl SeedSource {
+    fn label(&self) -> &'static str {
+        match self {
+            SeedSource::ZipherVault { .. } => "zipher-vault",
+            SeedSource::OwsVault { .. } => "ows-vault",
+            SeedSource::EnvVar(_) => "env-var",
+            SeedSource::None => "none",
+        }
+    }
+
+    fn decrypt(&self) -> Option<SecretString> {
+        match self {
+            SeedSource::ZipherVault { data_dir, passphrase } => {
+                zipher_engine::wallet::decrypt_vault(data_dir, passphrase).ok()
+            }
+            SeedSource::OwsVault { wallet_name, passphrase } => {
+                let exported = ows_lib::export_wallet(wallet_name, Some(passphrase), None).ok()?;
+                if exported.contains(' ') && !exported.starts_with('{') {
+                    Some(SecretString::new(exported))
+                } else {
+                    None
+                }
+            }
+            SeedSource::EnvVar(s) => Some(s.clone()),
+            SeedSource::None => None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Deterministic error codes (PRD Section 7)
 // ---------------------------------------------------------------------------
 
@@ -19,6 +60,7 @@ const SUCCESS: &str = "SUCCESS";
 const INSUFFICIENT_FUNDS: &str = "INSUFFICIENT_FUNDS";
 const SYNC_REQUIRED: &str = "SYNC_REQUIRED";
 const POLICY_EXCEEDED: &str = "POLICY_EXCEEDED";
+const APPROVAL_REQUIRED: &str = "APPROVAL_REQUIRED";
 const ADDRESS_NOT_ALLOWED: &str = "ADDRESS_NOT_ALLOWED";
 const WALLET_LOCKED: &str = "WALLET_LOCKED";
 const NETWORK_TIMEOUT: &str = "NETWORK_TIMEOUT";
@@ -28,7 +70,10 @@ const INTERNAL_ERROR: &str = "INTERNAL_ERROR";
 
 fn classify_error(e: &anyhow::Error) -> &'static str {
     let msg = format!("{:#}", e);
-    if msg.contains("POLICY_EXCEEDED") || msg.contains("APPROVAL_REQUIRED") || msg.contains("RATE_LIMITED") {
+    if msg.contains("APPROVAL_REQUIRED") {
+        return APPROVAL_REQUIRED;
+    }
+    if msg.contains("POLICY_EXCEEDED") || msg.contains("RATE_LIMITED") {
         return POLICY_EXCEEDED;
     }
     if msg.contains("ADDRESS_NOT_ALLOWED") { return ADDRESS_NOT_ALLOWED; }
@@ -81,6 +126,15 @@ fn err_code_response(code: &str, message: &str) -> String {
     .unwrap()
 }
 
+fn err_with_data<T: Serialize>(code: &str, message: &str, data: T) -> String {
+    serde_json::to_string_pretty(&ToolResponse {
+        error_code: code.to_string(),
+        message: Some(message.to_string()),
+        data: Some(data),
+    })
+    .unwrap()
+}
+
 // ---------------------------------------------------------------------------
 // Parameter structs for tools
 // ---------------------------------------------------------------------------
@@ -113,6 +167,14 @@ struct GetTransactionsParams {
 struct ValidateAddressParams {
     /// Zcash address to validate
     address: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct ApproveSendParams {
+    /// The approval ID returned by propose_send when APPROVAL_REQUIRED
+    approval_id: String,
+    /// Context identifier for audit trail
+    context_id: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -253,6 +315,7 @@ struct ZipherMcpServer {
     seed: Arc<RwLock<Option<SecretString>>>,
     locked: Arc<std::sync::atomic::AtomicBool>,
     network: Network,
+    seed_source: Arc<SeedSource>,
     tool_router: rmcp::handler::server::tool::ToolRouter<Self>,
 }
 
@@ -262,7 +325,7 @@ struct ZipherMcpServer {
 
 #[tool_router]
 impl ZipherMcpServer {
-    #[tool(description = "Get wallet status: sync height, balance, primary address, and policy summary")]
+    #[tool(description = "Get wallet status: sync height, balance, primary address, policy summary, and seed source")]
     async fn wallet_status(&self) -> String {
         #[derive(Serialize)]
         struct WalletStatus {
@@ -273,6 +336,7 @@ impl ZipherMcpServer {
             address: Option<String>,
             policy: zipher_engine::policy::SpendingPolicy,
             locked: bool,
+            seed_source: String,
         }
 
         let progress = zipher_engine::sync::get_progress().await;
@@ -294,7 +358,49 @@ impl ZipherMcpServer {
             address,
             policy,
             locked: self.locked.load(std::sync::atomic::Ordering::SeqCst),
+            seed_source: self.seed_source.label().to_string(),
         })
+    }
+
+    #[tool(description = "Lock the wallet — clears the seed from memory. All signing operations will fail until unlocked. Read-only tools (balance, status, transactions) still work.")]
+    async fn wallet_lock(&self) -> String {
+        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
+            return err_code_response(WALLET_LOCKED, "Wallet is already locked.");
+        }
+
+        self.locked.store(true, std::sync::atomic::Ordering::SeqCst);
+        {
+            let mut seed_guard = self.seed.write().await;
+            *seed_guard = None;
+        }
+
+        tracing::info!("Wallet locked — seed cleared from memory");
+        ok_response(serde_json::json!({ "locked": true }))
+    }
+
+    #[tool(description = "Unlock the wallet — re-decrypts the seed from its vault. Only the operator should call this.")]
+    async fn wallet_unlock(&self) -> String {
+        if !self.locked.load(std::sync::atomic::Ordering::SeqCst) {
+            return err_code_response(SUCCESS, "Wallet is already unlocked.");
+        }
+
+        match self.seed_source.decrypt() {
+            Some(seed) => {
+                {
+                    let mut seed_guard = self.seed.write().await;
+                    *seed_guard = Some(seed);
+                }
+                self.locked.store(false, std::sync::atomic::Ordering::SeqCst);
+                tracing::info!("Wallet unlocked — seed restored from {}", self.seed_source.label());
+                ok_response(serde_json::json!({ "locked": false, "source": self.seed_source.label() }))
+            }
+            None => {
+                err_code_response(
+                    INTERNAL_ERROR,
+                    "Failed to re-decrypt seed from vault. Check vault passphrase.",
+                )
+            }
+        }
     }
 
     #[tool(description = "Get pool-specific wallet balance (shielded orchard, shielded sapling, transparent, unconfirmed)")]
@@ -313,6 +419,48 @@ impl ZipherMcpServer {
         if let Err(violation) = zipher_engine::policy::check_proposal(
             &policy, &params.address, params.amount, &params.context_id, daily_spent,
         ) {
+            // Approval threshold triggers HITL flow instead of hard deny
+            if let zipher_engine::policy::PolicyViolation::ApprovalRequired { amount, threshold } = &violation {
+                let approval_id = zipher_engine::policy::store_pending_approval(
+                    &params.address,
+                    params.amount,
+                    params.memo.clone(),
+                    params.context_id.clone(),
+                );
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "propose_send", Some(&params.address),
+                    Some(params.amount), None, params.context_id.as_deref(),
+                    None, Some(&format!("APPROVAL_REQUIRED: stored as {}", approval_id)),
+                ).ok();
+
+                #[derive(Serialize)]
+                struct ApprovalInfo {
+                    approval_id: String,
+                    address: String,
+                    amount: u64,
+                    amount_zec: f64,
+                    threshold: u64,
+                    expires_in_secs: u64,
+                }
+
+                return err_with_data(
+                    APPROVAL_REQUIRED,
+                    &format!(
+                        "Amount {} exceeds approval threshold {}. \
+                         Operator must call approve_send with approval_id to proceed.",
+                        amount, threshold,
+                    ),
+                    ApprovalInfo {
+                        approval_id,
+                        address: params.address,
+                        amount: *amount,
+                        amount_zec: *amount as f64 / 1e8,
+                        threshold: *threshold,
+                        expires_in_secs: 300,
+                    },
+                );
+            }
+
             zipher_engine::audit::log_event(
                 &self.data_dir, "propose_send", Some(&params.address),
                 Some(params.amount), None, params.context_id.as_deref(),
@@ -374,7 +522,7 @@ impl ZipherMcpServer {
         let seed_str = match seed_guard.as_ref() {
             Some(s) => s.clone(),
             None => {
-                return err_code_response(WALLET_LOCKED, "No seed available. Set ZIPHER_SEED before starting the server.");
+                return err_code_response(WALLET_LOCKED, "No seed available. Run `zipher wallet init` to create an encrypted vault, or unlock with wallet_unlock.");
             }
         };
         drop(seed_guard);
@@ -410,6 +558,94 @@ impl ZipherMcpServer {
                 ).ok();
                 err_response(&e)
             }
+        }
+    }
+
+    #[tool(description = "Approve a pending send that exceeded the approval threshold (operator-only). Takes the approval_id from the APPROVAL_REQUIRED response, creates the proposal, signs, and broadcasts.")]
+    async fn approve_send(&self, Parameters(params): Parameters<ApproveSendParams>) -> String {
+        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
+            return err_code_response(WALLET_LOCKED, "Wallet is locked. Ask the operator to unlock.");
+        }
+
+        let seed_guard = self.seed.read().await;
+        let seed_str = match seed_guard.as_ref() {
+            Some(s) => s.clone(),
+            None => {
+                return err_code_response(WALLET_LOCKED, "No seed available. Run `zipher wallet init` to create an encrypted vault, or unlock with wallet_unlock.");
+            }
+        };
+        drop(seed_guard);
+
+        let pending = match zipher_engine::policy::take_pending_approval(&params.approval_id) {
+            Some(p) => p,
+            None => {
+                return err_code_response(
+                    INVALID_PROPOSAL,
+                    "No pending approval with that ID, or it has expired (5 min TTL).",
+                );
+            }
+        };
+
+        let context_id = params.context_id.or(pending.context_id);
+
+        match zipher_engine::send::propose_send(
+            &pending.address, pending.amount, pending.memo, false,
+        ).await {
+            Ok((send_amount, fee, _)) => {
+                match zipher_engine::send::confirm_send(&seed_str).await {
+                    Ok(txid) => {
+                        zipher_engine::policy::record_confirm();
+                        zipher_engine::audit::log_event(
+                            &self.data_dir, "approve_send", Some(&pending.address),
+                            Some(send_amount), Some(fee), context_id.as_deref(),
+                            Some(&txid), None,
+                        ).ok();
+
+                        #[derive(Serialize)]
+                        struct ApprovedResult {
+                            txid: String,
+                            address: String,
+                            send_amount: u64,
+                            fee: u64,
+                            send_amount_zec: f64,
+                            approval_id: String,
+                        }
+
+                        ok_response(ApprovedResult {
+                            txid,
+                            address: pending.address,
+                            send_amount,
+                            fee,
+                            send_amount_zec: send_amount as f64 / 1e8,
+                            approval_id: params.approval_id,
+                        })
+                    }
+                    Err(e) => {
+                        zipher_engine::audit::log_event(
+                            &self.data_dir, "approve_send", Some(&pending.address),
+                            Some(send_amount), Some(fee), context_id.as_deref(),
+                            None, Some(&format!("{:#}", e)),
+                        ).ok();
+                        err_response(&e)
+                    }
+                }
+            }
+            Err(e) => {
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "approve_send", Some(&pending.address),
+                    Some(pending.amount), None, context_id.as_deref(),
+                    None, Some(&format!("{:#}", e)),
+                ).ok();
+                err_response(&e)
+            }
+        }
+    }
+
+    #[tool(description = "Get the current pending approval awaiting operator review, if any. Returns approval details or null.")]
+    async fn get_pending_approval(&self) -> String {
+        match zipher_engine::policy::get_pending_approval() {
+            Some(p) => ok_response(p),
+            None => ok_response(serde_json::json!(null)),
         }
     }
 
@@ -1104,7 +1340,7 @@ impl ZipherMcpServer {
         let seed_str = match seed_guard.as_ref() {
             Some(s) => s.clone(),
             None => {
-                return err_code_response(WALLET_LOCKED, "No seed available. Set ZIPHER_SEED before starting the server.");
+                return err_code_response(WALLET_LOCKED, "No seed available. Run `zipher wallet init` to create an encrypted vault, or unlock with wallet_unlock.");
             }
         };
         drop(seed_guard);
@@ -1213,16 +1449,11 @@ impl ServerHandler for ZipherMcpServer {
         ServerInfo::default()
             .with_instructions(
                 "Zipher: headless Zcash wallet + multi-chain agent toolkit for AI. \
-                 Prediction market agent flow: \
-                 1) market_scan → find contestable markets ranked by uncertainty. \
-                 2) market_research → fetch news/analysis for a market topic via Firecrawl. \
-                 3) Read the research, estimate a probability (0.0-1.0) for the underpriced outcome. \
-                 4) market_analyze → get Kelly-sized bet recommendation based on your estimate. \
-                 5) market_quote → get trade calldata. \
-                 6) swap_execute → fund with ZEC via cross-chain swap. \
+                 Seed is secured in an encrypted vault (OWS or Zipher) — never pass it as a tool argument. \
+                 The operator can lock/unlock the wallet remotely via wallet_lock/wallet_unlock. \
                  Paid APIs: pay_url auto-detects x402/MPP, pays, returns response. \
                  Cross-chain: swap_execute converts ZEC to any asset via Near Intents. \
-                 Seed is held in server memory — never pass it as a tool argument."
+                 Prediction markets: market_scan → market_research → market_analyze → market_quote → swap_execute."
             )
     }
 }
@@ -1279,6 +1510,15 @@ async fn main() -> Result<()> {
         .with_target(false)
         .init();
 
+    // Process hardening: disable core dumps, block ptrace (prevents memory scraping)
+    let hardening = ows_signer::process_hardening::harden_process();
+    if hardening.core_dumps_disabled {
+        tracing::info!("Process hardened: core dumps disabled");
+    }
+    if hardening.ptrace_disabled {
+        tracing::info!("Process hardened: ptrace blocked");
+    }
+
     let testnet = std::env::var("ZIPHER_TESTNET").unwrap_or_default() == "1";
     let network = if testnet { Network::TestNetwork } else { Network::MainNetwork };
     let default_server = if testnet { DEFAULT_TESTNET_SERVER } else { DEFAULT_MAINNET_SERVER };
@@ -1292,9 +1532,10 @@ async fn main() -> Result<()> {
 
     std::fs::create_dir_all(&data_dir)?;
 
-    let seed = std::env::var("ZIPHER_SEED").ok().and_then(|s| {
-        if s.is_empty() { None } else { Some(SecretString::new(s)) }
-    });
+    // Seed resolution priority: OWS vault → Zipher vault (legacy) → ZIPHER_SEED env (deprecated)
+    let (seed, seed_source) = resolve_seed(&data_dir);
+
+    tracing::info!("Seed source: {}", seed_source.label());
 
     let db_path = std::path::PathBuf::from(&data_dir).join("zipher-data.sqlite");
     if db_path.exists() {
@@ -1312,6 +1553,7 @@ async fn main() -> Result<()> {
         seed: Arc::new(RwLock::new(seed)),
         locked: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         network,
+        seed_source: Arc::new(seed_source),
         tool_router: ZipherMcpServer::tool_router(),
     };
 
@@ -1326,4 +1568,61 @@ async fn main() -> Result<()> {
 
     tracing::info!("Zipher MCP server shut down");
     Ok(())
+}
+
+/// Resolve the seed phrase from the best available source.
+///
+/// Priority:
+/// 1. OWS encrypted vault (`~/.ows/wallets/`) — default for new installs
+/// 2. Zipher vault (`~/.zipher/<net>/vault.enc`) — legacy, still supported
+/// 3. `ZIPHER_SEED` env var — deprecated, cleared after read
+fn resolve_seed(data_dir: &str) -> (Option<SecretString>, SeedSource) {
+    // 1. OWS vault (primary — multi-chain ready)
+    let ows_wallet = std::env::var("OWS_WALLET").unwrap_or_else(|_| "default".to_string());
+    let ows_passphrase = std::env::var("OWS_PASSPHRASE").unwrap_or_default();
+    if let Ok(exported) = ows_lib::export_wallet(&ows_wallet, Some(&ows_passphrase), None) {
+        if exported.contains(' ') && !exported.starts_with('{') {
+            tracing::info!("Seed loaded from OWS vault (wallet: {})", ows_wallet);
+            let source = SeedSource::OwsVault {
+                wallet_name: ows_wallet,
+                passphrase: ows_passphrase,
+            };
+            return (Some(SecretString::new(exported)), source);
+        }
+    }
+
+    // 2. Zipher vault (legacy fallback)
+    if zipher_engine::vault::Vault::exists(data_dir) {
+        let passphrase = std::env::var("ZIPHER_VAULT_PASS").unwrap_or_default();
+        match zipher_engine::wallet::decrypt_vault(data_dir, &passphrase) {
+            Ok(seed) => {
+                tracing::info!("Seed loaded from zipher vault (legacy)");
+                let source = SeedSource::ZipherVault {
+                    data_dir: data_dir.to_string(),
+                    passphrase,
+                };
+                return (Some(seed), source);
+            }
+            Err(e) => {
+                tracing::warn!("Zipher vault exists but decryption failed: {}", e);
+            }
+        }
+    }
+
+    // 3. ZIPHER_SEED env var (deprecated)
+    if let Ok(seed_val) = std::env::var("ZIPHER_SEED") {
+        if !seed_val.is_empty() {
+            tracing::warn!(
+                "Using ZIPHER_SEED env var (DEPRECATED). \
+                 Migrate to `zipher wallet init` for encrypted vault storage."
+            );
+            let secret = SecretString::new(seed_val);
+            let source = SeedSource::EnvVar(secret.clone());
+            ows_signer::process_hardening::clear_env_var("ZIPHER_SEED");
+            return (Some(secret), source);
+        }
+    }
+
+    tracing::warn!("No seed available. Signing tools will fail. Run `zipher wallet init` to create a vault.");
+    (None, SeedSource::None)
 }

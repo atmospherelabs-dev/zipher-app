@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const https = require("https");
@@ -8,13 +7,17 @@ const http = require("http");
 
 const REPO = "atmospherelabs-dev/zipher-app";
 const BIN_DIR = path.join(__dirname, "bin");
-const BIN_PATH = path.join(BIN_DIR, process.platform === "win32" ? "zipher-cli.exe" : "zipher-cli");
+
+const BINARIES = [
+  { name: "zipher-cli", prefix: "zipher-cli" },
+  { name: "zipher-mcp-server", prefix: "zipher-mcp-server" },
+];
 
 const PLATFORM_MAP = {
-  "darwin-arm64": "zipher-cli-darwin-arm64",
-  "darwin-x64": "zipher-cli-darwin-x64",
-  "linux-x64": "zipher-cli-linux-x64",
-  "linux-arm64": "zipher-cli-linux-arm64",
+  "darwin-arm64": "darwin-arm64",
+  "darwin-x64": "darwin-x64",
+  "linux-x64": "linux-x64",
+  "linux-arm64": "linux-arm64",
 };
 
 function getPlatformKey() {
@@ -22,8 +25,7 @@ function getPlatformKey() {
 }
 
 function getVersion() {
-  const pkg = require("./package.json");
-  return pkg.version;
+  return require("./package.json").version;
 }
 
 function downloadFile(url) {
@@ -34,7 +36,7 @@ function downloadFile(url) {
         return downloadFile(resp.headers.location).then(resolve, reject);
       }
       if (resp.statusCode !== 200) {
-        return reject(new Error(`Download failed: HTTP ${resp.statusCode} from ${url}`));
+        return reject(new Error(`HTTP ${resp.statusCode} from ${url}`));
       }
       const chunks = [];
       resp.on("data", (chunk) => chunks.push(chunk));
@@ -46,9 +48,9 @@ function downloadFile(url) {
 
 async function main() {
   const key = getPlatformKey();
-  const artifact = PLATFORM_MAP[key];
+  const suffix = PLATFORM_MAP[key];
 
-  if (!artifact) {
+  if (!suffix) {
     console.error(`Unsupported platform: ${key}`);
     console.error(`Supported: ${Object.keys(PLATFORM_MAP).join(", ")}`);
     process.exit(1);
@@ -56,29 +58,33 @@ async function main() {
 
   const version = getVersion();
   const tag = `cli-v${version}`;
-  const url = `https://github.com/${REPO}/releases/download/${tag}/${artifact}`;
 
-  console.log(`Downloading zipher-cli ${version} for ${key}...`);
-  console.log(`  ${url}`);
+  fs.mkdirSync(BIN_DIR, { recursive: true });
 
-  try {
-    const data = await downloadFile(url);
+  for (const bin of BINARIES) {
+    const artifact = `${bin.prefix}-${suffix}`;
+    const url = `https://github.com/${REPO}/releases/download/${tag}/${artifact}`;
+    const dest = path.join(BIN_DIR, bin.name);
 
-    fs.mkdirSync(BIN_DIR, { recursive: true });
-    fs.writeFileSync(BIN_PATH, data);
-    fs.chmodSync(BIN_PATH, 0o755);
+    console.log(`Downloading ${bin.name} ${version} for ${key}...`);
 
-    console.log(`Installed zipher-cli to ${BIN_PATH}`);
-  } catch (err) {
-    console.error(`Failed to download zipher-cli: ${err.message}`);
-    console.error("");
-    console.error("You can manually download from:");
-    console.error(`  https://github.com/${REPO}/releases`);
-    console.error("");
-    console.error("Or build from source:");
-    console.error("  cd rust && cargo build --release -p zipher-cli");
-    process.exit(1);
+    try {
+      const data = await downloadFile(url);
+      fs.writeFileSync(dest, data);
+      fs.chmodSync(dest, 0o755);
+      console.log(`  Installed ${bin.name}`);
+    } catch (err) {
+      if (bin.name === "zipher-cli") {
+        console.error(`Failed to download ${bin.name}: ${err.message}`);
+        console.error(`\nDownload manually: https://github.com/${REPO}/releases`);
+        console.error(`Or build from source: cargo build --release -p ${bin.name}`);
+        process.exit(1);
+      }
+      console.warn(`  Warning: ${bin.name} not available for this release (${err.message})`);
+    }
   }
+
+  console.log("\nSetup: zipher wallet init");
 }
 
 main();

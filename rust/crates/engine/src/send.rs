@@ -99,6 +99,8 @@ pub async fn propose_send(
     memo: Option<String>,
     is_max: bool,
 ) -> Result<(u64, u64, bool)> {
+    super::sync::ensure_synced().await?;
+
     let engine_guard = ENGINE.lock().await;
     let engine = engine_guard
         .as_ref()

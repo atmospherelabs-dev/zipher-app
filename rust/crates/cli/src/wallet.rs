@@ -36,6 +36,126 @@ pub async fn cmd_info(cfg: &Config) {
     });
 }
 
+pub async fn cmd_wallet_init(cfg: &Config) -> Result<()> {
+    ensure_data_dir(&cfg.data_dir)?;
+    ensure_sapling_params(&cfg.data_dir).await?;
+
+    let db_path = std::path::PathBuf::from(&cfg.data_dir).join("zipher-data.sqlite");
+    if db_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Wallet already exists in {}. Use `wallet delete --confirm` first.",
+            cfg.data_dir,
+        ));
+    }
+
+    let ows_wallet_name = std::env::var("OWS_WALLET").unwrap_or_else(|_| "default".to_string());
+    let ows_passphrase = std::env::var("OWS_PASSPHRASE").unwrap_or_default();
+
+    // Check if OWS vault already has a wallet with this name
+    let seed_phrase = if ows_lib::get_wallet(&ows_wallet_name, None).is_ok() {
+        eprintln!("OWS wallet '{}' already exists — reusing it.", ows_wallet_name);
+        let exported = ows_lib::export_wallet(&ows_wallet_name, Some(&ows_passphrase), None)
+            .map_err(|e| anyhow::anyhow!("Failed to export OWS wallet: {}", e))?;
+        if !exported.contains(' ') || exported.starts_with('{') {
+            return Err(anyhow::anyhow!(
+                "OWS wallet '{}' is a private-key wallet, not mnemonic. \
+                 Zcash requires a mnemonic wallet for ZIP-32 key derivation.",
+                ows_wallet_name,
+            ));
+        }
+        exported
+    } else {
+        let wallet_info = ows_lib::create_wallet(&ows_wallet_name, Some(24), Some(&ows_passphrase), None)
+            .map_err(|e| anyhow::anyhow!("Failed to create OWS wallet: {}", e))?;
+        eprintln!("Created OWS vault wallet '{}' (id: {})", ows_wallet_name, wallet_info.id);
+
+        ows_lib::export_wallet(&ows_wallet_name, Some(&ows_passphrase), None)
+            .map_err(|e| anyhow::anyhow!("Failed to export seed from new wallet: {}", e))?
+    };
+
+    let height = zipher_engine::wallet::fetch_latest_height(&cfg.server_url).await? as u32;
+
+    zipher_engine::wallet::restore(
+        &cfg.data_dir,
+        &cfg.server_url,
+        cfg.network,
+        &seed_phrase,
+        height,
+        None,
+        None, // no Zipher vault — seed lives in OWS vault
+    ).await?;
+
+    // Create default spending policy
+    let default_policy = zipher_engine::policy::SpendingPolicy {
+        max_per_tx: 1_000_000,        // 0.01 ZEC
+        daily_limit: 10_000_000,      // 0.1 ZEC
+        approval_threshold: 5_000_000, // 0.05 ZEC
+        require_context_id: false,
+        min_spend_interval_ms: 0,
+        allowlist: Vec::new(),
+    };
+    zipher_engine::policy::save_policy(&cfg.data_dir, &default_policy)?;
+
+    // Get the wallet address for the MCP config
+    let addresses = zipher_engine::query::get_addresses().await.unwrap_or_default();
+    let address = addresses.first().map(|a| a.address.clone()).unwrap_or_default();
+
+    zipher_engine::wallet::close().await;
+
+    let mcp_config = serde_json::json!({
+        "mcpServers": {
+            "zipher": {
+                "command": "zipher-mcp-server",
+            }
+        }
+    });
+
+    #[derive(Serialize)]
+    struct InitResult {
+        seed_phrase: String,
+        birthday: u32,
+        address: String,
+        data_dir: String,
+        ows_wallet: String,
+        policy: zipher_engine::policy::SpendingPolicy,
+        mcp_config: serde_json::Value,
+    }
+
+    let result = InitResult {
+        seed_phrase: seed_phrase.clone(),
+        birthday: height,
+        address: address.clone(),
+        data_dir: cfg.data_dir.clone(),
+        ows_wallet: ows_wallet_name.clone(),
+        policy: default_policy,
+        mcp_config: mcp_config.clone(),
+    };
+
+    print_ok(result, cfg.human, |r| {
+        println!("Wallet initialized.");
+        println!();
+        println!("  SEED PHRASE (back this up — shown only once):");
+        println!("  {}", r.seed_phrase);
+        println!();
+        println!("  Address:    {}", r.address);
+        println!("  Birthday:   {}", r.birthday);
+        println!("  Data dir:   {}", r.data_dir);
+        println!("  OWS wallet: {} (encrypted at ~/.ows/wallets/)", r.ows_wallet);
+        println!();
+        println!("  Default policy:");
+        println!("    max_per_tx:         {} ZAT ({:.4} ZEC)", r.policy.max_per_tx, r.policy.max_per_tx as f64 / 1e8);
+        println!("    daily_limit:        {} ZAT ({:.4} ZEC)", r.policy.daily_limit, r.policy.daily_limit as f64 / 1e8);
+        println!("    approval_threshold: {} ZAT ({:.4} ZEC)", r.policy.approval_threshold, r.policy.approval_threshold as f64 / 1e8);
+        println!("    Edit: {}/policy.toml", r.data_dir);
+        println!();
+        println!("  MCP config (add to Claude/Cursor settings):");
+        println!("  {}", serde_json::to_string_pretty(&r.mcp_config).unwrap());
+        println!();
+        println!("  Fund the wallet, then your AI agent can spend shielded ZEC.");
+    });
+    Ok(())
+}
+
 pub async fn cmd_wallet_create(cfg: &Config) -> Result<()> {
     ensure_data_dir(&cfg.data_dir)?;
     ensure_sapling_params(&cfg.data_dir).await?;

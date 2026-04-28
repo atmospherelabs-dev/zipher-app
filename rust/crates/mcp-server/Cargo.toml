@@ -1,6 +1,6 @@
 [package]
 name = "zipher-mcp-server"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -9,6 +9,8 @@ path = "src/main.rs"
 
 [dependencies]
 zipher-engine = { path = "../engine" }
+ows-lib = { path = "../../../../ows-core/ows/crates/ows-lib" }
+ows-signer = { path = "../../../../ows-core/ows/crates/ows-signer" }
 rmcp = { version = "1", features = ["server", "macros", "transport-io", "schemars"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

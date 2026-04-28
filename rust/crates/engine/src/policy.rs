@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -91,6 +91,91 @@ static LAST_CONFIRM: Mutex<Option<Instant>> = Mutex::new(None);
 
 pub fn record_confirm() {
     *LAST_CONFIRM.lock().unwrap() = Some(Instant::now());
+}
+
+// ---------------------------------------------------------------------------
+// Pending approval (HITL)
+// ---------------------------------------------------------------------------
+
+const APPROVAL_TTL: Duration = Duration::from_secs(300); // 5 minutes
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PendingApproval {
+    pub id: String,
+    pub address: String,
+    pub amount: u64,
+    pub memo: Option<String>,
+    pub context_id: Option<String>,
+    #[serde(skip)]
+    pub created_at: Instant,
+    /// Seconds remaining before this approval expires.
+    pub expires_in_secs: u64,
+}
+
+impl PendingApproval {
+    pub fn is_expired(&self) -> bool {
+        self.created_at.elapsed() > APPROVAL_TTL
+    }
+
+    pub fn remaining_secs(&self) -> u64 {
+        APPROVAL_TTL.as_secs().saturating_sub(self.created_at.elapsed().as_secs())
+    }
+}
+
+static PENDING_APPROVAL: Mutex<Option<PendingApproval>> = Mutex::new(None);
+
+/// Store a pending approval for a transaction that exceeded the approval threshold.
+/// Returns the generated approval ID.
+pub fn store_pending_approval(
+    address: &str,
+    amount: u64,
+    memo: Option<String>,
+    context_id: Option<String>,
+) -> String {
+    let id = format!("apr_{:08x}", rand::random::<u32>());
+    let pending = PendingApproval {
+        id: id.clone(),
+        address: address.to_string(),
+        amount,
+        memo,
+        context_id,
+        created_at: Instant::now(),
+        expires_in_secs: APPROVAL_TTL.as_secs(),
+    };
+    *PENDING_APPROVAL.lock().unwrap() = Some(pending);
+    id
+}
+
+/// Take a pending approval by ID (consuming it). Returns None if expired or wrong ID.
+pub fn take_pending_approval(approval_id: &str) -> Option<PendingApproval> {
+    let mut guard = PENDING_APPROVAL.lock().unwrap();
+    match guard.as_ref() {
+        Some(p) if p.id == approval_id && !p.is_expired() => guard.take(),
+        Some(p) if p.is_expired() => {
+            *guard = None;
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Peek at the current pending approval without consuming it.
+pub fn get_pending_approval() -> Option<PendingApproval> {
+    let guard = PENDING_APPROVAL.lock().unwrap();
+    match guard.as_ref() {
+        Some(p) if !p.is_expired() => {
+            let mut snapshot = p.clone();
+            snapshot.expires_in_secs = p.remaining_secs();
+            Some(snapshot)
+        }
+        Some(_) => None,
+        None => None,
+    }
+}
+
+/// Clear any pending approval (e.g. on policy change or manual cancel).
+pub fn clear_pending_approval() {
+    *PENDING_APPROVAL.lock().unwrap() = None;
 }
 
 // ---------------------------------------------------------------------------

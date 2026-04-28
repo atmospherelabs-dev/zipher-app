@@ -97,11 +97,24 @@ async fn download_and_verify(
 }
 
 // ---------------------------------------------------------------------------
-// Seed reading: Zipher vault -> OWS vault -> ZIPHER_SEED env -> stdin
+// Seed reading: OWS vault -> Zipher vault (legacy) -> ZIPHER_SEED env -> stdin
 // ---------------------------------------------------------------------------
 
 pub fn vault_passphrase() -> String {
     std::env::var("ZIPHER_VAULT_PASS").unwrap_or_default()
+}
+
+fn read_seed_from_ows() -> Option<SecretString> {
+    let ows_wallet = std::env::var("OWS_WALLET").unwrap_or_else(|_| "default".to_string());
+    let passphrase = std::env::var("OWS_PASSPHRASE").unwrap_or_default();
+
+    let exported = ows_lib::export_wallet(&ows_wallet, Some(&passphrase), None).ok()?;
+
+    if exported.contains(' ') && !exported.starts_with('{') {
+        Some(SecretString::new(exported))
+    } else {
+        None
+    }
 }
 
 pub fn read_seed_from_vault(data_dir: &str) -> Option<SecretString> {
@@ -118,35 +131,18 @@ pub fn read_seed_from_vault(data_dir: &str) -> Option<SecretString> {
     }
 }
 
-/// Read the seed directly from OWS's vault (`~/.ows/wallets/`).
-/// Calls `ows_lib::export_wallet` — no subprocess, no pipe, pure Rust.
-fn read_seed_from_ows() -> Option<SecretString> {
-    let ows_wallet = std::env::var("OWS_WALLET").unwrap_or_else(|_| "default".to_string());
-    let passphrase = std::env::var("OWS_PASSPHRASE").unwrap_or_default();
-
-    let exported = ows_lib::export_wallet(&ows_wallet, Some(&passphrase), None).ok()?;
-
-    // export_wallet returns either a mnemonic (space-separated words) or a JSON key pair.
-    // We only want mnemonics — key pairs can't derive Zcash keys via ZIP-32.
-    if exported.contains(' ') && !exported.starts_with('{') {
-        Some(SecretString::new(exported))
-    } else {
-        None
-    }
-}
-
 pub fn read_seed(data_dir: &str) -> Result<SecretString> {
-    // 1. Zipher's own vault
-    if let Some(seed) = read_seed_from_vault(data_dir) {
-        return Ok(seed);
-    }
-
-    // 2. OWS vault (same mnemonic, shared wallet)
+    // 1. OWS vault (primary — multi-chain ready)
     if let Some(seed) = read_seed_from_ows() {
         return Ok(seed);
     }
 
-    // 3. Explicit env var
+    // 2. Zipher vault (legacy)
+    if let Some(seed) = read_seed_from_vault(data_dir) {
+        return Ok(seed);
+    }
+
+    // 3. Explicit env var (deprecated)
     if let Ok(seed) = std::env::var("ZIPHER_SEED") {
         if !seed.is_empty() {
             return Ok(SecretString::new(seed));
@@ -161,7 +157,7 @@ pub fn read_seed(data_dir: &str) -> Result<SecretString> {
     let trimmed = line.trim().to_string();
     if trimmed.is_empty() {
         return Err(anyhow::anyhow!(
-            "No seed available. Create a wallet with `ows wallet create`, set ZIPHER_SEED, or pipe via stdin."
+            "No seed available. Run `zipher wallet init` or set ZIPHER_SEED."
         ));
     }
     Ok(SecretString::new(trimmed))

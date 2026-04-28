@@ -4,10 +4,10 @@ const { execFileSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
-const bin = path.join(__dirname, process.platform === "win32" ? "zipher-cli.exe" : "zipher-cli");
+const bin = path.join(__dirname, "zipher-mcp-server");
 
 if (!fs.existsSync(bin)) {
-  console.error("zipher-cli binary not found. Run: npm rebuild @cipherpay/zipher-cli");
+  console.error("zipher-mcp-server binary not found. Run: npm rebuild @cipherpay/zipher-cli");
   process.exit(1);
 }
 

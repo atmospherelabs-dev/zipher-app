@@ -138,6 +138,39 @@ pub async fn get_progress() -> SyncProgressInfo {
     SYNC_PROGRESS.lock().await.clone()
 }
 
+/// Maximum blocks behind tip before we consider the wallet "not synced enough to spend".
+const SYNC_TOLERANCE_BLOCKS: u32 = 3;
+
+/// Returns true if the wallet has completed at least one scan pass and is
+/// within [`SYNC_TOLERANCE_BLOCKS`] of the chain tip.
+pub async fn is_synced() -> bool {
+    let p = SYNC_PROGRESS.lock().await;
+    p.synced_height > 0
+        && p.latest_height > 0
+        && p.synced_height + SYNC_TOLERANCE_BLOCKS >= p.latest_height
+}
+
+/// Returns an error if the wallet is not synced close enough to the chain tip
+/// for safe spending. Callers should surface this as a `SYNC_REQUIRED` error.
+pub async fn ensure_synced() -> Result<()> {
+    let p = SYNC_PROGRESS.lock().await;
+    if p.synced_height == 0 || p.latest_height == 0 {
+        return Err(anyhow::anyhow!(
+            "Wallet not synced yet (synced: {}, tip: {}). Sync in progress.",
+            p.synced_height, p.latest_height
+        ));
+    }
+    if p.synced_height + SYNC_TOLERANCE_BLOCKS < p.latest_height {
+        return Err(anyhow::anyhow!(
+            "Wallet is {} blocks behind (synced: {}, tip: {}). Sync in progress.",
+            p.latest_height - p.synced_height,
+            p.synced_height,
+            p.latest_height
+        ));
+    }
+    Ok(())
+}
+
 pub async fn register_inactive_wallet(data_dir: &str) {
     let (db_data_path, db_cache_path) = super::db_paths(data_dir);
     let mut wallets = INACTIVE_WALLETS.lock().await;
@@ -563,12 +596,14 @@ async fn sync_once(
         keep_running = did_restart;
     }
 
-    let fsh = db_data
-        .get_wallet_summary(ConfirmationsPolicy::default())
-        .ok()
-        .flatten()
-        .map(|s| u32::from(s.fully_scanned_height()))
-        .unwrap_or(0);
+    let fsh = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        db_data.get_wallet_summary(ConfirmationsPolicy::default())
+    }))
+    .ok()
+    .and_then(|r| r.ok())
+    .flatten()
+    .map(|s| u32::from(s.fully_scanned_height()))
+    .unwrap_or(0);
     if fsh > 0 {
         let mut p = SYNC_PROGRESS.lock().await;
         p.synced_height = fsh;
