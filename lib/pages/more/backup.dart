@@ -21,7 +21,7 @@ class BackupPage extends StatefulWidget {
 
 class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   bool _showSpendingKeys = false;
-  bool _seedRevealed = false;
+  bool _seedWordsVisible = false;
   bool _skRevealed = false;
   bool _tskRevealed = false;
   bool _obscured = false;
@@ -130,7 +130,6 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Obscure content when app goes to background (screenshot/task switcher)
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
       setState(() => _obscured = true);
@@ -150,8 +149,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
           backgroundColor: ZipherColors.bg,
           elevation: 0,
           leading: IconButton(
-            icon: Icon(Icons.arrow_back_rounded,
-                color: ZipherColors.text60),
+            icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
             onPressed: () => GoRouter.of(context).pop(),
           ),
         ),
@@ -162,7 +160,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.error_outline_rounded,
-                    size: 40, color: ZipherColors.orange.withValues(alpha: 0.7)),
+                    size: 40,
+                    color: ZipherColors.orange.withValues(alpha: 0.7)),
                 const Gap(16),
                 Text(
                   _loadError!,
@@ -221,8 +220,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
+          icon:
+              Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
           onPressed: () => GoRouter.of(context).pop(),
         ),
       ),
@@ -234,8 +233,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.shield_rounded,
-                        size: 48,
-                        color: ZipherColors.cardBgElevated),
+                        size: 48, color: ZipherColors.cardBgElevated),
                     const Gap(16),
                     Text(
                       'Content hidden for security',
@@ -259,7 +257,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: ZipherColors.orange.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                      borderRadius:
+                          BorderRadius.circular(ZipherRadius.lg),
                       border: Border.all(
                         color:
                             ZipherColors.orange.withValues(alpha: 0.15),
@@ -293,10 +292,13 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: ZipherColors.orange.withValues(alpha: 0.06),
-                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                        color:
+                            ZipherColors.orange.withValues(alpha: 0.06),
+                        borderRadius:
+                            BorderRadius.circular(ZipherRadius.lg),
                         border: Border.all(
-                          color: ZipherColors.orange.withValues(alpha: 0.12),
+                          color: ZipherColors.orange
+                              .withValues(alpha: 0.12),
                         ),
                       ),
                       child: Row(
@@ -325,137 +327,53 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
 
                   const Gap(20),
 
-                  // ═══════════════════════════════════
-                  // WALLET INFO
-                  // ═══════════════════════════════════
+                  // Wallet info card
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: ZipherColors.cardBg,
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                      border: Border.all(
-                        color: ZipherColors.borderSubtle,
-                      ),
+                      borderRadius:
+                          BorderRadius.circular(ZipherRadius.lg),
+                      border:
+                          Border.all(color: ZipherColors.borderSubtle),
                     ),
                     child: Column(
                       children: [
-                        Row(
-                          children: [
-                            Icon(Icons.account_circle_outlined,
-                                size: 15,
-                                color:
-                                    ZipherColors.text20),
-                            const Gap(8),
-                            Text(
-                              'Account',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color:
-                                    ZipherColors.text40,
-                              ),
-                            ),
-                            const Spacer(),
-                            Text(
-                              '${backup.name ?? 'Unknown'} (#${backup.index})',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color:
-                                    ZipherColors.text60,
-                              ),
-                            ),
-                          ],
+                        _infoRow(
+                          Icons.account_circle_outlined,
+                          'Account',
+                          '${backup.name ?? 'Unknown'} (#${backup.index})',
                         ),
-                        Padding(
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 8),
-                          child: Divider(
-                            height: 1,
-                            color: ZipherColors.cardBg,
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            Icon(Icons.backup_rounded,
-                                size: 15,
-                                color:
-                                    ZipherColors.text20),
-                            const Gap(8),
-                            Text(
-                              'Backup saved',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color:
-                                    ZipherColors.text40,
-                              ),
-                            ),
-                            const Spacer(),
-                            Text(
-                              backup.saved ? 'Yes' : 'No',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                color: backup.saved
-                                    ? ZipherColors.green
-                                        .withValues(alpha: 0.6)
-                                    : ZipherColors.orange
-                                        .withValues(alpha: 0.9),
-                              ),
-                            ),
-                          ],
+                        _divider(),
+                        _infoRow(
+                          Icons.backup_rounded,
+                          'Backup saved',
+                          backup.saved ? 'Yes' : 'No',
+                          valueColor: backup.saved
+                              ? ZipherColors.green
+                                  .withValues(alpha: 0.6)
+                              : ZipherColors.orange
+                                  .withValues(alpha: 0.9),
                         ),
                         if (_birthdayHeight != null) ...[
-                          Padding(
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 8),
-                            child: Divider(
-                              height: 1,
-                              color:
-                                  ZipherColors.cardBg,
-                            ),
-                          ),
-                          Row(
-                            children: [
-                              Icon(Icons.cake_outlined,
-                                  size: 15,
-                                  color: Colors.white
-                                      .withValues(alpha: 0.25)),
-                              const Gap(8),
-                              Text(
-                                'Birthday',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.white
-                                      .withValues(alpha: 0.3),
-                                ),
-                              ),
-                              const Spacer(),
-                              Text(
-                                'Block $_birthdayHeight',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.white
-                                      .withValues(alpha: 0.5),
-                                ),
-                              ),
-                            ],
+                          _divider(),
+                          _infoRow(
+                            Icons.cake_outlined,
+                            'Birthday',
+                            'Block $_birthdayHeight',
                           ),
                         ],
                       ],
                     ),
                   ),
 
-                  // ═══════════════════════════════════
-                  // SEED COVERAGE
-                  // ═══════════════════════════════════
+                  // Seed coverage
                   if (_allWallets.length > 1) ...[
                     const Gap(20),
                     _sectionHeader(
                       'Seed Coverage',
                       'Which accounts each seed phrase covers',
                       Icons.account_tree_rounded,
-                      ZipherColors.purple,
                     ),
                     const Gap(12),
                     ..._allWallets.map((w) {
@@ -469,12 +387,15 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
                             color: isCurrent
-                                ? ZipherColors.cyan.withValues(alpha: 0.04)
+                                ? ZipherColors.cyan
+                                    .withValues(alpha: 0.04)
                                 : ZipherColors.cardBg,
-                            borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                            borderRadius: BorderRadius.circular(
+                                ZipherRadius.lg),
                             border: Border.all(
                               color: isCurrent
-                                  ? ZipherColors.cyan.withValues(alpha: 0.12)
+                                  ? ZipherColors.cyan
+                                      .withValues(alpha: 0.12)
                                   : ZipherColors.borderSubtle,
                             ),
                           ),
@@ -484,13 +405,15 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                                 Icons.key_rounded,
                                 size: 14,
                                 color: isCurrent
-                                    ? ZipherColors.cyan.withValues(alpha: 0.6)
+                                    ? ZipherColors.cyan
+                                        .withValues(alpha: 0.6)
                                     : ZipherColors.text20,
                               ),
                               const Gap(10),
                               Expanded(
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
                                   children: [
                                     Row(
                                       children: [
@@ -499,26 +422,35 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                                           style: TextStyle(
                                             fontSize: 13,
                                             fontWeight: FontWeight.w600,
-                                            color: ZipherColors.text60,
+                                            color:
+                                                ZipherColors.text60,
                                           ),
                                         ),
                                         if (isCurrent) ...[
                                           const Gap(6),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 5, vertical: 1),
+                                            padding: const EdgeInsets
+                                                .symmetric(
+                                                horizontal: 5,
+                                                vertical: 1),
                                             decoration: BoxDecoration(
                                               color: ZipherColors.cyan
-                                                  .withValues(alpha: 0.08),
-                                              borderRadius: BorderRadius.circular(4),
+                                                  .withValues(
+                                                      alpha: 0.08),
+                                              borderRadius:
+                                                  BorderRadius
+                                                      .circular(4),
                                             ),
                                             child: Text(
                                               'viewing',
                                               style: TextStyle(
                                                 fontSize: 9,
-                                                fontWeight: FontWeight.w600,
-                                                color: ZipherColors.cyan
-                                                    .withValues(alpha: 0.7),
+                                                fontWeight:
+                                                    FontWeight.w600,
+                                                color: ZipherColors
+                                                    .cyan
+                                                    .withValues(
+                                                        alpha: 0.7),
                                               ),
                                             ),
                                           ),
@@ -545,14 +477,11 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
 
                   const Gap(24),
 
-                  // ═══════════════════════════════════
-                  // VIEWING KEYS (safe, always visible)
-                  // ═══════════════════════════════════
+                  // Viewing keys
                   _sectionHeader(
                     'Viewing Keys',
-                    'Read-only access — safe to share for auditing',
+                    'Read-only access \u2014 safe to share for auditing',
                     Icons.visibility_rounded,
-                    ZipherColors.cyan,
                   ),
                   const Gap(12),
 
@@ -562,7 +491,6 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       description:
                           'Can view all transactions across all pools. Cannot spend funds.',
                       value: backup.uvk!,
-                      accentColor: ZipherColors.purple,
                       icon: Icons.visibility_rounded,
                       alwaysVisible: true,
                       onShowQR: () => _showQR(context, backup.uvk!,
@@ -576,7 +504,6 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       description:
                           'Can view shielded (Sapling) transactions only. Cannot spend.',
                       value: backup.fvk!,
-                      accentColor: ZipherColors.cyan,
                       icon: Icons.visibility_outlined,
                       alwaysVisible: true,
                       onShowQR: () => _showQR(context, backup.fvk!,
@@ -590,17 +517,16 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
                         color: ZipherColors.cardBg,
-                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                        borderRadius:
+                            BorderRadius.circular(ZipherRadius.lg),
                         border: Border.all(
-                          color: ZipherColors.borderSubtle,
-                        ),
+                            color: ZipherColors.borderSubtle),
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Icon(Icons.info_outline_rounded,
-                              size: 18,
-                              color: ZipherColors.text40),
+                              size: 18, color: ZipherColors.text40),
                           const Gap(10),
                           Expanded(
                             child: Text(
@@ -620,22 +546,19 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
 
                   const Gap(28),
 
-                  // ═══════════════════════════════════
-                  // SPENDING KEYS (dangerous, hidden)
-                  // ═══════════════════════════════════
+                  // Spending keys
                   if (_hasSpendingKeys(backup)) ...[
                     GestureDetector(
                       onTap: () => setState(
                           () => _showSpendingKeys = !_showSpendingKeys),
                       child: _sectionHeader(
                         'Spending Keys',
-                        'Full control — never share these',
+                        'Full control \u2014 never share these',
                         Icons.lock_rounded,
-                        ZipherColors.orange,
                         trailing: Icon(
                           _showSpendingKeys
-                              ? Icons.expand_less_rounded
-                              : Icons.expand_more_rounded,
+                              ? Icons.keyboard_arrow_up_rounded
+                              : Icons.keyboard_arrow_down_rounded,
                           size: 18,
                           color: ZipherColors.text20,
                         ),
@@ -645,23 +568,22 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     if (_showSpendingKeys) ...[
                       const Gap(12),
 
-                      // Transparent Key
                       if (backup.tsk != null)
                         _KeyCard(
                           label: 'Transparent Key',
                           description:
                               'Can spend transparent (public) funds only.',
                           value: backup.tsk!,
-                          accentColor: ZipherColors.text40,
                           icon: Icons.key_rounded,
                           revealed: _tskRevealed,
-                          onToggleReveal: () =>
-                              setState(() => _tskRevealed = !_tskRevealed),
-                          onShowQR: () => _showQR(context, backup.tsk!,
+                          onToggleReveal: () => setState(
+                              () => _tskRevealed = !_tskRevealed),
+                          onShowQR: () => _showQR(
+                              context,
+                              backup.tsk!,
                               '${s.transparentKey} of ${backup.name}'),
                         ),
 
-                      // Secret Key
                       if (backup.sk != null) ...[
                         const Gap(12),
                         _KeyCard(
@@ -669,74 +591,86 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                           description:
                               'Can spend all shielded funds in this account.',
                           value: backup.sk!,
-                          accentColor: ZipherColors.red,
                           icon: Icons.vpn_key_rounded,
                           revealed: _skRevealed,
-                          onToggleReveal: () =>
-                              setState(() => _skRevealed = !_skRevealed),
-                          onShowQR: () => _showQR(context, backup.sk!,
+                          onToggleReveal: () => setState(
+                              () => _skRevealed = !_skRevealed),
+                          onShowQR: () => _showQR(
+                              context,
+                              backup.sk!,
                               '${s.secretKey} of ${backup.name}'),
                         ),
                       ],
 
-                      // Seed Phrase (most dangerous, last)
+                      // Seed phrase
                       if ((_keychainSeed ?? backup.seed) != null) ...[
                         const Gap(12),
                         Builder(builder: (ctx) {
-                          final seedValue = _keychainSeed ?? backup.seed!;
+                          final seedValue =
+                              _keychainSeed ?? backup.seed!;
                           final seedLabel = isTestnet
                               ? 'Testnet Seed Phrase'
                               : 'Seed Phrase';
                           final seedDesc = isTestnet
-                              ? 'Testnet-only seed — independent from your mainnet seed. Testnet coins have no value.'
-                              : 'Master key — derives ALL accounts and keys. If lost, funds are unrecoverable. If stolen, everything is compromised.';
-                          return _KeyCard(
+                              ? 'Testnet-only seed \u2014 independent from your mainnet seed. Testnet coins have no value.'
+                              : 'Master key \u2014 derives ALL accounts and keys. If lost, funds are unrecoverable. If stolen, everything is compromised.';
+                          if (!_backup!.saved) {
+                            setActiveAccount(aa.coin, aa.id);
+                          }
+                          return _SeedCard(
                             label: seedLabel,
                             description: seedDesc,
-                            value: backup.index != 0
+                            seedPhrase: backup.index != 0
                                 ? '$seedValue [${backup.index}]'
                                 : seedValue,
-                            accentColor: ZipherColors.orange,
-                            icon: Icons.shield_rounded,
-                            revealed: _seedRevealed,
-                            onToggleReveal: () {
-                              setState(
-                                  () => _seedRevealed = !_seedRevealed);
-                              if (_seedRevealed && !_backup!.saved) {
-                                setActiveAccount(aa.coin, aa.id);
-                              }
-                            },
-                            onShowQR: () => _showQR(context, seedValue,
+                            wordsVisible: _seedWordsVisible,
+                            onToggleWords: () => setState(() =>
+                                _seedWordsVisible =
+                                    !_seedWordsVisible),
+                            onShowQR: () => _showQR(
+                                context,
+                                seedValue,
                                 '${s.seed} of ${backup.name}'),
                           );
                         }),
 
-                        // Verify Backup button
-                        if (_seedRevealed && !_verificationPassed) ...[
+                        if (!_verificationPassed) ...[
                           const Gap(16),
                           Material(
                             color: Colors.transparent,
                             child: InkWell(
                               onTap: () => _startVerification(
                                   (_keychainSeed ?? backup.seed)!),
-                              borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                              borderRadius: BorderRadius.circular(
+                                  ZipherRadius.lg),
                               child: Container(
                                 width: double.infinity,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 14),
                                 decoration: BoxDecoration(
-                                  color: ZipherColors.cyan.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                                  color: ZipherColors.cyan
+                                      .withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(
+                                      ZipherRadius.lg),
                                 ),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.quiz_rounded, size: 18,
-                                        color: ZipherColors.cyan.withValues(alpha: 0.9)),
+                                    Icon(Icons.quiz_rounded,
+                                        size: 18,
+                                        color: ZipherColors.cyan
+                                            .withValues(alpha: 0.9)),
                                     const Gap(8),
-                                    Text('Verify Backup', style: TextStyle(
-                                      fontSize: 14, fontWeight: FontWeight.w700,
-                                      color: ZipherColors.cyan.withValues(alpha: 0.9),
-                                    )),
+                                    Text(
+                                      'Verify Backup',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: ZipherColors.cyan
+                                            .withValues(alpha: 0.9),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -749,24 +683,36 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                           const Gap(16),
                           Container(
                             width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 14),
                             decoration: BoxDecoration(
-                              color: ZipherColors.green.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                              color: ZipherColors.green
+                                  .withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(
+                                  ZipherRadius.lg),
                               border: Border.all(
-                                color: ZipherColors.green.withValues(alpha: 0.15),
+                                color: ZipherColors.green
+                                    .withValues(alpha: 0.15),
                               ),
                             ),
                             child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisAlignment:
+                                  MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.check_circle_rounded, size: 18,
-                                    color: ZipherColors.green.withValues(alpha: 0.7)),
+                                Icon(Icons.check_circle_rounded,
+                                    size: 18,
+                                    color: ZipherColors.green
+                                        .withValues(alpha: 0.7)),
                                 const Gap(8),
-                                Text('Backup Verified', style: TextStyle(
-                                  fontSize: 14, fontWeight: FontWeight.w600,
-                                  color: ZipherColors.green.withValues(alpha: 0.7),
-                                )),
+                                Text(
+                                  'Backup Verified',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: ZipherColors.green
+                                        .withValues(alpha: 0.7),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -800,7 +746,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
           words: words,
           indices: sortedIndices,
           onResult: (passed) {
-            if (passed == null) return; // dismissed without completing
+            if (passed == null) return;
             if (passed) {
               setState(() => _verificationPassed = true);
               _saveVerificationState(true);
@@ -811,7 +757,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       ZipherColors.green.withValues(alpha: 0.8),
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(ZipherRadius.md)),
+                      borderRadius:
+                          BorderRadius.circular(ZipherRadius.md)),
                   duration: const Duration(seconds: 2),
                 ),
               );
@@ -824,7 +771,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       ZipherColors.red.withValues(alpha: 0.8),
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(ZipherRadius.md)),
+                      borderRadius:
+                          BorderRadius.circular(ZipherRadius.md)),
                   duration: const Duration(seconds: 3),
                 ),
               );
@@ -836,14 +784,16 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   }
 
   bool _hasSpendingKeys(_Backup b) =>
-      _keychainSeed != null || b.seed != null || b.sk != null || b.tsk != null;
+      _keychainSeed != null ||
+      b.seed != null ||
+      b.sk != null ||
+      b.tsk != null;
 
-  Widget _sectionHeader(
-      String title, String subtitle, IconData icon, Color color,
+  Widget _sectionHeader(String title, String subtitle, IconData icon,
       {Widget? trailing}) {
     return Row(
       children: [
-        Icon(icon, size: 16, color: color.withValues(alpha: 0.85)),
+        Icon(icon, size: 16, color: ZipherColors.text40),
         const Gap(8),
         Expanded(
           child: Column(
@@ -872,12 +822,42 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _infoRow(IconData icon, String label, String value,
+      {Color? valueColor}) {
+    return Row(
+      children: [
+        Icon(icon, size: 15, color: ZipherColors.text20),
+        const Gap(8),
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: ZipherColors.text40),
+        ),
+        const Spacer(),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: valueColor ?? ZipherColors.text60,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _divider() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Divider(height: 1, color: ZipherColors.borderSubtle),
+    );
+  }
+
   void _showQR(BuildContext context, String value, String title) {
     GoRouter.of(context).push('/showqr?title=$title', extra: value);
   }
 }
 
-/// Local backup type (replaces warp_api Backup).
+/// Local backup type.
 class _Backup {
   final String? name;
   final int index;
@@ -899,15 +879,12 @@ class _Backup {
   });
 }
 
-// ═══════════════════════════════════════════════════════════
-// KEY CARD WIDGET
-// ═══════════════════════════════════════════════════════════
+// ─── Key card (viewing keys, spending keys) ─────────────────────────
 
 class _KeyCard extends StatelessWidget {
   final String label;
   final String description;
   final String value;
-  final Color accentColor;
   final IconData icon;
   final bool alwaysVisible;
   final bool revealed;
@@ -918,7 +895,6 @@ class _KeyCard extends StatelessWidget {
     required this.label,
     required this.description,
     required this.value,
-    required this.accentColor,
     required this.icon,
     this.alwaysVisible = false,
     this.revealed = false,
@@ -933,19 +909,16 @@ class _KeyCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: accentColor.withValues(alpha: 0.03),
+        color: ZipherColors.cardBg,
         borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(
-          color: accentColor.withValues(alpha: 0.08),
-        ),
+        border: Border.all(color: ZipherColors.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row
           Row(
             children: [
-              Icon(icon, size: 14, color: accentColor.withValues(alpha: 0.85)),
+              Icon(icon, size: 14, color: ZipherColors.text20),
               const Gap(6),
               Expanded(
                 child: Text(
@@ -959,11 +932,12 @@ class _KeyCard extends StatelessWidget {
               ),
               if (alwaysVisible)
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: ZipherColors.green.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(ZipherRadius.xs),
+                    color: ZipherColors.cyan.withValues(alpha: 0.08),
+                    borderRadius:
+                        BorderRadius.circular(ZipherRadius.xs),
                   ),
                   child: Text(
                     'READ-ONLY',
@@ -971,16 +945,13 @@ class _KeyCard extends StatelessWidget {
                       fontSize: 8,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 0.5,
-                      color: ZipherColors.green.withValues(alpha: 0.5),
+                      color: ZipherColors.cyan.withValues(alpha: 0.6),
                     ),
                   ),
                 ),
             ],
           ),
-
           const Gap(6),
-
-          // Description
           Text(
             description,
             style: TextStyle(
@@ -989,10 +960,7 @@ class _KeyCard extends StatelessWidget {
               height: 1.4,
             ),
           ),
-
           const Gap(10),
-
-          // Value
           _isVisible
               ? SelectableText(
                   value,
@@ -1000,7 +968,7 @@ class _KeyCard extends StatelessWidget {
                     fontSize: 12,
                     color: ZipherColors.text60,
                     height: 1.5,
-                    fontFamily: 'monospace',
+                    fontFamily: 'JetBrainsMono',
                   ),
                 )
               : GestureDetector(
@@ -1009,14 +977,14 @@ class _KeyCard extends StatelessWidget {
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     decoration: BoxDecoration(
-                      color: ZipherColors.cardBg,
-                      borderRadius: BorderRadius.circular(ZipherRadius.md),
+                      color: ZipherColors.cardBgElevated,
+                      borderRadius:
+                          BorderRadius.circular(ZipherRadius.md),
                     ),
                     child: Column(
                       children: [
                         Icon(Icons.visibility_off_rounded,
-                            size: 18,
-                            color: ZipherColors.text10),
+                            size: 18, color: ZipherColors.text10),
                         const Gap(4),
                         Text(
                           'Tap to reveal',
@@ -1029,10 +997,8 @@ class _KeyCard extends StatelessWidget {
                     ),
                   ),
                 ),
-
           if (_isVisible) ...[
             const Gap(10),
-            // Actions row
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
@@ -1051,18 +1017,11 @@ class _KeyCard extends StatelessWidget {
                   },
                 ),
                 const Gap(8),
-                _actionButton(
-                  Icons.qr_code_rounded,
-                  'QR',
-                  onShowQR,
-                ),
+                _actionButton(Icons.qr_code_rounded, 'QR', onShowQR),
                 if (!alwaysVisible && onToggleReveal != null) ...[
                   const Gap(8),
                   _actionButton(
-                    Icons.visibility_off_rounded,
-                    'Hide',
-                    onToggleReveal,
-                  ),
+                      Icons.visibility_off_rounded, 'Hide', onToggleReveal),
                 ],
               ],
             ),
@@ -1072,13 +1031,15 @@ class _KeyCard extends StatelessWidget {
     );
   }
 
-  Widget _actionButton(IconData icon, String label, VoidCallback? onTap) {
+  Widget _actionButton(
+      IconData icon, String label, VoidCallback? onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: ZipherColors.cardBg,
+          color: ZipherColors.cardBgElevated,
           borderRadius: BorderRadius.circular(ZipherRadius.sm),
         ),
         child: Row(
@@ -1100,9 +1061,229 @@ class _KeyCard extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// FULLSCREEN SEED VERIFICATION PAGE
-// ═══════════════════════════════════════════════════════════
+// ─── Seed card with per-word grid ───────────────────────────────────
+
+class _SeedCard extends StatelessWidget {
+  final String label;
+  final String description;
+  final String seedPhrase;
+  final bool wordsVisible;
+  final VoidCallback? onToggleWords;
+  final VoidCallback? onShowQR;
+
+  const _SeedCard({
+    required this.label,
+    required this.description,
+    required this.seedPhrase,
+    required this.wordsVisible,
+    this.onToggleWords,
+    this.onShowQR,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: ZipherColors.cardBg,
+        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+        border: Border.all(color: ZipherColors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.shield_rounded,
+                  size: 14, color: ZipherColors.text20),
+              const Gap(6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: ZipherColors.text60,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Gap(6),
+          Text(
+            description,
+            style: TextStyle(
+              fontSize: 11,
+              color: ZipherColors.text40,
+              height: 1.4,
+            ),
+          ),
+          const Gap(10),
+          Row(
+            children: [
+              GestureDetector(
+                onTap: onToggleWords,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      wordsVisible
+                          ? Icons.visibility_off_rounded
+                          : Icons.visibility_rounded,
+                      size: 13,
+                      color: ZipherColors.text20,
+                    ),
+                    const Gap(4),
+                    Text(
+                      wordsVisible ? 'Hide words' : 'Show words',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: ZipherColors.text40,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const Gap(8),
+          _buildWordGrid(),
+          const Gap(10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              _actionButton(
+                context,
+                Icons.copy_rounded,
+                'Copy',
+                () {
+                  final clean = seedPhrase.replaceAll(
+                      RegExp(r'\s*\[\d+\]\s*$'), '');
+                  Clipboard.setData(ClipboardData(text: clean));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Seed phrase copied'),
+                      duration: const Duration(seconds: 1),
+                      backgroundColor: ZipherColors.surface,
+                    ),
+                  );
+                },
+              ),
+              const Gap(8),
+              _actionButton(
+                  context, Icons.qr_code_rounded, 'QR', onShowQR),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWordGrid() {
+    // Parse seed words, strip optional account index suffix like " [1]"
+    final cleanSeed =
+        seedPhrase.replaceAll(RegExp(r'\s*\[\d+\]\s*$'), '');
+    final words = cleanSeed.trim().split(RegExp(r'\s+'));
+    final rows = (words.length / 3).ceil();
+
+    return Column(
+      children: List.generate(rows, (row) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: row < rows - 1 ? 6 : 0),
+          child: Row(
+            children: List.generate(3, (col) {
+              final idx = row * 3 + col;
+              if (idx >= words.length) {
+                return const Expanded(child: SizedBox());
+              }
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: col > 0 ? 4 : 0,
+                    right: col < 2 ? 0 : 0,
+                  ),
+                  child: Container(
+                    height: 36,
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    decoration: BoxDecoration(
+                      color: ZipherColors.cardBgElevated,
+                      borderRadius:
+                          BorderRadius.circular(ZipherRadius.sm),
+                      border: Border.all(
+                          color: ZipherColors.borderSubtle),
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          child: Text(
+                            '${idx + 1}',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
+                              color: ZipherColors.text20,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            wordsVisible ? words[idx] : '\u2022\u2022\u2022\u2022',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: wordsVisible
+                                  ? ZipherColors.text90
+                                  : ZipherColors.text20,
+                              fontFamily: 'JetBrainsMono',
+                              letterSpacing:
+                                  wordsVisible ? 0 : 2,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _actionButton(BuildContext context, IconData icon,
+      String label, VoidCallback? onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: ZipherColors.cardBgElevated,
+          borderRadius: BorderRadius.circular(ZipherRadius.sm),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: ZipherColors.text20),
+            const Gap(4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: ZipherColors.text40,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Seed verification page ─────────────────────────────────────────
 
 class _SeedVerificationPage extends StatefulWidget {
   final List<String> words;
@@ -1135,8 +1316,12 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
 
   @override
   void dispose() {
-    for (final c in _controllers) c.dispose();
-    for (final f in _focusNodes) f.dispose();
+    for (final c in _controllers) {
+      c.dispose();
+    }
+    for (final f in _focusNodes) {
+      f.dispose();
+    }
     super.dispose();
   }
 
@@ -1161,7 +1346,8 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.close_rounded, color: ZipherColors.text60),
+          icon:
+              Icon(Icons.close_rounded, color: ZipherColors.text60),
           onPressed: () {
             Navigator.of(context).pop();
             widget.onResult(null);
@@ -1212,16 +1398,19 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
                 Container(
                   decoration: BoxDecoration(
                     color: ZipherColors.cardBg,
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    border: Border.all(color: ZipherColors.borderSubtle),
+                    borderRadius:
+                        BorderRadius.circular(ZipherRadius.lg),
+                    border:
+                        Border.all(color: ZipherColors.borderSubtle),
                   ),
                   child: TextField(
                     controller: _controllers[i],
                     focusNode: _focusNodes[i],
                     autocorrect: false,
                     enableSuggestions: false,
-                    textInputAction:
-                        i < 2 ? TextInputAction.next : TextInputAction.done,
+                    textInputAction: i < 2
+                        ? TextInputAction.next
+                        : TextInputAction.done,
                     onSubmitted: (_) {
                       if (i < 2) {
                         _focusNodes[i + 1].requestFocus();
@@ -1250,29 +1439,9 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
               const Spacer(flex: 3),
               SizedBox(
                 width: double.infinity,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: _verify,
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      decoration: BoxDecoration(
-                        color: ZipherColors.cyan.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                      ),
-                      child: Center(
-                        child: Text(
-                          'Verify',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: ZipherColors.cyan.withValues(alpha: 0.9),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                child: ZipherWidgets.gradientButton(
+                  label: 'Verify',
+                  onPressed: _verify,
                 ),
               ),
               const Gap(16),

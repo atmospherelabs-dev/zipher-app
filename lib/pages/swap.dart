@@ -8,10 +8,13 @@ import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import '../accounts.dart';
+import '../coin/coins.dart';
 import '../services/wallet_service.dart';
 import '../src/rust/api/wallet.dart' as rust_wallet;
+import '../src/rust/api/engine_api.dart' as rust_engine;
 import '../appsettings.dart';
 import '../services/near_intents.dart';
+import '../services/secure_key_store.dart';
 import '../zipher_theme.dart';
 import 'scan.dart';
 
@@ -46,16 +49,34 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
   double _estimatedOutput = 0;
   double _rate = 0;
   String _cachedTAddr = '';
+  rust_engine.EngineMultiChainAddresses? _ownAddresses;
+
+  static const _evmChains = {
+    'eth', 'arb', 'base', 'bsc', 'pol', 'op', 'avax',
+    'gnosis', 'bera', 'monad', 'xlayer', 'plasma',
+  };
 
   int get _spendableZat => aa.poolBalances.shielded;
 
   NearToken get _originToken => _direction == SwapDirection.fromZec ? _zecToken! : _selectedToken!;
   NearToken get _destToken => _direction == SwapDirection.fromZec ? _selectedToken! : _zecToken!;
 
+  /// Returns our own address for the given chain, or null if unsupported.
+  String? _ownAddressForChain(String chain) {
+    final addrs = _ownAddresses;
+    if (addrs == null) return null;
+    final c = chain.toLowerCase();
+    if (_evmChains.contains(c)) return addrs.evm;
+    if (c == 'btc') return addrs.bitcoin;
+    if (c == 'sol') return addrs.solana;
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
     _loadTokens();
+    _deriveOwnAddresses();
   }
 
   @override
@@ -78,12 +99,38 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
         _loadingTokens = false;
       });
       _updateEstimate();
+      _suggestOwnAddressIfNeeded();
     } catch (e) {
       setState(() {
         _error = e.toString();
         _loadingTokens = false;
       });
     }
+  }
+
+  Future<void> _deriveOwnAddresses() async {
+    try {
+      final walletId = WalletService.instance.activeWalletId;
+      if (walletId == null) return;
+      final key = isTestnet ? '${walletId}_testnet' : walletId;
+      final seed = await SecureKeyStore.getSeedForWallet(key);
+      if (seed == null) return;
+      final addrs = await rust_engine.engineDeriveMultiChainAddresses(seedPhrase: seed);
+      if (mounted) {
+        setState(() => _ownAddresses = addrs);
+        _suggestOwnAddressIfNeeded();
+      }
+    } catch (e) {
+      logger.w('[Swap] Could not derive own addresses: $e');
+    }
+  }
+
+  void _suggestOwnAddressIfNeeded() {
+    final chain = _selectedToken?.blockchain ?? '';
+    final own = _ownAddressForChain(chain);
+    if (own == null) return;
+    if (_addressController.text.trim().isNotEmpty) return;
+    _addressController.text = own;
   }
 
   void _flipDirection() {
@@ -95,6 +142,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
       _error = null;
     });
     _updateEstimate();
+    _suggestOwnAddressIfNeeded();
   }
 
   void _onAmountChanged(String _) {
@@ -1018,6 +1066,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                                 });
                                 Navigator.pop(ctx);
                                 _updateEstimate();
+                                if (chainChanged) _suggestOwnAddressIfNeeded();
                               },
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1077,14 +1126,57 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
     final hint = _direction == SwapDirection.fromZec
         ? '${_chainDisplayName(chain)} address'
         : 'Your ${_chainDisplayName(chain)} address';
+    final ownAddr = _ownAddressForChain(chain);
+    final isOwnAddress = ownAddr != null &&
+        _addressController.text.trim().toLowerCase() == ownAddr.toLowerCase();
+    final canSuggest = ownAddr != null &&
+        _addressController.text.trim().isEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(
-          fontSize: 14, fontWeight: FontWeight.w500,
-          color: ZipherColors.text40,
-        )),
+        Row(
+          children: [
+            Text(label, style: TextStyle(
+              fontSize: 14, fontWeight: FontWeight.w500,
+              color: ZipherColors.text40,
+            )),
+            const Spacer(),
+            if (isOwnAddress)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: ZipherColors.cyan.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                ),
+                child: Text('YOUR WALLET', style: TextStyle(
+                  fontSize: 10, fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                  color: ZipherColors.cyan.withValues(alpha: 0.6),
+                )),
+              )
+            else if (canSuggest)
+              GestureDetector(
+                onTap: () {
+                  _addressController.text = ownAddr;
+                  setState(() => _error = null);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: ZipherColors.cardBgElevated,
+                    borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                    border: Border.all(color: ZipherColors.borderSubtle),
+                  ),
+                  child: Text('USE MY ADDRESS', style: TextStyle(
+                    fontSize: 10, fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                    color: ZipherColors.text40,
+                  )),
+                ),
+              ),
+          ],
+        ),
         const Gap(8),
         Container(
           height: 52,
@@ -1138,6 +1230,29 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
             ],
           ),
         ),
+        if (isOwnAddress)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded, size: 13,
+                    color: ZipherColors.text20),
+                const Gap(6),
+                Expanded(
+                  child: Text(
+                    'Derived from your wallet seed phrase. '
+                    'Same address across all apps using the same seed.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: ZipherColors.text40,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }

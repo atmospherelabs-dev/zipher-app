@@ -12,6 +12,16 @@ import 'secure_key_store.dart';
 
 final _log = Logger();
 
+/// Convert a floating-point token amount to raw wei/units as [BigInt].
+///
+/// `BigInt.from(x * 1e18)` silently overflows because it goes through Dart's
+/// 64-bit signed `int`. This uses `toStringAsFixed(0)` → `BigInt.parse` to
+/// bypass that limit entirely.
+BigInt toWei(double amount, {int decimals = 18}) {
+  if (amount <= 0) return BigInt.zero;
+  return BigInt.parse((amount * math.pow(10, decimals)).toStringAsFixed(0));
+}
+
 /// Resolves on-chain funding for any EVM chain using a 3-case priority:
 ///
 /// 1. Target token already sufficient → done.
@@ -61,7 +71,7 @@ class FundingResolver {
       final info = entry.value;
       if (info.address.toLowerCase() == targetToken.toLowerCase()) continue;
       final tokenBal = await chain.rpc.getErc20Balance(walletAddress, info.address, decimals: info.decimals);
-      _log.d('[FundingResolver] scan ${info.symbol} (${info.address}): $tokenBal');
+      _log.i('[FundingResolver] scan ${info.symbol} (${info.address}): $tokenBal');
       if (tokenBal >= 0.01) swappableTokens[info] = tokenBal;
     }
 
@@ -130,7 +140,7 @@ class FundingResolver {
         detail: 'Converting \$${swapAmount.toStringAsFixed(2)} ${info.symbol} via ParaSwap on ${chain.name}...',
         status: ActionStatus.waiting,
       );
-      final raw = BigInt.from((swapAmount * BigInt.from(10).pow(info.decimals).toDouble()).round());
+      final raw = toWei(swapAmount, decimals: info.decimals);
       final result = await evmSwap(
         rpc: chain.rpc, chainId: chain.chainId, seed: seed,
         walletAddress: walletAddress,
@@ -182,7 +192,7 @@ class FundingResolver {
           detail: 'ParaSwap on ${chain.name} (keeping ~\$${reserveUsd.toStringAsFixed(2)} for gas)...',
           status: ActionStatus.waiting,
         );
-        final nativeWei = BigInt.from((actualSwapNative * 1e18).floor());
+        final nativeWei = toWei(actualSwapNative);
         final swapResult = await evmSwap(
           rpc: chain.rpc, chainId: chain.chainId, seed: seed,
           walletAddress: walletAddress,
@@ -193,12 +203,16 @@ class FundingResolver {
         if (!swapResult.success) {
           _log.w('[FundingResolver] native swap failed: ${swapResult.message}');
         }
-        // Always recheck — tx may have succeeded despite receipt timeout
-        balance = await chain.rpc.getErc20Balance(walletAddress, targetToken, decimals: targetDecimals);
-        _log.i('[FundingResolver] after native swap: balance=$balance (needed=$amountNeeded)');
-        if (balance >= amountNeeded) {
-          yield ActionProgress(step: step, totalSteps: totalSteps, label: 'Swap complete');
-          return;
+        // Re-check balance — public RPC read mirrors can lag 1-2 blocks behind
+        // the write node, so retry a few times with a short delay.
+        for (var i = 0; i < 4; i++) {
+          if (i > 0) await Future.delayed(const Duration(seconds: 2));
+          balance = await chain.rpc.getErc20Balance(walletAddress, targetToken, decimals: targetDecimals);
+          _log.i('[FundingResolver] after native swap (attempt ${i + 1}): balance=$balance (needed=$amountNeeded)');
+          if (balance >= amountNeeded) {
+            yield ActionProgress(step: step, totalSteps: totalSteps, label: 'Swap complete');
+            return;
+          }
         }
       }
     }
@@ -245,7 +259,7 @@ class FundingResolver {
           detail: 'ParaSwap on ${chain.name}...',
           status: ActionStatus.waiting,
         );
-        final wei = BigInt.from((spendable * 1e18).floor());
+        final wei = toWei(spendable);
         final swapResult = await evmSwap(
           rpc: chain.rpc, chainId: chain.chainId, seed: seed,
           walletAddress: walletAddress,
@@ -265,10 +279,14 @@ class FundingResolver {
       }
     }
 
-    // Final balance check
-    balance = isNativeTarget
-        ? await chain.rpc.getNativeBalance(walletAddress)
-        : await chain.rpc.getErc20Balance(walletAddress, targetToken, decimals: targetDecimals);
+    // Final balance check — retry for RPC lag after recent swaps/bridges
+    for (var i = 0; i < 3; i++) {
+      if (i > 0) await Future.delayed(const Duration(seconds: 2));
+      balance = isNativeTarget
+          ? await chain.rpc.getNativeBalance(walletAddress)
+          : await chain.rpc.getErc20Balance(walletAddress, targetToken, decimals: targetDecimals);
+      if (balance >= amountNeeded) break;
+    }
     if (balance < amountNeeded) {
       yield ActionProgress(
         step: step, totalSteps: totalSteps,

@@ -441,7 +441,10 @@ class _DisclaimerState extends State<DisclaimerPage> {
 
         aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
         syncStatus2.resetForWalletSwitch();
-        if (mounted) GoRouter.of(context).go('/account');
+        if (mounted) {
+          GoRouter.of(context).go('/account');
+          Future.delayed(const Duration(milliseconds: 500), () => startAutoSync());
+        }
       } catch (e) {
         logger.e('Create wallet error: $e');
         if (mounted) {

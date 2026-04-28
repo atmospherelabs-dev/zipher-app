@@ -7,7 +7,7 @@ import '../src/rust/api/engine_api.dart' as rust_engine;
 import 'action_history.dart';
 import 'chain_config.dart';
 import 'evm_rpc.dart';
-import 'funding_resolver.dart';
+import 'funding_resolver.dart' show FundingResolver, toWei;
 import 'myriad_client.dart';
 import 'near_intents.dart';
 import 'polymarket_client.dart';
@@ -172,7 +172,7 @@ class ActionExecutor {
 
       // Approve USDC.e
       yield const ActionProgress(step: 5, totalSteps: total, label: 'Approving USDC.e');
-      final approveAmount = BigInt.from((totalNeeded * 1e6).round());
+      final approveAmount = toWei(totalNeeded, decimals: 6);
       final spender = negRisk ? polymarketNegRiskExchange : polymarketCtfExchange;
       final polygonFees = await _polygon.suggestEip1559Fees(urgent: true);
       await _polygon.approveErc20(
@@ -483,7 +483,7 @@ class ActionExecutor {
           : 'Approving $tokenSymbol';
       yield ActionProgress(step: 6, totalSteps: total, label: approveLabel,
           detail: 'Signing ERC-20 approval for Myriad contract on BSC...');
-      final approveAmount = BigInt.from(actualBet * 1.05 * BigInt.from(10).pow(tokenDecimals).toDouble());
+      final approveAmount = toWei(actualBet * 1.05, decimals: tokenDecimals);
       await _bsc.approveErc20(
         seed: seed, ownerAddress: bscAddress, tokenAddress: tokenAddress,
         spenderAddress: myriadContract, amount: approveAmount, chainId: 56,
@@ -632,7 +632,7 @@ class ActionExecutor {
       if (zecToken == null) throw Exception('ZEC not found on NEAR Intents');
 
       final zecAssetId = zecToken['defuseAssetId'] ?? zecToken['assetId'] ?? zecToken['asset_id'] ?? zecToken['defuse_asset_id'] ?? '';
-      final rawAmount = BigInt.from(amount * BigInt.from(10).pow(decimals).toDouble()).toString();
+      final rawAmount = toWei(amount, decimals: decimals).toString();
 
       final quote = await _near.getQuote(
         originAsset: defuseAssetId, destAsset: zecAssetId as String,
@@ -701,7 +701,7 @@ class ActionExecutor {
 
       final zecAssetId = zecToken['defuseAssetId'] ?? zecToken['assetId'] ?? zecToken['asset_id'] ?? zecToken['defuse_asset_id'] ?? '';
       final bnbAssetId = bnbToken['defuseAssetId'] ?? bnbToken['assetId'] ?? bnbToken['asset_id'] ?? bnbToken['defuse_asset_id'] ?? '';
-      final rawAmount = BigInt.from(amount * 1e18).toString();
+      final rawAmount = toWei(amount).toString();
 
       final quote = await _near.getQuote(
         originAsset: bnbAssetId as String, destAsset: zecAssetId as String,
@@ -714,7 +714,7 @@ class ActionExecutor {
       progress?.add(const ActionProgress(step: 2, totalSteps: 4, label: 'Sending BNB to bridge...'));
       final bscFees = await _bsc.suggestEip1559Fees(urgent: true);
       final nonce = await _bsc.getNonce(bscAddress);
-      final weiAmount = BigInt.from((amount * 1e18).floor());
+      final weiAmount = toWei(amount);
       final unsignedTxHex = TxBuilder.buildUnsignedEip1559(
         chainId: 56, nonce: nonce,
         maxPriorityFeePerGas: bscFees.maxPriorityFeePerGas,

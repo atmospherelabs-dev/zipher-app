@@ -61,6 +61,7 @@ class _MorePageState extends State<MorePage> {
                   icon: Icons.bolt_rounded,
                   label: 'Action',
                   subtitle: 'Command your wallet with text',
+                  badge: 'BETA',
                   onTap: () => _nav('/account/action'),
                 ),
                 _SettingsItem(
@@ -398,29 +399,30 @@ class _TestnetToggleState extends State<_TestnetToggle> {
       testnetNotifier.value = enable;
       await initCoins();
       syncStatus2.resetForWalletSwitch();
+      aa.reset(0);
+      aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
 
-      // 3. Open or create the wallet for the target network
+      // 3. Open or create the wallet for the target network.
+      // switchWallet handles all cases: existing DB, seed-but-no-DB
+      // (restores from seed), and no-seed-no-DB (creates fresh wallet).
       bool opened = false;
       if (activeId != null) {
-        final exists = await ws.walletExists(walletId: activeId);
-        final hasSeed = exists && await ws.hasSeedForCurrentNetwork(activeId);
-        if (!exists || !hasSeed) {
-          if (exists && !hasSeed) {
-            await ws.deleteWalletDir(walletId: activeId);
-          }
-          await ws.createNetworkWalletForProfile(activeId);
-        }
-        await ws.openWalletById(activeId);
+        await ws.switchWallet(activeId);
         opened = true;
       }
 
       if (opened) {
         setActiveAccount(activeCoin.coin, 1);
         await aa.updateAddress();
-        await aa.updateBalance();
+        // Balance may not be available yet on a freshly created wallet;
+        // sync will update it once blocks are scanned.
+        try { await aa.updateBalance(); } catch (_) {}
         aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
         await aa.save(prefs);
-        if (mounted) GoRouter.of(context).go('/account');
+        if (mounted) {
+          GoRouter.of(context).go('/account');
+          Future.delayed(const Duration(milliseconds: 500), () => startAutoSync());
+        }
       } else {
         if (mounted) GoRouter.of(context).go('/welcome');
       }
@@ -442,6 +444,7 @@ class _SettingsItem extends StatelessWidget {
   final Color iconColor;
   final String label;
   final String? subtitle;
+  final String? badge;
   final VoidCallback onTap;
 
   const _SettingsItem({
@@ -449,6 +452,7 @@ class _SettingsItem extends StatelessWidget {
     this.iconColor = const Color(0x66FFFFFF),
     required this.label,
     this.subtitle,
+    this.badge,
     required this.onTap,
   });
 
@@ -476,13 +480,38 @@ class _SettingsItem extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: ZipherColors.text90,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: ZipherColors.text90,
+                          ),
+                        ),
+                        if (badge != null) ...[
+                          const Gap(6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: ZipherColors.cyan.withValues(alpha: 0.12),
+                              borderRadius:
+                                  BorderRadius.circular(ZipherRadius.xs),
+                            ),
+                            child: Text(
+                              badge!,
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: ZipherColors.cyan.withValues(alpha: 0.8),
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     if (subtitle != null) ...[
                       const Gap(1),

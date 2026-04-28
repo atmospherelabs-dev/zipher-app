@@ -167,7 +167,9 @@ class WalletService {
     _walletOpen = true;
     _activeWalletId = profile.id;
     await registry.setActive(profile.id);
-    await SecureKeyStore.storeSeedForWallet(_networkSeedKey(profile.id), seed);
+    // Store seed for both networks so the wallet is available after toggling.
+    await SecureKeyStore.storeSeedForWallet(profile.id, seed);
+    await SecureKeyStore.storeSeedForWallet('${profile.id}_testnet', seed);
     await _applyFileProtection(dir);
     if (!useNewEngine) await rust_wallet.startSaveTask();
     _log.i('[WS] createNewWallet complete');
@@ -210,7 +212,9 @@ class WalletService {
     _walletOpen = true;
     _activeWalletId = profile.id;
     await registry.setActive(profile.id);
-    await SecureKeyStore.storeSeedForWallet(_networkSeedKey(profile.id), seedPhrase);
+    // Store seed for both networks so the wallet is available after toggling.
+    await SecureKeyStore.storeSeedForWallet(profile.id, seedPhrase);
+    await SecureKeyStore.storeSeedForWallet('${profile.id}_testnet', seedPhrase);
     await _applyFileProtection(dir);
     if (!useNewEngine) await rust_wallet.startSaveTask();
     _log.i('[WS] restoreWallet complete');

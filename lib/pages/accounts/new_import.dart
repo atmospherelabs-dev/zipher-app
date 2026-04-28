@@ -306,6 +306,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
       } else {
         GoRouter.of(context).pop();
       }
+      Future.delayed(const Duration(milliseconds: 500), () => startAutoSync());
     });
 
     if (mounted) setState(() => _loading = false);

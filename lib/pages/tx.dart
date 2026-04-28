@@ -108,7 +108,7 @@ Color _privacyColor(_TxPrivacy p) {
 Color _privacyTextColor(_TxPrivacy p) {
   switch (p) {
     case _TxPrivacy.private:
-      return ZipherColors.purple;
+      return ZipherColors.text60;
     case _TxPrivacy.transparent:
       return ZipherColors.cyan.withValues(alpha: 0.7);
     case _TxPrivacy.mixed:

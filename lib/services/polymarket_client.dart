@@ -26,7 +26,11 @@ class PolymarketClient {
   PolymarketClient._();
   static final instance = PolymarketClient._();
 
-  /// Derive CLOB API credentials via L1 EIP-712 auth.
+  /// Create or derive CLOB API credentials via L1 EIP-712 auth.
+  ///
+  /// Mirrors the official `createOrDeriveApiKey()` flow:
+  /// 1. Try GET /auth/derive-api-key (retrieve existing key for nonce 0).
+  /// 2. If 400/404 (no key exists yet), POST /auth/api-key to create one.
   Future<Map<String, String>> deriveCredentials(String seed) async {
     final timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     const nonce = 0;
@@ -39,15 +43,27 @@ class PolymarketClient {
 
     _log.d('[Polymarket] L1 auth: address=${authResult.address}, sig=${authResult.signature.substring(0, 20)}…');
 
-    final resp = await http.get(
+    final l1Headers = {
+      'POLY_ADDRESS': authResult.address,
+      'POLY_SIGNATURE': authResult.signature,
+      'POLY_TIMESTAMP': timestamp.toString(),
+      'POLY_NONCE': nonce.toString(),
+    };
+
+    // Step 1: try to derive existing key
+    var resp = await http.get(
       Uri.parse('$polymarketClobApi/auth/derive-api-key'),
-      headers: {
-        'POLY_ADDRESS': authResult.address,
-        'POLY_SIGNATURE': authResult.signature,
-        'POLY_TIMESTAMP': timestamp.toString(),
-        'POLY_NONCE': nonce.toString(),
-      },
+      headers: l1Headers,
     );
+
+    // Step 2: if no key exists, create one
+    if (resp.statusCode >= 300) {
+      _log.i('[Polymarket] derive-api-key returned ${resp.statusCode}, attempting create…');
+      resp = await http.post(
+        Uri.parse('$polymarketClobApi/auth/api-key'),
+        headers: l1Headers,
+      );
+    }
 
     if (resp.statusCode >= 300) {
       _log.e('[Polymarket] CLOB auth failed (${resp.statusCode}): ${resp.body}');
@@ -55,9 +71,9 @@ class PolymarketClient {
     }
 
     final body = jsonDecode(resp.body) as Map<String, dynamic>;
-    _log.d('[Polymarket] L1 auth success, got API key');
+    _log.i('[Polymarket] CLOB auth success — got API key');
     return {
-      'apiKey': body['apiKey'] as String? ?? '',
+      'apiKey': (body['apiKey'] ?? body['key'] ?? '') as String,
       'secret': body['secret'] as String? ?? '',
       'passphrase': body['passphrase'] as String? ?? '',
       'address': authResult.address,

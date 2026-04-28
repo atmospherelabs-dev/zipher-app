@@ -51,6 +51,10 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 
 @protected EngineTransactionRecord dco_decode_engine_transaction_record(dynamic raw);
 
+@protected EvmFees dco_decode_evm_fees(dynamic raw);
+
+@protected EvmReceipt dco_decode_evm_receipt(dynamic raw);
+
 @protected EvmSwapExecuteResult dco_decode_evm_swap_execute_result(dynamic raw);
 
 @protected EvmSwapQuoteResult dco_decode_evm_swap_quote_result(dynamic raw);
@@ -139,6 +143,10 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 
 @protected EngineTransactionRecord sse_decode_engine_transaction_record(SseDeserializer deserializer);
 
+@protected EvmFees sse_decode_evm_fees(SseDeserializer deserializer);
+
+@protected EvmReceipt sse_decode_evm_receipt(SseDeserializer deserializer);
+
 @protected EvmSwapExecuteResult sse_decode_evm_swap_execute_result(SseDeserializer deserializer);
 
 @protected EvmSwapQuoteResult sse_decode_evm_swap_quote_result(SseDeserializer deserializer);
@@ -226,6 +234,10 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 @protected void sse_encode_engine_sync_progress(EngineSyncProgress self, SseSerializer serializer);
 
 @protected void sse_encode_engine_transaction_record(EngineTransactionRecord self, SseSerializer serializer);
+
+@protected void sse_encode_evm_fees(EvmFees self, SseSerializer serializer);
+
+@protected void sse_encode_evm_receipt(EvmReceipt self, SseSerializer serializer);
 
 @protected void sse_encode_evm_swap_execute_result(EvmSwapExecuteResult self, SseSerializer serializer);
 

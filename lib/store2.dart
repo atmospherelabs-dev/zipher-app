@@ -250,6 +250,7 @@ abstract class _SyncStatus2 with Store {
   }
 
   /// Reset sync state for a newly opened wallet so the sync engine restarts.
+  /// Also cancels the auto-sync timer so [startAutoSync] re-arms it.
   @action
   void resetForWalletSwitch() {
     _syncStarted = false;
@@ -258,6 +259,8 @@ abstract class _SyncStatus2 with Store {
     connectionError = null;
     syncedHeight = 0;
     eta.end();
+    syncTimer?.cancel();
+    syncTimer = null;
   }
 
   @action

@@ -98,6 +98,88 @@ Future<int> engineGetBirthday() =>
 Future<int> engineGetWalletSyncedHeight() =>
     RustLib.instance.api.crateApiEngineApiEngineGetWalletSyncedHeight();
 
+/// Native balance in raw wei as decimal string.
+Future<String> engineGetNativeBalance(
+        {required String rpcUrl, required String address}) =>
+    RustLib.instance.api.crateApiEngineApiEngineGetNativeBalance(
+        rpcUrl: rpcUrl, address: address);
+
+/// ERC-20 balance in raw token units as decimal string.
+Future<String> engineGetErc20Balance(
+        {required String rpcUrl,
+        required String tokenContract,
+        required String ownerAddress}) =>
+    RustLib.instance.api.crateApiEngineApiEngineGetErc20Balance(
+        rpcUrl: rpcUrl,
+        tokenContract: tokenContract,
+        ownerAddress: ownerAddress);
+
+/// Pending nonce for an address.
+Future<BigInt> engineGetNonce(
+        {required String rpcUrl, required String address}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineGetNonce(rpcUrl: rpcUrl, address: address);
+
+/// Suggested EIP-1559 gas fees. Returns (maxPriorityFeePerGas, maxFeePerGas) in wei.
+Future<EvmFees> engineSuggestEip1559Fees(
+        {required String rpcUrl, required BigInt chainId}) =>
+    RustLib.instance.api.crateApiEngineApiEngineSuggestEip1559Fees(
+        rpcUrl: rpcUrl, chainId: chainId);
+
+/// ERC-20 approve: sign + broadcast + wait. Returns tx hash.
+Future<String> engineApproveErc20(
+        {required String rpcUrl,
+        required String seedPhrase,
+        required String ownerAddress,
+        required String tokenAddress,
+        required String spenderAddress,
+        required String amountRaw,
+        required BigInt chainId}) =>
+    RustLib.instance.api.crateApiEngineApiEngineApproveErc20(
+        rpcUrl: rpcUrl,
+        seedPhrase: seedPhrase,
+        ownerAddress: ownerAddress,
+        tokenAddress: tokenAddress,
+        spenderAddress: spenderAddress,
+        amountRaw: amountRaw,
+        chainId: chainId);
+
+/// Wait for a tx receipt. Returns (success, block_number).
+Future<EvmReceipt> engineWaitForReceipt(
+        {required String rpcUrl, required String txHash}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineWaitForReceipt(rpcUrl: rpcUrl, txHash: txHash);
+
+/// ERC-1155 isApprovedForAll check.
+Future<bool> engineErc1155IsApprovedForAll(
+        {required String rpcUrl,
+        required String owner,
+        required String tokenContract,
+        required String operator_}) =>
+    RustLib.instance.api.crateApiEngineApiEngineErc1155IsApprovedForAll(
+        rpcUrl: rpcUrl,
+        owner: owner,
+        tokenContract: tokenContract,
+        operator_: operator_);
+
+/// ERC-1155 setApprovalForAll: sign + broadcast + wait. Returns tx hash.
+Future<String> engineErc1155SetApprovalForAll(
+        {required String rpcUrl,
+        required String seedPhrase,
+        required String ownerAddress,
+        required String tokenContract,
+        required String operator_,
+        required bool approved,
+        required BigInt chainId}) =>
+    RustLib.instance.api.crateApiEngineApiEngineErc1155SetApprovalForAll(
+        rpcUrl: rpcUrl,
+        seedPhrase: seedPhrase,
+        ownerAddress: ownerAddress,
+        tokenContract: tokenContract,
+        operator_: operator_,
+        approved: approved,
+        chainId: chainId);
+
 Future<bool> engineHasSpendingKey() =>
     RustLib.instance.api.crateApiEngineApiEngineHasSpendingKey();
 
@@ -489,6 +571,58 @@ class EngineTransactionRecord {
           fee == other.fee &&
           memo == other.memo &&
           expiredUnmined == other.expiredUnmined;
+}
+
+class EvmFees {
+  final BigInt maxPriorityFeePerGas;
+  final BigInt maxFeePerGas;
+
+  const EvmFees({
+    required this.maxPriorityFeePerGas,
+    required this.maxFeePerGas,
+  });
+
+  @override
+  int get hashCode => maxPriorityFeePerGas.hashCode ^ maxFeePerGas.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EvmFees &&
+          runtimeType == other.runtimeType &&
+          maxPriorityFeePerGas == other.maxPriorityFeePerGas &&
+          maxFeePerGas == other.maxFeePerGas;
+}
+
+class EvmReceipt {
+  final bool success;
+  final BigInt blockNumber;
+  final BigInt gasUsed;
+  final String txHash;
+
+  const EvmReceipt({
+    required this.success,
+    required this.blockNumber,
+    required this.gasUsed,
+    required this.txHash,
+  });
+
+  @override
+  int get hashCode =>
+      success.hashCode ^
+      blockNumber.hashCode ^
+      gasUsed.hashCode ^
+      txHash.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EvmReceipt &&
+          runtimeType == other.runtimeType &&
+          success == other.success &&
+          blockNumber == other.blockNumber &&
+          gasUsed == other.gasUsed &&
+          txHash == other.txHash;
 }
 
 /// Swap execution result returned to Dart.

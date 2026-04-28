@@ -57,6 +57,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   EngineTransactionRecord dco_decode_engine_transaction_record(dynamic raw);
 
   @protected
+  EvmFees dco_decode_evm_fees(dynamic raw);
+
+  @protected
+  EvmReceipt dco_decode_evm_receipt(dynamic raw);
+
+  @protected
   EvmSwapExecuteResult dco_decode_evm_swap_execute_result(dynamic raw);
 
   @protected
@@ -193,6 +199,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   EngineTransactionRecord sse_decode_engine_transaction_record(
       SseDeserializer deserializer);
+
+  @protected
+  EvmFees sse_decode_evm_fees(SseDeserializer deserializer);
+
+  @protected
+  EvmReceipt sse_decode_evm_receipt(SseDeserializer deserializer);
 
   @protected
   EvmSwapExecuteResult sse_decode_evm_swap_execute_result(
@@ -342,6 +354,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_engine_transaction_record(
       EngineTransactionRecord self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_evm_fees(EvmFees self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_evm_receipt(EvmReceipt self, SseSerializer serializer);
 
   @protected
   void sse_encode_evm_swap_execute_result(

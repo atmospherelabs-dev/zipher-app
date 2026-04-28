@@ -1110,10 +1110,8 @@ class _TxRowState extends State<_TxRow> {
     final amountColor = isIncoming
         ? ZipherColors.green
         : isSwapDeposit
-            ? ZipherColors.cyan.withValues(alpha: 0.8)
-            : isShielding
-                ? ZipherColors.purple
-                : ZipherColors.text60;
+            ? ZipherColors.text90
+            : ZipherColors.text60;
 
     // Fiat
     final price = marketPrice.price;
@@ -1695,9 +1693,9 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
     setState(() => _switching = true);
     try {
       if (fa.walletId != ws.activeWalletId) {
-        // Cross-seed switch: close current wallet, open new one
         await ws.switchWallet(fa.walletId);
         syncStatus2.resetForWalletSwitch();
+        Future.delayed(const Duration(milliseconds: 500), () => startAutoSync());
       }
 
       final profile = await WalletRegistry.instance.getById(fa.walletId);

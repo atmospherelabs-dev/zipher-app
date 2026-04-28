@@ -203,6 +203,13 @@ class _ActionPageState extends State<ActionPage> {
 
   Future<void> _handleSubmit(String text) async {
     if (text.trim().isEmpty || _processing) return;
+
+    // Swap chooser: show cross-chain vs per-chain-with-balance options
+    if (text == '_swap_chooser') {
+      _showSwapChooser();
+      return;
+    }
+
     _controller.clear();
     setState(() {
       _messages.add(ActionMessage(text: text.trim(), isUser: true));
@@ -547,6 +554,40 @@ class _ActionPageState extends State<ActionPage> {
     ), intentType: IntentType.send);
   }
 
+  void _showSwapChooser() {
+    _messages.add(ActionMessage(text: 'Swap', isUser: true));
+    setState(() {});
+    _scrollToBottom();
+
+    final chips = <SuggestionItem>[
+      SuggestionItem(Icons.swap_vert, 'Cross-chain (ZEC)', 'swap',
+          intent: const ParsedIntent(type: IntentType.swap, raw: 'swap')),
+    ];
+
+    // Add one chip per EVM chain where the user has native balance
+    final seen = <String>{};
+    for (final t in _evmBalances) {
+      if (seen.contains(t.chainLabel)) continue;
+      if (t.balance <= 0) continue;
+      // Only show for native tokens (POL, BNB) -- they indicate chain activity
+      final isNative = (t.chainLabel == 'Polygon' && (t.symbol == 'POL' || t.symbol == 'MATIC'))
+          || (t.chainLabel == 'BSC' && t.symbol == 'BNB');
+      if (!isNative) continue;
+      seen.add(t.chainLabel);
+      final chainLower = t.chainLabel.toLowerCase();
+      chips.add(SuggestionItem(
+        Icons.swap_horiz,
+        'Swap on ${t.chainLabel}',
+        'swap on $chainLower',
+      ));
+    }
+
+    _addSystemMessage(
+      'What kind of swap?',
+      card: _buildSuggestionChips(items: chips),
+    );
+  }
+
   void _handleSwap(ParsedIntent intent) {
     final from = intent.fromToken ?? 'ZEC';
     final to = intent.toToken;
@@ -574,7 +615,19 @@ class _ActionPageState extends State<ActionPage> {
     final from = intent.fromToken;
     final to = intent.toToken;
     if (from == null || to == null) {
-      _addSystemMessage('Please specify both tokens.\n\nExample: swap 1 POL to USDC.e on polygon');
+      final chainLabel = intent.chain ?? 'EVM';
+      // Show the user what they have on this chain
+      final relevant = _evmBalances.where((t) =>
+          t.chainLabel.toLowerCase() == chainLabel.toLowerCase() && t.balance > 0).toList();
+      final balStr = relevant.isNotEmpty
+          ? relevant.map((t) => '${t.balance.toStringAsFixed(4)} ${t.symbol}').join(', ')
+          : 'no tokens found';
+      _addSystemMessage(
+        'Your $chainLabel balances: $balStr\n\n'
+        'Tell me what to swap, e.g.:\n'
+        '  swap 1 POL to USDC.e\n'
+        '  swap 10 USDC.e to POL',
+      );
       return;
     }
     if (intent.amount == null || intent.amount! <= 0) {
@@ -1282,12 +1335,11 @@ class _ActionPageState extends State<ActionPage> {
     final chips = items ?? [
       SuggestionItem(Icons.account_balance_wallet_outlined, 'Balance', 'balance',
           intent: const ParsedIntent(type: IntentType.balance, raw: 'balance')),
+      SuggestionItem(Icons.swap_horiz, 'Swap', '_swap_chooser'),
       SuggestionItem(Icons.trending_up, 'Find markets', 'find promising markets',
           intent: const ParsedIntent(type: IntentType.marketDiscover, raw: 'find promising markets')),
       SuggestionItem(Icons.pie_chart_outline, 'My bets', 'my bets',
           intent: const ParsedIntent(type: IntentType.portfolio, raw: 'my bets')),
-      SuggestionItem(Icons.swap_horiz, 'Sweep', 'sweep',
-          intent: const ParsedIntent(type: IntentType.sweep, raw: 'sweep')),
       SuggestionItem(Icons.help_outline, 'Help', 'help',
           intent: const ParsedIntent(type: IntentType.help, raw: 'help')),
     ];
@@ -1332,6 +1384,13 @@ class _ActionPageState extends State<ActionPage> {
               intent: const ParsedIntent(type: IntentType.balance, raw: 'balance')),
           SuggestionItem(Icons.pie_chart_outline, 'My bets', 'my bets',
               intent: const ParsedIntent(type: IntentType.portfolio, raw: 'my bets')),
+        ];
+      case IntentType.evmSwap:
+      case IntentType.swap:
+        chips = [
+          SuggestionItem(Icons.account_balance_wallet_outlined, 'Balance', 'balance',
+              intent: const ParsedIntent(type: IntentType.balance, raw: 'balance')),
+          SuggestionItem(Icons.swap_horiz, 'Swap again', '_swap_chooser'),
         ];
       case IntentType.marketDiscover:
       case IntentType.marketSearch:
