@@ -288,12 +288,18 @@ abstract class _ActiveAccount2 with Store {
       final h = latestHeight > 0 ? latestHeight : null;
 
       final records = await WalletService.instance.getTransactions();
-      txs.items = records.map((r) {
+      final memos = WalletService.instance.memosByTxid;
+      final newTxs = <Tx>[];
+      final newMessages = <ZMessage>[];
+      var msgId = 0;
+      for (var i = 0; i < records.length; i++) {
+        final r = records[i];
         final timestamp =
             DateTime.fromMillisecondsSinceEpoch(r.timestamp.toInt() * 1000);
-        return Tx.from(
+        final memo = memos[r.txid];
+        newTxs.add(Tx.from(
           h,
-          0,
+          i,
           r.height,
           timestamp,
           r.txid.substring(0, min(12, r.txid.length)),
@@ -301,14 +307,33 @@ abstract class _ActiveAccount2 with Store {
           r.value / ZECUNIT,
           null,
           null,
-          null,
+          memo,
           [],
           kind: r.kind,
           rawValue: r.rawValue.toDouble() / ZECUNIT,
           expiredUnmined: r.status == 'expired',
-        );
-      }).toList();
-      logger.d('[AA] updateTransactions: ${txs.items.length} txs loaded');
+        ));
+        if (memo != null && memo.isNotEmpty) {
+          final incoming = r.value > 0;
+          newMessages.add(ZMessage(
+            msgId++,
+            i,
+            incoming,
+            null,
+            null,
+            '',
+            '',
+            memo,
+            timestamp,
+            r.height,
+            false,
+          ));
+        }
+      }
+      txs.items = newTxs;
+      messages.items = newMessages;
+      logger.d(
+          '[AA] updateTransactions: ${txs.items.length} txs, ${messages.items.length} memos loaded');
     } catch (e) {
       logger.e('updateTransactions error: $e');
     }

@@ -40,7 +40,7 @@ pub async fn cmd_x402_propose(
     let req = zipher_engine::x402::parse_402_response(&raw, expected_network(cfg))?;
     let amount = zipher_engine::x402::amount_zatoshis(&req)?;
 
-    crate::wallet::cmd_send_propose(cfg, req.pay_to, amount, None, context_id).await
+    crate::wallet::cmd_send_propose(cfg, req.pay_to, amount, false, None, context_id).await
 }
 
 pub async fn cmd_x402_pay(

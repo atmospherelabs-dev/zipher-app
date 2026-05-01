@@ -43,6 +43,11 @@ class WalletService {
   String? _activeWalletId;
   String? get activeWalletId => _activeWalletId;
 
+  /// Cache of memos keyed by txid, populated by getTransactions().
+  /// Used by [accounts.dart] to build the Memos inbox without a second engine call.
+  final Map<String, String> _memosByTxid = <String, String>{};
+  Map<String, String> get memosByTxid => Map.unmodifiable(_memosByTxid);
+
   void _checkBusy() {
     if (_busy) throw WalletBusyException();
   }
@@ -742,6 +747,13 @@ class WalletService {
     _checkBusy();
     if (useNewEngine) {
       final engineTxs = await rust_engine.engineGetTransactions();
+      _memosByTxid.clear();
+      for (final etx in engineTxs) {
+        final m = etx.memo;
+        if (m != null && m.isNotEmpty) {
+          _memosByTxid[etx.txid] = m;
+        }
+      }
       return engineTxs.map((etx) {
         final v = etx.value.toInt();
         final status = etx.expiredUnmined

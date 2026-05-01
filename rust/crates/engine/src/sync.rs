@@ -138,6 +138,20 @@ pub async fn get_progress() -> SyncProgressInfo {
     SYNC_PROGRESS.lock().await.clone()
 }
 
+/// Manually populate `SYNC_PROGRESS` from known DB / network values. Useful for
+/// short-lived processes (CLI invocations) that did not run a sync pass in-process
+/// but still need [`ensure_synced`] to pass when the underlying wallet DB is
+/// already at the chain tip.
+pub async fn set_progress(synced_height: u32, latest_height: u32) {
+    let mut p = SYNC_PROGRESS.lock().await;
+    if synced_height > p.synced_height {
+        p.synced_height = synced_height;
+    }
+    if latest_height > p.latest_height {
+        p.latest_height = latest_height;
+    }
+}
+
 /// Maximum blocks behind tip before we consider the wallet "not synced enough to spend".
 const SYNC_TOLERANCE_BLOCKS: u32 = 3;
 

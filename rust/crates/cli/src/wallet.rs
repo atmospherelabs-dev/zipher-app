@@ -468,33 +468,40 @@ pub async fn cmd_send_propose(
     cfg: &Config,
     to: String,
     amount: u64,
+    is_max: bool,
     memo: Option<String>,
     context_id: Option<String>,
 ) -> Result<()> {
     sync_if_needed(cfg).await?;
     let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
 
-    let daily_spent = zipher_engine::audit::daily_spent(&cfg.data_dir).unwrap_or(0);
-    if let Err(violation) = zipher_engine::policy::check_proposal(
-        &policy, &to, amount, &context_id, daily_spent,
-    ) {
-        zipher_engine::audit::log_event(
-            &cfg.data_dir, "propose_send", Some(&to),
-            Some(amount), None, context_id.as_deref(),
-            None, Some(&violation.to_string()),
-        ).ok();
-        return Err(anyhow::anyhow!("{}", violation));
+    // For max sends, we don't know the amount until the engine produces the proposal,
+    // so we skip the policy daily-limit check here. (The rate-limit check still runs
+    // in cmd_send_confirm.)
+    if !is_max {
+        let daily_spent = zipher_engine::audit::daily_spent(&cfg.data_dir).unwrap_or(0);
+        if let Err(violation) = zipher_engine::policy::check_proposal(
+            &policy, &to, amount, &context_id, daily_spent,
+        ) {
+            zipher_engine::audit::log_event(
+                &cfg.data_dir, "propose_send", Some(&to),
+                Some(amount), None, context_id.as_deref(),
+                None, Some(&violation.to_string()),
+            ).ok();
+            return Err(anyhow::anyhow!("{}", violation));
+        }
     }
 
     auto_open(cfg).await?;
 
-    let (send_amount, fee, _) = zipher_engine::send::propose_send(&to, amount, memo.clone(), false).await?;
+    let (send_amount, fee, _) =
+        zipher_engine::send::propose_send(&to, amount, memo.clone(), is_max).await?;
 
     let pending = PendingProposal {
         address: to.clone(),
-        amount,
+        amount: if is_max { send_amount } else { amount },
         memo: memo.clone(),
-        is_max: false,
+        is_max,
         context_id: context_id.clone(),
     };
     save_pending(&cfg.data_dir, &pending)?;
@@ -540,6 +547,7 @@ pub async fn cmd_send_propose(
 
 pub async fn cmd_send_confirm(cfg: &Config) -> Result<()> {
     ensure_sapling_params(&cfg.data_dir).await?;
+    sync_if_needed(cfg).await?;
     let pending = load_pending(&cfg.data_dir)?;
 
     let policy = zipher_engine::policy::load_policy(&cfg.data_dir);

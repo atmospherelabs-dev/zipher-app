@@ -290,6 +290,13 @@ pub async fn sync_if_needed(cfg: &Config) -> Result<()> {
 
     let needs_sync = blocks_behind > STALE_BLOCK_THRESHOLD || (blocks_behind > 0 && has_unconfirmed);
 
+    if !needs_sync {
+        // Wallet DB is already at (or near) the chain tip, but the in-memory
+        // `SYNC_PROGRESS` hasn't been populated this process. Seed it so that
+        // `ensure_synced` (used by spend paths) doesn't fail with "synced: 0".
+        zipher_engine::sync::set_progress(synced, latest).await;
+    }
+
     if needs_sync {
         if has_unconfirmed {
             eprintln!("Unconfirmed outputs detected. Syncing to pick up confirmations...");

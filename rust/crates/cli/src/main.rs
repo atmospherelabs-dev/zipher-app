@@ -345,9 +345,13 @@ enum SendCmd {
         #[arg(long)]
         to: String,
 
-        /// Amount in zatoshis
-        #[arg(long)]
+        /// Amount in zatoshis (ignored if --max is set)
+        #[arg(long, default_value_t = 0)]
         amount: u64,
+
+        /// Send the maximum spendable amount (overrides --amount)
+        #[arg(long, default_value_t = false)]
+        max: bool,
 
         /// Optional memo (shielded only)
         #[arg(long)]
@@ -742,8 +746,8 @@ async fn main() {
         Commands::Keys => wallet::cmd_keys(&cfg).await,
         Commands::Transactions { limit } => wallet::cmd_transactions(&cfg, limit).await,
         Commands::Send(sub) => match sub {
-            SendCmd::Propose { to, amount, memo, context_id } => {
-                wallet::cmd_send_propose(&cfg, to, amount, memo, context_id).await
+            SendCmd::Propose { to, amount, max, memo, context_id } => {
+                wallet::cmd_send_propose(&cfg, to, amount, max, memo, context_id).await
             }
             SendCmd::Confirm => wallet::cmd_send_confirm(&cfg).await,
             SendCmd::Max { to } => wallet::cmd_send_max(&cfg, to).await,

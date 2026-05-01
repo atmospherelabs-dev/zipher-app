@@ -147,6 +147,72 @@ pub async fn propose_send(
     info!("Preparing send proposal to {}...", &address[..address.len().min(20)]);
 
     if is_max {
+        // librustzcash 0.21 has a bug in `propose_send_max_transfer` for transparent
+        // recipients: it never inserts `PoolType::Transparent` into the payment_pools
+        // map, causing `PaymentPoolsMismatch`. Workaround: probe the fee with a
+        // standard transfer, adjusting the amount until it fits.
+        if is_transparent_dest {
+            let summary_opt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                db_data.get_wallet_summary(ConfirmationsPolicy::MIN)
+            }))
+            .map_err(|_| anyhow::anyhow!("wallet summary unavailable"))?
+            .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+            let summary = summary_opt
+                .ok_or_else(|| anyhow::anyhow!("wallet summary not yet available"))?;
+            let ab = summary
+                .account_balances()
+                .get(&account_id)
+                .ok_or_else(|| anyhow::anyhow!("account balance missing"))?;
+            let spendable: u64 = u64::from(ab.sapling_balance().spendable_value())
+                + u64::from(ab.orchard_balance().spendable_value());
+
+            // Probe progressively larger fee buffers until the proposal succeeds.
+            // ZIP-317 base is 5_000 zat and most max-to-transparent sends fit within
+            // 25_000 zat. Any over-estimate ends up as shielded change, which is fine.
+            let mut last_err: Option<anyhow::Error> = None;
+            for fee_buffer in [10_000u64, 15_000, 20_000, 25_000, 30_000, 40_000] {
+                if spendable <= fee_buffer {
+                    continue;
+                }
+                let target = spendable - fee_buffer;
+                let send_zat = match Zatoshis::from_u64(target) {
+                    Ok(z) => z,
+                    Err(_) => continue,
+                };
+                let attempt = propose_standard_transfer_to_address::<_, _, std::convert::Infallible>(
+                    &mut db_data,
+                    &params,
+                    StandardFeeRule::Zip317,
+                    account_id,
+                    confirmations,
+                    &to,
+                    send_zat,
+                    memo_bytes.clone(),
+                    None,
+                    ShieldedProtocol::Orchard,
+                );
+                match attempt {
+                    Ok(proposal) => {
+                        let fee =
+                            u64::from(proposal.steps().first().balance().fee_required());
+                        info!(
+                            "Max-to-transparent proposal: send {:.8} ZEC + {:.8} ZEC fee (buffer {})",
+                            target as f64 / 1e8,
+                            fee as f64 / 1e8,
+                            fee_buffer,
+                        );
+                        *PENDING_SEND.lock().unwrap() = Some(proposal);
+                        return Ok((target, fee, true));
+                    }
+                    Err(e) => {
+                        last_err = Some(anyhow::anyhow!("{:?}", e));
+                    }
+                }
+            }
+            return Err(last_err
+                .unwrap_or_else(|| anyhow::anyhow!("Insufficient balance for max-to-transparent send")));
+        }
+
         let proposal = propose_send_max_transfer::<_, _, _, std::convert::Infallible>(
             &mut db_data,
             &params,
@@ -458,6 +524,55 @@ pub async fn get_max_sendable(address: &str) -> Result<u64> {
     let zaddr: ZcashAddress = address
         .parse()
         .map_err(|e| anyhow::anyhow!("Invalid address: {:?}", e))?;
+    let to = Address::try_from_zcash_address(&params, zaddr.clone())
+        .map_err(|e| anyhow::anyhow!("Address conversion: {:?}", e))?;
+    let is_transparent_dest = matches!(to, Address::Transparent(_));
+
+    // librustzcash 0.21 bug: `propose_send_max_transfer` to a transparent
+    // recipient always errors with `PaymentPoolsMismatch`. Estimate via probing.
+    if is_transparent_dest {
+        let summary_opt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            db_data.get_wallet_summary(ConfirmationsPolicy::MIN)
+        }))
+        .map_err(|_| anyhow::anyhow!("wallet summary unavailable"))?
+        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+        let summary = match summary_opt {
+            Some(s) => s,
+            None => return Ok(0),
+        };
+        let ab = match summary.account_balances().get(&account_id) {
+            Some(ab) => ab,
+            None => return Ok(0),
+        };
+        let spendable: u64 = u64::from(ab.sapling_balance().spendable_value())
+            + u64::from(ab.orchard_balance().spendable_value());
+        for fee_buffer in [10_000u64, 15_000, 20_000, 25_000, 30_000, 40_000] {
+            if spendable <= fee_buffer {
+                continue;
+            }
+            let target = spendable - fee_buffer;
+            let send_zat = match Zatoshis::from_u64(target) {
+                Ok(z) => z,
+                Err(_) => continue,
+            };
+            let attempt = propose_standard_transfer_to_address::<_, _, std::convert::Infallible>(
+                &mut db_data,
+                &params,
+                StandardFeeRule::Zip317,
+                account_id,
+                confirmations,
+                &to,
+                send_zat,
+                None,
+                None,
+                ShieldedProtocol::Orchard,
+            );
+            if attempt.is_ok() {
+                return Ok(target);
+            }
+        }
+        return Ok(0);
+    }
 
     let proposal_result =
         propose_send_max_transfer::<_, _, _, std::convert::Infallible>(
