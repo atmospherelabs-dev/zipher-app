@@ -53,10 +53,26 @@ final helpRouteMap = {
   "/more/history": "/history",
 };
 
+/// Unfocuses any active text field whenever a route is pushed or popped.
+/// This ensures the keyboard doesn't linger after navigation (e.g. swipe-back).
+class _UnfocusOnNavigation extends NavigatorObserver {
+  void _unfocus() {
+    FocusManager.instance.primaryFocus?.unfocus();
+  }
+
+  @override
+  void didPop(Route route, Route? previousRoute) => _unfocus();
+  @override
+  void didPush(Route route, Route? previousRoute) => _unfocus();
+  @override
+  void didReplace({Route? newRoute, Route? oldRoute}) => _unfocus();
+}
+
 final router = GoRouter(
   navigatorKey: rootNavigatorKey,
   initialLocation: '/splash',
   debugLogDiagnostics: true,
+  observers: [_UnfocusOnNavigation()],
   routes: [
     GoRoute(path: '/', redirect: (context, state) => '/account'),
     StatefulShellRoute.indexedStack(

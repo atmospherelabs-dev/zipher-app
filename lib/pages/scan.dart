@@ -182,6 +182,7 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
   }
 
   _open() async {
+    FocusManager.instance.primaryFocus?.unfocus();
     final file = await pickFile();
     logger.d('open');
     if (file != null) {

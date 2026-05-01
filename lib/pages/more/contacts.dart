@@ -557,6 +557,9 @@ class _ContactEditState extends State<ContactEditPage> {
                       ? null
                       : (v) => chainAddressValidator(v, _selectedChain.id),
                   maxLines: 5,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) =>
+                      FocusManager.instance.primaryFocus?.unfocus(),
                   style: TextStyle(
                     fontSize: 13,
                     fontFamily: 'monospace',
@@ -738,6 +741,9 @@ class _ContactAddState extends State<ContactAddPage> {
                             : (v) => chainAddressValidator(v, _selectedChain.id),
                         minLines: 3,
                         maxLines: 5,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) =>
+                            FocusManager.instance.primaryFocus?.unfocus(),
                         style: TextStyle(
                           fontSize: 13,
                           fontFamily: 'monospace',

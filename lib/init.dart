@@ -88,6 +88,19 @@ class _AppState extends State<App> with WidgetsBindingObserver {
           Locale('fr'),
         ],
         routerConfig: router,
+        builder: (context, child) {
+          // Global tap-outside dismisses keyboard on every screen.
+          return GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () {
+              final scope = FocusScope.of(context);
+              if (!scope.hasPrimaryFocus && scope.focusedChild != null) {
+                FocusManager.instance.primaryFocus?.unfocus();
+              }
+            },
+            child: child ?? const SizedBox.shrink(),
+          );
+        },
       );
     });
   }

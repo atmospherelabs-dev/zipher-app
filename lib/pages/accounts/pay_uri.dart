@@ -1,8 +1,13 @@
+import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
+import 'package:path/path.dart' as p;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../accounts.dart';
@@ -509,12 +514,22 @@ class _QRSheet extends StatelessWidget {
                 ),
                 const Gap(12),
                 Expanded(
-                  child: _SheetButton(
-                    label: 'Share',
-                    icon: Icons.share_rounded,
-                    onTap: () {
-                      Share.share(data);
-                    },
+                  child: Builder(
+                    builder: (btnContext) => _SheetButton(
+                      label: 'Share',
+                      icon: Icons.share_rounded,
+                      onTap: () {
+                        final box =
+                            btnContext.findRenderObject() as RenderBox?;
+                        shareQr(
+                          data: data,
+                          filename: 'zipher-address.png',
+                          subject: title,
+                          text: data,
+                          originBox: box,
+                        );
+                      },
+                    ),
                   ),
                 ),
               ],
@@ -873,14 +888,23 @@ class _RequestPaymentSheetState extends State<_RequestPaymentSheet> {
             ),
             const Gap(12),
             Expanded(
-              child: _SheetButton(
-                label: 'Share',
-                icon: Icons.share_rounded,
-                accent: true,
-                onTap: () {
-                  Share.share(_paymentURI,
-                      subject: 'Zcash Payment Request');
-                },
+              child: Builder(
+                builder: (btnContext) => _SheetButton(
+                  label: 'Share',
+                  icon: Icons.share_rounded,
+                  accent: true,
+                  onTap: () {
+                    final box =
+                        btnContext.findRenderObject() as RenderBox?;
+                    shareQr(
+                      data: _paymentURI,
+                      filename: 'zipher-payment-request.png',
+                      subject: 'Zcash Payment Request',
+                      text: _paymentURI,
+                      originBox: box,
+                    );
+                  },
+                ),
               ),
             ),
           ],
@@ -939,6 +963,68 @@ class _SheetButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Renders a QR code for [data] to a PNG file in the temp directory.
+/// Returns the file path. Used for sharing QR codes via the system share sheet.
+Future<String> _renderQrToPng(String data, {String filename = 'zipher-qr.png'}) async {
+  final code =
+      QrCode.fromData(data: data, errorCorrectLevel: QrErrorCorrectLevel.M);
+  code.make();
+  final painter =
+      QrPainter.withQr(qr: code, emptyColor: Colors.white, gapless: true);
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  final qrSize = code.moduleCount * 16;
+  const padding = 64;
+  final totalSize = qrSize + padding * 2;
+  canvas.drawRect(
+    Rect.fromLTWH(0, 0, totalSize.toDouble(), totalSize.toDouble()),
+    Paint()..color = Colors.white,
+  );
+  canvas.translate(padding.toDouble(), padding.toDouble());
+  painter.paint(canvas, Size(qrSize.toDouble(), qrSize.toDouble()));
+  final image = await recorder.endRecording().toImage(totalSize, totalSize);
+  final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+  final pngBytes = byteData!.buffer.asUint8List();
+
+  final tempPath = await getTempPath();
+  final filePath = p.join(tempPath, filename);
+  await File(filePath).writeAsBytes(pngBytes as List<int>, flush: true);
+  return filePath;
+}
+
+/// Shares a QR code as an image alongside the underlying text via the system
+/// share sheet. Uses [originBox] to anchor the sheet on iPad/iOS17+.
+Future<void> shareQr({
+  required String data,
+  required String filename,
+  String? subject,
+  String? text,
+  RenderBox? originBox,
+}) async {
+  try {
+    final path = await _renderQrToPng(data, filename: filename);
+    final origin = originBox != null
+        ? originBox.localToGlobal(Offset.zero) & originBox.size
+        : null;
+    await Share.shareXFiles(
+      [XFile(path)],
+      subject: subject,
+      text: text ?? data,
+      sharePositionOrigin: origin,
+    );
+  } catch (e) {
+    // Fallback: share text only if image generation/sharing fails.
+    final origin = originBox != null
+        ? originBox.localToGlobal(Offset.zero) & originBox.size
+        : null;
+    await Share.share(
+      text ?? data,
+      subject: subject,
+      sharePositionOrigin: origin,
     );
   }
 }
