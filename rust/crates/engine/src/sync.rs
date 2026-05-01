@@ -11,13 +11,17 @@ use zcash_client_backend::data_api::chain::{
     error::Error as ChainError,
 };
 use zcash_client_backend::data_api::scanning::ScanPriority;
-use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
-use zcash_client_backend::data_api::{WalletCommitmentTrees, WalletRead, WalletWrite};
+use zcash_client_backend::data_api::wallet::{decrypt_and_store_transaction, ConfirmationsPolicy};
+use zcash_client_backend::data_api::{
+    TransactionDataRequest, TransactionStatus, WalletCommitmentTrees, WalletRead, WalletWrite,
+};
 use zcash_client_backend::proto::compact_formats::CompactBlock;
 use zcash_client_backend::proto::service::{
     compact_tx_streamer_client::CompactTxStreamerClient, BlockId, BlockRange, ChainSpec,
-    GetAddressUtxosArg, GetSubtreeRootsArg, ShieldedProtocol,
+    GetAddressUtxosArg, GetSubtreeRootsArg, ShieldedProtocol, TxFilter,
 };
+use zcash_primitives::transaction::{Transaction, TxId};
+use zcash_protocol::consensus::{BranchId, Parameters};
 use zcash_client_backend::wallet::WalletTransparentOutput;
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::encoding::AddressCodec as _;
@@ -629,8 +633,195 @@ async fn sync_once(
         p.synced_height = fsh;
     }
 
+    // Run transaction enhancement: light-wallet sync via compact blocks does
+    // not include the encrypted memo bytes (they're stripped from CompactTx
+    // outputs/actions). To populate memos for received notes, we fetch the
+    // full transaction via lightwalletd's `GetTransaction` RPC and then call
+    // `decrypt_and_store_transaction`, which writes the decrypted memo into
+    // `sapling_received_notes.memo` / `orchard_received_notes.memo`.
+    //
+    // Before enhancement, requeue any received notes that were scanned without
+    // memo data (typical of wallets created before tx enhancement landed) so
+    // we can retro-actively populate their memos.
+    if let Err(e) = requeue_unenhanced_notes(db_data_path, db_cipher_key) {
+        tracing::warn!("[sync] requeue unenhanced notes failed: {:?}", e);
+    }
+    if let Err(e) = enhance_transactions(&mut db_data, &params, &mut lwd).await {
+        tracing::warn!("[sync] enhance failed (memos may be missing): {:?}", e);
+    }
+
     perf.log_summary();
     tracing::info!("[sync] pass complete");
+    Ok(())
+}
+
+/// Fetch full transaction data for any txs in the wallet's enhancement queue
+/// and decrypt+store them so memos become available.
+async fn enhance_transactions(
+    db_data: &mut DbType,
+    params: &Network,
+    lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
+) -> Result<()> {
+    let requests = db_data
+        .transaction_data_requests()
+        .map_err(|e| anyhow::anyhow!("transaction_data_requests: {:?}", e))?;
+    if requests.is_empty() {
+        return Ok(());
+    }
+
+    let mut enhanced = 0usize;
+    for req in requests {
+        match req {
+            TransactionDataRequest::Enhancement(txid) => {
+                match fetch_and_decrypt_tx(db_data, params, lwd, txid).await {
+                    Ok(()) => enhanced += 1,
+                    Err(e) => tracing::debug!(
+                        "[sync] enhance {}: {:?}", txid, e
+                    ),
+                }
+            }
+            TransactionDataRequest::GetStatus(txid) => {
+                if let Err(e) = fetch_status(db_data, lwd, txid).await {
+                    tracing::debug!("[sync] get_status {}: {:?}", txid, e);
+                }
+            }
+            // TransactionsInvolvingAddress is gated on `transparent-inputs`
+            // and is handled separately via the UTXO refresh path.
+            _ => {}
+        }
+    }
+
+    if enhanced > 0 {
+        tracing::info!(
+            "[sync] enhanced {} transaction(s) (memos populated)",
+            enhanced
+        );
+    } else {
+        tracing::debug!("[sync] no transactions needing enhancement");
+    }
+    Ok(())
+}
+
+async fn fetch_and_decrypt_tx(
+    db_data: &mut DbType,
+    params: &Network,
+    lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
+    txid: TxId,
+) -> Result<()> {
+    let resp = lwd
+        .get_transaction(TxFilter {
+            block: None,
+            index: 0,
+            hash: txid.as_ref().to_vec(),
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("get_transaction: {:?}", e))?;
+    let raw = resp.into_inner();
+
+    if raw.data.is_empty() {
+        // Tx not (yet) on chain — mark as not-in-mempool so we don't keep
+        // requesting it forever.
+        db_data
+            .set_transaction_status(txid, TransactionStatus::TxidNotRecognized)
+            .map_err(|e| anyhow::anyhow!("set_transaction_status: {:?}", e))?;
+        return Ok(());
+    }
+
+    let mined_height = if raw.height == 0 {
+        None
+    } else {
+        Some(BlockHeight::from_u32(raw.height as u32))
+    };
+
+    // BranchId is needed to deserialize the transaction with the correct
+    // consensus rules. Use the mined height when known, otherwise fall back to
+    // the current chain tip's branch.
+    let branch_height = mined_height
+        .or_else(|| {
+            db_data
+                .chain_height()
+                .ok()
+                .flatten()
+                .map(|h| h)
+        })
+        .unwrap_or_else(|| {
+            params
+                .activation_height(zcash_protocol::consensus::NetworkUpgrade::Nu5)
+                .unwrap_or(BlockHeight::from_u32(0))
+        });
+    let branch_id = BranchId::for_height(params, branch_height);
+    let tx = Transaction::read(&raw.data[..], branch_id)
+        .map_err(|e| anyhow::anyhow!("Transaction::read: {:?}", e))?;
+
+    decrypt_and_store_transaction(params, db_data, &tx, mined_height)
+        .map_err(|e| anyhow::anyhow!("decrypt_and_store_transaction: {:?}", e))?;
+    Ok(())
+}
+
+/// One-shot recovery: any received note (sapling or orchard) whose `memo`
+/// column is NULL was scanned via compact blocks but never enhanced with the
+/// full transaction memo. Re-add these txids to `tx_retrieval_queue` so the
+/// enhancement pass below will fetch the full tx and populate their memos.
+///
+/// `0xF6` rows are intentionally skipped: librustzcash writes that single byte
+/// only after a successful decryption confirmed the memo was empty, so there
+/// is nothing to recover for those.
+fn requeue_unenhanced_notes(
+    db_data_path: &Path,
+    db_cipher_key: &Option<String>,
+) -> Result<()> {
+    let conn = open_cipher_conn(db_data_path, db_cipher_key)?;
+    // Use INSERT OR IGNORE because (txid) has a UNIQUE constraint; a tx that
+    // already has an enhancement request queued will simply be left as-is.
+    let added = conn.execute(
+        "INSERT OR IGNORE INTO tx_retrieval_queue (txid, query_type)
+         SELECT t.txid, 1
+         FROM transactions t
+         JOIN (
+             SELECT transaction_id FROM sapling_received_notes WHERE memo IS NULL
+             UNION
+             SELECT transaction_id FROM orchard_received_notes WHERE memo IS NULL
+         ) r ON r.transaction_id = t.id_tx
+         WHERE t.mined_height IS NOT NULL",
+        [],
+    )?;
+    if added > 0 {
+        tracing::info!(
+            "[sync] queued {} unenhanced received tx(s) for memo recovery",
+            added
+        );
+    }
+    Ok(())
+}
+
+async fn fetch_status(
+    db_data: &mut DbType,
+    lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
+    txid: TxId,
+) -> Result<()> {
+    let resp = lwd
+        .get_transaction(TxFilter {
+            block: None,
+            index: 0,
+            hash: txid.as_ref().to_vec(),
+        })
+        .await;
+    let status = match resp {
+        Ok(r) => {
+            let raw = r.into_inner();
+            if raw.data.is_empty() {
+                TransactionStatus::TxidNotRecognized
+            } else if raw.height == 0 {
+                TransactionStatus::NotInMainChain
+            } else {
+                TransactionStatus::Mined(BlockHeight::from_u32(raw.height as u32))
+            }
+        }
+        Err(_) => TransactionStatus::TxidNotRecognized,
+    };
+    db_data
+        .set_transaction_status(txid, status)
+        .map_err(|e| anyhow::anyhow!("set_transaction_status: {:?}", e))?;
     Ok(())
 }
 
