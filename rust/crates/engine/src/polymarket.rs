@@ -21,14 +21,20 @@ use ows_signer::traits::ChainSigner;
 
 pub const POLYGON_CHAIN_ID: u64 = 137;
 
-/// Polymarket CTF Exchange contract on Polygon.
-pub const CTF_EXCHANGE: &str = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E";
+/// Polymarket CTF Exchange V2 contract on Polygon.
+pub const CTF_EXCHANGE: &str = "0xE111180000d2663C0091e4f400237545B87B996B";
 
-/// Polymarket Neg Risk CTF Exchange (for multi-outcome markets).
-pub const NEG_RISK_CTF_EXCHANGE: &str = "0xC5d563A36AE78145C45a50134d48A1215220f80a";
+/// Polymarket Neg Risk CTF Exchange V2 (for multi-outcome markets).
+pub const NEG_RISK_CTF_EXCHANGE: &str = "0xe2222d279d744050d28e00520010520000310F59";
 
-/// USDC.e on Polygon (Polymarket's collateral token).
+/// USDC.e on Polygon (bridged in, then wrapped to pUSD for trading).
 pub const USDC_POLYGON: &str = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+
+/// pUSD — Polymarket USD collateral token (ERC-20, backed 1:1 by USDC).
+pub const PUSD_POLYGON: &str = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
+
+/// CollateralOnramp — wrap USDC.e into pUSD via `wrap()`.
+pub const COLLATERAL_ONRAMP: &str = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
 
 /// Polygon RPC endpoint.
 pub const POLYGON_RPC: &str = "https://polygon-rpc.com/";
@@ -646,15 +652,14 @@ pub struct PolymarketOrder {
     pub salt: String,
     pub maker: String,
     pub signer: String,
-    pub taker: String,
     pub token_id: String,
     pub maker_amount: String,
     pub taker_amount: String,
-    pub expiration: String,
-    pub nonce: String,
-    pub fee_rate_bps: String,
     pub side: u8,
     pub signature_type: u8,
+    pub timestamp: String,
+    pub metadata: String,
+    pub builder: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -755,21 +760,20 @@ pub fn sign_order(seed_phrase: &str, order: &PolymarketOrder, neg_risk: bool) ->
                 {"name": "salt", "type": "uint256"},
                 {"name": "maker", "type": "address"},
                 {"name": "signer", "type": "address"},
-                {"name": "taker", "type": "address"},
                 {"name": "tokenId", "type": "uint256"},
                 {"name": "makerAmount", "type": "uint256"},
                 {"name": "takerAmount", "type": "uint256"},
-                {"name": "expiration", "type": "uint256"},
-                {"name": "nonce", "type": "uint256"},
-                {"name": "feeRateBps", "type": "uint256"},
                 {"name": "side", "type": "uint8"},
-                {"name": "signatureType", "type": "uint8"}
+                {"name": "signatureType", "type": "uint8"},
+                {"name": "timestamp", "type": "uint256"},
+                {"name": "metadata", "type": "bytes32"},
+                {"name": "builder", "type": "bytes32"}
             ]
         },
         "primaryType": "Order",
         "domain": {
             "name": "Polymarket CTF Exchange",
-            "version": "1",
+            "version": "2",
             "chainId": POLYGON_CHAIN_ID,
             "verifyingContract": exchange
         },
@@ -777,15 +781,14 @@ pub fn sign_order(seed_phrase: &str, order: &PolymarketOrder, neg_risk: bool) ->
             "salt": order.salt,
             "maker": order.maker,
             "signer": order.signer,
-            "taker": order.taker,
             "tokenId": token_id_hex,
             "makerAmount": order.maker_amount,
             "takerAmount": order.taker_amount,
-            "expiration": order.expiration,
-            "nonce": order.nonce,
-            "feeRateBps": order.fee_rate_bps,
             "side": order.side,
-            "signatureType": order.signature_type
+            "signatureType": order.signature_type,
+            "timestamp": order.timestamp,
+            "metadata": order.metadata,
+            "builder": order.builder
         }
     }).to_string();
 

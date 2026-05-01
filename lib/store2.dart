@@ -128,13 +128,24 @@ abstract class _SyncStatus2 with Store {
   /// Called by the adaptive timer (5s while syncing, 30s when caught up).
   /// Starts the sync engine once, then polls heights and connection status.
   @action
-  Future<void> sync() async {
+  Future<void> sync({bool restart = false}) async {
     if (paused) return;
     if (!WalletService.instance.isWalletOpen) return;
     if (_syncInProgress) return;
     _syncInProgress = true;
 
     try {
+      if (restart) {
+        // Force-restart the sync engine to skip the current backoff window
+        try {
+          await WalletService.instance.stopSync();
+          await Future.delayed(const Duration(milliseconds: 200));
+        } catch (_) {}
+        _syncStarted = false;
+        connectionError = null;
+        connected = true;
+        logger.d('[Sync] manual restart requested');
+      }
       await _syncInternal();
     } finally {
       _syncInProgress = false;

@@ -142,6 +142,12 @@ class SyncStatusState extends State<SyncStatusWidget>
   }
 
   _onSync() {
+    // If disconnected, tap = force-restart sync immediately (skip backoff)
+    if (!syncStatus2.connected) {
+      if (syncStatus2.paused) syncStatus2.paused = false;
+      Future(() => syncStatus2.sync(restart: true));
+      return;
+    }
     if (syncStatus2.syncing) {
       setState(() {
         display = (display + 1) % 4;

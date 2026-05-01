@@ -1784,15 +1784,14 @@ fn wire__crate__api__engine_api__engine_polymarket_sign_order_impl(
             let api_salt = <String>::sse_decode(&mut deserializer);
             let api_maker = <String>::sse_decode(&mut deserializer);
             let api_signer = <String>::sse_decode(&mut deserializer);
-            let api_taker = <String>::sse_decode(&mut deserializer);
             let api_token_id = <String>::sse_decode(&mut deserializer);
             let api_maker_amount = <String>::sse_decode(&mut deserializer);
             let api_taker_amount = <String>::sse_decode(&mut deserializer);
-            let api_expiration = <String>::sse_decode(&mut deserializer);
-            let api_nonce = <String>::sse_decode(&mut deserializer);
-            let api_fee_rate_bps = <String>::sse_decode(&mut deserializer);
             let api_side = <u8>::sse_decode(&mut deserializer);
             let api_signature_type = <u8>::sse_decode(&mut deserializer);
+            let api_timestamp = <String>::sse_decode(&mut deserializer);
+            let api_metadata = <String>::sse_decode(&mut deserializer);
+            let api_builder = <String>::sse_decode(&mut deserializer);
             let api_neg_risk = <bool>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
@@ -1803,15 +1802,14 @@ fn wire__crate__api__engine_api__engine_polymarket_sign_order_impl(
                             api_salt,
                             api_maker,
                             api_signer,
-                            api_taker,
                             api_token_id,
                             api_maker_amount,
                             api_taker_amount,
-                            api_expiration,
-                            api_nonce,
-                            api_fee_rate_bps,
                             api_side,
                             api_signature_type,
+                            api_timestamp,
+                            api_metadata,
+                            api_builder,
                             api_neg_risk,
                         )?;
                         Ok(output_ok)

@@ -305,6 +305,22 @@ struct SessionCloseParams {
     session_id: String,
 }
 
+#[derive(Deserialize, JsonSchema)]
+struct CipherpayInvoiceParams {
+    /// Product or service name for the invoice
+    product_name: String,
+    /// Amount in the specified currency (e.g. 25.00 for $25)
+    amount: f64,
+    /// Currency code (default: USD). Supported: USD, EUR, GBP, BRL, etc.
+    currency: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct CipherpayCheckParams {
+    /// CipherPay invoice ID to check
+    invoice_id: String,
+}
+
 // ---------------------------------------------------------------------------
 // MCP Server state
 // ---------------------------------------------------------------------------
@@ -1048,6 +1064,36 @@ impl ZipherMcpServer {
     async fn session_close(&self, Parameters(params): Parameters<SessionCloseParams>) -> String {
         match zipher_engine::session::close_session(None, &params.session_id, &self.data_dir).await {
             Ok(summary) => ok_response(&summary),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    // --- CipherPay merchant tools ---
+
+    #[tool(description = "Create a CipherPay invoice for accepting ZEC payments. Returns payment address, QR URI, and checkout URL. Requires CIPHERPAY_API_KEY.")]
+    async fn cipherpay_create_invoice(&self, Parameters(params): Parameters<CipherpayInvoiceParams>) -> String {
+        match zipher_engine::cipherpay::create_invoice(
+            &params.product_name,
+            params.amount,
+            params.currency.as_deref().unwrap_or("USD"),
+        ).await {
+            Ok(invoice) => ok_response(&invoice),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Check the status of a CipherPay invoice by ID. Returns status (pending/detected/confirmed/expired), received amount, and transaction ID if paid.")]
+    async fn cipherpay_check_invoice(&self, Parameters(params): Parameters<CipherpayCheckParams>) -> String {
+        match zipher_engine::cipherpay::check_invoice(&params.invoice_id).await {
+            Ok(status) => ok_response(&status),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Get your CipherPay merchant balance and stats. Returns total ZEC received, confirmed payment count, and merchant info. Requires CIPHERPAY_API_KEY.")]
+    async fn cipherpay_balance(&self) -> String {
+        match zipher_engine::cipherpay::merchant_balance().await {
+            Ok(balance) => ok_response(&balance),
             Err(e) => err_response(&e),
         }
     }

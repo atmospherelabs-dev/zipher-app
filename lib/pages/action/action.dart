@@ -1568,15 +1568,14 @@ class _ActionPageState extends State<ActionPage> {
     final pnlColor = pnl >= 0 ? ZipherColors.cyan : Colors.redAccent;
 
     void onTap() {
-      if (sellMode) {
-        if (isPm) {
-          _showPolymarketSellConfirmation(p);
-        } else {
-          _showSellConfirmation(p);
-        }
+      if (isPm) {
+        _showPolymarketSellConfirmation(p);
         return;
       }
-      if (isPm) return;
+      if (sellMode) {
+        _showSellConfirmation(p);
+        return;
+      }
       _submitDirect(
         ParsedIntent(type: IntentType.bet, raw: 'bet on market #$marketId', marketId: marketId as int?),
         displayText: 'Bet on market #$marketId',
@@ -1795,22 +1794,24 @@ class _ActionPageState extends State<ActionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: ZipherColors.bg,
-      appBar: AppBar(
-        backgroundColor: ZipherColors.bg, surfaceTintColor: Colors.transparent,
-        title: const Text('Action', style: TextStyle(color: ZipherColors.textPrimary, fontSize: 18, fontWeight: FontWeight.w600)),
-        centerTitle: true,
-        leading: IconButton(icon: Icon(Icons.arrow_back, color: ZipherColors.text60), onPressed: () => Navigator.of(context).pop()),
-        actions: [
-          IconButton(
-            icon: Icon(_llmStatus == LlmStatus.loaded ? Icons.auto_awesome_rounded : Icons.auto_awesome_outlined, size: 20,
-                color: _llmStatus == LlmStatus.loaded ? ZipherColors.cyan : ZipherColors.text20),
-            onPressed: _showLlmSettings,
-          ),
-        ],
-      ),
-      body: Column(children: [
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        backgroundColor: ZipherColors.bg,
+        appBar: AppBar(
+          backgroundColor: ZipherColors.bg, surfaceTintColor: Colors.transparent,
+          title: const Text('Action', style: TextStyle(color: ZipherColors.textPrimary, fontSize: 18, fontWeight: FontWeight.w600)),
+          centerTitle: true,
+          leading: IconButton(icon: Icon(Icons.arrow_back, color: ZipherColors.text60), onPressed: () => Navigator.of(context).pop()),
+          actions: [
+            IconButton(
+              icon: Icon(_llmStatus == LlmStatus.loaded ? Icons.auto_awesome_rounded : Icons.auto_awesome_outlined, size: 20,
+                  color: _llmStatus == LlmStatus.loaded ? ZipherColors.cyan : ZipherColors.text20),
+              onPressed: _showLlmSettings,
+            ),
+          ],
+        ),
+        body: Column(children: [
         _buildBalanceHeader(),
         if (_history.isNotEmpty) _buildHistoryStrip(),
         Expanded(child: ListView.builder(
@@ -1820,7 +1821,7 @@ class _ActionPageState extends State<ActionPage> {
         )),
         _buildInputBar(),
       ]),
-    );
+    ));
   }
 
   Widget _buildBalanceHeader() {

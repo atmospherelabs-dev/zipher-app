@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
 
 import 'evm_rpc.dart';
+import 'polymarket_client.dart' show polymarketPusd;
 import 'secure_key_store.dart';
 
 final _log = Logger();
@@ -75,6 +76,14 @@ final _publicWatchlist = <_WatchEntry>[
     contract: null,
     decimals: 18,
     toUsd: _usdPol,
+  ),
+  _WatchEntry(
+    rpc: EvmRpc.polygon,
+    chainLabel: 'Polygon',
+    symbol: 'pUSD',
+    contract: polymarketPusd,
+    decimals: 6,
+    toUsd: _usdStable,
   ),
 ];
 
@@ -189,7 +198,7 @@ class EvmPortfolioBalance {
     final tokResp = await _alchemyJsonRpc(
       url,
       'alchemy_getTokenBalances',
-      [wallet, [usdcPolygon, usdcPolygonNative]],
+      [wallet, [usdcPolygon, usdcPolygonNative, polymarketPusd]],
       timeout: timeout,
     );
     final result = tokResp['result'];
@@ -208,6 +217,8 @@ class EvmPortfolioBalance {
           final usd = px > 0 ? human * px : _usdStable(human);
           if (contract == usdcPolygon.toLowerCase() || contract == usdcPolygonNative.toLowerCase()) {
             out.add(EvmTokenBalance(symbol: 'USDC', chainLabel: 'Polygon', balance: human, balanceUsd: usd));
+          } else if (contract == polymarketPusd.toLowerCase()) {
+            out.add(EvmTokenBalance(symbol: 'pUSD', chainLabel: 'Polygon', balance: human, balanceUsd: usd));
           }
         }
       }

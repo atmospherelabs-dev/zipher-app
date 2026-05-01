@@ -64,6 +64,9 @@ The MCP server loads the wallet seed from the encrypted OWS vault created by `zi
 | `session_open` / `session_request` | Prepaid session-based payments |
 | `swap_quote` / `swap_execute` | Cross-chain swaps via Near Intents |
 | `get_policy` / `set_policy` | View and update spending limits |
+| `cipherpay_create_invoice` | Create a CipherPay invoice (requires `CIPHERPAY_API_KEY`) |
+| `cipherpay_check_invoice` | Check invoice status by ID |
+| `cipherpay_balance` | Get merchant balance and stats (requires `CIPHERPAY_API_KEY`) |
 
 ### Security model
 

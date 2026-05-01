@@ -34,13 +34,17 @@ class PolymarketSellConfirmation extends StatefulWidget {
   State<PolymarketSellConfirmation> createState() => _PolymarketSellConfirmationState();
 }
 
-class _PolymarketSellConfirmationState extends State<PolymarketSellConfirmation> {
+class _PolymarketSellConfirmationState extends State<PolymarketSellConfirmation>
+    with AutomaticKeepAliveClientMixin {
   bool _executing = false;
   bool _done = false;
   bool _failed = false;
   ActionProgress? _currentProgress;
   String? _resultDetail;
   StreamSubscription<ActionProgress>? _executionSub;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void dispose() {
@@ -100,6 +104,7 @@ class _PolymarketSellConfirmationState extends State<PolymarketSellConfirmation>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final borderColor = _done
         ? ZipherColors.cyan.withValues(alpha: 0.5)
         : _failed
@@ -207,7 +212,7 @@ class _PolymarketSellConfirmationState extends State<PolymarketSellConfirmation>
             const Gap(16),
             _buildInlineProgress(_currentProgress!),
           ],
-          if (_done && _resultDetail != null) ...[
+          if (_done) ...[
             const Gap(12),
             Container(
               padding: const EdgeInsets.all(10),
@@ -216,8 +221,18 @@ class _PolymarketSellConfirmationState extends State<PolymarketSellConfirmation>
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: ZipherColors.cyan.withValues(alpha: 0.2)),
               ),
-              child: Text(_resultDetail!,
-                  style: TextStyle(color: ZipherColors.text60, fontSize: 11, height: 1.4)),
+              child: Row(children: [
+                Icon(Icons.check_circle_outline, color: ZipherColors.cyan, size: 16),
+                const Gap(8),
+                Expanded(
+                  child: Text(
+                    (_resultDetail != null && _resultDetail!.isNotEmpty)
+                        ? _resultDetail!
+                        : 'Sell order submitted to Polymarket.',
+                    style: TextStyle(color: ZipherColors.text60, fontSize: 11, height: 1.4),
+                  ),
+                ),
+              ]),
             ),
           ],
           if (_failed) ...[

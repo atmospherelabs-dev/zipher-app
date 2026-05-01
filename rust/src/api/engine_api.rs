@@ -628,37 +628,35 @@ pub struct PolymarketAuthResult {
     pub signature: String,
 }
 
-/// Sign a Polymarket CLOB order with EIP-712.
+/// Sign a Polymarket CLOB V2 order with EIP-712.
 /// Returns the hex-encoded signature.
 pub fn engine_polymarket_sign_order(
     seed_phrase: String,
     salt: String,
     maker: String,
     signer: String,
-    taker: String,
     token_id: String,
     maker_amount: String,
     taker_amount: String,
-    expiration: String,
-    nonce: String,
-    fee_rate_bps: String,
     side: u8,
     signature_type: u8,
+    timestamp: String,
+    metadata: String,
+    builder: String,
     neg_risk: bool,
 ) -> Result<String> {
     let order = zipher_engine::polymarket::PolymarketOrder {
         salt,
         maker,
         signer,
-        taker,
         token_id,
         maker_amount,
         taker_amount,
-        expiration,
-        nonce,
-        fee_rate_bps,
         side,
         signature_type,
+        timestamp,
+        metadata,
+        builder,
     };
     zipher_engine::polymarket::sign_order(&seed_phrase, &order, neg_risk)
 }

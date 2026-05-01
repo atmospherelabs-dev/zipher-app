@@ -596,4 +596,80 @@ No wallet logic changes. No user-facing changes. Just crate boundaries.
 
 ---
 
+## 12. Mobile Approval Flow (Roadmap)
+
+> **Status:** Planned
+> **Inspired by:** [Stripe Link Agent Wallet](https://link.com/agents)
+> **Priority:** High — bridges the UX gap between terminal-based HITL and consumer-grade approval
+
+### The Problem
+
+The current HITL approval flow (`approve_send` MCP tool) is terminal-only. The operator must be watching the agent's MCP session to approve large sends. This is fine for developers but unusable for anyone running an agent unattended.
+
+Stripe's Link agent wallet solves this with push notifications and a mobile approval screen. We can do the same — the Zipher mobile app already exists, has notification infrastructure (`initNotifications()` in `main.dart`), and shares the same Rust engine.
+
+### Architecture
+
+```
+Agent (MCP server)                    Relay                     Zipher Mobile App
+      |                                 |                              |
+      |-- propose_send (above threshold) |                              |
+      |    → APPROVAL_REQUIRED           |                              |
+      |                                  |                              |
+      |-- POST /approvals/request ------>|                              |
+      |   (E2E encrypted payload)        |-- push notification -------->|
+      |                                  |                              |
+      |                                  |    User sees: "Agent wants   |
+      |                                  |    to send 0.5 ZEC to..."    |
+      |                                  |    [Approve] [Decline]       |
+      |                                  |                              |
+      |                                  |<-- POST /approvals/respond --|
+      |<-- poll GET /approvals/{id} -----|   (E2E encrypted response)   |
+      |    → approved                    |                              |
+      |                                  |                              |
+      |-- confirm_send (signs locally)   |                              |
+```
+
+### Key design decisions
+
+**Below threshold = autonomous.** The existing `approval_threshold` in `policy.toml` controls which sends need mobile approval. Small x402 payments and API calls auto-sign from the vault. Only large sends go to the phone. Best of both worlds.
+
+**MCP server signs, not the phone.** The MCP server holds the seed in its vault. The mobile app is an approval UI, not a signer. This keeps the architecture simple — the phone just says "yes" or "no."
+
+**E2E encrypted relay.** The relay (CipherPay API or a dedicated service) never sees approval contents. During device pairing, the MCP server and mobile app perform an ECDH key exchange to establish a shared secret. All approval payloads are encrypted with NaCl box (X25519 + XSalsa20-Poly1305). The relay only transports opaque blobs.
+
+**Device pairing via code.** `zipher auth` generates a short-lived pairing code (e.g. `river-glass-north`). User enters it in the Zipher mobile app. This establishes the E2E encryption keys. Same UX pattern as Link's device auth.
+
+### Security model
+
+| Threat | Mitigation |
+|--------|------------|
+| Relay compromised (reads approvals) | E2E encryption — relay only sees ciphertext |
+| Relay compromised (forges approvals) | Approvals are signed with the pairing key — can't be forged |
+| Replay attack (reuse old approval) | Each approval has a unique `approval_id` + nonce, single-use |
+| Man-in-the-middle during pairing | Pairing code is entered manually (out-of-band). SAS (Short Authentication String) verification optional. |
+| Phone compromised | Attacker can approve sends but can't change destination/amount (those are in the signed proposal from the MCP server) |
+| MCP server shows wrong details to phone | MCP server creates the proposal — if compromised, it already has the seed. HITL protects against confused agents, not compromised machines. |
+
+### Implementation phases
+
+| Phase | Scope | Estimate |
+|-------|-------|----------|
+| **A** | Device pairing: `zipher auth` CLI command + mobile pairing screen. ECDH key exchange, store pairing keys. | 1 week |
+| **B** | Approval relay: API endpoints for submitting/polling approval requests. E2E encryption layer. Push notification trigger. | 1 week |
+| **C** | Mobile approval UI: notification handler, approval screen (amount, address, memo, context), approve/decline buttons. | 1 week |
+| **D** | MCP integration: modify `propose_send` HITL path to submit to relay instead of local-only `PendingApproval`. Poll for response. | 3-4 days |
+| **E** | Testing + hardening: replay protection, expiry, error handling, timeout UX. | 3-4 days |
+
+**Total estimate: ~4 weeks**
+
+### What we keep
+
+- `approve_send` MCP tool still works as a local fallback (no phone required)
+- `policy.toml` spending policies unchanged
+- Audit log records whether approval came from mobile or terminal
+- All existing autonomous payment flows (below threshold) unchanged
+
+---
+
 *Atmosphere Labs — Making Zcash accessible. For everyone.*

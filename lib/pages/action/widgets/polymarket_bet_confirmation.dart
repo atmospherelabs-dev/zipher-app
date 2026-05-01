@@ -37,7 +37,8 @@ class PolymarketBetConfirmation extends StatefulWidget {
   State<PolymarketBetConfirmation> createState() => _PolymarketBetConfirmationState();
 }
 
-class _PolymarketBetConfirmationState extends State<PolymarketBetConfirmation> {
+class _PolymarketBetConfirmationState extends State<PolymarketBetConfirmation>
+    with AutomaticKeepAliveClientMixin {
   bool _executing = false;
   bool _done = false;
   bool _failed = false;
@@ -45,6 +46,9 @@ class _PolymarketBetConfirmationState extends State<PolymarketBetConfirmation> {
   String? _resultDetail;
   StreamSubscription<ActionProgress>? _executionSub;
   String _flowLabel = '...';
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -128,6 +132,7 @@ class _PolymarketBetConfirmationState extends State<PolymarketBetConfirmation> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // keep state alive in scrolling lists
     final borderColor = _done
         ? ZipherColors.cyan.withValues(alpha: 0.5)
         : _failed
@@ -245,7 +250,7 @@ class _PolymarketBetConfirmationState extends State<PolymarketBetConfirmation> {
             _buildInlineProgress(_currentProgress!),
           ],
 
-          if (_done && _resultDetail != null) ...[
+          if (_done) ...[
             const Gap(12),
             Container(
               padding: const EdgeInsets.all(10),
@@ -254,8 +259,18 @@ class _PolymarketBetConfirmationState extends State<PolymarketBetConfirmation> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: ZipherColors.cyan.withValues(alpha: 0.2)),
               ),
-              child: Text(_resultDetail!,
-                  style: TextStyle(color: ZipherColors.text60, fontSize: 11, height: 1.4)),
+              child: Row(children: [
+                Icon(Icons.check_circle_outline, color: ZipherColors.cyan, size: 16),
+                const Gap(8),
+                Expanded(
+                  child: Text(
+                    (_resultDetail != null && _resultDetail!.isNotEmpty)
+                        ? _resultDetail!
+                        : 'Order submitted to Polymarket. Tap "My bets" to track it.',
+                    style: TextStyle(color: ZipherColors.text60, fontSize: 11, height: 1.4),
+                  ),
+                ),
+              ]),
             ),
           ],
 

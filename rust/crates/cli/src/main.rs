@@ -568,6 +568,42 @@ enum PolymarketCmd {
         /// Wallet address (0x + 40 hex) — Polygon account that holds positions
         user: String,
     },
+
+    /// Test V2 CLOB order flow: L1 auth → sign → POST (uses wallet seed)
+    TestOrder {
+        /// CLOB token ID for the outcome to bet on
+        token_id: String,
+        /// USD amount to bet
+        #[arg(long, default_value = "5.0")]
+        amount: f64,
+        /// Price per share (e.g. 0.35 for 35%)
+        #[arg(long)]
+        price: f64,
+        /// BUY or SELL
+        #[arg(long, default_value = "BUY")]
+        side: String,
+        /// Use neg-risk exchange
+        #[arg(long)]
+        neg_risk: bool,
+    },
+
+    /// Full on-chain bet: approve USDC.e → wrap pUSD → approve exchange → sign & post
+    FullBet {
+        /// CLOB token ID for the outcome to bet on
+        token_id: String,
+        /// USD amount to bet
+        #[arg(long, default_value = "5.0")]
+        amount: f64,
+        /// Price per share (e.g. 0.35 for 35%)
+        #[arg(long)]
+        price: f64,
+        /// BUY or SELL
+        #[arg(long, default_value = "BUY")]
+        side: String,
+        /// Use neg-risk exchange
+        #[arg(long)]
+        neg_risk: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -787,6 +823,12 @@ async fn main() {
                 market::cmd_polymarket_show(&cfg, condition_id).await
             }
             PolymarketCmd::Positions { user } => market::cmd_polymarket_positions(&cfg, user).await,
+            PolymarketCmd::TestOrder { token_id, amount, price, side, neg_risk } => {
+                market::cmd_polymarket_test_order(&cfg, token_id, amount, price, side, neg_risk).await
+            }
+            PolymarketCmd::FullBet { token_id, amount, price, side, neg_risk } => {
+                market::cmd_polymarket_full_bet(&cfg, token_id, amount, price, side, neg_risk).await
+            }
         },
         Commands::Serve { port, price } => {
             serve::cmd_serve(&cfg, port, price).await;

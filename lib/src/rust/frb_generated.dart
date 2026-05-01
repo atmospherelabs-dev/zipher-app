@@ -255,15 +255,14 @@ abstract class RustLibApi extends BaseApi {
       required String salt,
       required String maker,
       required String signer,
-      required String taker,
       required String tokenId,
       required String makerAmount,
       required String takerAmount,
-      required String expiration,
-      required String nonce,
-      required String feeRateBps,
       required int side,
       required int signatureType,
+      required String timestamp,
+      required String metadata,
+      required String builder,
       required bool negRisk});
 
   Future<ProposalResult> crateApiEngineApiEngineProposeSend(
@@ -1753,15 +1752,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       required String salt,
       required String maker,
       required String signer,
-      required String taker,
       required String tokenId,
       required String makerAmount,
       required String takerAmount,
-      required String expiration,
-      required String nonce,
-      required String feeRateBps,
       required int side,
       required int signatureType,
+      required String timestamp,
+      required String metadata,
+      required String builder,
       required bool negRisk}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
@@ -1770,15 +1768,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(salt, serializer);
         sse_encode_String(maker, serializer);
         sse_encode_String(signer, serializer);
-        sse_encode_String(taker, serializer);
         sse_encode_String(tokenId, serializer);
         sse_encode_String(makerAmount, serializer);
         sse_encode_String(takerAmount, serializer);
-        sse_encode_String(expiration, serializer);
-        sse_encode_String(nonce, serializer);
-        sse_encode_String(feeRateBps, serializer);
         sse_encode_u_8(side, serializer);
         sse_encode_u_8(signatureType, serializer);
+        sse_encode_String(timestamp, serializer);
+        sse_encode_String(metadata, serializer);
+        sse_encode_String(builder, serializer);
         sse_encode_bool(negRisk, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
             funcId: 45, port: port_);
@@ -1793,15 +1790,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         salt,
         maker,
         signer,
-        taker,
         tokenId,
         makerAmount,
         takerAmount,
-        expiration,
-        nonce,
-        feeRateBps,
         side,
         signatureType,
+        timestamp,
+        metadata,
+        builder,
         negRisk
       ],
       apiImpl: this,
@@ -1816,15 +1812,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           "salt",
           "maker",
           "signer",
-          "taker",
           "tokenId",
           "makerAmount",
           "takerAmount",
-          "expiration",
-          "nonce",
-          "feeRateBps",
           "side",
           "signatureType",
+          "timestamp",
+          "metadata",
+          "builder",
           "negRisk"
         ],
       );

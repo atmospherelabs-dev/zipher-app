@@ -6632,6 +6632,7 @@ dependencies = [
  "ctrlc",
  "dirs",
  "hex",
+ "hmac 0.12.1",
  "ows-lib",
  "reqwest",
  "secrecy",

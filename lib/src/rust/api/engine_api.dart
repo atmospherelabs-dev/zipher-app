@@ -342,37 +342,35 @@ Future<PolymarketAuthResult> enginePolymarketSignAuth(
     RustLib.instance.api.crateApiEngineApiEnginePolymarketSignAuth(
         seedPhrase: seedPhrase, timestamp: timestamp, nonce: nonce);
 
-/// Sign a Polymarket CLOB order with EIP-712.
+/// Sign a Polymarket CLOB V2 order with EIP-712.
 /// Returns the hex-encoded signature.
 Future<String> enginePolymarketSignOrder(
         {required String seedPhrase,
         required String salt,
         required String maker,
         required String signer,
-        required String taker,
         required String tokenId,
         required String makerAmount,
         required String takerAmount,
-        required String expiration,
-        required String nonce,
-        required String feeRateBps,
         required int side,
         required int signatureType,
+        required String timestamp,
+        required String metadata,
+        required String builder,
         required bool negRisk}) =>
     RustLib.instance.api.crateApiEngineApiEnginePolymarketSignOrder(
         seedPhrase: seedPhrase,
         salt: salt,
         maker: maker,
         signer: signer,
-        taker: taker,
         tokenId: tokenId,
         makerAmount: makerAmount,
         takerAmount: takerAmount,
-        expiration: expiration,
-        nonce: nonce,
-        feeRateBps: feeRateBps,
         side: side,
         signatureType: signatureType,
+        timestamp: timestamp,
+        metadata: metadata,
+        builder: builder,
         negRisk: negRisk);
 
 /// Whether one Gamma `/markets` or nested event market object passes the default

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
 
 import '../coin/coins.dart' show isTestnet;
@@ -110,11 +111,52 @@ class ActionExecutor {
   Future<double> getPolygonUsdcNativeBalance(String address) =>
       _polygon.getErc20Balance(address, usdcPolygonNative, decimals: 6);
 
+  Future<double> getPolygonPusdBalance(String address) =>
+      _polygon.getErc20Balance(address, polymarketPusd, decimals: 6);
+
   Future<double> getPolygonPolBalance(String address) =>
       _polygon.getNativeBalance(address);
 
   Future<List<Map<String, dynamic>>> getSweepableBscTokens() =>
       _near.getSweepableBscTokens();
+
+  /// Wrap USDC.e into pUSD via CollateralOnramp.wrap(address,address,uint256).
+  /// Waits for confirmation before returning so subsequent txs get correct nonce.
+  Future<void> _wrapUsdceToPusd({
+    required String seed,
+    required String address,
+    required BigInt amount,
+  }) async {
+    // wrap(address _asset, address _to, uint256 _amount) → 0x62355638
+    final assetHex = polymarketUsdce.substring(2).toLowerCase().padLeft(64, '0');
+    final toHex = address.substring(2).toLowerCase().padLeft(64, '0');
+    final amountHex = amount.toRadixString(16).padLeft(64, '0');
+    final calldata = '0x62355638$assetHex$toHex$amountHex';
+    final nonce = await _polygon.getNonce(address);
+    final fees = await _polygon.suggestEip1559Fees(urgent: true);
+    final unsignedTx = TxBuilder.buildUnsignedEip1559(
+      chainId: 137,
+      nonce: nonce,
+      maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+      maxFeePerGas: fees.maxFeePerGas,
+      gasLimit: 200000,
+      to: polymarketCollateralOnramp,
+      value: BigInt.zero,
+      data: calldata,
+    );
+    final txHash = await rust_engine.engineSignAndBroadcastEvmTx(
+      seedPhrase: seed,
+      unsignedTxHex: unsignedTx,
+      rpcUrl: _polygon.rpcUrl,
+    );
+    final receipt = await rust_engine.engineWaitForReceipt(
+      rpcUrl: _polygon.rpcUrl,
+      txHash: txHash,
+    );
+    if (!receipt.success) {
+      throw Exception('CollateralOnramp.wrap reverted (tx: $txHash)');
+    }
+  }
 
   // ═════════════════════════════════════════════════════════════════════════
   // Polymarket Bet
@@ -134,94 +176,123 @@ class ActionExecutor {
       return;
     }
     _executing = true;
-    const total = 6;
+    const total = 8;
 
     try {
       yield const ActionProgress(step: 1, totalSteps: total, label: 'Deriving Polygon address');
       final seed = await _getSeed();
       final polyAddress = await rust_engine.engineDeriveEvmAddress(seedPhrase: seed);
 
-      // ── Fund USDC.e via unified resolver ──
       yield const ActionProgress(step: 2, totalSteps: total, label: 'Checking balances');
       final fee = amountUsd * atmosphereFeeRate;
       final totalNeeded = amountUsd + fee;
 
-      yield* _resolver.ensureFunded(
-        chain: ChainConfig.polygon,
-        walletAddress: polyAddress,
-        seed: seed,
-        targetToken: usdcPolygon,
-        targetDecimals: 6,
-        amountNeeded: totalNeeded,
-        stepOffset: 3,
-        totalSteps: total,
-      );
+      // Check existing pUSD balance first -- previous wraps may have left some
+      final existingPusd = await _polygon.getErc20Balance(polyAddress, polymarketPusd, decimals: 6);
+      final wrapNeeded = totalNeeded - existingPusd;
 
-      final usdcBridged = await getPolygonUsdcBridgedBalance(polyAddress);
-      if (usdcBridged < totalNeeded) {
-        yield ActionProgress(step: 3, totalSteps: total, label: 'Insufficient USDC.e',
-            detail: 'Have \$${usdcBridged.toStringAsFixed(2)} USDC.e but need \$${totalNeeded.toStringAsFixed(2)}. '
-                'Try increasing gas reserve in settings or retry in a minute.',
-            status: ActionStatus.failed);
-        return;
+      if (wrapNeeded > 0.001) {
+        // Need more pUSD -- fund USDC.e and wrap
+        yield* _resolver.ensureFunded(
+          chain: ChainConfig.polygon,
+          walletAddress: polyAddress,
+          seed: seed,
+          targetToken: usdcPolygon,
+          targetDecimals: 6,
+          amountNeeded: wrapNeeded,
+          stepOffset: 3,
+          totalSteps: total,
+        );
+
+        final usdcBridged = await getPolygonUsdcBridgedBalance(polyAddress);
+        if (usdcBridged < wrapNeeded) {
+          yield ActionProgress(step: 3, totalSteps: total, label: 'Insufficient balance',
+              detail: 'Have \$${existingPusd.toStringAsFixed(2)} pUSD + \$${usdcBridged.toStringAsFixed(2)} USDC.e '
+                  'but need \$${totalNeeded.toStringAsFixed(2)} total.',
+              status: ActionStatus.failed);
+          return;
+        }
+
+        yield const ActionProgress(step: 5, totalSteps: total, label: 'Approving USDC.e for wrapping');
+        final wrapAmount = toWei(wrapNeeded, decimals: 6);
+        await _polygon.approveErc20(
+          seed: seed, ownerAddress: polyAddress, tokenAddress: usdcPolygon,
+          spenderAddress: polymarketCollateralOnramp, amount: wrapAmount, chainId: 137,
+        );
+
+        yield const ActionProgress(step: 6, totalSteps: total, label: 'Wrapping USDC.e to pUSD');
+        await _wrapUsdceToPusd(seed: seed, address: polyAddress, amount: wrapAmount);
       }
 
       // L1 auth
       yield const ActionProgress(step: 4, totalSteps: total, label: 'Authenticating with Polymarket');
       final clobCreds = await _polymarket.deriveCredentials(seed);
 
-      // Approve USDC.e
-      yield const ActionProgress(step: 5, totalSteps: total, label: 'Approving USDC.e');
-      final approveAmount = toWei(totalNeeded, decimals: 6);
+      // Approve pUSD for the exchange contract that processes orders
+      yield const ActionProgress(step: 7, totalSteps: total, label: 'Approving pUSD for exchange');
       final spender = negRisk ? polymarketNegRiskExchange : polymarketCtfExchange;
-      final polygonFees = await _polygon.suggestEip1559Fees(urgent: true);
+      // Buffer for CLOB maker fees (~1%) on top of our fee
+      final approveAmount = toWei(totalNeeded * 1.05, decimals: 6);
       await _polygon.approveErc20(
-        seed: seed, ownerAddress: polyAddress, tokenAddress: usdcPolygon,
+        seed: seed, ownerAddress: polyAddress, tokenAddress: polymarketPusd,
         spenderAddress: spender, amount: approveAmount, chainId: 137,
-        maxPriorityFee: polygonFees.maxPriorityFeePerGas,
-        maxFee: polygonFees.maxFeePerGas, gasLimit: 60000,
       );
 
-      // Sign & post order
-      yield const ActionProgress(step: 6, totalSteps: total, label: 'Placing order on Polymarket');
-      final feeRate = await _polymarket.getFeeRate(tokenId);
-      final makerAmountRaw = (amountUsd * 1e6).round();
-      final sharesAmount = (amountUsd / price * 1e6).round();
+      // Sign & post V2 order
+      yield const ActionProgress(step: 8, totalSteps: total, label: 'Placing order on Polymarket');
       final sideInt = side.toUpperCase() == 'BUY' ? 0 : 1;
+
+      // Polymarket precision rules (per py-clob-client ROUNDING_CONFIG):
+      // - shares (size): ALWAYS max 2 decimals → raw divisible by 10,000
+      // - maker pUSD (amount for BUY): max 4 decimals → raw divisible by 100
+      // - price exactly on tick grid (priceNum/priceDenom)
+      final tickSize = await _fetchTickSize(tokenId);
+      final tickDecimals = _countDecimals(tickSize);
+      final priceDenom = _pow10(tickDecimals);
+      final priceNum = (price / tickSize).round();
+      const sharesDivisor = 10000; // max 2 decimals for shares
+
+      // Round shares DOWN to multiple of sharesDivisor, derive maker via integer ratio
+      final desiredShares = (amountUsd / (priceNum * tickSize) * 1e6).floor();
+      final sharesAmountRaw = (desiredShares ~/ sharesDivisor) * sharesDivisor;
+      final makerAmountRaw = sharesAmountRaw * priceNum ~/ priceDenom;
+      final mAmountRaw = sideInt == 0 ? makerAmountRaw.toString() : sharesAmountRaw.toString();
+      final tAmountRaw = sideInt == 0 ? sharesAmountRaw.toString() : makerAmountRaw.toString();
       final salt = DateTime.now().millisecondsSinceEpoch.toString();
+      final timestamp = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+      const zeroBytes32 = '0x0000000000000000000000000000000000000000000000000000000000000000';
 
       final signature = await rust_engine.enginePolymarketSignOrder(
         seedPhrase: seed, salt: salt, maker: polyAddress, signer: polyAddress,
-        taker: '0x0000000000000000000000000000000000000000', tokenId: tokenId,
-        makerAmount: sideInt == 0 ? makerAmountRaw.toString() : sharesAmount.toString(),
-        takerAmount: sideInt == 0 ? sharesAmount.toString() : makerAmountRaw.toString(),
-        expiration: '0', nonce: '0', feeRateBps: feeRate.toString(),
-        side: sideInt, signatureType: 0, negRisk: negRisk,
+        tokenId: tokenId,
+        makerAmount: mAmountRaw, takerAmount: tAmountRaw,
+        side: sideInt, signatureType: 0,
+        timestamp: timestamp, metadata: zeroBytes32, builder: zeroBytes32,
+        negRisk: negRisk,
       );
 
       final orderBody = {
         'order': {
-          'salt': salt, 'maker': polyAddress, 'signer': polyAddress,
-          'taker': '0x0000000000000000000000000000000000000000',
+          'salt': int.parse(salt), 'maker': polyAddress, 'signer': polyAddress,
           'tokenId': tokenId,
-          'makerAmount': sideInt == 0 ? makerAmountRaw.toString() : sharesAmount.toString(),
-          'takerAmount': sideInt == 0 ? sharesAmount.toString() : makerAmountRaw.toString(),
-          'expiration': '0', 'nonce': '0', 'feeRateBps': feeRate.toString(),
-          'side': sideInt.toString(), 'signatureType': 0,
+          'makerAmount': mAmountRaw, 'takerAmount': tAmountRaw,
+          'side': side.toUpperCase(), 'signatureType': 0,
+          'timestamp': timestamp, 'metadata': zeroBytes32, 'builder': zeroBytes32,
+          'signature': signature,
         },
-        'signature': signature, 'owner': polyAddress, 'orderType': 'FOK',
+        'owner': clobCreds['apiKey'] ?? polyAddress, 'orderType': 'GTC',
       };
 
       final postResp = await _polymarket.post('/order', orderBody, clobCreds);
       if (postResp == null || postResp['success'] != true) {
         final errMsg = postResp?['errorMsg'] ?? postResp?['error'] ?? 'Order rejected by Polymarket';
-        yield ActionProgress(step: 6, totalSteps: total, label: 'Order failed',
+        yield ActionProgress(step: 8, totalSteps: total, label: 'Order failed',
             detail: errMsg.toString(), status: ActionStatus.failed);
         return;
       }
 
       final orderId = postResp['orderID'] ?? postResp['order_id'] ?? '';
-      yield const ActionProgress(step: 6, totalSteps: total, label: 'Bet placed on Polymarket', status: ActionStatus.done);
+      yield const ActionProgress(step: 8, totalSteps: total, label: 'Bet placed on Polymarket', status: ActionStatus.done);
 
       await ActionHistory.instance.add(ActionRecord(
         id: ActionHistory.newId(),
@@ -313,45 +384,57 @@ class ActionExecutor {
       }
 
       yield const ActionProgress(step: 5, totalSteps: total, label: 'Placing sell order');
-      final feeRate = await _polymarket.getFeeRate(tokenId);
-      final sharesRaw = (shares * 1e6).round();
-      final usdcRaw = (shares * worstPrice * 1e6).round();
-      if (sharesRaw <= 0 || usdcRaw <= 0) {
+      if (shares <= 0 || worstPrice <= 0) {
         yield const ActionProgress(step: 5, totalSteps: total, label: 'Order failed',
             detail: 'Invalid size or price', status: ActionStatus.failed);
         return;
       }
       const sideInt = 1;
+      // Fetch tick size and round price to tick grid
+      final sellTickSize = await _fetchTickSize(tokenId);
+      final sellTickDec = _countDecimals(sellTickSize);
+      final sellPriceDenom = _pow10(sellTickDec);
+      final sellPriceNum = (worstPrice / sellTickSize).round();
+      const sellSharesDivisor = 10000; // shares max 2 decimals
+
+      // SELL: maker=shares (2 dec), taker=pUSD (4 dec). price = taker/maker.
+      final desiredSharesRaw = (shares * 1e6).floor();
+      final sharesRawInt = (desiredSharesRaw ~/ sellSharesDivisor) * sellSharesDivisor;
+      final usdcRawInt = sharesRawInt * sellPriceNum ~/ sellPriceDenom;
+
+      final sharesRaw = sharesRawInt.toString();
+      final usdcRaw = usdcRawInt.toString();
       final salt = DateTime.now().millisecondsSinceEpoch.toString();
+      final timestamp = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+      const zeroBytes32 = '0x0000000000000000000000000000000000000000000000000000000000000000';
 
       final signature = await rust_engine.enginePolymarketSignOrder(
         seedPhrase: seed,
         salt: salt,
         maker: polyAddress,
         signer: polyAddress,
-        taker: '0x0000000000000000000000000000000000000000',
         tokenId: tokenId,
-        makerAmount: sharesRaw.toString(),
-        takerAmount: usdcRaw.toString(),
-        expiration: '0',
-        nonce: '0',
-        feeRateBps: feeRate.toString(),
+        makerAmount: sharesRaw,
+        takerAmount: usdcRaw,
         side: sideInt,
         signatureType: 0,
+        timestamp: timestamp,
+        metadata: zeroBytes32,
+        builder: zeroBytes32,
         negRisk: negRisk,
       );
 
       final orderBody = {
         'order': {
-          'salt': salt, 'maker': polyAddress, 'signer': polyAddress,
-          'taker': '0x0000000000000000000000000000000000000000',
+          'salt': int.parse(salt), 'maker': polyAddress, 'signer': polyAddress,
           'tokenId': tokenId,
-          'makerAmount': sharesRaw.toString(),
-          'takerAmount': usdcRaw.toString(),
-          'expiration': '0', 'nonce': '0', 'feeRateBps': feeRate.toString(),
-          'side': sideInt.toString(), 'signatureType': 0,
+          'makerAmount': sharesRaw,
+          'takerAmount': usdcRaw,
+          'side': 'SELL', 'signatureType': 0,
+          'timestamp': timestamp, 'metadata': zeroBytes32, 'builder': zeroBytes32,
+          'signature': signature,
         },
-        'signature': signature, 'owner': polyAddress, 'orderType': 'FOK',
+        'owner': clobCreds['apiKey'] ?? polyAddress, 'orderType': 'GTC',
       };
 
       final postResp = await _polymarket.post('/order', orderBody, clobCreds);
@@ -783,6 +866,33 @@ class ActionExecutor {
   // ═════════════════════════════════════════════════════════════════════════
   // Private helpers
   // ═════════════════════════════════════════════════════════════════════════
+
+  /// Fetch tick size for a Polymarket token from the CLOB API.
+  Future<double> _fetchTickSize(String tokenId) async {
+    try {
+      final uri = Uri.parse('$polymarketClobApi/tick-size?token_id=$tokenId');
+      final resp = await http.get(uri);
+      if (resp.statusCode == 200) {
+        final val = double.tryParse(resp.body.replaceAll('"', '').trim());
+        if (val != null && val > 0) return val;
+      }
+    } catch (_) {}
+    return 0.01; // safe default
+  }
+
+  static int _countDecimals(double v) {
+    final s = v.toString();
+    final dot = s.indexOf('.');
+    if (dot < 0) return 0;
+    return s.length - dot - 1;
+  }
+
+  static int _pow10(int exp) {
+    if (exp <= 0) return 1;
+    int r = 1;
+    for (int i = 0; i < exp; i++) r *= 10;
+    return r;
+  }
 
   Future<String> _getSeed() async {
     final walletId = WalletService.instance.activeWalletId;

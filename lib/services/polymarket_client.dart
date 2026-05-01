@@ -9,14 +9,25 @@ import '../src/rust/api/engine_api.dart' as rust_engine;
 final _log = Logger();
 
 const polymarketClobApi = 'https://clob.polymarket.com';
-const polymarketCtfExchange = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
-const polymarketNegRiskExchange = '0xC5d563A36AE78145C45a50134d48A1215220f80a';
+
+/// V2 exchange contracts (live April 28, 2026).
+const polymarketCtfExchange = '0xE111180000d2663C0091e4f400237545B87B996B';
+const polymarketNegRiskExchange = '0xe2222d279d744050d28e00520010520000310F59';
 
 /// ERC-1155 Conditional Tokens — outcome balances live here.
 const polymarketCtfContract = '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045';
 
 /// Neg-risk adapter (ERC-1155) — approve for neg-risk markets before SELL on CLOB.
 const polymarketNegRiskAdapter = '0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296';
+
+/// pUSD — Polymarket USD collateral token (replaces direct USDC.e for V2).
+const polymarketPusd = '0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB';
+
+/// CollateralOnramp — wraps USDC.e into pUSD via `wrap(uint256 amount)`.
+const polymarketCollateralOnramp = '0x93070a847efEf7F70739046A929D47a521F5B8ee';
+
+/// USDC.e on Polygon (bridged collateral, wrapped to pUSD before trading).
+const polymarketUsdce = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
 
 /// 1.5% Atmosphere fee on Polymarket bets.
 const atmosphereFeeRate = 0.015;
@@ -80,20 +91,6 @@ class PolymarketClient {
     };
   }
 
-  /// Get fee rate (bps) for a Polymarket token.
-  Future<int> getFeeRate(String tokenId) async {
-    try {
-      final resp = await http.get(
-        Uri.parse('$polymarketClobApi/fee-rate?token_id=$tokenId'),
-      );
-      if (resp.statusCode == 200) {
-        final body = jsonDecode(resp.body);
-        return (body['fee_rate_bps'] as num?)?.toInt() ?? 0;
-      }
-    } catch (_) {}
-    return 0;
-  }
-
   /// Build HMAC-SHA256 headers for L2 CLOB auth.
   Map<String, String> buildHeaders(
     Map<String, String> creds,
@@ -107,7 +104,7 @@ class PolymarketClient {
     final secretBytes = base64.decode(creds['secret'] ?? '');
     final hmacSha256 = Hmac(sha256, secretBytes);
     final digest = hmacSha256.convert(utf8.encode(message));
-    final sig = base64.encode(digest.bytes);
+    final sig = base64Url.encode(digest.bytes);
 
     return {
       'Content-Type': 'application/json',
