@@ -53,8 +53,16 @@ pub fn load_model(model_path: &str, tokenizer_path: &str) -> Result<()> {
 
     // Qwen/Mistral GGUFs omit rope.dimension_count — synthesize from head_dim.
     if !content.metadata.contains_key("llama.rope.dimension_count") {
-        let emb = content.metadata.get("llama.embedding_length").and_then(|v| v.to_u32().ok()).unwrap_or(0);
-        let heads = content.metadata.get("llama.attention.head_count").and_then(|v| v.to_u32().ok()).unwrap_or(1);
+        let emb = content
+            .metadata
+            .get("llama.embedding_length")
+            .and_then(|v| v.to_u32().ok())
+            .unwrap_or(0);
+        let heads = content
+            .metadata
+            .get("llama.attention.head_count")
+            .and_then(|v| v.to_u32().ok())
+            .unwrap_or(1);
         if emb > 0 && heads > 0 {
             content.metadata.insert(
                 "llama.rope.dimension_count".to_string(),
@@ -69,7 +77,9 @@ pub fn load_model(model_path: &str, tokenizer_path: &str) -> Result<()> {
     let tokenizer = Tokenizer::from_file(tokenizer_path)
         .map_err(|e| anyhow::anyhow!("Tokenizer load error: {e}"))?;
 
-    let mut guard = MODEL.lock().map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+    let mut guard = MODEL
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
     *guard = Some(LoadedModel {
         model,
         tokenizer,
@@ -81,17 +91,16 @@ pub fn load_model(model_path: &str, tokenizer_path: &str) -> Result<()> {
 
 /// Unload the model, freeing memory.
 pub fn unload_model() -> Result<()> {
-    let mut guard = MODEL.lock().map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+    let mut guard = MODEL
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
     *guard = None;
     Ok(())
 }
 
 /// Check whether a model is currently loaded.
 pub fn is_model_loaded() -> bool {
-    MODEL
-        .lock()
-        .map(|g| g.is_some())
-        .unwrap_or(false)
+    MODEL.lock().map(|g| g.is_some()).unwrap_or(false)
 }
 
 /// Run inference on the loaded model.
@@ -102,7 +111,9 @@ pub fn is_model_loaded() -> bool {
 ///
 /// Returns the generated text (excluding the prompt).
 pub fn infer(prompt: &str, max_tokens: u32, temperature: f64) -> Result<String> {
-    let mut guard = MODEL.lock().map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
+    let mut guard = MODEL
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {e}"))?;
     let loaded = guard
         .as_mut()
         .ok_or_else(|| anyhow::anyhow!("No model loaded — call load_model first"))?;

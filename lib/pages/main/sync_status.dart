@@ -37,13 +37,22 @@ class SyncStatusState extends State<SyncStatusWidget>
     if (latestHeight == null) return '';
 
     if (syncStatus2.paused) return s.syncPaused;
+    if (!syncStatus2.syncing && syncStatus2.isMaintaining) {
+      final queue = syncStatus2.maintenanceQueueLen;
+      if (queue > 0) return 'Recovering transaction details ($queue left)';
+      return 'Recovering transaction details';
+    }
     if (!syncStatus2.syncing) return '';
 
     final remaining = syncStatus2.eta.remaining;
     final percent = syncStatus2.eta.progress;
+    final phase = syncStatus2.phase;
 
     switch (display % 4) {
       case 0:
+        if (phase == 'refreshing_utxos') return 'Refreshing transparent funds';
+        if (phase == 'updating_roots') return 'Updating wallet checkpoints';
+        if (phase == 'enhancing') return 'Recovering transaction details';
         return 'Syncing $syncedHeight / $latestHeight';
       case 1:
         final m = syncStatus2.isRescan ? s.rescan : s.catchup;
@@ -60,7 +69,8 @@ class SyncStatusState extends State<SyncStatusWidget>
   Widget build(BuildContext context) {
     final syncing = syncStatus2.syncing;
     final connected = syncStatus2.connected;
-    final visible = syncing || !connected;
+    final maintaining = syncStatus2.isMaintaining;
+    final visible = syncing || !connected || maintaining;
 
     final syncedHeight = syncStatus2.syncedHeight;
     final text = visible ? getSyncText(syncedHeight) : '';
@@ -89,8 +99,7 @@ class SyncStatusState extends State<SyncStatusWidget>
                           if (!connected)
                             Icon(Icons.cloud_off_outlined,
                                 size: 14,
-                                color:
-                                    ZipherColors.red.withValues(alpha: 0.8))
+                                color: ZipherColors.red.withValues(alpha: 0.8))
                           else
                             SizedBox(
                               width: 14,
@@ -125,9 +134,8 @@ class SyncStatusState extends State<SyncStatusWidget>
                               value: value.clamp(0, 1),
                               backgroundColor:
                                   ZipherColors.cyan.withValues(alpha: 0.15),
-                              valueColor:
-                                  const AlwaysStoppedAnimation<Color>(
-                                      ZipherColors.cyan),
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                  ZipherColors.cyan),
                             ),
                           ),
                         ),

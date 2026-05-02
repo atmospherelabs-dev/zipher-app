@@ -203,12 +203,21 @@ Future<void> engineStartSync() =>
 Future<void> engineStopSync() =>
     RustLib.instance.api.crateApiEngineApiEngineStopSync();
 
+Future<void> engineSetServer({required String serverUrl}) =>
+    RustLib.instance.api.crateApiEngineApiEngineSetServer(serverUrl: serverUrl);
+
 /// Rescan the wallet from its birthday height by truncating and restarting sync.
 Future<void> engineRescanFromBirthday() =>
     RustLib.instance.api.crateApiEngineApiEngineRescanFromBirthday();
 
 Future<EngineSyncProgress> engineGetSyncProgress() =>
     RustLib.instance.api.crateApiEngineApiEngineGetSyncProgress();
+
+Stream<EngineSyncEvent> engineSyncEvents() =>
+    RustLib.instance.api.crateApiEngineApiEngineSyncEvents();
+
+Future<void> engineEnhanceTransaction({required String txid}) =>
+    RustLib.instance.api.crateApiEngineApiEngineEnhanceTransaction(txid: txid);
 
 Future<void> engineRegisterInactiveWallet({required String dataDir}) =>
     RustLib.instance.api
@@ -488,20 +497,77 @@ class EngineMultiChainAddresses {
           bitcoin == other.bitcoin;
 }
 
+class EngineSyncEvent {
+  final String eventType;
+  final String? phase;
+  final int syncedHeight;
+  final int latestHeight;
+  final int maintenanceQueueLen;
+  final String? txid;
+  final String? status;
+  final String? scope;
+  final String? message;
+
+  const EngineSyncEvent({
+    required this.eventType,
+    this.phase,
+    required this.syncedHeight,
+    required this.latestHeight,
+    required this.maintenanceQueueLen,
+    this.txid,
+    this.status,
+    this.scope,
+    this.message,
+  });
+
+  @override
+  int get hashCode =>
+      eventType.hashCode ^
+      phase.hashCode ^
+      syncedHeight.hashCode ^
+      latestHeight.hashCode ^
+      maintenanceQueueLen.hashCode ^
+      txid.hashCode ^
+      status.hashCode ^
+      scope.hashCode ^
+      message.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineSyncEvent &&
+          runtimeType == other.runtimeType &&
+          eventType == other.eventType &&
+          phase == other.phase &&
+          syncedHeight == other.syncedHeight &&
+          latestHeight == other.latestHeight &&
+          maintenanceQueueLen == other.maintenanceQueueLen &&
+          txid == other.txid &&
+          status == other.status &&
+          scope == other.scope &&
+          message == other.message;
+}
+
 /// Sync progress reported to Dart.
 class EngineSyncProgress {
   final int syncedHeight;
   final int latestHeight;
   final bool isSyncing;
   final String? connectionError;
+  final String? maintenanceError;
+  final String phase;
   final int scanningUpTo;
+  final int maintenanceQueueLen;
 
   const EngineSyncProgress({
     required this.syncedHeight,
     required this.latestHeight,
     required this.isSyncing,
     this.connectionError,
+    this.maintenanceError,
+    required this.phase,
     required this.scanningUpTo,
+    required this.maintenanceQueueLen,
   });
 
   @override
@@ -510,7 +576,10 @@ class EngineSyncProgress {
       latestHeight.hashCode ^
       isSyncing.hashCode ^
       connectionError.hashCode ^
-      scanningUpTo.hashCode;
+      maintenanceError.hashCode ^
+      phase.hashCode ^
+      scanningUpTo.hashCode ^
+      maintenanceQueueLen.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -521,7 +590,10 @@ class EngineSyncProgress {
           latestHeight == other.latestHeight &&
           isSyncing == other.isSyncing &&
           connectionError == other.connectionError &&
-          scanningUpTo == other.scanningUpTo;
+          maintenanceError == other.maintenanceError &&
+          phase == other.phase &&
+          scanningUpTo == other.scanningUpTo &&
+          maintenanceQueueLen == other.maintenanceQueueLen;
 }
 
 class EngineTransactionRecord {

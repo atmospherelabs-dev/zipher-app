@@ -312,7 +312,10 @@ pub struct PolymarketDiscoverySummary {
 const RUNNER_PREVIEW: usize = 5;
 
 /// Build list rows from raw Gamma events (filtering + neg-risk style grouping).
-pub fn polymarket_build_discovery_rows(events: &[PolymarketEvent], relaxed: bool) -> PolymarketDiscoverySummary {
+pub fn polymarket_build_discovery_rows(
+    events: &[PolymarketEvent],
+    relaxed: bool,
+) -> PolymarketDiscoverySummary {
     let mut total_submarkets = 0usize;
     let mut submarkets_after_filter = 0usize;
     let mut rows = Vec::new();
@@ -419,7 +422,7 @@ pub async fn polymarket_gamma_get_events(
         "{}/events?active=true&closed=false&order=volume24hr&ascending=false&limit={}",
         GAMMA_API, limit
     );
-        if let Some(kw) = keyword {
+    if let Some(kw) = keyword {
         if !kw.is_empty() {
             let enc = percent_encode_component(kw);
             url.push_str("&tag=");
@@ -448,14 +451,21 @@ pub async fn polymarket_gamma_get_events(
         ));
     }
 
-    let events: Vec<PolymarketEvent> = serde_json::from_str(&text)
-        .map_err(|e| anyhow::anyhow!("Gamma events parse failed: {} — {}", e, &text[..text.len().min(200)]))?;
+    let events: Vec<PolymarketEvent> = serde_json::from_str(&text).map_err(|e| {
+        anyhow::anyhow!(
+            "Gamma events parse failed: {} — {}",
+            e,
+            &text[..text.len().min(200)]
+        )
+    })?;
 
     Ok(events)
 }
 
 /// Fetch a single market by `condition_id` (uses `condition_ids` query param).
-pub async fn polymarket_gamma_get_market_by_condition(condition_id: &str) -> Result<PolymarketMarket> {
+pub async fn polymarket_gamma_get_market_by_condition(
+    condition_id: &str,
+) -> Result<PolymarketMarket> {
     let id = condition_id.trim().trim_start_matches("0x");
     let hex_id = if condition_id.starts_with("0x") {
         condition_id.to_string()
@@ -723,7 +733,8 @@ pub fn sign_clob_auth(seed_phrase: &str, timestamp: u64, nonce: u64) -> Result<(
             "nonce": nonce,
             "message": "This message attests that I control the given wallet"
         }
-    }).to_string();
+    })
+    .to_string();
 
     let output = EvmSigner
         .sign_typed_data(&privkey, &typed_data_json)
@@ -742,7 +753,11 @@ pub fn sign_clob_auth(seed_phrase: &str, timestamp: u64, nonce: u64) -> Result<(
 /// `neg_risk`: if true, uses the Neg Risk CTF Exchange contract.
 pub fn sign_order(seed_phrase: &str, order: &PolymarketOrder, neg_risk: bool) -> Result<String> {
     let privkey = derive_evm_privkey(seed_phrase)?;
-    let exchange = if neg_risk { NEG_RISK_CTF_EXCHANGE } else { CTF_EXCHANGE };
+    let exchange = if neg_risk {
+        NEG_RISK_CTF_EXCHANGE
+    } else {
+        CTF_EXCHANGE
+    };
 
     // Polymarket tokenIds are full uint256 — convert large decimals to hex
     // so the EIP-712 encoder doesn't overflow on u128.
@@ -790,7 +805,8 @@ pub fn sign_order(seed_phrase: &str, order: &PolymarketOrder, neg_risk: bool) ->
             "metadata": order.metadata,
             "builder": order.builder
         }
-    }).to_string();
+    })
+    .to_string();
 
     let output = EvmSigner
         .sign_typed_data(&privkey, &typed_data_json)

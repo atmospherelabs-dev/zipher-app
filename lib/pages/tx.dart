@@ -12,6 +12,7 @@ import '../accounts.dart';
 import '../zipher_theme.dart';
 import '../generated/intl/messages.dart';
 import '../services/near_intents.dart';
+import '../services/wallet_service.dart';
 import '../store2.dart';
 import '../tablelist.dart';
 import 'utils.dart';
@@ -939,6 +940,16 @@ class TransactionState extends State<TransactionPage> {
   void initState() {
     super.initState();
     idx = widget.txIndex;
+    Future(() async {
+      final currentTx = tx;
+      if ((currentTx.memo == null || currentTx.memo!.isEmpty) &&
+          currentTx.fullTxId.isNotEmpty) {
+        try {
+          await WalletService.instance.enhanceTransaction(currentTx.fullTxId);
+          await aa.update(syncStatus2.syncedHeight);
+        } catch (_) {}
+      }
+    });
   }
 
   Tx get tx => aa.txs.items[idx];

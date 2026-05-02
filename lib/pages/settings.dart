@@ -584,13 +584,21 @@ class _SettingsState extends State<SettingsPage> {
     app.appSettings = app.AppSettingsExtension.load(prefs);
     app.coinSettings = app.CoinSettingsExtension.load(aa.coin);
     final serverUrl = resolveURL(coins[aa.coin], app.coinSettings);
-    await WalletService.instance.setServer(serverUrl);
+    var serverUpdated = false;
+    try {
+      await WalletService.instance.setServer(serverUrl);
+      serverUpdated = true;
+    } catch (_) {
+      // Wallet may be busy syncing — settings are persisted and the new
+      // server will be used on the next sync cycle.
+    }
     aaSequence.settingsSeqno = DateTime.now().millisecondsSinceEpoch;
     Future(() async {
       await marketPrice.update();
       aa.currency = appSettings.currency;
     });
-    GoRouter.of(context).pop();
+    if (serverUpdated) Future(() => syncStatus2.sync(restart: true));
+    if (mounted) GoRouter.of(context).pop();
   }
 }
 

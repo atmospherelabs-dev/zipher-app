@@ -83,7 +83,8 @@ class WalletService {
     final appDir = await getApplicationDocumentsDirectory();
     final suffix = (testnet ?? isTestnet) ? '_testnet' : '';
     final id = walletId ?? _activeWalletId;
-    final dirName = id != null ? 'zipher_wallet_$id$suffix' : 'zipher_wallet$suffix';
+    final dirName =
+        id != null ? 'zipher_wallet_$id$suffix' : 'zipher_wallet$suffix';
     final dir = Directory('${appDir.path}/$dirName');
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir.path;
@@ -219,7 +220,8 @@ class WalletService {
     await registry.setActive(profile.id);
     // Store seed for both networks so the wallet is available after toggling.
     await SecureKeyStore.storeSeedForWallet(profile.id, seedPhrase);
-    await SecureKeyStore.storeSeedForWallet('${profile.id}_testnet', seedPhrase);
+    await SecureKeyStore.storeSeedForWallet(
+        '${profile.id}_testnet', seedPhrase);
     await _applyFileProtection(dir);
     if (!useNewEngine) await rust_wallet.startSaveTask();
     _log.i('[WS] restoreWallet complete');
@@ -562,7 +564,8 @@ class WalletService {
     } catch (e) {
       _log.w('[WS] failed to get chain height for network wallet, using 0: $e');
     }
-    _log.i('[WS] creating fresh network wallet for $walletId in $dir at height $height');
+    _log.i(
+        '[WS] creating fresh network wallet for $walletId in $dir at height $height');
     final dbKey = await _getDbCipherKey();
     final seed = await rust_engine.engineCreateWallet(
       dataDir: dir,
@@ -573,7 +576,8 @@ class WalletService {
     );
     await SecureKeyStore.storeSeedForWallet(_networkSeedKey(walletId), seed);
     await rust_engine.engineCloseWallet();
-    _log.i('[WS] network wallet created (independent seed), ready for openWalletById');
+    _log.i(
+        '[WS] network wallet created (independent seed), ready for openWalletById');
   }
 
   /// Returns the SecureKeyStore key for the active network's seed.
@@ -689,6 +693,13 @@ class WalletService {
     return rust_engine.engineGetSyncProgress();
   }
 
+  Stream<rust_engine.EngineSyncEvent> syncEvents() {
+    if (useNewEngine) {
+      return rust_engine.engineSyncEvents();
+    }
+    return const Stream<rust_engine.EngineSyncEvent>.empty();
+  }
+
   // -----------------------------------------------------------------------
   // Balance
   // -----------------------------------------------------------------------
@@ -791,12 +802,13 @@ class WalletService {
   Future<List<rust_wallet.TransactionRecord>> getPendingTransactions() async {
     _checkBusy();
     final all = await getTransactions();
-    return all
-        .where((tx) =>
-            tx.status == 'mempool' ||
-            tx.status == 'transmitted' ||
-            tx.status == 'calculated')
-        .toList();
+    return all.where((tx) => tx.status == 'pending').toList();
+  }
+
+  Future<void> enhanceTransaction(String txid) async {
+    if (useNewEngine) {
+      await rust_engine.engineEnhanceTransaction(txid: txid);
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -1012,6 +1024,10 @@ class WalletService {
 
   Future<void> setServer(String url) async {
     _checkBusy();
+    if (useNewEngine) {
+      await rust_engine.engineSetServer(serverUrl: url);
+      return;
+    }
     await rust_wallet.setServer(serverUrl: url);
   }
 
@@ -1034,15 +1050,17 @@ class WalletService {
     if (response.statusCode != 200) return [];
 
     final body = json.decode(utf8.decode(response.bodyBytes));
-    final List<dynamic> data = body is Map ? (body['data'] ?? []) : (body is List ? body : []);
+    final List<dynamic> data =
+        body is Map ? (body['data'] ?? []) : (body is List ? body : []);
     return data.map((m) => m as Map<String, dynamic>).toList();
   }
 
   /// Polymarket open positions for a Polygon `0x…` address (Data API via Rust engine).
-  Future<List<Map<String, dynamic>>> getPolymarketPortfolio(String polygonAddress) async {
+  Future<List<Map<String, dynamic>>> getPolymarketPortfolio(
+      String polygonAddress) async {
     try {
-      final jsonStr =
-          await rust_engine.enginePolymarketGetPositions(address: polygonAddress);
+      final jsonStr = await rust_engine.enginePolymarketGetPositions(
+          address: polygonAddress);
       final decoded = json.decode(jsonStr);
       if (decoded is! List) return [];
       return decoded.map<Map<String, dynamic>>((e) {
@@ -1083,7 +1101,8 @@ class WalletService {
     if (response.statusCode != 200) return [];
 
     final body = json.decode(utf8.decode(response.bodyBytes));
-    final List<dynamic> data = body is Map ? (body['data'] ?? []) : (body is List ? body : []);
+    final List<dynamic> data =
+        body is Map ? (body['data'] ?? []) : (body is List ? body : []);
     return data.map((m) => m as Map<String, dynamic>).toList();
   }
 
@@ -1133,10 +1152,9 @@ class WalletService {
       final decoded = json.decode(jsonStr) as Map<String, dynamic>;
       final rows = decoded['rows'];
       if (rows is! List) return [];
-      _log.i('[Polymarket] Discovery ${decoded['events_fetched']} events → ${rows.length} rows');
-      return rows
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
+      _log.i(
+          '[Polymarket] Discovery ${decoded['events_fetched']} events → ${rows.length} rows');
+      return rows.map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } catch (e, st) {
       _log.e('[Polymarket] discovery failed: $e\n$st');
       return [];
@@ -1148,20 +1166,35 @@ class WalletService {
     final conditionId = m['condition_id'] ?? m['conditionId'] ?? '';
     final question = m['question'] ?? m['title'] ?? '';
     final outcomePricesRaw = m['outcomePrices'] ?? m['outcome_prices'];
-    final outcomePrices = outcomePricesRaw is String ? outcomePricesRaw : (outcomePricesRaw != null ? json.encode(outcomePricesRaw) : '[]');
+    final outcomePrices = outcomePricesRaw is String
+        ? outcomePricesRaw
+        : (outcomePricesRaw != null ? json.encode(outcomePricesRaw) : '[]');
     final outcomeLabelsRaw = m['outcomes'];
-    final outcomeLabels = outcomeLabelsRaw is String ? outcomeLabelsRaw : (outcomeLabelsRaw != null ? json.encode(outcomeLabelsRaw) : '["Yes","No"]');
+    final outcomeLabels = outcomeLabelsRaw is String
+        ? outcomeLabelsRaw
+        : (outcomeLabelsRaw != null
+            ? json.encode(outcomeLabelsRaw)
+            : '["Yes","No"]');
     final tokenIdsRaw = m['clobTokenIds'] ?? m['clob_token_ids'];
-    final tokenIds = tokenIdsRaw is String ? tokenIdsRaw : (tokenIdsRaw != null ? json.encode(tokenIdsRaw) : '[]');
+    final tokenIds = tokenIdsRaw is String
+        ? tokenIdsRaw
+        : (tokenIdsRaw != null ? json.encode(tokenIdsRaw) : '[]');
     final negRiskRaw = m['neg_risk'] ?? m['negRisk'];
-    final negRisk = negRiskRaw is bool ? negRiskRaw : (negRiskRaw?.toString() == 'true');
+    final negRisk =
+        negRiskRaw is bool ? negRiskRaw : (negRiskRaw?.toString() == 'true');
 
     List<dynamic> prices = [];
     List<dynamic> labels = [];
     List<dynamic> tokens = [];
-    try { prices = json.decode(outcomePrices) as List; } catch (_) {}
-    try { labels = json.decode(outcomeLabels) as List; } catch (_) {}
-    try { tokens = json.decode(tokenIds) as List; } catch (_) {}
+    try {
+      prices = json.decode(outcomePrices) as List;
+    } catch (_) {}
+    try {
+      labels = json.decode(outcomeLabels) as List;
+    } catch (_) {}
+    try {
+      tokens = json.decode(tokenIds) as List;
+    } catch (_) {}
 
     final outcomes = <Map<String, dynamic>>[];
     for (var i = 0; i < labels.length; i++) {
@@ -1176,9 +1209,12 @@ class WalletService {
     }
 
     final volumeRaw = m['volume'];
-    final volume = volumeRaw is num ? volumeRaw.toDouble() : (double.tryParse(volumeRaw?.toString() ?? '') ?? 0);
+    final volume = volumeRaw is num
+        ? volumeRaw.toDouble()
+        : (double.tryParse(volumeRaw?.toString() ?? '') ?? 0);
     final volume24 = _gammaF64(m['volume24hr'] ?? m['volume24Hr']);
-    final acceptingOrders = m['acceptingOrders'] == true || m['accepting_orders'] == true;
+    final acceptingOrders =
+        m['acceptingOrders'] == true || m['accepting_orders'] == true;
     final bestBid = m['bestBid'] ?? m['best_bid'];
     final bestAsk = m['bestAsk'] ?? m['best_ask'];
     final spread = m['spread'];
@@ -1194,9 +1230,12 @@ class WalletService {
       'volume': volume,
       'volume24hr': volume24,
       'accepting_orders': acceptingOrders,
-      'best_bid': bestBid is num ? bestBid : double.tryParse(bestBid?.toString() ?? ''),
-      'best_ask': bestAsk is num ? bestAsk : double.tryParse(bestAsk?.toString() ?? ''),
-      'spread': spread is num ? spread : double.tryParse(spread?.toString() ?? ''),
+      'best_bid':
+          bestBid is num ? bestBid : double.tryParse(bestBid?.toString() ?? ''),
+      'best_ask':
+          bestAsk is num ? bestAsk : double.tryParse(bestAsk?.toString() ?? ''),
+      'spread':
+          spread is num ? spread : double.tryParse(spread?.toString() ?? ''),
       'group_item_title': groupTitle?.toString(),
       'neg_risk': negRisk,
       '_provider': 'polymarket',
@@ -1205,7 +1244,8 @@ class WalletService {
   }
 
   /// Search Polymarket markets directly by text query.
-  Future<List<Map<String, dynamic>>> searchPolymarketMarkets(String query) async {
+  Future<List<Map<String, dynamic>>> searchPolymarketMarkets(
+      String query) async {
     final uri = Uri.parse('$_gammaApi/markets').replace(queryParameters: {
       'active': 'true',
       'closed': 'false',
@@ -1217,7 +1257,8 @@ class WalletService {
     _log.d('[Polymarket] GET $uri');
     final response = await http.get(uri);
     if (response.statusCode != 200) {
-      _log.e('[Polymarket] Markets API returned ${response.statusCode}: ${response.body.substring(0, response.body.length.clamp(0, 200))}');
+      _log.e(
+          '[Polymarket] Markets API returned ${response.statusCode}: ${response.body.substring(0, response.body.length.clamp(0, 200))}');
       return [];
     }
 
@@ -1230,7 +1271,8 @@ class WalletService {
           normalized.add(_normalizePolymarket(mm));
         }
       }
-      _log.i('[Polymarket] Markets returned ${normalized.length} results (quality-filtered)');
+      _log.i(
+          '[Polymarket] Markets returned ${normalized.length} results (quality-filtered)');
       return normalized;
     }
     return [];
@@ -1251,7 +1293,8 @@ class WalletService {
   Future<Map<String, dynamic>?> getPolymarketMarket(String conditionId) async {
     var hex = conditionId.trim();
     if (!hex.startsWith('0x')) hex = '0x$hex';
-    final uri = Uri.parse('$_gammaApi/markets').replace(queryParameters: {'condition_ids': hex});
+    final uri = Uri.parse('$_gammaApi/markets')
+        .replace(queryParameters: {'condition_ids': hex});
     _log.d('[Polymarket] GET $uri');
     final response = await http.get(uri);
     if (response.statusCode != 200) {

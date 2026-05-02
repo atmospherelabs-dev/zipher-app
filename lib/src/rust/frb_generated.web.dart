@@ -3,7 +3,6 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
-
 // Static analysis wrongly picks the IO variant, thus ignore this
 // ignore_for_file: argument_type_not_assignable
 
@@ -14,308 +13,503 @@ import 'dart:convert';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 
+abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
+  RustLibApiImplPlatform({
+    required super.handler,
+    required super.wire,
+    required super.generalizedFrbRustBinding,
+    required super.portManager,
+  });
 
+  @protected
+  AnyhowException dco_decode_AnyhowException(dynamic raw);
 
+  @protected
+  RustStreamSink<EngineSyncEvent> dco_decode_StreamSink_engine_sync_event_Sse(
+      dynamic raw);
 
-                abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
-                  RustLibApiImplPlatform({
-                    required super.handler,
-                    required super.wire,
-                    required super.generalizedFrbRustBinding,
-                    required super.portManager,
-                  });
+  @protected
+  String dco_decode_String(dynamic raw);
 
-                  
+  @protected
+  AddressInfo dco_decode_address_info(dynamic raw);
 
-                  @protected AnyhowException dco_decode_AnyhowException(dynamic raw);
+  @protected
+  AddressValidation dco_decode_address_validation(dynamic raw);
 
-@protected String dco_decode_String(dynamic raw);
+  @protected
+  bool dco_decode_bool(dynamic raw);
 
-@protected AddressInfo dco_decode_address_info(dynamic raw);
+  @protected
+  TradeSignalInfo dco_decode_box_autoadd_trade_signal_info(dynamic raw);
 
-@protected AddressValidation dco_decode_address_validation(dynamic raw);
+  @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw);
 
-@protected bool dco_decode_bool(dynamic raw);
+  @protected
+  ChainType dco_decode_chain_type(dynamic raw);
 
-@protected TradeSignalInfo dco_decode_box_autoadd_trade_signal_info(dynamic raw);
+  @protected
+  EngineLlmModelInfo dco_decode_engine_llm_model_info(dynamic raw);
 
-@protected BigInt dco_decode_box_autoadd_u_64(dynamic raw);
+  @protected
+  EngineMultiChainAddresses dco_decode_engine_multi_chain_addresses(
+      dynamic raw);
 
-@protected ChainType dco_decode_chain_type(dynamic raw);
+  @protected
+  EngineSyncEvent dco_decode_engine_sync_event(dynamic raw);
 
-@protected EngineLlmModelInfo dco_decode_engine_llm_model_info(dynamic raw);
+  @protected
+  EngineSyncProgress dco_decode_engine_sync_progress(dynamic raw);
 
-@protected EngineMultiChainAddresses dco_decode_engine_multi_chain_addresses(dynamic raw);
+  @protected
+  EngineTransactionRecord dco_decode_engine_transaction_record(dynamic raw);
 
-@protected EngineSyncProgress dco_decode_engine_sync_progress(dynamic raw);
+  @protected
+  EvmFees dco_decode_evm_fees(dynamic raw);
 
-@protected EngineTransactionRecord dco_decode_engine_transaction_record(dynamic raw);
+  @protected
+  EvmReceipt dco_decode_evm_receipt(dynamic raw);
 
-@protected EvmFees dco_decode_evm_fees(dynamic raw);
+  @protected
+  EvmSwapExecuteResult dco_decode_evm_swap_execute_result(dynamic raw);
 
-@protected EvmReceipt dco_decode_evm_receipt(dynamic raw);
+  @protected
+  EvmSwapQuoteResult dco_decode_evm_swap_quote_result(dynamic raw);
 
-@protected EvmSwapExecuteResult dco_decode_evm_swap_execute_result(dynamic raw);
+  @protected
+  double dco_decode_f_64(dynamic raw);
 
-@protected EvmSwapQuoteResult dco_decode_evm_swap_quote_result(dynamic raw);
+  @protected
+  int dco_decode_i_32(dynamic raw);
 
-@protected double dco_decode_f_64(dynamic raw);
+  @protected
+  PlatformInt64 dco_decode_i_64(dynamic raw);
 
-@protected int dco_decode_i_32(dynamic raw);
+  @protected
+  List<String> dco_decode_list_String(dynamic raw);
 
-@protected PlatformInt64 dco_decode_i_64(dynamic raw);
+  @protected
+  List<AddressInfo> dco_decode_list_address_info(dynamic raw);
 
-@protected List<String> dco_decode_list_String(dynamic raw);
+  @protected
+  List<EngineTransactionRecord> dco_decode_list_engine_transaction_record(
+      dynamic raw);
 
-@protected List<AddressInfo> dco_decode_list_address_info(dynamic raw);
+  @protected
+  List<MarketInfo> dco_decode_list_market_info(dynamic raw);
 
-@protected List<EngineTransactionRecord> dco_decode_list_engine_transaction_record(dynamic raw);
+  @protected
+  List<MarketOutcome> dco_decode_list_market_outcome(dynamic raw);
 
-@protected List<MarketInfo> dco_decode_list_market_info(dynamic raw);
+  @protected
+  List<PaymentRecipient> dco_decode_list_payment_recipient(dynamic raw);
 
-@protected List<MarketOutcome> dco_decode_list_market_outcome(dynamic raw);
+  @protected
+  Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
-@protected List<PaymentRecipient> dco_decode_list_payment_recipient(dynamic raw);
+  @protected
+  List<TransactionRecord> dco_decode_list_transaction_record(dynamic raw);
 
-@protected Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+  @protected
+  List<ValueTransferRecord> dco_decode_list_value_transfer_record(dynamic raw);
 
-@protected List<TransactionRecord> dco_decode_list_transaction_record(dynamic raw);
+  @protected
+  MarketInfo dco_decode_market_info(dynamic raw);
 
-@protected List<ValueTransferRecord> dco_decode_list_value_transfer_record(dynamic raw);
+  @protected
+  MarketOutcome dco_decode_market_outcome(dynamic raw);
 
-@protected MarketInfo dco_decode_market_info(dynamic raw);
+  @protected
+  String? dco_decode_opt_String(dynamic raw);
 
-@protected MarketOutcome dco_decode_market_outcome(dynamic raw);
+  @protected
+  TradeSignalInfo? dco_decode_opt_box_autoadd_trade_signal_info(dynamic raw);
 
-@protected String? dco_decode_opt_String(dynamic raw);
+  @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
 
-@protected TradeSignalInfo? dco_decode_opt_box_autoadd_trade_signal_info(dynamic raw);
+  @protected
+  PaymentRecipient dco_decode_payment_recipient(dynamic raw);
 
-@protected BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
+  @protected
+  PolymarketAuthResult dco_decode_polymarket_auth_result(dynamic raw);
 
-@protected PaymentRecipient dco_decode_payment_recipient(dynamic raw);
+  @protected
+  ProposalResult dco_decode_proposal_result(dynamic raw);
 
-@protected PolymarketAuthResult dco_decode_polymarket_auth_result(dynamic raw);
+  @protected
+  SyncResultInfo dco_decode_sync_result_info(dynamic raw);
 
-@protected ProposalResult dco_decode_proposal_result(dynamic raw);
+  @protected
+  SyncStatusInfo dco_decode_sync_status_info(dynamic raw);
 
-@protected SyncResultInfo dco_decode_sync_result_info(dynamic raw);
+  @protected
+  TradeSignalInfo dco_decode_trade_signal_info(dynamic raw);
 
-@protected SyncStatusInfo dco_decode_sync_status_info(dynamic raw);
+  @protected
+  TransactionRecord dco_decode_transaction_record(dynamic raw);
 
-@protected TradeSignalInfo dco_decode_trade_signal_info(dynamic raw);
+  @protected
+  int dco_decode_u_32(dynamic raw);
 
-@protected TransactionRecord dco_decode_transaction_record(dynamic raw);
+  @protected
+  BigInt dco_decode_u_64(dynamic raw);
 
-@protected int dco_decode_u_32(dynamic raw);
+  @protected
+  int dco_decode_u_8(dynamic raw);
 
-@protected BigInt dco_decode_u_64(dynamic raw);
+  @protected
+  void dco_decode_unit(dynamic raw);
 
-@protected int dco_decode_u_8(dynamic raw);
+  @protected
+  ValueTransferRecord dco_decode_value_transfer_record(dynamic raw);
 
-@protected void dco_decode_unit(dynamic raw);
+  @protected
+  WalletBalance dco_decode_wallet_balance(dynamic raw);
 
-@protected ValueTransferRecord dco_decode_value_transfer_record(dynamic raw);
+  @protected
+  AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
-@protected WalletBalance dco_decode_wallet_balance(dynamic raw);
+  @protected
+  RustStreamSink<EngineSyncEvent> sse_decode_StreamSink_engine_sync_event_Sse(
+      SseDeserializer deserializer);
 
-@protected AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
+  @protected
+  String sse_decode_String(SseDeserializer deserializer);
 
-@protected String sse_decode_String(SseDeserializer deserializer);
+  @protected
+  AddressInfo sse_decode_address_info(SseDeserializer deserializer);
 
-@protected AddressInfo sse_decode_address_info(SseDeserializer deserializer);
+  @protected
+  AddressValidation sse_decode_address_validation(SseDeserializer deserializer);
 
-@protected AddressValidation sse_decode_address_validation(SseDeserializer deserializer);
+  @protected
+  bool sse_decode_bool(SseDeserializer deserializer);
 
-@protected bool sse_decode_bool(SseDeserializer deserializer);
+  @protected
+  TradeSignalInfo sse_decode_box_autoadd_trade_signal_info(
+      SseDeserializer deserializer);
 
-@protected TradeSignalInfo sse_decode_box_autoadd_trade_signal_info(SseDeserializer deserializer);
+  @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
 
-@protected BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
+  @protected
+  ChainType sse_decode_chain_type(SseDeserializer deserializer);
 
-@protected ChainType sse_decode_chain_type(SseDeserializer deserializer);
+  @protected
+  EngineLlmModelInfo sse_decode_engine_llm_model_info(
+      SseDeserializer deserializer);
 
-@protected EngineLlmModelInfo sse_decode_engine_llm_model_info(SseDeserializer deserializer);
+  @protected
+  EngineMultiChainAddresses sse_decode_engine_multi_chain_addresses(
+      SseDeserializer deserializer);
 
-@protected EngineMultiChainAddresses sse_decode_engine_multi_chain_addresses(SseDeserializer deserializer);
+  @protected
+  EngineSyncEvent sse_decode_engine_sync_event(SseDeserializer deserializer);
 
-@protected EngineSyncProgress sse_decode_engine_sync_progress(SseDeserializer deserializer);
+  @protected
+  EngineSyncProgress sse_decode_engine_sync_progress(
+      SseDeserializer deserializer);
 
-@protected EngineTransactionRecord sse_decode_engine_transaction_record(SseDeserializer deserializer);
+  @protected
+  EngineTransactionRecord sse_decode_engine_transaction_record(
+      SseDeserializer deserializer);
 
-@protected EvmFees sse_decode_evm_fees(SseDeserializer deserializer);
+  @protected
+  EvmFees sse_decode_evm_fees(SseDeserializer deserializer);
 
-@protected EvmReceipt sse_decode_evm_receipt(SseDeserializer deserializer);
+  @protected
+  EvmReceipt sse_decode_evm_receipt(SseDeserializer deserializer);
 
-@protected EvmSwapExecuteResult sse_decode_evm_swap_execute_result(SseDeserializer deserializer);
+  @protected
+  EvmSwapExecuteResult sse_decode_evm_swap_execute_result(
+      SseDeserializer deserializer);
 
-@protected EvmSwapQuoteResult sse_decode_evm_swap_quote_result(SseDeserializer deserializer);
+  @protected
+  EvmSwapQuoteResult sse_decode_evm_swap_quote_result(
+      SseDeserializer deserializer);
 
-@protected double sse_decode_f_64(SseDeserializer deserializer);
+  @protected
+  double sse_decode_f_64(SseDeserializer deserializer);
 
-@protected int sse_decode_i_32(SseDeserializer deserializer);
+  @protected
+  int sse_decode_i_32(SseDeserializer deserializer);
 
-@protected PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
+  @protected
+  PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
 
-@protected List<String> sse_decode_list_String(SseDeserializer deserializer);
+  @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer);
 
-@protected List<AddressInfo> sse_decode_list_address_info(SseDeserializer deserializer);
+  @protected
+  List<AddressInfo> sse_decode_list_address_info(SseDeserializer deserializer);
 
-@protected List<EngineTransactionRecord> sse_decode_list_engine_transaction_record(SseDeserializer deserializer);
+  @protected
+  List<EngineTransactionRecord> sse_decode_list_engine_transaction_record(
+      SseDeserializer deserializer);
 
-@protected List<MarketInfo> sse_decode_list_market_info(SseDeserializer deserializer);
+  @protected
+  List<MarketInfo> sse_decode_list_market_info(SseDeserializer deserializer);
 
-@protected List<MarketOutcome> sse_decode_list_market_outcome(SseDeserializer deserializer);
+  @protected
+  List<MarketOutcome> sse_decode_list_market_outcome(
+      SseDeserializer deserializer);
 
-@protected List<PaymentRecipient> sse_decode_list_payment_recipient(SseDeserializer deserializer);
+  @protected
+  List<PaymentRecipient> sse_decode_list_payment_recipient(
+      SseDeserializer deserializer);
 
-@protected Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+  @protected
+  Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
-@protected List<TransactionRecord> sse_decode_list_transaction_record(SseDeserializer deserializer);
+  @protected
+  List<TransactionRecord> sse_decode_list_transaction_record(
+      SseDeserializer deserializer);
 
-@protected List<ValueTransferRecord> sse_decode_list_value_transfer_record(SseDeserializer deserializer);
+  @protected
+  List<ValueTransferRecord> sse_decode_list_value_transfer_record(
+      SseDeserializer deserializer);
 
-@protected MarketInfo sse_decode_market_info(SseDeserializer deserializer);
+  @protected
+  MarketInfo sse_decode_market_info(SseDeserializer deserializer);
 
-@protected MarketOutcome sse_decode_market_outcome(SseDeserializer deserializer);
+  @protected
+  MarketOutcome sse_decode_market_outcome(SseDeserializer deserializer);
 
-@protected String? sse_decode_opt_String(SseDeserializer deserializer);
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer);
 
-@protected TradeSignalInfo? sse_decode_opt_box_autoadd_trade_signal_info(SseDeserializer deserializer);
+  @protected
+  TradeSignalInfo? sse_decode_opt_box_autoadd_trade_signal_info(
+      SseDeserializer deserializer);
 
-@protected BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
+  @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
 
-@protected PaymentRecipient sse_decode_payment_recipient(SseDeserializer deserializer);
+  @protected
+  PaymentRecipient sse_decode_payment_recipient(SseDeserializer deserializer);
 
-@protected PolymarketAuthResult sse_decode_polymarket_auth_result(SseDeserializer deserializer);
+  @protected
+  PolymarketAuthResult sse_decode_polymarket_auth_result(
+      SseDeserializer deserializer);
 
-@protected ProposalResult sse_decode_proposal_result(SseDeserializer deserializer);
+  @protected
+  ProposalResult sse_decode_proposal_result(SseDeserializer deserializer);
 
-@protected SyncResultInfo sse_decode_sync_result_info(SseDeserializer deserializer);
+  @protected
+  SyncResultInfo sse_decode_sync_result_info(SseDeserializer deserializer);
 
-@protected SyncStatusInfo sse_decode_sync_status_info(SseDeserializer deserializer);
+  @protected
+  SyncStatusInfo sse_decode_sync_status_info(SseDeserializer deserializer);
 
-@protected TradeSignalInfo sse_decode_trade_signal_info(SseDeserializer deserializer);
+  @protected
+  TradeSignalInfo sse_decode_trade_signal_info(SseDeserializer deserializer);
 
-@protected TransactionRecord sse_decode_transaction_record(SseDeserializer deserializer);
+  @protected
+  TransactionRecord sse_decode_transaction_record(SseDeserializer deserializer);
 
-@protected int sse_decode_u_32(SseDeserializer deserializer);
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer);
 
-@protected BigInt sse_decode_u_64(SseDeserializer deserializer);
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer);
 
-@protected int sse_decode_u_8(SseDeserializer deserializer);
+  @protected
+  int sse_decode_u_8(SseDeserializer deserializer);
 
-@protected void sse_decode_unit(SseDeserializer deserializer);
+  @protected
+  void sse_decode_unit(SseDeserializer deserializer);
 
-@protected ValueTransferRecord sse_decode_value_transfer_record(SseDeserializer deserializer);
+  @protected
+  ValueTransferRecord sse_decode_value_transfer_record(
+      SseDeserializer deserializer);
 
-@protected WalletBalance sse_decode_wallet_balance(SseDeserializer deserializer);
+  @protected
+  WalletBalance sse_decode_wallet_balance(SseDeserializer deserializer);
 
-@protected void sse_encode_AnyhowException(AnyhowException self, SseSerializer serializer);
+  @protected
+  void sse_encode_AnyhowException(
+      AnyhowException self, SseSerializer serializer);
 
-@protected void sse_encode_String(String self, SseSerializer serializer);
+  @protected
+  void sse_encode_StreamSink_engine_sync_event_Sse(
+      RustStreamSink<EngineSyncEvent> self, SseSerializer serializer);
 
-@protected void sse_encode_address_info(AddressInfo self, SseSerializer serializer);
+  @protected
+  void sse_encode_String(String self, SseSerializer serializer);
 
-@protected void sse_encode_address_validation(AddressValidation self, SseSerializer serializer);
+  @protected
+  void sse_encode_address_info(AddressInfo self, SseSerializer serializer);
 
-@protected void sse_encode_bool(bool self, SseSerializer serializer);
+  @protected
+  void sse_encode_address_validation(
+      AddressValidation self, SseSerializer serializer);
 
-@protected void sse_encode_box_autoadd_trade_signal_info(TradeSignalInfo self, SseSerializer serializer);
+  @protected
+  void sse_encode_bool(bool self, SseSerializer serializer);
 
-@protected void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_trade_signal_info(
+      TradeSignalInfo self, SseSerializer serializer);
 
-@protected void sse_encode_chain_type(ChainType self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
 
-@protected void sse_encode_engine_llm_model_info(EngineLlmModelInfo self, SseSerializer serializer);
+  @protected
+  void sse_encode_chain_type(ChainType self, SseSerializer serializer);
 
-@protected void sse_encode_engine_multi_chain_addresses(EngineMultiChainAddresses self, SseSerializer serializer);
+  @protected
+  void sse_encode_engine_llm_model_info(
+      EngineLlmModelInfo self, SseSerializer serializer);
 
-@protected void sse_encode_engine_sync_progress(EngineSyncProgress self, SseSerializer serializer);
+  @protected
+  void sse_encode_engine_multi_chain_addresses(
+      EngineMultiChainAddresses self, SseSerializer serializer);
 
-@protected void sse_encode_engine_transaction_record(EngineTransactionRecord self, SseSerializer serializer);
+  @protected
+  void sse_encode_engine_sync_event(
+      EngineSyncEvent self, SseSerializer serializer);
 
-@protected void sse_encode_evm_fees(EvmFees self, SseSerializer serializer);
+  @protected
+  void sse_encode_engine_sync_progress(
+      EngineSyncProgress self, SseSerializer serializer);
 
-@protected void sse_encode_evm_receipt(EvmReceipt self, SseSerializer serializer);
+  @protected
+  void sse_encode_engine_transaction_record(
+      EngineTransactionRecord self, SseSerializer serializer);
 
-@protected void sse_encode_evm_swap_execute_result(EvmSwapExecuteResult self, SseSerializer serializer);
+  @protected
+  void sse_encode_evm_fees(EvmFees self, SseSerializer serializer);
 
-@protected void sse_encode_evm_swap_quote_result(EvmSwapQuoteResult self, SseSerializer serializer);
+  @protected
+  void sse_encode_evm_receipt(EvmReceipt self, SseSerializer serializer);
 
-@protected void sse_encode_f_64(double self, SseSerializer serializer);
+  @protected
+  void sse_encode_evm_swap_execute_result(
+      EvmSwapExecuteResult self, SseSerializer serializer);
 
-@protected void sse_encode_i_32(int self, SseSerializer serializer);
+  @protected
+  void sse_encode_evm_swap_quote_result(
+      EvmSwapQuoteResult self, SseSerializer serializer);
 
-@protected void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
+  @protected
+  void sse_encode_f_64(double self, SseSerializer serializer);
 
-@protected void sse_encode_list_String(List<String> self, SseSerializer serializer);
+  @protected
+  void sse_encode_i_32(int self, SseSerializer serializer);
 
-@protected void sse_encode_list_address_info(List<AddressInfo> self, SseSerializer serializer);
+  @protected
+  void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
 
-@protected void sse_encode_list_engine_transaction_record(List<EngineTransactionRecord> self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
-@protected void sse_encode_list_market_info(List<MarketInfo> self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_address_info(
+      List<AddressInfo> self, SseSerializer serializer);
 
-@protected void sse_encode_list_market_outcome(List<MarketOutcome> self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_engine_transaction_record(
+      List<EngineTransactionRecord> self, SseSerializer serializer);
 
-@protected void sse_encode_list_payment_recipient(List<PaymentRecipient> self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_market_info(
+      List<MarketInfo> self, SseSerializer serializer);
 
-@protected void sse_encode_list_prim_u_8_strict(Uint8List self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_market_outcome(
+      List<MarketOutcome> self, SseSerializer serializer);
 
-@protected void sse_encode_list_transaction_record(List<TransactionRecord> self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_payment_recipient(
+      List<PaymentRecipient> self, SseSerializer serializer);
 
-@protected void sse_encode_list_value_transfer_record(List<ValueTransferRecord> self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_prim_u_8_strict(
+      Uint8List self, SseSerializer serializer);
 
-@protected void sse_encode_market_info(MarketInfo self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_transaction_record(
+      List<TransactionRecord> self, SseSerializer serializer);
 
-@protected void sse_encode_market_outcome(MarketOutcome self, SseSerializer serializer);
+  @protected
+  void sse_encode_list_value_transfer_record(
+      List<ValueTransferRecord> self, SseSerializer serializer);
 
-@protected void sse_encode_opt_String(String? self, SseSerializer serializer);
+  @protected
+  void sse_encode_market_info(MarketInfo self, SseSerializer serializer);
 
-@protected void sse_encode_opt_box_autoadd_trade_signal_info(TradeSignalInfo? self, SseSerializer serializer);
+  @protected
+  void sse_encode_market_outcome(MarketOutcome self, SseSerializer serializer);
 
-@protected void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+  @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer);
 
-@protected void sse_encode_payment_recipient(PaymentRecipient self, SseSerializer serializer);
+  @protected
+  void sse_encode_opt_box_autoadd_trade_signal_info(
+      TradeSignalInfo? self, SseSerializer serializer);
 
-@protected void sse_encode_polymarket_auth_result(PolymarketAuthResult self, SseSerializer serializer);
+  @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
 
-@protected void sse_encode_proposal_result(ProposalResult self, SseSerializer serializer);
+  @protected
+  void sse_encode_payment_recipient(
+      PaymentRecipient self, SseSerializer serializer);
 
-@protected void sse_encode_sync_result_info(SyncResultInfo self, SseSerializer serializer);
+  @protected
+  void sse_encode_polymarket_auth_result(
+      PolymarketAuthResult self, SseSerializer serializer);
 
-@protected void sse_encode_sync_status_info(SyncStatusInfo self, SseSerializer serializer);
+  @protected
+  void sse_encode_proposal_result(
+      ProposalResult self, SseSerializer serializer);
 
-@protected void sse_encode_trade_signal_info(TradeSignalInfo self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_result_info(
+      SyncResultInfo self, SseSerializer serializer);
 
-@protected void sse_encode_transaction_record(TransactionRecord self, SseSerializer serializer);
+  @protected
+  void sse_encode_sync_status_info(
+      SyncStatusInfo self, SseSerializer serializer);
 
-@protected void sse_encode_u_32(int self, SseSerializer serializer);
+  @protected
+  void sse_encode_trade_signal_info(
+      TradeSignalInfo self, SseSerializer serializer);
 
-@protected void sse_encode_u_64(BigInt self, SseSerializer serializer);
+  @protected
+  void sse_encode_transaction_record(
+      TransactionRecord self, SseSerializer serializer);
 
-@protected void sse_encode_u_8(int self, SseSerializer serializer);
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer);
 
-@protected void sse_encode_unit(void self, SseSerializer serializer);
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer);
 
-@protected void sse_encode_value_transfer_record(ValueTransferRecord self, SseSerializer serializer);
+  @protected
+  void sse_encode_u_8(int self, SseSerializer serializer);
 
-@protected void sse_encode_wallet_balance(WalletBalance self, SseSerializer serializer);
-                }
-                
+  @protected
+  void sse_encode_unit(void self, SseSerializer serializer);
 
+  @protected
+  void sse_encode_value_transfer_record(
+      ValueTransferRecord self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_wallet_balance(WalletBalance self, SseSerializer serializer);
+}
 
 // Section: wire_class
 
 class RustLibWire implements BaseWire {
-            RustLibWire.fromExternalLibrary(ExternalLibrary lib);
+  RustLibWire.fromExternalLibrary(ExternalLibrary lib);
+}
 
-            
-        }
-        @JS('wasm_bindgen') external RustLibWasmModule get wasmModule;
+@JS('wasm_bindgen')
+external RustLibWasmModule get wasmModule;
 
-        @JS() @anonymous extension type RustLibWasmModule._(JSObject _) implements JSObject {
-            
-        }
-        
+@JS()
+@anonymous
+extension type RustLibWasmModule._(JSObject _) implements JSObject {}

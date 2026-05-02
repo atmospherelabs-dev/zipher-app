@@ -74,48 +74,86 @@ struct ApiItemResponse<T> {
 
 pub async fn get_markets(keyword: Option<&str>, limit: u32) -> Result<Vec<Market>> {
     let client = reqwest::Client::new();
-    let mut url = format!("{}/markets?network_id={}&limit={}", MYRIAD_API, BSC_NETWORK_ID, limit);
+    let mut url = format!(
+        "{}/markets?network_id={}&limit={}",
+        MYRIAD_API, BSC_NETWORK_ID, limit
+    );
     if let Some(kw) = keyword {
-        let encoded: String = kw.chars().map(|c| {
-            if c.is_ascii_alphanumeric() || "-_.~".contains(c) { c.to_string() }
-            else { format!("%{:02X}", c as u8) }
-        }).collect();
+        let encoded: String = kw
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || "-_.~".contains(c) {
+                    c.to_string()
+                } else {
+                    format!("%{:02X}", c as u8)
+                }
+            })
+            .collect();
         url.push_str(&format!("&keyword={}", encoded));
     }
 
     info!("Fetching markets from Myriad...");
-    let resp = client.get(&url).send().await
+    let resp = client
+        .get(&url)
+        .send()
+        .await
         .map_err(|e| anyhow::anyhow!("Myriad API error: {}", e))?;
 
     let status = resp.status();
-    let text = resp.text().await
+    let text = resp
+        .text()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to read response: {}", e))?;
 
     if !status.is_success() {
-        return Err(anyhow::anyhow!("Myriad API returned {}: {}", status, &text[..text.len().min(200)]));
+        return Err(anyhow::anyhow!(
+            "Myriad API returned {}: {}",
+            status,
+            &text[..text.len().min(200)]
+        ));
     }
 
-    let wrapper: ApiListResponse<Market> = serde_json::from_str(&text)
-        .map_err(|e| anyhow::anyhow!("Failed to parse markets: {} — body: {}", e, &text[..text.len().min(200)]))?;
-    info!("Found {} prediction markets on BNB Chain", wrapper.data.len());
+    let wrapper: ApiListResponse<Market> = serde_json::from_str(&text).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to parse markets: {} — body: {}",
+            e,
+            &text[..text.len().min(200)]
+        )
+    })?;
+    info!(
+        "Found {} prediction markets on BNB Chain",
+        wrapper.data.len()
+    );
 
     Ok(wrapper.data)
 }
 
 pub async fn get_market(id: u64) -> Result<Market> {
     let client = reqwest::Client::new();
-    let url = format!("{}/markets/{}?network_id={}", MYRIAD_API, id, BSC_NETWORK_ID);
+    let url = format!(
+        "{}/markets/{}?network_id={}",
+        MYRIAD_API, id, BSC_NETWORK_ID
+    );
 
     info!("Fetching market #{} from Myriad...", id);
-    let resp = client.get(&url).send().await
+    let resp = client
+        .get(&url)
+        .send()
+        .await
         .map_err(|e| anyhow::anyhow!("Myriad API error: {}", e))?;
 
     let status = resp.status();
-    let text = resp.text().await
+    let text = resp
+        .text()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to read response: {}", e))?;
 
     if !status.is_success() {
-        return Err(anyhow::anyhow!("Myriad API returned {}: {}", status, &text[..text.len().min(200)]));
+        return Err(anyhow::anyhow!(
+            "Myriad API returned {}: {}",
+            status,
+            &text[..text.len().min(200)]
+        ));
     }
 
     let market: Market = serde_json::from_str(&text)
@@ -123,8 +161,19 @@ pub async fn get_market(id: u64) -> Result<Market> {
             let wrapper: ApiItemResponse<Market> = serde_json::from_str(&text)?;
             Ok::<_, serde_json::Error>(wrapper.data)
         })
-        .map_err(|e| anyhow::anyhow!("Failed to parse market: {} — body: {}", e, &text[..text.len().min(200)]))?;
-    info!("Market #{}: \"{}\" — {} outcomes", market.id, market.title, market.outcomes.len());
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to parse market: {} — body: {}",
+                e,
+                &text[..text.len().min(200)]
+            )
+        })?;
+    info!(
+        "Market #{}: \"{}\" — {} outcomes",
+        market.id,
+        market.title,
+        market.outcomes.len()
+    );
 
     Ok(market)
 }
@@ -148,19 +197,39 @@ pub async fn get_quote(
         "slippage": slippage,
     });
 
-    info!("Requesting quote: market={}, outcome={}, {} ${:.2}...", market_id, outcome_id, action, value);
-    let resp = client.post(&url).json(&body).send().await
+    info!(
+        "Requesting quote: market={}, outcome={}, {} ${:.2}...",
+        market_id, outcome_id, action, value
+    );
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
         .map_err(|e| anyhow::anyhow!("Myriad quote error: {}", e))?;
 
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(anyhow::anyhow!("Myriad quote failed ({}): {}", status, &text[..text.len().min(200)]));
+        return Err(anyhow::anyhow!(
+            "Myriad quote failed ({}): {}",
+            status,
+            &text[..text.len().min(200)]
+        ));
     }
 
-    let quote: TradeQuote = serde_json::from_str(&text)
-        .map_err(|e| anyhow::anyhow!("Failed to parse quote: {} — body: {}", e, &text[..text.len().min(200)]))?;
-    info!("Quote received: {:.4} shares, calldata ready ({} bytes)", quote.shares, quote.calldata.len());
+    let quote: TradeQuote = serde_json::from_str(&text).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to parse quote: {} — body: {}",
+            e,
+            &text[..text.len().min(200)]
+        )
+    })?;
+    info!(
+        "Quote received: {:.4} shares, calldata ready ({} bytes)",
+        quote.shares,
+        quote.calldata.len()
+    );
 
     Ok(quote)
 }
@@ -169,16 +238,28 @@ pub async fn get_portfolio(address: &str) -> Result<Vec<PortfolioEntry>> {
     let client = reqwest::Client::new();
     let url = format!("{}/users/{}/portfolio", MYRIAD_API, address);
 
-    info!("Checking portfolio for {}...", &address[..address.len().min(10)]);
-    let resp = client.get(&url).send().await
+    info!(
+        "Checking portfolio for {}...",
+        &address[..address.len().min(10)]
+    );
+    let resp = client
+        .get(&url)
+        .send()
+        .await
         .map_err(|e| anyhow::anyhow!("Myriad portfolio error: {}", e))?;
 
     let status = resp.status();
-    let text = resp.text().await
+    let text = resp
+        .text()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to read portfolio response: {}", e))?;
 
     if !status.is_success() {
-        return Err(anyhow::anyhow!("Portfolio API returned {}: {}", status, &text[..text.len().min(200)]));
+        return Err(anyhow::anyhow!(
+            "Portfolio API returned {}: {}",
+            status,
+            &text[..text.len().min(200)]
+        ));
     }
 
     let entries: Vec<PortfolioEntry> = serde_json::from_str(&text)
@@ -186,7 +267,13 @@ pub async fn get_portfolio(address: &str) -> Result<Vec<PortfolioEntry>> {
             let wrapper: ApiListResponse<PortfolioEntry> = serde_json::from_str(&text)?;
             Ok::<_, serde_json::Error>(wrapper.data)
         })
-        .map_err(|e| anyhow::anyhow!("Failed to parse portfolio: {} — body: {}", e, &text[..text.len().min(200)]))?;
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to parse portfolio: {} — body: {}",
+                e,
+                &text[..text.len().min(200)]
+            )
+        })?;
     info!("Found {} open positions", entries.len());
 
     Ok(entries)
@@ -220,7 +307,9 @@ pub fn scan_markets(markets: &[Market]) -> Vec<ScannedMarket> {
         .filter_map(|m| {
             let prices: Vec<f64> = m.outcomes.iter().map(|o| o.price).collect();
             let book_sum: f64 = prices.iter().sum();
-            if book_sum < 0.5 { return None; } // garbage data
+            if book_sum < 0.5 {
+                return None;
+            } // garbage data
 
             // Normalize to implied probabilities
             let implied: Vec<f64> = prices.iter().map(|p| p / book_sum).collect();
@@ -228,11 +317,16 @@ pub fn scan_markets(markets: &[Market]) -> Vec<ScannedMarket> {
             // Shannon entropy as uncertainty measure (normalized 0..1)
             let n = implied.len() as f64;
             let max_entropy = n.ln();
-            let entropy: f64 = implied.iter()
+            let entropy: f64 = implied
+                .iter()
                 .filter(|&&p| p > 0.0)
                 .map(|&p| -p * p.ln())
                 .sum();
-            let uncertainty = if max_entropy > 0.0 { entropy / max_entropy } else { 0.0 };
+            let uncertainty = if max_entropy > 0.0 {
+                entropy / max_entropy
+            } else {
+                0.0
+            };
 
             Some(ScannedMarket {
                 market: m.clone(),
@@ -244,7 +338,11 @@ pub fn scan_markets(markets: &[Market]) -> Vec<ScannedMarket> {
         .collect();
 
     // Sort by uncertainty descending — most uncertain = most opportunity
-    scanned.sort_by(|a, b| b.uncertainty.partial_cmp(&a.uncertainty).unwrap_or(std::cmp::Ordering::Equal));
+    scanned.sort_by(|a, b| {
+        b.uncertainty
+            .partial_cmp(&a.uncertainty)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     scanned
 }
 
@@ -336,9 +434,7 @@ pub fn analyze_opportunity(
     let fractional = full_kelly * kelly_multiplier;
 
     // Position size = fraction of bankroll, capped at max_bet
-    let bet_amount = (fractional * bankroll)
-        .min(max_bet)
-        .max(0.0);
+    let bet_amount = (fractional * bankroll).min(max_bet).max(0.0);
 
     // Expected value per dollar: EV = p * payout - 1
     let payout = 1.0 / market_prob;
@@ -488,7 +584,7 @@ pub fn build_unsigned_eip1559_tx(
         rlp_encode_address(to),
         rlp_encode_u64(value),
         rlp_encode_bytes(data),
-        rlp_encode_list(&[]),     // access_list (empty)
+        rlp_encode_list(&[]), // access_list (empty)
     ];
 
     let rlp = rlp_encode_list(&items);
@@ -511,12 +607,18 @@ pub async fn get_bnb_balance(rpc_url: &str, address: &str) -> Result<u128> {
         "id": 1,
     });
 
-    let resp: serde_json::Value = client.post(rpc_url).json(&body).send().await
+    let resp: serde_json::Value = client
+        .post(rpc_url)
+        .json(&body)
+        .send()
+        .await
         .map_err(|e| anyhow::anyhow!("RPC error: {}", e))?
-        .json().await
+        .json()
+        .await
         .map_err(|e| anyhow::anyhow!("RPC parse error: {}", e))?;
 
-    let hex_str = resp["result"].as_str()
+    let hex_str = resp["result"]
+        .as_str()
         .ok_or_else(|| anyhow::anyhow!("No result in balance response"))?;
     let balance = u128::from_str_radix(hex_str.trim_start_matches("0x"), 16)
         .map_err(|e| anyhow::anyhow!("Invalid balance hex: {}", e))?;
@@ -536,12 +638,18 @@ pub async fn get_nonce(rpc_url: &str, address: &str) -> Result<u64> {
         "id": 1,
     });
 
-    let resp: serde_json::Value = client.post(rpc_url).json(&body).send().await
+    let resp: serde_json::Value = client
+        .post(rpc_url)
+        .json(&body)
+        .send()
+        .await
         .map_err(|e| anyhow::anyhow!("RPC error: {}", e))?
-        .json().await
+        .json()
+        .await
         .map_err(|e| anyhow::anyhow!("RPC parse error: {}", e))?;
 
-    let hex_str = resp["result"].as_str()
+    let hex_str = resp["result"]
+        .as_str()
         .ok_or_else(|| anyhow::anyhow!("No result in nonce response"))?;
     let nonce = u64::from_str_radix(hex_str.trim_start_matches("0x"), 16)
         .map_err(|e| anyhow::anyhow!("Invalid nonce hex: {}", e))?;
@@ -562,12 +670,18 @@ pub async fn estimate_gas(rpc_url: &str, from: &str, to: &str, data: &[u8]) -> R
         "id": 1,
     });
 
-    let resp: serde_json::Value = client.post(rpc_url).json(&body).send().await
+    let resp: serde_json::Value = client
+        .post(rpc_url)
+        .json(&body)
+        .send()
+        .await
         .map_err(|e| anyhow::anyhow!("RPC error: {}", e))?
-        .json().await
+        .json()
+        .await
         .map_err(|e| anyhow::anyhow!("RPC parse error: {}", e))?;
 
-    let hex_str = resp["result"].as_str()
+    let hex_str = resp["result"]
+        .as_str()
         .ok_or_else(|| anyhow::anyhow!("No result in gas estimate"))?;
     let gas = u64::from_str_radix(hex_str.trim_start_matches("0x"), 16)
         .map_err(|e| anyhow::anyhow!("Invalid gas hex: {}", e))?;

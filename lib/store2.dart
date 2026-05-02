@@ -25,15 +25,29 @@ abstract class _AppStore with Store {
   bool flat = false;
 }
 
-void initSyncListener() {}
+StreamSubscription<dynamic>? _syncEventSubscription;
+
+void initSyncListener() {
+  _syncEventSubscription ??= WalletService.instance.syncEvents().listen(
+        syncStatus2.applyEngineEvent,
+        onError: (Object e) => logger.d('[Sync] event stream error: $e'),
+      );
+}
 
 Timer? syncTimer;
 DateTime? _boostUntil;
+DateTime? _lastSyncEventAt;
 
 /// Temporarily force fast (5s) polling for 2 minutes.
 /// Call after user-initiated actions like send or opening receive page.
 void boostSyncPolling() {
   _boostUntil = DateTime.now().add(const Duration(minutes: 2));
+  syncTimer?.cancel();
+  syncTimer = null;
+  Future(() async {
+    await syncStatus2.sync();
+    _scheduleNextSync();
+  });
 }
 
 /// True while we're in the post-action "fast poll" window. Used by
@@ -47,19 +61,34 @@ bool isSyncBoosted() {
 
 Future<void> startAutoSync() async {
   if (syncTimer == null) {
+    initSyncListener();
     await syncStatus2.sync();
     _scheduleNextSync();
   }
 }
 
 void _scheduleNextSync() {
-  final boosted = _boostUntil != null && DateTime.now().isBefore(_boostUntil!);
-  final fast = syncStatus2.syncing || boosted;
-  final interval = fast ? const Duration(seconds: 5) : const Duration(seconds: 30);
+  final now = DateTime.now();
+  final streamRecentlyActive = _lastSyncEventAt != null &&
+      now.difference(_lastSyncEventAt!) < const Duration(seconds: 60);
+  final boosted = isSyncBoosted() || _hasPendingZcashActivity();
+  final fast = syncStatus2.syncing || syncStatus2.isMaintaining || boosted;
+  final base = streamRecentlyActive
+      ? const Duration(seconds: 60)
+      : fast
+          ? const Duration(seconds: 5)
+          : const Duration(seconds: 30);
+  final jitter = 0.75 + Random().nextDouble() * 0.5;
+  final interval =
+      Duration(milliseconds: (base.inMilliseconds * jitter).round());
   syncTimer?.cancel();
   syncTimer = Timer(interval, () {
     syncStatus2.sync().then((_) => _scheduleNextSync());
   });
+}
+
+bool _hasPendingZcashActivity() {
+  return aa.txs.items.any((tx) => tx.height <= 0 && !tx.expiredUnmined);
 }
 
 var syncStatus2 = SyncStatus2();
@@ -89,6 +118,15 @@ abstract class _SyncStatus2 with Store {
   @observable
   String? connectionError;
 
+  @observable
+  String? maintenanceError;
+
+  @observable
+  String phase = 'idle';
+
+  @observable
+  int maintenanceQueueLen = 0;
+
   @computed
   int get changed {
     connected;
@@ -97,6 +135,9 @@ abstract class _SyncStatus2 with Store {
     syncing;
     paused;
     connectionError;
+    maintenanceError;
+    phase;
+    maintenanceQueueLen;
     return DateTime.now().microsecondsSinceEpoch;
   }
 
@@ -104,6 +145,12 @@ abstract class _SyncStatus2 with Store {
     final sh = syncedHeight;
     final lh = latestHeight;
     return lh != null && sh >= lh;
+  }
+
+  bool get isMaintaining {
+    return phase == 'enhancing' ||
+        phase == 'mempool' ||
+        maintenanceQueueLen > 0;
   }
 
   int? get confirmHeight {
@@ -119,11 +166,15 @@ abstract class _SyncStatus2 with Store {
     syncing = false;
     paused = false;
     connectionError = null;
+    maintenanceError = null;
+    phase = 'idle';
+    maintenanceQueueLen = 0;
   }
 
   bool _syncStarted = false;
   bool _needsInitialUpdate = true;
   bool _syncInProgress = false;
+  DateTime? _lastAccountUpdateAt;
 
   /// Called by the adaptive timer (5s while syncing, 30s when caught up).
   /// Starts the sync engine once, then polls heights and connection status.
@@ -163,7 +214,8 @@ abstract class _SyncStatus2 with Store {
         final msg = e.toString();
         final lower = msg.toLowerCase();
         if (lower.contains('already') || lower.contains('syncalreadyrunning')) {
-          logger.d('[Sync] sync still running from previous wallet, stopping...');
+          logger
+              .d('[Sync] sync still running from previous wallet, stopping...');
           await WalletService.instance.stopSync();
           await Future.delayed(const Duration(milliseconds: 500));
           try {
@@ -187,9 +239,15 @@ abstract class _SyncStatus2 with Store {
       final progress = await WalletService.instance.getEngineSyncProgress();
 
       connectionError = progress.connectionError;
+      maintenanceError = progress.maintenanceError;
+      phase = progress.phase;
+      maintenanceQueueLen = progress.maintenanceQueueLen;
       connected = connectionError == null;
       if (connectionError != null) {
         logger.w('[Sync] connection error: $connectionError');
+      }
+      if (maintenanceError != null) {
+        logger.d('[Sync] maintenance retry pending: $maintenanceError');
       }
 
       // Use the engine's chain tip instead of a separate LWD call
@@ -203,7 +261,8 @@ abstract class _SyncStatus2 with Store {
           : progress.scanningUpTo > 0
               ? progress.scanningUpTo
               : h;
-      logger.d('[Sync] poll: synced=${progress.syncedHeight} scanning=${progress.scanningUpTo} latest=${progress.latestHeight} isSyncing=${progress.isSyncing} walletH=$h localH=$syncedHeight effectiveH=$effectiveH');
+      logger.d(
+          '[Sync] poll: synced=${progress.syncedHeight} scanning=${progress.scanningUpTo} latest=${progress.latestHeight} isSyncing=${progress.isSyncing} walletH=$h localH=$syncedHeight effectiveH=$effectiveH');
       if (effectiveH > 0 && effectiveH < syncedHeight && progress.isSyncing) {
         syncedHeight = effectiveH;
         eta.checkpoint(syncedHeight, DateTime.now());
@@ -215,6 +274,7 @@ abstract class _SyncStatus2 with Store {
       if (_needsInitialUpdate) {
         _needsInitialUpdate = false;
         await aa.update(syncedHeight);
+        _lastAccountUpdateAt = DateTime.now();
         logger.d('[Sync] initial update done at $syncedHeight');
       }
 
@@ -228,6 +288,10 @@ abstract class _SyncStatus2 with Store {
           eta.checkpoint(syncedHeight, DateTime.now());
           logger.d('[Sync] catching up from $syncedHeight to $lh');
         }
+        if (_shouldRefreshAccountWhileSyncing()) {
+          await aa.update(syncedHeight);
+          _lastAccountUpdateAt = DateTime.now();
+        }
       } else if (lh != null && syncedHeight >= lh - 1) {
         if (syncing || isRescan) {
           syncedHeight = lh;
@@ -240,10 +304,51 @@ abstract class _SyncStatus2 with Store {
           logger.d('[Sync] completed at $syncedHeight');
         }
         await aa.update(syncedHeight);
+        _lastAccountUpdateAt = DateTime.now();
       }
     } catch (e) {
       logger.d('[Sync] poll error: $e');
     }
+  }
+
+  @action
+  void applyEngineEvent(dynamic event) {
+    _lastSyncEventAt = DateTime.now();
+    final eventType = event.eventType as String;
+    if (eventType == 'phase_changed' || eventType == 'connection_error') {
+      final eventPhase = event.phase as String?;
+      if (eventPhase != null && eventPhase.isNotEmpty) {
+        phase = eventPhase;
+      }
+      final eventLatest = event.latestHeight as int;
+      if (eventLatest > 0) latestHeight = eventLatest;
+      final eventSynced = event.syncedHeight as int;
+      if (eventSynced > 0 && eventSynced >= syncedHeight) {
+        syncedHeight = eventSynced;
+        eta.checkpoint(syncedHeight, DateTime.now());
+      }
+      maintenanceQueueLen = event.maintenanceQueueLen as int;
+      if (eventType == 'connection_error') {
+        connectionError = event.message as String?;
+        connected = connectionError == null;
+      }
+    } else if (eventType == 'transaction_updated' ||
+        eventType == 'balance_maybe_changed') {
+      Future(() async {
+        if (!WalletService.instance.isWalletOpen) return;
+        await aa.update(syncedHeight);
+        _lastAccountUpdateAt = DateTime.now();
+      });
+    }
+  }
+
+  bool _shouldRefreshAccountWhileSyncing() {
+    final last = _lastAccountUpdateAt;
+    if (last == null) return true;
+    final hasPending = _hasPendingZcashActivity();
+    final interval =
+        hasPending ? const Duration(seconds: 5) : const Duration(seconds: 15);
+    return DateTime.now().difference(last) >= interval;
   }
 
   /// Trigger a real rescan: stops sync, truncates wallet DB to birthday,
@@ -268,10 +373,16 @@ abstract class _SyncStatus2 with Store {
     syncing = false;
     _needsInitialUpdate = true;
     connectionError = null;
+    maintenanceError = null;
+    phase = 'idle';
+    maintenanceQueueLen = 0;
     syncedHeight = 0;
+    _lastAccountUpdateAt = null;
     eta.end();
     syncTimer?.cancel();
     syncTimer = null;
+    _syncEventSubscription?.cancel();
+    _syncEventSubscription = null;
   }
 
   @action

@@ -1,25 +1,26 @@
+pub mod audit;
+pub mod cipherpay;
+pub mod evm;
+pub mod evm_pay;
+pub mod evm_swap;
+pub mod llm;
+pub mod mpp;
+pub mod myriad;
+pub mod ows;
+pub mod payment;
+pub mod pending;
+pub mod policy;
+pub mod polymarket;
+pub mod query;
+pub mod research;
+pub mod send;
+pub mod session;
+pub mod swap;
+pub mod sync;
 pub mod types;
 pub mod vault;
 pub mod wallet;
-pub mod query;
-pub mod sync;
-pub mod send;
-pub mod policy;
-pub mod audit;
 pub mod x402;
-pub mod mpp;
-pub mod payment;
-pub mod swap;
-pub mod session;
-pub mod cipherpay;
-pub mod myriad;
-pub mod polymarket;
-pub mod research;
-pub mod evm_pay;
-pub mod ows;
-pub mod evm;
-pub mod evm_swap;
-pub mod llm;
 
 use std::path::{Path, PathBuf};
 
@@ -76,7 +77,12 @@ pub(crate) fn open_wallet_db(
 ) -> Result<WalletDb<Connection, Network, SystemClock, rand::rngs::OsRng>> {
     let conn = open_cipher_conn(path, key)?;
     rusqlite::vtab::array::load_module(&conn)?;
-    Ok(WalletDb::from_connection(conn, params, SystemClock, rand::rngs::OsRng))
+    Ok(WalletDb::from_connection(
+        conn,
+        params,
+        SystemClock,
+        rand::rngs::OsRng,
+    ))
 }
 
 /// Migrate an existing unencrypted database to SQLCipher encryption.
@@ -85,19 +91,25 @@ pub(crate) fn migrate_to_encrypted(path: &Path, key: &str) -> Result<bool> {
     {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "key", key)?;
-        if conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0)).is_ok() {
+        if conn
+            .query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .is_ok()
+        {
             return Ok(false);
         }
     }
 
     let plain_conn = Connection::open(path)?;
-    let check = plain_conn.query_row(
-        "SELECT count(*) FROM sqlite_master",
-        [],
-        |r| r.get::<_, i64>(0),
-    );
+    let check = plain_conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| {
+        r.get::<_, i64>(0)
+    });
     if check.is_err() {
-        return Err(anyhow::anyhow!("Database at {:?} is neither plain nor validly encrypted", path));
+        return Err(anyhow::anyhow!(
+            "Database at {:?} is neither plain nor validly encrypted",
+            path
+        ));
     }
 
     let enc_path = path.with_extension("sqlite.enc_tmp");

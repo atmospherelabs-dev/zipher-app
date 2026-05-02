@@ -3,15 +3,16 @@ use std::sync::Mutex as StdMutex;
 
 use anyhow::Result;
 use secrecy::{ExposeSecret, SecretString};
-use tracing::{debug, info, error};
+use tracing::{debug, error, info};
 use zeroize::Zeroize;
 
+use super::wallet::connect_lwd;
+use super::{open_wallet_db, ENGINE};
 use zcash_address::ZcashAddress;
 use zcash_client_backend::data_api::wallet::{
     create_pczt_from_proposal, create_proposed_transactions,
-    extract_and_store_transaction_from_pczt,
-    propose_send_max_transfer, propose_standard_transfer_to_address,
-    propose_shielding, ConfirmationsPolicy, SpendingKeys,
+    extract_and_store_transaction_from_pczt, propose_send_max_transfer, propose_shielding,
+    propose_standard_transfer_to_address, ConfirmationsPolicy, SpendingKeys,
 };
 use zcash_client_backend::data_api::{InputSource, MaxSpendMode, WalletRead};
 use zcash_client_backend::fees::StandardFeeRule;
@@ -19,15 +20,13 @@ use zcash_client_backend::proposal::Proposal;
 use zcash_client_backend::proto::service::RawTransaction;
 use zcash_client_backend::wallet::OvkPolicy;
 use zcash_client_sqlite::ReceivedNoteId;
+use zcash_client_sqlite::WalletDb;
 use zcash_keys::address::Address;
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_proofs::prover::LocalTxProver;
-use zcash_protocol::consensus::{self, Network};
+use zcash_protocol::consensus::Network;
 use zcash_protocol::value::Zatoshis;
-use zcash_protocol::{PoolType, ShieldedProtocol};
-use zcash_client_sqlite::WalletDb;
-use super::wallet::connect_lwd;
-use super::{open_wallet_db, ENGINE};
+use zcash_protocol::ShieldedProtocol;
 
 type DbType = WalletDb<rusqlite::Connection, Network, SystemClock, rand::rngs::OsRng>;
 type ProposalType = Proposal<StandardFeeRule, ReceivedNoteId>;
@@ -135,8 +134,7 @@ pub async fn propose_send(
             use std::str::FromStr;
             use zcash_protocol::memo::{Memo, MemoBytes};
             Some(MemoBytes::from(
-                &Memo::from_str(m)
-                    .map_err(|e| anyhow::anyhow!("Memo error: {:?}", e))?,
+                &Memo::from_str(m).map_err(|e| anyhow::anyhow!("Memo error: {:?}", e))?,
             ))
         }
         _ => None,
@@ -144,7 +142,10 @@ pub async fn propose_send(
 
     let confirmations = ConfirmationsPolicy::MIN;
 
-    info!("Preparing send proposal to {}...", &address[..address.len().min(20)]);
+    info!(
+        "Preparing send proposal to {}...",
+        &address[..address.len().min(20)]
+    );
 
     if is_max {
         // librustzcash 0.21 has a bug in `propose_send_max_transfer` for transparent
@@ -157,8 +158,8 @@ pub async fn propose_send(
             }))
             .map_err(|_| anyhow::anyhow!("wallet summary unavailable"))?
             .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-            let summary = summary_opt
-                .ok_or_else(|| anyhow::anyhow!("wallet summary not yet available"))?;
+            let summary =
+                summary_opt.ok_or_else(|| anyhow::anyhow!("wallet summary not yet available"))?;
             let ab = summary
                 .account_balances()
                 .get(&account_id)
@@ -193,8 +194,7 @@ pub async fn propose_send(
                 );
                 match attempt {
                     Ok(proposal) => {
-                        let fee =
-                            u64::from(proposal.steps().first().balance().fee_required());
+                        let fee = u64::from(proposal.steps().first().balance().fee_required());
                         info!(
                             "Max-to-transparent proposal: send {:.8} ZEC + {:.8} ZEC fee (buffer {})",
                             target as f64 / 1e8,
@@ -209,8 +209,9 @@ pub async fn propose_send(
                     }
                 }
             }
-            return Err(last_err
-                .unwrap_or_else(|| anyhow::anyhow!("Insufficient balance for max-to-transparent send")));
+            return Err(last_err.unwrap_or_else(|| {
+                anyhow::anyhow!("Insufficient balance for max-to-transparent send")
+            }));
         }
 
         let proposal = propose_send_max_transfer::<_, _, _, std::convert::Infallible>(
@@ -236,14 +237,16 @@ pub async fn propose_send(
             .map(|p| u64::from(p.amount()))
             .sum();
 
-        info!("Proposal ready: {:.8} ZEC + {:.8} ZEC fee", send_amount as f64 / 1e8, fee as f64 / 1e8);
+        info!(
+            "Proposal ready: {:.8} ZEC + {:.8} ZEC fee",
+            send_amount as f64 / 1e8,
+            fee as f64 / 1e8
+        );
         *PENDING_SEND.lock().unwrap() = Some(proposal);
         Ok((send_amount, fee, true))
     } else {
-        let send_zat = Zatoshis::from_u64(amount)
-            .map_err(|_| anyhow::anyhow!("Invalid amount"))?;
+        let send_zat = Zatoshis::from_u64(amount).map_err(|_| anyhow::anyhow!("Invalid amount"))?;
 
-        
         let proposal = propose_standard_transfer_to_address::<_, _, std::convert::Infallible>(
             &mut db_data,
             &params,
@@ -259,7 +262,11 @@ pub async fn propose_send(
         .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))?;
 
         let fee = u64::from(proposal.steps().first().balance().fee_required());
-        info!("Proposal ready: {:.8} ZEC + {:.8} ZEC fee", amount as f64 / 1e8, fee as f64 / 1e8);
+        info!(
+            "Proposal ready: {:.8} ZEC + {:.8} ZEC fee",
+            amount as f64 / 1e8,
+            fee as f64 / 1e8
+        );
         *PENDING_SEND.lock().unwrap() = Some(proposal);
         Ok((amount, fee, true))
     }
@@ -291,9 +298,8 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     let db_cipher_key = engine.db_cipher_key.clone();
     drop(engine_guard);
 
-    let mnemonic =
-        bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase.expose_secret())
-            .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
+    let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase.expose_secret())
+        .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
     let mut seed = mnemonic.to_seed("");
     let usk_result = UnifiedSpendingKey::from_seed(&params, &seed, zip32::AccountId::ZERO);
     seed.zeroize();
@@ -337,11 +343,19 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     tx.write(&mut tx_bytes)
         .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
 
-    debug!("[TX] {} bytes, header: {}", tx_bytes.len(),
-        if tx_bytes.len() >= 20 { hex::encode(&tx_bytes[..20]) } else { hex::encode(&tx_bytes) });
+    debug!(
+        "[TX] {} bytes, header: {}",
+        tx_bytes.len(),
+        if tx_bytes.len() >= 20 {
+            hex::encode(&tx_bytes[..20])
+        } else {
+            hex::encode(&tx_bytes)
+        }
+    );
 
     info!("Broadcasting to network...");
     let mut lwd = connect_lwd(&server_url).await?;
+    let raw_tx = tx_bytes.clone();
     let resp = lwd
         .send_transaction(RawTransaction {
             data: tx_bytes,
@@ -356,7 +370,10 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     let resp = resp.into_inner();
 
     if resp.error_code != 0 {
-        error!("Broadcast rejected: {} (code {})", resp.error_message, resp.error_code);
+        error!(
+            "Broadcast rejected: {} (code {})",
+            resp.error_message, resp.error_code
+        );
         return Err(anyhow::anyhow!(
             "Broadcast rejected: {} (code {})",
             resp.error_message,
@@ -364,11 +381,21 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
         ));
     }
 
-    clear_pczt_lock(db_data_path.parent().unwrap_or(&db_data_path).to_str().unwrap_or(""));
+    clear_pczt_lock(
+        db_data_path
+            .parent()
+            .unwrap_or(&db_data_path)
+            .to_str()
+            .unwrap_or(""),
+    );
+    if let Err(e) = super::pending::record_broadcast(&db_data_path, &db_cipher_key, *txid, &raw_tx)
+    {
+        debug!("Failed to record pending transaction {}: {:?}", txid, e);
+    }
+    super::sync::emit_transaction_event(txid.to_string(), "pending");
     info!("Transaction confirmed! txid={}", txid);
     Ok(txid.to_string())
 }
-
 
 // ---------------------------------------------------------------------------
 // PCZT creation (Creator + Prover — no signing key needed)
@@ -444,7 +471,10 @@ pub async fn create_pczt() -> Result<Vec<u8>> {
     let proved_pczt = prover.finish();
     let bytes = proved_pczt.serialize();
     set_pczt_lock(&db_data_path);
-    info!("PCZT ready ({} bytes) — awaiting external signing", bytes.len());
+    info!(
+        "PCZT ready ({} bytes) — awaiting external signing",
+        bytes.len()
+    );
     Ok(bytes)
 }
 
@@ -574,18 +604,17 @@ pub async fn get_max_sendable(address: &str) -> Result<u64> {
         return Ok(0);
     }
 
-    let proposal_result =
-        propose_send_max_transfer::<_, _, _, std::convert::Infallible>(
-            &mut db_data,
-            &params,
-            account_id,
-            &[ShieldedProtocol::Sapling, ShieldedProtocol::Orchard],
-            &StandardFeeRule::Zip317,
-            zaddr,
-            None,
-            MaxSpendMode::MaxSpendable,
-            confirmations,
-        );
+    let proposal_result = propose_send_max_transfer::<_, _, _, std::convert::Infallible>(
+        &mut db_data,
+        &params,
+        account_id,
+        &[ShieldedProtocol::Sapling, ShieldedProtocol::Orchard],
+        &StandardFeeRule::Zip317,
+        zaddr,
+        None,
+        MaxSpendMode::MaxSpendable,
+        confirmations,
+    );
 
     match proposal_result {
         Ok(proposal) => {
@@ -660,13 +689,12 @@ fn propose_and_create_shielding(
     prover: &LocalTxProver,
     usk: UnifiedSpendingKey,
 ) -> Result<nonempty::NonEmpty<zcash_primitives::transaction::TxId>> {
-    let change_strategy =
-        zcash_client_backend::fees::zip317::SingleOutputChangeStrategy::new(
-            StandardFeeRule::Zip317,
-            None,
-            ShieldedProtocol::Orchard,
-            zcash_client_backend::fees::DustOutputPolicy::default(),
-        );
+    let change_strategy = zcash_client_backend::fees::zip317::SingleOutputChangeStrategy::new(
+        StandardFeeRule::Zip317,
+        None,
+        ShieldedProtocol::Orchard,
+        zcash_client_backend::fees::DustOutputPolicy::default(),
+    );
     let greedy =
         zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelector::new();
 
@@ -739,9 +767,8 @@ pub async fn send_payment(
     let db_cipher_key = engine.db_cipher_key.clone();
     drop(engine_guard);
 
-    let mnemonic =
-        bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase.expose_secret())
-            .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
+    let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase.expose_secret())
+        .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
     let mut seed = mnemonic.to_seed("");
     let usk_result = UnifiedSpendingKey::from_seed(&params, &seed, zip32::AccountId::ZERO);
     seed.zeroize();
@@ -776,8 +803,7 @@ pub async fn send_payment(
             use std::str::FromStr;
             use zcash_protocol::memo::{Memo, MemoBytes};
             Some(MemoBytes::from(
-                &Memo::from_str(m)
-                    .map_err(|e| anyhow::anyhow!("Memo error: {:?}", e))?,
+                &Memo::from_str(m).map_err(|e| anyhow::anyhow!("Memo error: {:?}", e))?,
             ))
         }
         _ => None,
@@ -786,7 +812,14 @@ pub async fn send_payment(
     let prover = load_prover_from_path(&db_data_path)?;
 
     let txids = propose_and_create_send(
-        &mut db_data, &params, account_id, &to, amount, memo, &prover, usk,
+        &mut db_data,
+        &params,
+        account_id,
+        &to,
+        amount,
+        memo,
+        &prover,
+        usk,
     )?;
 
     let txid = txids.first();
@@ -798,6 +831,7 @@ pub async fn send_payment(
     tx.write(&mut tx_bytes)
         .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
 
+    let raw_tx = tx_bytes.clone();
     let mut lwd = connect_lwd(&server_url).await?;
     let resp = lwd
         .send_transaction(RawTransaction {
@@ -816,6 +850,11 @@ pub async fn send_payment(
         ));
     }
 
+    if let Err(e) = super::pending::record_broadcast(&db_data_path, &db_cipher_key, *txid, &raw_tx)
+    {
+        debug!("Failed to record pending transaction {}: {:?}", txid, e);
+    }
+    super::sync::emit_transaction_event(txid.to_string(), "pending");
     Ok(txid.to_string())
 }
 
@@ -835,9 +874,8 @@ pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
     let db_cipher_key = engine.db_cipher_key.clone();
     drop(engine_guard);
 
-    let mnemonic =
-        bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase.expose_secret())
-            .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
+    let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase.expose_secret())
+        .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
     let mut seed = mnemonic.to_seed("");
     let usk_result = UnifiedSpendingKey::from_seed(&params, &seed, zip32::AccountId::ZERO);
     seed.zeroize();
@@ -865,9 +903,8 @@ pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
 
     let prover = load_prover_from_path(&db_data_path)?;
 
-    let txids = propose_and_create_shielding(
-        &mut db_data, &params, &from_addrs, account_id, &prover, usk,
-    )?;
+    let txids =
+        propose_and_create_shielding(&mut db_data, &params, &from_addrs, account_id, &prover, usk)?;
 
     let txid = txids.first();
 
@@ -880,6 +917,7 @@ pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
     tx.write(&mut tx_bytes)
         .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
 
+    let raw_tx = tx_bytes.clone();
     let mut lwd = connect_lwd(&server_url).await?;
     let resp = lwd
         .send_transaction(RawTransaction {
@@ -898,5 +936,10 @@ pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
         ));
     }
 
+    if let Err(e) = super::pending::record_broadcast(&db_data_path, &db_cipher_key, *txid, &raw_tx)
+    {
+        debug!("Failed to record pending shielding tx {}: {:?}", txid, e);
+    }
+    super::sync::emit_transaction_event(txid.to_string(), "pending");
     Ok(txid.to_string())
 }

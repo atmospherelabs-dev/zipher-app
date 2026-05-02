@@ -9,7 +9,7 @@ use zcash_client_sqlite::wallet::init::init_wallet_db;
 use zcash_protocol::consensus::{BlockHeight, Network};
 
 use super::vault::Vault;
-use super::{db_paths, open_wallet_db, migrate_to_encrypted, ZipherEngine, ENGINE};
+use super::{db_paths, migrate_to_encrypted, open_wallet_db, ZipherEngine, ENGINE};
 
 // ---------------------------------------------------------------------------
 // lightwalletd gRPC helpers
@@ -18,8 +18,7 @@ use super::{db_paths, open_wallet_db, migrate_to_encrypted, ZipherEngine, ENGINE
 pub(crate) async fn connect_lwd(
     server_url: &str,
 ) -> Result<CompactTxStreamerClient<tonic::transport::Channel>> {
-    let tls = tonic::transport::ClientTlsConfig::new()
-        .with_webpki_roots();
+    let tls = tonic::transport::ClientTlsConfig::new().with_webpki_roots();
     let endpoint = tonic::transport::Channel::from_shared(server_url.to_string())?
         .tls_config(tls)?
         .connect_timeout(std::time::Duration::from_secs(15))
@@ -71,7 +70,10 @@ pub async fn create(
     db_cipher_key: Option<String>,
     vault_passphrase: Option<&str>,
 ) -> Result<String> {
-    println!("[engine] create wallet dir={} height={}", data_dir, chain_height);
+    println!(
+        "[engine] create wallet dir={} height={}",
+        data_dir, chain_height
+    );
 
     let (db_data_path, db_cache_path) = db_paths(data_dir);
 
@@ -87,8 +89,7 @@ pub async fn create(
     let seed = SecretVec::new(seed_bytes.to_vec());
 
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
-    init_wallet_db(&mut db, None)
-        .map_err(|e| anyhow::anyhow!("init_wallet_db error: {:?}", e))?;
+    init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db error: {:?}", e))?;
 
     let (account_id, _usk) = db
         .create_account("Main", &seed, &birthday, None)
@@ -145,8 +146,7 @@ pub async fn restore(
         .map_err(|_| anyhow::anyhow!("Failed to create account birthday from tree state"))?;
 
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
-    init_wallet_db(&mut db, None)
-        .map_err(|e| anyhow::anyhow!("init_wallet_db error: {:?}", e))?;
+    init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db error: {:?}", e))?;
 
     let (account_id, _usk) = db
         .create_account("Restored", &seed, &birthday, None)
@@ -197,8 +197,7 @@ pub async fn restore_from_ufvk(
         .map_err(|e| anyhow::anyhow!("Invalid UFVK: {:?}", e))?;
 
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
-    init_wallet_db(&mut db, None)
-        .map_err(|e| anyhow::anyhow!("init_wallet_db error: {:?}", e))?;
+    init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db error: {:?}", e))?;
 
     let _account = db
         .import_account_ufvk(
@@ -247,8 +246,7 @@ pub async fn open(
     }
 
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
-    init_wallet_db(&mut db, None)
-        .map_err(|e| anyhow::anyhow!("init_wallet_db error: {:?}", e))?;
+    init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db error: {:?}", e))?;
 
     let account_ids = db
         .get_account_ids()
@@ -291,6 +289,19 @@ pub async fn close() {
 
     *ENGINE.lock().await = None;
     tracing::info!("[engine] wallet closed");
+}
+
+/// Update the active lightwalletd server. Sync is stopped first so the next
+/// sync start uses the new URL instead of a stale in-flight client.
+pub async fn set_server(server_url: &str) -> Result<()> {
+    super::sync::stop().await;
+    let mut engine = ENGINE.lock().await;
+    let engine = engine
+        .as_mut()
+        .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
+    engine.server_url = server_url.to_string();
+    tracing::info!("[engine] lightwalletd server updated");
+    Ok(())
 }
 
 /// Decrypt the seed phrase from the vault.

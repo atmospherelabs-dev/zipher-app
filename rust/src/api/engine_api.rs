@@ -5,6 +5,7 @@ use zcash_protocol::consensus::Network;
 
 use super::wallet::{AddressInfo, AddressValidation, ChainType, WalletBalance};
 use crate::engine;
+use crate::frb_generated::StreamSink;
 
 fn to_network(ct: ChainType) -> Network {
     match ct {
@@ -170,10 +171,7 @@ pub async fn engine_get_nonce(rpc_url: String, address: String) -> Result<u64> {
 }
 
 /// Suggested EIP-1559 gas fees. Returns (maxPriorityFeePerGas, maxFeePerGas) in wei.
-pub async fn engine_suggest_eip1559_fees(
-    rpc_url: String,
-    chain_id: u64,
-) -> Result<EvmFees> {
+pub async fn engine_suggest_eip1559_fees(rpc_url: String, chain_id: u64) -> Result<EvmFees> {
     let fees = engine::evm::suggest_eip1559_fees(&rpc_url, chain_id).await?;
     Ok(EvmFees {
         max_priority_fee_per_gas: fees.max_priority_fee_per_gas,
@@ -196,16 +194,20 @@ pub async fn engine_approve_erc20(
         .map_err(|e| anyhow::anyhow!("Invalid amount: {e}"))?;
     let fees = engine::evm::suggest_eip1559_fees(&rpc_url, chain_id).await?;
     engine::evm::approve_erc20(
-        &rpc_url, &seed_phrase, &owner_address, &token_address,
-        &spender_address, amount, chain_id, &fees,
-    ).await
+        &rpc_url,
+        &seed_phrase,
+        &owner_address,
+        &token_address,
+        &spender_address,
+        amount,
+        chain_id,
+        &fees,
+    )
+    .await
 }
 
 /// Wait for a tx receipt. Returns (success, block_number).
-pub async fn engine_wait_for_receipt(
-    rpc_url: String,
-    tx_hash: String,
-) -> Result<EvmReceipt> {
+pub async fn engine_wait_for_receipt(rpc_url: String, tx_hash: String) -> Result<EvmReceipt> {
     let r = engine::evm::wait_for_receipt(&rpc_url, &tx_hash, 90).await?;
     Ok(EvmReceipt {
         success: r.status,
@@ -237,9 +239,16 @@ pub async fn engine_erc1155_set_approval_for_all(
 ) -> Result<String> {
     let fees = engine::evm::suggest_eip1559_fees(&rpc_url, chain_id).await?;
     engine::evm::erc1155_set_approval_for_all(
-        &rpc_url, &seed_phrase, &owner_address, &token_contract,
-        &operator, approved, chain_id, &fees,
-    ).await
+        &rpc_url,
+        &seed_phrase,
+        &owner_address,
+        &token_contract,
+        &operator,
+        approved,
+        chain_id,
+        &fees,
+    )
+    .await
 }
 
 pub async fn engine_has_spending_key() -> Result<bool> {
@@ -288,6 +297,10 @@ pub async fn engine_stop_sync() -> Result<()> {
     Ok(())
 }
 
+pub async fn engine_set_server(server_url: String) -> Result<()> {
+    engine::wallet::set_server(&server_url).await
+}
+
 /// Rescan the wallet from its birthday height by truncating and restarting sync.
 pub async fn engine_rescan_from_birthday() -> Result<()> {
     let birthday = engine::query::get_birthday().await?;
@@ -301,8 +314,41 @@ pub async fn engine_get_sync_progress() -> Result<EngineSyncProgress> {
         latest_height: p.latest_height,
         is_syncing: p.is_syncing,
         connection_error: p.connection_error,
+        maintenance_error: p.maintenance_error,
+        phase: p.phase,
         scanning_up_to: p.scanning_up_to,
+        maintenance_queue_len: p.maintenance_queue_len,
     })
+}
+
+pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
+    let mut receiver = engine::sync::subscribe_events();
+    tokio::spawn(async move {
+        loop {
+            match receiver.recv().await {
+                Ok(event) => {
+                    let _ = sink.add(EngineSyncEvent {
+                        event_type: event.event_type,
+                        phase: event.phase,
+                        synced_height: event.synced_height,
+                        latest_height: event.latest_height,
+                        maintenance_queue_len: event.maintenance_queue_len,
+                        txid: event.txid,
+                        status: event.status,
+                        scope: event.scope,
+                        message: event.message,
+                    });
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+    Ok(())
+}
+
+pub async fn engine_enhance_transaction(txid: String) -> Result<()> {
+    engine::sync::enhance_transaction(&txid).await
 }
 
 /// Sync progress reported to Dart.
@@ -311,7 +357,22 @@ pub struct EngineSyncProgress {
     pub latest_height: u32,
     pub is_syncing: bool,
     pub connection_error: Option<String>,
+    pub maintenance_error: Option<String>,
+    pub phase: String,
     pub scanning_up_to: u32,
+    pub maintenance_queue_len: u32,
+}
+
+pub struct EngineSyncEvent {
+    pub event_type: String,
+    pub phase: Option<String>,
+    pub synced_height: u32,
+    pub latest_height: u32,
+    pub maintenance_queue_len: u32,
+    pub txid: Option<String>,
+    pub status: Option<String>,
+    pub scope: Option<String>,
+    pub message: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -377,11 +438,7 @@ pub async fn engine_send_payment(
 ) -> Result<String> {
     use secrecy::SecretString;
     let secret_seed = SecretString::new(seed_phrase);
-    engine::send::send_payment(
-        &secret_seed,
-        vec![(address, amount, memo)],
-    )
-    .await
+    engine::send::send_payment(&secret_seed, vec![(address, amount, memo)]).await
 }
 
 /// Shield transparent funds into the shielded pool.
@@ -446,17 +503,24 @@ pub struct MarketOutcome {
 
 pub async fn engine_get_markets(keyword: Option<String>, limit: u32) -> Result<Vec<MarketInfo>> {
     let markets = zipher_engine::myriad::get_markets(keyword.as_deref(), limit).await?;
-    Ok(markets.into_iter().map(|m| MarketInfo {
-        id: m.id,
-        title: m.title,
-        description: m.description,
-        state: m.state,
-        outcomes: m.outcomes.into_iter().map(|o| MarketOutcome {
-            title: o.title,
-            price: o.price,
-            outcome_id: o.outcome_id,
-        }).collect(),
-    }).collect())
+    Ok(markets
+        .into_iter()
+        .map(|m| MarketInfo {
+            id: m.id,
+            title: m.title,
+            description: m.description,
+            state: m.state,
+            outcomes: m
+                .outcomes
+                .into_iter()
+                .map(|o| MarketOutcome {
+                    title: o.title,
+                    price: o.price,
+                    outcome_id: o.outcome_id,
+                })
+                .collect(),
+        })
+        .collect())
 }
 
 pub struct TradeSignalInfo {
@@ -482,8 +546,8 @@ pub fn engine_analyze_opportunity(
     bankroll: f64,
     max_bet: f64,
 ) -> Result<Option<TradeSignalInfo>> {
-    let rt = tokio::runtime::Handle::try_current()
-        .map_err(|_| anyhow::anyhow!("No tokio runtime"))?;
+    let rt =
+        tokio::runtime::Handle::try_current().map_err(|_| anyhow::anyhow!("No tokio runtime"))?;
 
     let markets = rt.block_on(zipher_engine::myriad::get_market(market_id))?;
 
@@ -524,7 +588,9 @@ pub fn engine_derive_evm_address(seed_phrase: String) -> Result<String> {
 
 /// Derive addresses for EVM, Solana, and Bitcoin from a single seed phrase.
 /// All derivation is CPU-only (no network calls).
-pub fn engine_derive_multi_chain_addresses(seed_phrase: String) -> Result<EngineMultiChainAddresses> {
+pub fn engine_derive_multi_chain_addresses(
+    seed_phrase: String,
+) -> Result<EngineMultiChainAddresses> {
     let addrs = zipher_engine::ows::derive_all_addresses(&seed_phrase)?;
     Ok(EngineMultiChainAddresses {
         evm: addrs.evm,
@@ -542,8 +608,8 @@ pub struct EngineMultiChainAddresses {
 
 /// Sign an unsigned EVM transaction and return the broadcast-ready signed bytes.
 pub fn engine_sign_evm_tx(seed_phrase: String, unsigned_tx_hex: String) -> Result<String> {
-    let unsigned_bytes = hex::decode(&unsigned_tx_hex)
-        .map_err(|e| anyhow::anyhow!("Invalid hex: {}", e))?;
+    let unsigned_bytes =
+        hex::decode(&unsigned_tx_hex).map_err(|e| anyhow::anyhow!("Invalid hex: {}", e))?;
     let signed_bytes = zipher_engine::ows::sign_evm_tx(&seed_phrase, &unsigned_bytes)?;
     Ok(hex::encode(signed_bytes))
 }
@@ -554,8 +620,8 @@ pub async fn engine_sign_and_broadcast_evm_tx(
     unsigned_tx_hex: String,
     rpc_url: String,
 ) -> Result<String> {
-    let unsigned_bytes = hex::decode(&unsigned_tx_hex)
-        .map_err(|e| anyhow::anyhow!("Invalid hex: {}", e))?;
+    let unsigned_bytes =
+        hex::decode(&unsigned_tx_hex).map_err(|e| anyhow::anyhow!("Invalid hex: {}", e))?;
     zipher_engine::ows::sign_and_broadcast_evm_tx(&seed_phrase, &unsigned_bytes, &rpc_url).await
 }
 
@@ -675,10 +741,7 @@ pub fn engine_polymarket_gamma_market_passes_quality_filter(
 
 /// Polymarket discovery: Gamma events + Rust grouping/quality (same as CLI `polymarket list`).
 /// Returns JSON `PolymarketDiscoverySummary`.
-pub async fn engine_polymarket_discover(
-    keyword: Option<String>,
-    limit: u32,
-) -> Result<String> {
+pub async fn engine_polymarket_discover(keyword: Option<String>, limit: u32) -> Result<String> {
     let summary =
         zipher_engine::polymarket::polymarket_discover(keyword.as_deref(), limit, false).await?;
     Ok(serde_json::to_string(&summary)?)
@@ -742,7 +805,8 @@ pub async fn engine_evm_swap_quote(
         dest_decimals,
         &amount_raw,
         &user_address,
-    ).await?;
+    )
+    .await?;
 
     Ok(EvmSwapQuoteResult {
         src_token: quote.src_token,
