@@ -97,6 +97,16 @@ class FeeT {
   FeeT({required this.scheme, required this.fee});
 }
 
+/// Resolve the lightwalletd URL from the user's saved coin settings.
+/// Returns the built-in server URL if a valid index is set, otherwise
+/// the custom URL entered by the user.
+String resolveURL(CoinBase c, CoinSettings settings) {
+  if (settings.lwd.index >= 0 && settings.lwd.index < c.lwd.length) {
+    return c.lwd[settings.lwd.index].url;
+  }
+  return settings.lwd.customURL;
+}
+
 extension CustomSendSettingsExtension on CustomSendSettings {
   void defaults() {
     contacts = true;

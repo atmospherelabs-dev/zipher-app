@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../appsettings.dart';
 import '../coin/coins.dart';
 import '../src/rust/api/wallet.dart' as rust_wallet;
 import '../src/rust/api/engine_api.dart' as rust_engine;
@@ -90,8 +91,11 @@ class WalletService {
     return dir.path;
   }
 
-  /// First server URL from the active coin's LWD list.
+  /// Resolved server URL from saved coin settings (user's preference).
+  /// Falls back to the first built-in server if nothing is configured.
   String get serverUrl {
+    final resolved = resolveURL(coins[activeCoin.coin], coinSettings);
+    if (resolved.isNotEmpty) return resolved;
     final servers = activeCoin.lwd;
     return servers.isNotEmpty ? servers.first.url : 'https://zec.rocks:443';
   }

@@ -52,7 +52,7 @@ class _SplashState extends State<SplashPage> {
           _setProgress(0.2, 'Checking wallets...');
           final wallet = WalletService.instance;
           final registry = WalletRegistry.instance;
-          print('[Splash] checking wallets, server=${wallet.serverUrl}');
+          logger.i('[Splash] server=${wallet.serverUrl}');
 
           if (!await registry.isMigrated()) {
             print('[Splash] running legacy migration...');

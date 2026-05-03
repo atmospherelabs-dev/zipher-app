@@ -482,8 +482,8 @@ async fn sync_forever(
     server_url: &str,
     db_cipher_key: &Option<String>,
 ) -> Result<()> {
-    let mut backoff_ms: u64 = 5_000;
-    const MAX_BACKOFF_MS: u64 = 60_000;
+    let mut backoff_ms: u64 = 3_000;
+    const MAX_BACKOFF_MS: u64 = 30_000;
     let mut consecutive_failures: u32 = 0;
 
     loop {
@@ -505,10 +505,18 @@ async fn sync_forever(
                     p.phase = SYNC_PHASE_CAUGHT_UP.to_string();
                 }
                 emit_progress_event("phase_changed", None, None).await;
-                backoff_ms = 5_000;
+                backoff_ms = 3_000;
                 consecutive_failures = 0;
 
-                for _ in 0..30 {
+                // Check if the enhancement queue still has work; if so, loop
+                // faster so memos get populated sooner for big wallets.
+                let has_queue = {
+                    let p = SYNC_PROGRESS.lock().await;
+                    p.maintenance_queue_len > 0
+                };
+                let idle_secs = if has_queue { 5 } else { 15 };
+
+                for _ in 0..idle_secs {
                     if SYNC_CANCEL.load(Ordering::SeqCst) {
                         return Ok(());
                     }
@@ -528,9 +536,9 @@ async fn sync_forever(
                     e
                 );
 
-                // Only surface the error to UI after 2+ consecutive failures
-                // to avoid flashing "connection lost" on transient hiccups
-                if consecutive_failures >= 2 {
+                // Only surface the error to UI after 3+ consecutive failures
+                // to avoid flashing "connection lost" on transient gRPC timeouts
+                if consecutive_failures >= 3 {
                     let mut p = SYNC_PROGRESS.lock().await;
                     p.connection_error = Some(format!("{:?}", e));
                     p.phase = SYNC_PHASE_RECONNECTING.to_string();
@@ -906,7 +914,7 @@ async fn sync_once(
 /// Capped at `MAX_MAINTENANCE_PER_PASS` to avoid holding the gRPC connection
 /// open for too long on wallets with large transaction histories. Remaining
 /// items stay in the queue and get processed on subsequent sync passes.
-const MAX_MAINTENANCE_PER_PASS: usize = 40;
+const MAX_MAINTENANCE_PER_PASS: usize = 100;
 
 async fn enhance_transactions(
     db_data: &mut DbType,
@@ -921,7 +929,7 @@ async fn enhance_transactions_inline(
     params: &Network,
     lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
 ) -> Result<()> {
-    enhance_transactions_limited(db_data, params, lwd, 5, false).await
+    enhance_transactions_limited(db_data, params, lwd, 10, false).await
 }
 
 async fn enhance_transactions_limited(

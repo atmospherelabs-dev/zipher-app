@@ -583,14 +583,15 @@ class _SettingsState extends State<SettingsPage> {
     coinSettings.save(aa.coin);
     app.appSettings = app.AppSettingsExtension.load(prefs);
     app.coinSettings = app.CoinSettingsExtension.load(aa.coin);
-    final serverUrl = resolveURL(coins[aa.coin], app.coinSettings);
+    final serverUrl = app.resolveURL(coins[aa.coin], app.coinSettings);
+    logger.i('[Settings] server → $serverUrl');
     var serverUpdated = false;
     try {
       await WalletService.instance.setServer(serverUrl);
       serverUpdated = true;
-    } catch (_) {
-      // Wallet may be busy syncing — settings are persisted and the new
-      // server will be used on the next sync cycle.
+      logger.i('[Settings] server applied, restarting sync');
+    } catch (e) {
+      logger.w('[Settings] setServer failed (will apply on next sync): $e');
     }
     aaSequence.settingsSeqno = DateTime.now().millisecondsSinceEpoch;
     Future(() async {
@@ -621,10 +622,3 @@ Future<List<String>?> fetchCurrencies() async {
   return null;
 }
 
-String resolveURL(CoinBase c, CoinSettings settings) {
-  if (settings.lwd.index >= 0 && settings.lwd.index < c.lwd.length)
-    return c.lwd[settings.lwd.index].url;
-  else {
-    return settings.lwd.customURL;
-  }
-}

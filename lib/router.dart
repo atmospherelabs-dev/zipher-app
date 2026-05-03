@@ -30,6 +30,7 @@ import 'pages/more/keytool.dart';
 import 'pages/more/memos.dart';
 import 'pages/more/more.dart';
 import 'pages/more/sweep.dart';
+import 'pages/more/debug_log.dart';
 import 'pages/action/action.dart';
 import 'pages/tx.dart';
 import 'pages/scan.dart';
@@ -266,6 +267,10 @@ final router = GoRouter(
                   GoRoute(
                     path: 'sweep',
                     builder: (context, state) => SweepPage(),
+                  ),
+                  GoRoute(
+                    path: 'debug_log',
+                    builder: (context, state) => const DebugLogPage(),
                   ),
                   GoRoute(
                       path: 'about',

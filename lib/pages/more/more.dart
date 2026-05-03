@@ -131,6 +131,15 @@ class _MorePageState extends State<MorePage> {
               // ── Developer ──
               _sectionLabel('Developer'),
               const Gap(8),
+              _card([
+                _SettingsItem(
+                  icon: Icons.terminal_rounded,
+                  label: 'Debug Log',
+                  subtitle: 'Live sync & engine log',
+                  onTap: () => _nav('/more/debug_log'),
+                ),
+              ]),
+              const Gap(8),
               Container(
                 decoration: BoxDecoration(
                   color: ZipherColors.cardBg,

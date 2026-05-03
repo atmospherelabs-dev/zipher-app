@@ -208,7 +208,7 @@ abstract class _SyncStatus2 with Store {
     if (!_syncStarted) {
       _syncStarted = true;
       try {
-        logger.d('[Sync] starting sync engine');
+        logger.i('[Sync] starting engine, server=${WalletService.instance.serverUrl}');
         await WalletService.instance.startSync();
       } catch (e) {
         final msg = e.toString();
@@ -318,6 +318,9 @@ abstract class _SyncStatus2 with Store {
     if (eventType == 'phase_changed' || eventType == 'connection_error') {
       final eventPhase = event.phase as String?;
       if (eventPhase != null && eventPhase.isNotEmpty) {
+        if (eventPhase != phase) {
+          logger.d('[Engine] phase: $eventPhase');
+        }
         phase = eventPhase;
       }
       final eventLatest = event.latestHeight as int;
@@ -331,9 +334,18 @@ abstract class _SyncStatus2 with Store {
       if (eventType == 'connection_error') {
         connectionError = event.message as String?;
         connected = connectionError == null;
+        logger.w('[Engine] connection error: ${event.message}');
       }
-    } else if (eventType == 'transaction_updated' ||
-        eventType == 'balance_maybe_changed') {
+    } else if (eventType == 'transaction_updated') {
+      final txid = event.txid as String?;
+      final status = event.status as String?;
+      logger.i('[Engine] tx $eventType: ${txid ?? '?'} → ${status ?? '?'}');
+      Future(() async {
+        if (!WalletService.instance.isWalletOpen) return;
+        await aa.update(syncedHeight);
+        _lastAccountUpdateAt = DateTime.now();
+      });
+    } else if (eventType == 'balance_maybe_changed') {
       Future(() async {
         if (!WalletService.instance.isWalletOpen) return;
         await aa.update(syncedHeight);

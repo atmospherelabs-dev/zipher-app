@@ -17,6 +17,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:logger/logger.dart';
+import '../services/app_log.dart';
 import 'package:path_provider/path_provider.dart';
 import '../services/near_intents.dart';
 import 'package:reflectable/reflectable.dart';
@@ -42,7 +43,9 @@ import 'widgets.dart';
 const DAY_SEC = 24 * 3600;
 const DAY_MS = DAY_SEC * 1000;
 
-var logger = Logger();
+var logger = Logger(
+  output: MultiOutput([ConsoleOutput(), AppLogOutput()]),
+);
 
 const APP_NAME = "Zipher";
 const ZECUNIT = 100000000.0;
