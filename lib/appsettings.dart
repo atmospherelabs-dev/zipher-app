@@ -4,6 +4,7 @@ import 'dart:math' as m;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'settings.pb.dart';
+import 'coin/coin.dart';
 import 'coin/coins.dart';
 
 var appSettings = AppSettings();
