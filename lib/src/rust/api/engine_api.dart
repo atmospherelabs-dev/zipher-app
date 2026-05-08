@@ -507,6 +507,10 @@ class EngineSyncEvent {
   final String? status;
   final String? scope;
   final String? message;
+  final BigInt scanProgressNum;
+  final BigInt scanProgressDen;
+  final BigInt recoveryProgressNum;
+  final BigInt recoveryProgressDen;
 
   const EngineSyncEvent({
     required this.eventType,
@@ -518,6 +522,10 @@ class EngineSyncEvent {
     this.status,
     this.scope,
     this.message,
+    required this.scanProgressNum,
+    required this.scanProgressDen,
+    required this.recoveryProgressNum,
+    required this.recoveryProgressDen,
   });
 
   @override
@@ -530,7 +538,11 @@ class EngineSyncEvent {
       txid.hashCode ^
       status.hashCode ^
       scope.hashCode ^
-      message.hashCode;
+      message.hashCode ^
+      scanProgressNum.hashCode ^
+      scanProgressDen.hashCode ^
+      recoveryProgressNum.hashCode ^
+      recoveryProgressDen.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -545,7 +557,11 @@ class EngineSyncEvent {
           txid == other.txid &&
           status == other.status &&
           scope == other.scope &&
-          message == other.message;
+          message == other.message &&
+          scanProgressNum == other.scanProgressNum &&
+          scanProgressDen == other.scanProgressDen &&
+          recoveryProgressNum == other.recoveryProgressNum &&
+          recoveryProgressDen == other.recoveryProgressDen;
 }
 
 /// Sync progress reported to Dart.
@@ -558,6 +574,10 @@ class EngineSyncProgress {
   final String phase;
   final int scanningUpTo;
   final int maintenanceQueueLen;
+  final BigInt scanProgressNum;
+  final BigInt scanProgressDen;
+  final BigInt recoveryProgressNum;
+  final BigInt recoveryProgressDen;
 
   const EngineSyncProgress({
     required this.syncedHeight,
@@ -568,6 +588,10 @@ class EngineSyncProgress {
     required this.phase,
     required this.scanningUpTo,
     required this.maintenanceQueueLen,
+    required this.scanProgressNum,
+    required this.scanProgressDen,
+    required this.recoveryProgressNum,
+    required this.recoveryProgressDen,
   });
 
   @override
@@ -579,7 +603,11 @@ class EngineSyncProgress {
       maintenanceError.hashCode ^
       phase.hashCode ^
       scanningUpTo.hashCode ^
-      maintenanceQueueLen.hashCode;
+      maintenanceQueueLen.hashCode ^
+      scanProgressNum.hashCode ^
+      scanProgressDen.hashCode ^
+      recoveryProgressNum.hashCode ^
+      recoveryProgressDen.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -593,7 +621,11 @@ class EngineSyncProgress {
           maintenanceError == other.maintenanceError &&
           phase == other.phase &&
           scanningUpTo == other.scanningUpTo &&
-          maintenanceQueueLen == other.maintenanceQueueLen;
+          maintenanceQueueLen == other.maintenanceQueueLen &&
+          scanProgressNum == other.scanProgressNum &&
+          scanProgressDen == other.scanProgressDen &&
+          recoveryProgressNum == other.recoveryProgressNum &&
+          recoveryProgressDen == other.recoveryProgressDen;
 }
 
 class EngineTransactionRecord {

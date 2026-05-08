@@ -56,29 +56,68 @@ impl Default for SpendingPolicy {
 
 #[derive(Debug, Clone, Serialize)]
 pub enum PolicyViolation {
-    PerTxExceeded { max: u64, requested: u64 },
-    DailyLimitExceeded { limit: u64, spent_today: u64, requested: u64 },
-    AddressNotAllowed { address: String },
+    PerTxExceeded {
+        max: u64,
+        requested: u64,
+    },
+    DailyLimitExceeded {
+        limit: u64,
+        spent_today: u64,
+        requested: u64,
+    },
+    AddressNotAllowed {
+        address: String,
+    },
     ContextRequired,
-    ApprovalRequired { amount: u64, threshold: u64 },
-    RateLimited { min_interval_ms: u64, elapsed_ms: u64 },
+    ApprovalRequired {
+        amount: u64,
+        threshold: u64,
+    },
+    RateLimited {
+        min_interval_ms: u64,
+        elapsed_ms: u64,
+    },
 }
 
 impl std::fmt::Display for PolicyViolation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::PerTxExceeded { max, requested } =>
-                write!(f, "POLICY_EXCEEDED: amount {} exceeds per-tx cap {}", requested, max),
-            Self::DailyLimitExceeded { limit, spent_today, requested } =>
-                write!(f, "POLICY_EXCEEDED: {} + today's {} exceeds daily limit {}", requested, spent_today, limit),
-            Self::AddressNotAllowed { address } =>
-                write!(f, "ADDRESS_NOT_ALLOWED: {} is not in the allowlist", address),
-            Self::ContextRequired =>
-                write!(f, "CONTEXT_REQUIRED: policy requires a context_id for every spend"),
-            Self::ApprovalRequired { amount, threshold } =>
-                write!(f, "APPROVAL_REQUIRED: amount {} exceeds approval threshold {}", amount, threshold),
-            Self::RateLimited { min_interval_ms, elapsed_ms } =>
-                write!(f, "RATE_LIMITED: {}ms since last send, minimum is {}ms", elapsed_ms, min_interval_ms),
+            Self::PerTxExceeded { max, requested } => write!(
+                f,
+                "POLICY_EXCEEDED: amount {} exceeds per-tx cap {}",
+                requested, max
+            ),
+            Self::DailyLimitExceeded {
+                limit,
+                spent_today,
+                requested,
+            } => write!(
+                f,
+                "POLICY_EXCEEDED: {} + today's {} exceeds daily limit {}",
+                requested, spent_today, limit
+            ),
+            Self::AddressNotAllowed { address } => write!(
+                f,
+                "ADDRESS_NOT_ALLOWED: {} is not in the allowlist",
+                address
+            ),
+            Self::ContextRequired => write!(
+                f,
+                "CONTEXT_REQUIRED: policy requires a context_id for every spend"
+            ),
+            Self::ApprovalRequired { amount, threshold } => write!(
+                f,
+                "APPROVAL_REQUIRED: amount {} exceeds approval threshold {}",
+                amount, threshold
+            ),
+            Self::RateLimited {
+                min_interval_ms,
+                elapsed_ms,
+            } => write!(
+                f,
+                "RATE_LIMITED: {}ms since last send, minimum is {}ms",
+                elapsed_ms, min_interval_ms
+            ),
         }
     }
 }
@@ -118,7 +157,9 @@ impl PendingApproval {
     }
 
     pub fn remaining_secs(&self) -> u64 {
-        APPROVAL_TTL.as_secs().saturating_sub(self.created_at.elapsed().as_secs())
+        APPROVAL_TTL
+            .as_secs()
+            .saturating_sub(self.created_at.elapsed().as_secs())
     }
 }
 

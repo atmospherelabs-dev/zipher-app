@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use prost::Message;
 use rusqlite::OptionalExtension;
-use tokio::sync::{broadcast, Mutex as TokioMutex};
+use tokio::sync::{broadcast, mpsc, Mutex as TokioMutex};
 
 use zcash_client_backend::data_api::chain::{
     error::Error as ChainError, scan_cached_blocks, BlockSource, CommitmentTreeRoot,
@@ -21,6 +21,7 @@ use zcash_client_backend::proto::service::{
     GetAddressUtxosArg, GetSubtreeRootsArg, ShieldedProtocol, TxFilter,
 };
 use zcash_client_backend::wallet::WalletTransparentOutput;
+use zcash_client_sqlite::error::SqliteClientError;
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::encoding::AddressCodec as _;
 use zcash_primitives::transaction::{Transaction, TxId};
@@ -67,6 +68,13 @@ pub struct SyncProgressInfo {
     pub scanning_up_to: u32,
     pub adaptive_batch_size: u32,
     pub maintenance_queue_len: u32,
+    /// Scan progress as numerator/denominator (notes scanned / total notes).
+    /// 0..100 percentage can be computed as `scan_progress_num * 100 / scan_progress_den`
+    /// (use checked division -- den may be 0).
+    pub scan_progress_num: u64,
+    pub scan_progress_den: u64,
+    pub recovery_progress_num: u64,
+    pub recovery_progress_den: u64,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -80,13 +88,16 @@ pub struct SyncEventInfo {
     pub status: Option<String>,
     pub scope: Option<String>,
     pub message: Option<String>,
+    pub scan_progress_num: u64,
+    pub scan_progress_den: u64,
+    pub recovery_progress_num: u64,
+    pub recovery_progress_den: u64,
 }
 
 const SYNC_PHASE_IDLE: &str = "idle";
 const SYNC_PHASE_CONNECTING: &str = "connecting";
 const SYNC_PHASE_UPDATING_ROOTS: &str = "updating_roots";
 const SYNC_PHASE_REFRESHING_UTXOS: &str = "refreshing_utxos";
-const SYNC_PHASE_MEMPOOL: &str = "mempool";
 const SYNC_PHASE_SCANNING: &str = "scanning";
 const SYNC_PHASE_CAUGHT_UP: &str = "caught_up";
 const SYNC_PHASE_ENHANCING: &str = "enhancing";
@@ -131,10 +142,14 @@ pub async fn start() -> Result<()> {
         p.maintenance_error = None;
         p.phase = SYNC_PHASE_CONNECTING.to_string();
         p.scanning_up_to = 0;
-        p.adaptive_batch_size = AdaptiveBatchTuner::DEFAULT_BATCH_SIZE;
+        p.adaptive_batch_size = SCAN_BATCH_SIZE;
         p.maintenance_queue_len = 0;
     }
     emit_progress_event("phase_changed", None, None).await;
+
+    let mempool_db = db_data_path.clone();
+    let mempool_server = server_url.clone();
+    let mempool_key = db_cipher_key.clone();
 
     tokio::spawn(async move {
         match sync_forever(
@@ -156,6 +171,10 @@ pub async fn start() -> Result<()> {
             p.phase = SYNC_PHASE_IDLE.to_string();
         }
         emit_progress_event("phase_changed", None, None).await;
+    });
+
+    tokio::spawn(async move {
+        mempool_forever(mempool_db, params, mempool_server, mempool_key).await;
     });
 
     Ok(())
@@ -200,6 +219,10 @@ async fn emit_progress_event(event_type: &str, scope: Option<&str>, message: Opt
         status: None,
         scope: scope.map(str::to_string),
         message,
+        scan_progress_num: p.scan_progress_num,
+        scan_progress_den: p.scan_progress_den,
+        recovery_progress_num: p.recovery_progress_num,
+        recovery_progress_den: p.recovery_progress_den,
     });
 }
 
@@ -214,6 +237,10 @@ pub fn emit_transaction_event(txid: String, status: &str) {
         status: Some(status.to_string()),
         scope: None,
         message: None,
+        scan_progress_num: 0,
+        scan_progress_den: 0,
+        recovery_progress_num: 0,
+        recovery_progress_den: 0,
     });
     emit_event(SyncEventInfo {
         event_type: "balance_maybe_changed".to_string(),
@@ -225,6 +252,29 @@ pub fn emit_transaction_event(txid: String, status: &str) {
         status: None,
         scope: None,
         message: None,
+        scan_progress_num: 0,
+        scan_progress_den: 0,
+        recovery_progress_num: 0,
+        recovery_progress_den: 0,
+    });
+}
+
+/// Emit a log-level event so Dart can show Rust engine activity in the debug log.
+pub fn emit_log(message: &str) {
+    emit_event(SyncEventInfo {
+        event_type: "engine_log".to_string(),
+        phase: None,
+        synced_height: 0,
+        latest_height: 0,
+        maintenance_queue_len: 0,
+        txid: None,
+        status: None,
+        scope: None,
+        message: Some(message.to_string()),
+        scan_progress_num: 0,
+        scan_progress_den: 0,
+        recovery_progress_num: 0,
+        recovery_progress_den: 0,
     });
 }
 
@@ -323,7 +373,15 @@ pub async fn enhance_transaction(txid_hex: &str) -> Result<()> {
 
     let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
     let mut lwd = connect_lwd(&server_url).await?;
-    fetch_and_decrypt_tx(&mut db_data, &params, &mut lwd, txid).await?;
+    fetch_and_decrypt_tx(
+        &mut db_data,
+        &params,
+        &mut lwd,
+        &db_data_path,
+        &db_cipher_key,
+        txid,
+    )
+    .await?;
     emit_transaction_event(txid_hex.to_string(), "confirmed");
     Ok(())
 }
@@ -345,10 +403,7 @@ pub async fn rescan_from(height: u32) -> Result<()> {
     let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
     let target = BlockHeight::from_u32(height);
     tracing::info!("[sync] rescan: truncating to height {}", height);
-    db_data
-        .truncate_to_height(target)
-        .map_err(|e| anyhow::anyhow!("truncate_to_height: {:?}", e))?;
-
+    safe_truncate_to_height_sync(&mut db_data, target)?;
     start().await
 }
 
@@ -475,6 +530,8 @@ impl BlockSource for BlockCache {
 // Continuous sync with exponential backoff retry
 // ---------------------------------------------------------------------------
 
+const MAX_CONSECUTIVE_FAILURES: u32 = 20;
+
 async fn sync_forever(
     db_data_path: &Path,
     db_cache_path: &Path,
@@ -508,8 +565,6 @@ async fn sync_forever(
                 backoff_ms = 3_000;
                 consecutive_failures = 0;
 
-                // Check if the enhancement queue still has work; if so, loop
-                // faster so memos get populated sooner for big wallets.
                 let has_queue = {
                     let p = SYNC_PROGRESS.lock().await;
                     p.maintenance_queue_len > 0
@@ -529,15 +584,45 @@ async fn sync_forever(
                 }
 
                 consecutive_failures += 1;
+                let err_msg = format!("{:?}", e);
                 tracing::warn!(
-                    "[sync] error (attempt {}), retrying in {}ms: {:?}",
+                    "[sync] error (attempt {}), retrying in {}ms: {}",
                     consecutive_failures,
                     backoff_ms,
-                    e
+                    err_msg
                 );
+                emit_log(&format!(
+                    "pass failed (attempt {}): {}",
+                    consecutive_failures,
+                    if err_msg.len() > 120 {
+                        &err_msg[..120]
+                    } else {
+                        &err_msg
+                    }
+                ));
 
-                // Only surface the error to UI after 3+ consecutive failures
-                // to avoid flashing "connection lost" on transient gRPC timeouts
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                    let mut p = SYNC_PROGRESS.lock().await;
+                    p.connection_error = Some(format!("{:?}", e));
+                    p.phase = SYNC_PHASE_IDLE.to_string();
+                    p.is_syncing = false;
+                    drop(p);
+                    emit_progress_event(
+                        "sync_failed",
+                        Some("scan"),
+                        Some(format!(
+                            "Sync stopped after {} consecutive failures",
+                            MAX_CONSECUTIVE_FAILURES
+                        )),
+                    )
+                    .await;
+                    return Err(anyhow::anyhow!(
+                        "Sync stopped after {} consecutive failures: {:?}",
+                        MAX_CONSECUTIVE_FAILURES,
+                        e
+                    ));
+                }
+
                 if consecutive_failures >= 3 {
                     let mut p = SYNC_PROGRESS.lock().await;
                     p.connection_error = Some(format!("{:?}", e));
@@ -550,6 +635,52 @@ async fn sync_forever(
                 interruptible_sleep(backoff_ms).await?;
                 backoff_ms = (backoff_ms * 2).min(MAX_BACKOFF_MS);
             }
+        }
+    }
+}
+
+/// Independent mempool monitoring task. Runs alongside sync_forever,
+/// only active when the wallet is caught up.
+async fn mempool_forever(
+    db_data_path: PathBuf,
+    params: Network,
+    server_url: String,
+    db_cipher_key: Option<String>,
+) {
+    loop {
+        if SYNC_CANCEL.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let phase = { SYNC_PROGRESS.lock().await.phase.clone() };
+        if phase != SYNC_PHASE_CAUGHT_UP {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            continue;
+        }
+
+        let latest = { SYNC_PROGRESS.lock().await.latest_height };
+        if let Ok(mut lwd) = connect_lwd(&server_url).await {
+            if let Ok(mut db_data) = open_wallet_db(&db_data_path, params, &db_cipher_key) {
+                if let Err(e) = scan_mempool_once(
+                    &mut lwd,
+                    &mut db_data,
+                    &params,
+                    &db_data_path,
+                    &db_cipher_key,
+                    latest,
+                )
+                .await
+                {
+                    tracing::debug!("[mempool] scan skipped: {:?}", e);
+                }
+            }
+        }
+
+        for _ in 0..30 {
+            if SYNC_CANCEL.load(Ordering::SeqCst) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
     }
 }
@@ -570,6 +701,7 @@ async fn sync_once(
     db_cipher_key: &Option<String>,
 ) -> Result<()> {
     tracing::info!("[sync] starting pass, server={}", server_url);
+    emit_log(&format!("sync pass start → {}", server_url));
     let mut perf = PassPerf::default();
 
     let mut db_data = open_wallet_db(db_data_path, params, db_cipher_key)?;
@@ -581,9 +713,42 @@ async fn sync_once(
     emit_progress_event("phase_changed", None, None).await;
     let mut lwd = connect_lwd(server_url).await?;
 
-    // We have a live gRPC connection to lightwalletd — clear any stale error
-    // from a previous failed pass so UI/CLI stop showing "connection lost"
-    // during the (potentially slow) subtree-roots update below.
+    // Verify the lightwalletd server is on the correct network/consensus branch.
+    {
+        let info = lwd
+            .get_lightd_info(Empty {})
+            .await
+            .map_err(|e| anyhow::anyhow!("get_lightd_info: {:?}", e))?
+            .into_inner();
+
+        let expected_chain = match params {
+            Network::MainNetwork => "main",
+            Network::TestNetwork => "test",
+        };
+        if !info.chain_name.is_empty() && info.chain_name != expected_chain {
+            return Err(anyhow::anyhow!(
+                "Network mismatch: wallet expects '{}' but server reports '{}'",
+                expected_chain,
+                info.chain_name
+            ));
+        }
+
+        if !info.consensus_branch_id.is_empty() {
+            let server_branch = info.consensus_branch_id.trim_start_matches("0x");
+            let tip_height = BlockHeight::from_u32(info.block_height as u32);
+            let expected_branch =
+                format!("{:x}", u32::from(BranchId::for_height(&params, tip_height)));
+            if server_branch != expected_branch {
+                tracing::warn!(
+                    "[sync] consensus branch mismatch: server={} expected={}",
+                    server_branch,
+                    expected_branch
+                );
+            }
+        }
+    }
+
+    // Clear any stale error from a previous failed pass.
     {
         let mut p = SYNC_PROGRESS.lock().await;
         p.connection_error = None;
@@ -597,10 +762,11 @@ async fn sync_once(
     update_subtree_roots(&mut lwd, &mut db_data).await?;
 
     // 2) Sync until caught up (ECC pattern: `while running(...) {}`)
-    // Use adaptive height batches to avoid very dense ranges causing slow scans.
-    let mut batch_tuner = AdaptiveBatchTuner::default();
+    let mut batch_size: u32 = SCAN_BATCH_SIZE;
     let mut keep_running = true;
+    const SYNC_RESTART_TIMEOUT: Duration = Duration::from_secs(300);
     while keep_running {
+        let pass_started = Instant::now();
         check_cancel()?;
 
         // 3-4) Update chain tip
@@ -610,6 +776,7 @@ async fn sync_once(
             .map_err(|e| anyhow::anyhow!("get_latest_block: {:?}", e))?;
         let tip_height = BlockHeight::from_u32(tip.into_inner().height as u32);
         tracing::info!("[sync] chain tip = {}", u32::from(tip_height));
+        emit_log(&format!("chain tip = {}", u32::from(tip_height)));
 
         db_data
             .update_chain_tip(tip_height)
@@ -622,9 +789,6 @@ async fn sync_once(
         }
         emit_progress_event("phase_changed", None, None).await;
 
-        // Refresh transparent UTXOs from the wallet's fully-scanned height on
-        // every pass. This matches the Rust SDK pattern and avoids missing
-        // transparent inbound funds on wallets that have been inactive.
         {
             let mut p = SYNC_PROGRESS.lock().await;
             p.phase = SYNC_PHASE_REFRESHING_UTXOS.to_string();
@@ -632,29 +796,6 @@ async fn sync_once(
         emit_progress_event("phase_changed", None, None).await;
         if let Err(e) = refresh_transparent_utxos(&mut lwd, &mut db_data, &params).await {
             tracing::warn!("[sync] transparent UTXO refresh warning: {:?}", e);
-        }
-
-        {
-            let mut p = SYNC_PROGRESS.lock().await;
-            p.phase = SYNC_PHASE_MEMPOOL.to_string();
-        }
-        emit_progress_event("phase_changed", None, None).await;
-        match connect_lwd(server_url).await {
-            Ok(mut mempool_lwd) => {
-                if let Err(e) = scan_mempool_once(
-                    &mut mempool_lwd,
-                    &mut db_data,
-                    &params,
-                    db_data_path,
-                    db_cipher_key,
-                    u32::from(tip_height),
-                )
-                .await
-                {
-                    tracing::debug!("[sync] mempool scan skipped: {:?}", e);
-                }
-            }
-            Err(e) => tracing::debug!("[sync] mempool connection skipped: {:?}", e),
         }
 
         // 5-6) Verify loop — handle Verify-priority ranges first
@@ -708,9 +849,14 @@ async fn sync_once(
                             p.synced_height = synced_height;
                             drop(p);
                             if notes_found > 0 {
-                                let _ =
-                                    enhance_transactions_inline(&mut db_data, &params, &mut lwd)
-                                        .await;
+                                let _ = enhance_transactions_inline(
+                                    &mut db_data,
+                                    &params,
+                                    &mut lwd,
+                                    db_data_path,
+                                    db_cipher_key,
+                                )
+                                .await;
                             }
                             break;
                         }
@@ -721,44 +867,69 @@ async fn sync_once(
             }
         }
 
-        // 7) Process remaining scan ranges, split into adaptive chunks.
-        // Pipeline one prefetch batch ahead so network and scanning overlap.
+        // 7) Process remaining scan ranges, split into fixed-size chunks.
         let scan_ranges = db_data
             .suggest_scan_ranges()
             .map_err(|e| anyhow::anyhow!("suggest_scan_ranges: {:?}", e))?;
 
         let batches: Vec<ScanRange> = scan_ranges
             .into_iter()
-            .flat_map(|r| split_into_batches(r, batch_tuner.batch_size))
+            .flat_map(|r| split_into_batches(r, batch_size))
             .filter(|r| r.priority() > ScanPriority::Scanned)
             .collect();
 
         tracing::debug!(
-            "[sync] {} scan batches to process (adaptive batch_size={})",
+            "[sync] {} scan batches to process (batch_size={})",
             batches.len(),
-            batch_tuner.batch_size
+            batch_size
         );
 
         let mut did_restart = false;
-        let mut pipeline_iter = batches.into_iter();
-        if let Some(first_range) = pipeline_iter.next() {
+        if !batches.is_empty() {
             {
                 let mut p = SYNC_PROGRESS.lock().await;
                 p.phase = SYNC_PHASE_SCANNING.to_string();
             }
             emit_progress_event("phase_changed", None, None).await;
-            // Separate client for batch download prefetch (main client still handles
-            // tip updates, verify loop, and transparent UTXO refresh).
-            let mut downloader = connect_lwd(server_url).await?;
-            let mut current_range = first_range;
-            let mut current_downloaded = download_range(&mut downloader, &current_range).await?;
-            let mut prefetch = pipeline_iter
-                .next()
-                .map(|next_range| spawn_download_prefetch(downloader, next_range));
 
-            loop {
+            let (tx, mut rx) = mpsc::channel::<Result<PrefetchedRange>>(3);
+            let fetch_server_url = server_url.to_string();
+            let fetch_batches = batches;
+            let fetch_handle = tokio::spawn(async move {
+                let mut fetch_lwd = connect_lwd(&fetch_server_url).await?;
+                for scan_range in fetch_batches {
+                    check_cancel()?;
+                    let downloaded = download_range(&mut fetch_lwd, &scan_range).await?;
+                    if tx
+                        .send(Ok(PrefetchedRange {
+                            scan_range,
+                            downloaded,
+                        }))
+                        .await
+                        .is_err()
+                    {
+                        return Ok::<(), anyhow::Error>(());
+                    }
+                }
+                Ok::<(), anyhow::Error>(())
+            });
+
+            while let Some(prefetched) = rx.recv().await {
                 check_cancel()?;
-                let batch_stats = current_downloaded.as_ref().map(|d| d.stats());
+                if pass_started.elapsed() > SYNC_RESTART_TIMEOUT {
+                    tracing::info!(
+                        "[sync] pass timeout ({}s), restarting to refresh chain tip",
+                        SYNC_RESTART_TIMEOUT.as_secs()
+                    );
+                    emit_log("pass timeout, restarting to refresh chain tip");
+                    did_restart = true;
+                    break;
+                }
+                let PrefetchedRange {
+                    scan_range: current_range,
+                    downloaded,
+                } = prefetched?;
+                let batch_stats = downloaded.as_ref().map(|d| d.stats());
                 {
                     let mut p = SYNC_PROGRESS.lock().await;
                     p.scanning_up_to = u32::from(current_range.block_range().end);
@@ -771,56 +942,75 @@ async fn sync_once(
                         &db_cache,
                         &mut db_data,
                         &current_range,
-                        current_downloaded,
+                        downloaded,
                     )
                 })?;
                 let scan_elapsed_ms = scan_started.elapsed().as_millis() as u64;
-                batch_tuner.observe(batch_stats, scan_elapsed_ms);
+                batch_size = adjust_batch_size(batch_size, scan_elapsed_ms);
                 if let Some(stats) = batch_stats {
                     perf.record(stats, scan_elapsed_ms, &outcome);
                 }
                 {
                     let mut p = SYNC_PROGRESS.lock().await;
-                    p.adaptive_batch_size = batch_tuner.batch_size;
+                    p.adaptive_batch_size = batch_size;
                 }
                 emit_progress_event("phase_changed", None, None).await;
 
                 match outcome {
                     ScanOutcome::Restarted => {
                         did_restart = true;
-                        if let Some(h) = prefetch.take() {
-                            h.abort();
-                        }
                         break;
                     }
                     ScanOutcome::Scanned {
                         synced_height,
                         notes_found,
                     } => {
-                        let mut p = SYNC_PROGRESS.lock().await;
-                        p.synced_height = synced_height;
-                        drop(p);
-                        if notes_found > 0 {
-                            let _ =
-                                enhance_transactions_inline(&mut db_data, &params, &mut lwd).await;
+                        {
+                            let mut p = SYNC_PROGRESS.lock().await;
+                            p.synced_height = synced_height;
                         }
+                        refresh_scan_progress(&mut db_data).await;
+                        if notes_found > 0 {
+                            let _ = enhance_transactions_inline(
+                                &mut db_data,
+                                &params,
+                                &mut lwd,
+                                db_data_path,
+                                db_cipher_key,
+                            )
+                            .await;
+                        }
+                        emit_event(SyncEventInfo {
+                            event_type: "balance_maybe_changed".to_string(),
+                            phase: None,
+                            synced_height,
+                            latest_height: 0,
+                            maintenance_queue_len: 0,
+                            txid: None,
+                            status: None,
+                            scope: None,
+                            message: None,
+                            scan_progress_num: 0,
+                            scan_progress_den: 0,
+                            recovery_progress_num: 0,
+                            recovery_progress_den: 0,
+                        });
                     }
                     ScanOutcome::NothingToScan => {}
                 }
+            }
 
-                let Some(prefetch_handle) = prefetch.take() else {
-                    break;
-                };
-                let (returned_downloader, next_range, next_downloaded) =
-                    prefetch_handle
-                        .await
-                        .map_err(|e| anyhow::anyhow!("download prefetch join error: {:?}", e))??;
-                downloader = returned_downloader;
-                current_range = next_range;
-                current_downloaded = next_downloaded;
-                prefetch = pipeline_iter
-                    .next()
-                    .map(|next_range| spawn_download_prefetch(downloader, next_range));
+            if did_restart {
+                fetch_handle.abort();
+            } else {
+                match fetch_handle.await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => return Err(e),
+                    Err(e) if e.is_cancelled() => {}
+                    Err(e) => {
+                        return Err(anyhow::anyhow!("download prefetch task failed: {:?}", e))
+                    }
+                }
             }
         }
 
@@ -836,6 +1026,7 @@ async fn sync_once(
     .map(|s| u32::from(s.fully_scanned_height()))
     .unwrap_or(0);
     if fsh > 0 {
+        emit_log(&format!("scan complete, fully_scanned_height = {}", fsh));
         let mut p = SYNC_PROGRESS.lock().await;
         p.synced_height = fsh;
         p.phase = SYNC_PHASE_CAUGHT_UP.to_string();
@@ -862,7 +1053,14 @@ async fn sync_once(
     };
     match connect_lwd(server_url).await {
         Ok(mut maintenance_lwd) => {
-            if let Err(e) = enhance_transactions(&mut db_data, &params, &mut maintenance_lwd).await
+            if let Err(e) = enhance_transactions(
+                &mut db_data,
+                &params,
+                &mut maintenance_lwd,
+                db_data_path,
+                db_cipher_key,
+            )
+            .await
             {
                 tracing::warn!("[sync] maintenance failed (will retry next pass): {:?}", e);
                 let mut p = SYNC_PROGRESS.lock().await;
@@ -920,22 +1118,66 @@ async fn enhance_transactions(
     db_data: &mut DbType,
     params: &Network,
     lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
+    db_data_path: &Path,
+    db_cipher_key: &Option<String>,
 ) -> Result<()> {
-    enhance_transactions_limited(db_data, params, lwd, MAX_MAINTENANCE_PER_PASS, true).await
+    enhance_transactions_limited(
+        db_data,
+        params,
+        lwd,
+        db_data_path,
+        db_cipher_key,
+        MAX_MAINTENANCE_PER_PASS,
+        true,
+    )
+    .await
 }
 
 async fn enhance_transactions_inline(
     db_data: &mut DbType,
     params: &Network,
     lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
+    db_data_path: &Path,
+    db_cipher_key: &Option<String>,
 ) -> Result<()> {
-    enhance_transactions_limited(db_data, params, lwd, 10, false).await
+    enhance_transactions_limited(db_data, params, lwd, db_data_path, db_cipher_key, 10, false).await
+}
+
+/// Per-txid failure counter. Txids that fail more than MAX_ENHANCE_RETRIES
+/// across sync passes get marked as TxidNotRecognized to clear the queue.
+const MAX_ENHANCE_RETRIES: u32 = 5;
+
+lazy_static::lazy_static! {
+    static ref ENHANCE_FAILURES: TokioMutex<std::collections::HashMap<TxId, u32>> =
+        TokioMutex::new(std::collections::HashMap::new());
+}
+
+fn describe_transaction_requests(requests: &[TransactionDataRequest]) -> String {
+    let mut enhancement = 0usize;
+    let mut status = 0usize;
+    let mut other = 0usize;
+    for req in requests {
+        match req {
+            TransactionDataRequest::Enhancement(_) => enhancement += 1,
+            TransactionDataRequest::GetStatus(_) => status += 1,
+            _ => other += 1,
+        }
+    }
+    format!(
+        "{} total ({} enhancement, {} status, {} other)",
+        requests.len(),
+        enhancement,
+        status,
+        other
+    )
 }
 
 async fn enhance_transactions_limited(
     db_data: &mut DbType,
     params: &Network,
     lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
+    db_data_path: &Path,
+    db_cipher_key: &Option<String>,
     max_items: usize,
     final_phase: bool,
 ) -> Result<()> {
@@ -957,8 +1199,15 @@ async fn enhance_transactions_limited(
     }
     emit_progress_event("phase_changed", None, None).await;
 
+    tracing::info!("[sync] enhancing: {} items in queue", total);
+    emit_log(&format!(
+        "enhancement queue: {}",
+        describe_transaction_requests(&requests)
+    ));
+
     let mut enhanced = 0usize;
     let mut status_checked = 0usize;
+    let mut skipped = 0usize;
     let mut processed = 0usize;
     let mut consecutive_rpc_errors = 0u32;
 
@@ -974,22 +1223,78 @@ async fn enhance_transactions_limited(
 
         match req {
             TransactionDataRequest::Enhancement(txid) => {
-                match fetch_and_decrypt_tx(db_data, params, lwd, txid).await {
+                // Check if this txid has exceeded retry limit
+                {
+                    let failures = ENHANCE_FAILURES.lock().await;
+                    if let Some(&count) = failures.get(&txid) {
+                        if count >= MAX_ENHANCE_RETRIES {
+                            tracing::info!(
+                                "[sync] skipping txid {} after {} failures, clearing enhancement queue entry",
+                                txid, count
+                            );
+                            let _ = clear_retrieval_queue_entry(db_data_path, db_cipher_key, txid);
+                            emit_log(&format!(
+                                "enhance {}: skipped after {} failures, cleared queue row",
+                                short_txid(txid),
+                                count
+                            ));
+                            skipped += 1;
+                            processed += 1;
+                            continue;
+                        }
+                    }
+                }
+
+                match fetch_and_decrypt_tx(db_data, params, lwd, db_data_path, db_cipher_key, txid)
+                    .await
+                {
                     Ok(()) => {
                         enhanced += 1;
                         processed += 1;
                         consecutive_rpc_errors = 0;
-                        // Small delay between RPCs to avoid hammering the server
+                        // Clear failure count on success
+                        ENHANCE_FAILURES.lock().await.remove(&txid);
+                        // Supplying the full transaction should satisfy the
+                        // enhancement request. If the library leaves the row
+                        // behind, clear it so memo recovery cannot keep the
+                        // wallet in a permanent maintenance loop.
+                        if clear_retrieval_queue_entry(db_data_path, db_cipher_key, txid)
+                            .unwrap_or(false)
+                        {
+                            tracing::info!(
+                                "[sync] cleared lingering enhancement queue entry {}",
+                                txid
+                            );
+                        }
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                     }
                     Err(e) => {
                         consecutive_rpc_errors += 1;
-                        tracing::debug!("[sync] enhance {}: {:?}", txid, e);
+                        processed += 1;
+                        let count = {
+                            let mut failures = ENHANCE_FAILURES.lock().await;
+                            let count = failures.entry(txid).or_insert(0);
+                            *count += 1;
+                            *count
+                        };
+                        tracing::info!(
+                            "[sync] enhance {} failed (attempt {}): {:?}",
+                            txid,
+                            count,
+                            e
+                        );
+                        emit_log(&format!(
+                            "enhance {}: failed attempt {} ({})",
+                            short_txid(txid),
+                            count,
+                            trim_log_error(&format!("{:?}", e))
+                        ));
                         if consecutive_rpc_errors >= 3 {
                             tracing::warn!(
                                 "[sync] 3 consecutive enhancement failures, \
                                  aborting enhancement (connection likely dropped)"
                             );
+                            emit_log("enhancement: connection dropped, will retry next pass");
                             break;
                         }
                     }
@@ -1005,12 +1310,14 @@ async fn enhance_transactions_limited(
                     }
                     Err(e) => {
                         consecutive_rpc_errors += 1;
-                        tracing::debug!("[sync] get_status {}: {:?}", txid, e);
+                        processed += 1;
+                        tracing::info!("[sync] get_status {}: {:?}", txid, e);
                         if consecutive_rpc_errors >= 3 {
                             tracing::warn!(
-                                "[sync] 3 consecutive status/enhancement failures, \
+                                "[sync] 3 consecutive status failures, \
                                  aborting maintenance (connection likely dropped)"
                             );
+                            emit_log("status check: connection dropped, will retry next pass");
                             break;
                         }
                     }
@@ -1020,21 +1327,20 @@ async fn enhance_transactions_limited(
         }
     }
 
-    if enhanced > 0 {
-        tracing::info!(
-            "[sync] enhanced {} transaction(s), checked {} status request(s)",
-            enhanced,
-            status_checked
-        );
-    } else {
-        tracing::debug!(
-            "[sync] no transactions needing enhancement; checked {} status request(s)",
-            status_checked
-        );
-    }
+    let remaining = total.saturating_sub(processed);
+    let remaining = db_data
+        .transaction_data_requests()
+        .map(|requests| requests.len())
+        .unwrap_or(remaining);
+    let msg = format!(
+        "enhanced {}, status {}, skipped {}, remaining {}",
+        enhanced, status_checked, skipped, remaining
+    );
+    tracing::info!("[sync] {}", msg);
+    emit_log(&msg);
 
     let mut p = SYNC_PROGRESS.lock().await;
-    p.maintenance_queue_len = total.saturating_sub(processed) as u32;
+    p.maintenance_queue_len = remaining as u32;
     if final_phase {
         p.phase = SYNC_PHASE_CAUGHT_UP.to_string();
     } else {
@@ -1049,8 +1355,15 @@ async fn fetch_and_decrypt_tx(
     db_data: &mut DbType,
     params: &Network,
     lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
+    db_data_path: &Path,
+    db_cipher_key: &Option<String>,
     txid: TxId,
 ) -> Result<()> {
+    let txid_short = short_txid(txid);
+    emit_log(&format!(
+        "enhance {}: fetching full transaction",
+        txid_short
+    ));
     let resp = lwd
         .get_transaction(TxFilter {
             block: None,
@@ -1062,6 +1375,10 @@ async fn fetch_and_decrypt_tx(
     let raw = resp.into_inner();
 
     if raw.data.is_empty() {
+        emit_log(&format!(
+            "enhance {}: server returned no transaction data",
+            txid_short
+        ));
         // Tx not (yet) on chain — mark as not-in-mempool so we don't keep
         // requesting it forever.
         db_data
@@ -1075,6 +1392,12 @@ async fn fetch_and_decrypt_tx(
     } else {
         Some(BlockHeight::from_u32(raw.height as u32))
     };
+    emit_log(&format!(
+        "enhance {}: raw={} bytes height={}",
+        txid_short,
+        raw.data.len(),
+        raw.height
+    ));
 
     // BranchId is needed to deserialize the transaction with the correct
     // consensus rules. Use the mined height when known, otherwise fall back to
@@ -1092,7 +1415,47 @@ async fn fetch_and_decrypt_tx(
 
     decrypt_and_store_transaction(params, db_data, &tx, mined_height)
         .map_err(|e| anyhow::anyhow!("decrypt_and_store_transaction: {:?}", e))?;
+    let memo_rows =
+        count_text_or_binary_memos_for_tx(db_data_path, db_cipher_key, txid).unwrap_or_default();
+    emit_log(&format!(
+        "enhance {}: stored transaction, memo rows={}",
+        txid_short, memo_rows
+    ));
     Ok(())
+}
+
+fn short_txid(txid: TxId) -> String {
+    let mut display = txid.as_ref().to_vec();
+    display.reverse();
+    let hex = hex::encode(display);
+    hex[..hex.len().min(12)].to_string()
+}
+
+fn trim_log_error(message: &str) -> String {
+    const MAX_LEN: usize = 96;
+    if message.len() <= MAX_LEN {
+        message.to_string()
+    } else {
+        format!("{}...", &message[..MAX_LEN])
+    }
+}
+
+fn count_text_or_binary_memos_for_tx(
+    db_data_path: &Path,
+    db_cipher_key: &Option<String>,
+    txid: TxId,
+) -> Result<u32> {
+    let conn = open_cipher_conn(db_data_path, db_cipher_key)?;
+    let count = conn.query_row(
+        "SELECT COUNT(*)
+         FROM v_tx_outputs
+         WHERE txid = ?1
+           AND memo IS NOT NULL
+           AND memo != X'F6'",
+        rusqlite::params![txid.as_ref()],
+        |row| row.get(0),
+    )?;
+    Ok(count)
 }
 
 /// One-shot recovery: any received note (sapling or orchard) whose `memo`
@@ -1105,8 +1468,42 @@ async fn fetch_and_decrypt_tx(
 /// is nothing to recover for those.
 fn requeue_unenhanced_notes(db_data_path: &Path, db_cipher_key: &Option<String>) -> Result<()> {
     let conn = open_cipher_conn(db_data_path, db_cipher_key)?;
-    // Use INSERT OR IGNORE because (txid) has a UNIQUE constraint; a tx that
-    // already has an enhancement request queued will simply be left as-is.
+
+    // Count notes with NULL memo (need enhancement) vs 0xF6 (confirmed empty)
+    let null_count: u32 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM (
+            SELECT transaction_id FROM sapling_received_notes WHERE memo IS NULL
+            UNION
+            SELECT transaction_id FROM orchard_received_notes WHERE memo IS NULL
+        )",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    let total_notes: u32 = conn
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM sapling_received_notes) +
+                (SELECT COUNT(*) FROM orchard_received_notes)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    let queue_len: u32 = conn
+        .query_row("SELECT COUNT(*) FROM tx_retrieval_queue", [], |row| {
+            row.get(0)
+        })
+        .unwrap_or(0);
+
+    tracing::info!(
+        "[sync] memo stats: {} total notes, {} with NULL memo, {} already in queue",
+        total_notes,
+        null_count,
+        queue_len
+    );
+
     let added = conn.execute(
         "INSERT OR IGNORE INTO tx_retrieval_queue (txid, query_type)
          SELECT t.txid, 1
@@ -1124,8 +1521,24 @@ fn requeue_unenhanced_notes(db_data_path: &Path, db_cipher_key: &Option<String>)
             "[sync] queued {} unenhanced received tx(s) for memo recovery",
             added
         );
+        emit_log(&format!("queued {} txs for memo recovery", added));
+    } else {
+        tracing::info!("[sync] no unenhanced notes to queue");
     }
     Ok(())
+}
+
+fn clear_retrieval_queue_entry(
+    db_data_path: &Path,
+    db_cipher_key: &Option<String>,
+    txid: TxId,
+) -> Result<bool> {
+    let conn = open_cipher_conn(db_data_path, db_cipher_key)?;
+    let deleted = conn.execute(
+        "DELETE FROM tx_retrieval_queue WHERE txid = ?1",
+        rusqlite::params![txid.as_ref()],
+    )?;
+    Ok(deleted > 0)
 }
 
 async fn fetch_status(
@@ -1238,6 +1651,11 @@ struct DownloadedRange {
     download_ms: u64,
 }
 
+struct PrefetchedRange {
+    scan_range: zcash_client_backend::data_api::scanning::ScanRange,
+    downloaded: Option<DownloadedRange>,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct BatchStats {
     blocks: u32,
@@ -1313,53 +1731,15 @@ impl PassPerf {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-struct AdaptiveBatchTuner {
-    batch_size: u32,
-}
+const SCAN_BATCH_SIZE: u32 = 1_000;
+const MIN_BATCH_SIZE: u32 = 150;
+const SLOW_SCAN_MS: u64 = 5_000;
 
-impl Default for AdaptiveBatchTuner {
-    fn default() -> Self {
-        Self {
-            batch_size: Self::DEFAULT_BATCH_SIZE,
-        }
-    }
-}
-
-impl AdaptiveBatchTuner {
-    const MIN_BATCH_SIZE: u32 = 150;
-    const MAX_BATCH_SIZE: u32 = 2_000;
-    const DEFAULT_BATCH_SIZE: u32 = 1_000;
-    const TARGET_WORK_UNITS: u32 = 12_000;
-    const SLOW_SCAN_MS: u64 = 4_000;
-    const FAST_SCAN_MS: u64 = 1_200;
-
-    fn observe(&mut self, stats: Option<BatchStats>, scan_elapsed_ms: u64) {
-        let Some(stats) = stats else {
-            return;
-        };
-        if stats.blocks == 0 || stats.work_units == 0 {
-            return;
-        }
-
-        // Estimate density (work units per block) and choose the next height batch
-        // to keep CPU load and memory stable across sparse/dense regions.
-        let density = stats.work_units as f64 / stats.blocks as f64;
-        let target_by_density = (Self::TARGET_WORK_UNITS as f64 / density)
-            .round()
-            .clamp(Self::MIN_BATCH_SIZE as f64, Self::MAX_BATCH_SIZE as f64)
-            as u32;
-
-        // Blend current value with target to avoid oscillation.
-        let blended = ((self.batch_size as u64 * 7) + (target_by_density as u64 * 3)) / 10;
-        self.batch_size = blended as u32;
-
-        // Time-based safety adjustment.
-        if scan_elapsed_ms > Self::SLOW_SCAN_MS {
-            self.batch_size = (self.batch_size / 2).max(Self::MIN_BATCH_SIZE);
-        } else if scan_elapsed_ms < Self::FAST_SCAN_MS {
-            self.batch_size = (self.batch_size + self.batch_size / 5).min(Self::MAX_BATCH_SIZE);
-        }
+fn adjust_batch_size(current: u32, scan_elapsed_ms: u64) -> u32 {
+    if scan_elapsed_ms > SLOW_SCAN_MS {
+        (current / 2).max(MIN_BATCH_SIZE)
+    } else {
+        current
     }
 }
 
@@ -1402,6 +1782,78 @@ enum ScanOutcome {
         notes_found: u32,
     },
     Restarted,
+}
+
+/// Attempt to truncate the wallet DB to `target`. If the library rejects the
+/// height as too old (`RequestedRewindInvalid`), fall back to the
+/// `safe_rewind_height` it provides. Uses both typed matching and string
+/// matching as a safety net against version mismatches.
+fn safe_truncate_to_height_sync(db_data: &mut DbType, target: BlockHeight) -> Result<BlockHeight> {
+    match db_data.truncate_to_height(target) {
+        Ok(_) => Ok(target),
+        Err(SqliteClientError::RequestedRewindInvalid {
+            safe_rewind_height,
+            requested_height,
+        }) => apply_safe_rewind(db_data, safe_rewind_height, requested_height, target),
+        Err(e) => {
+            let err_str = format!("{:?}", e);
+            if let Some(safe) = parse_safe_rewind_height(&err_str) {
+                tracing::warn!(
+                    "[sync] rewind to {} rejected (string fallback), using safe height {}",
+                    u32::from(target),
+                    u32::from(safe)
+                );
+                db_data
+                    .truncate_to_height(safe)
+                    .map_err(|e2| anyhow::anyhow!("truncate_to_height (safe): {:?}", e2))?;
+                Ok(safe)
+            } else if err_str.contains("RequestedRewindInvalid") {
+                tracing::warn!(
+                    "[sync] rewind to {} rejected but couldn't parse safe height, skipping: {}",
+                    u32::from(target),
+                    err_str
+                );
+                Ok(target)
+            } else {
+                Err(anyhow::anyhow!("truncate_to_height: {:?}", e))
+            }
+        }
+    }
+}
+
+fn apply_safe_rewind(
+    db_data: &mut DbType,
+    safe_rewind_height: Option<BlockHeight>,
+    requested_height: BlockHeight,
+    fallback: BlockHeight,
+) -> Result<BlockHeight> {
+    if let Some(safe) = safe_rewind_height {
+        tracing::warn!(
+            "[sync] rewind to {} rejected, using safe height {}",
+            u32::from(requested_height),
+            u32::from(safe)
+        );
+        db_data
+            .truncate_to_height(safe)
+            .map_err(|e| anyhow::anyhow!("truncate_to_height (safe): {:?}", e))?;
+        Ok(safe)
+    } else {
+        tracing::warn!(
+            "[sync] rewind to {} rejected, no safe height available",
+            u32::from(requested_height)
+        );
+        Ok(fallback)
+    }
+}
+
+/// Parse `safe_rewind_height` from the Debug representation of
+/// `RequestedRewindInvalid` as a fallback when typed matching fails.
+fn parse_safe_rewind_height(err_str: &str) -> Option<BlockHeight> {
+    let marker = "safe_rewind_height: Some(BlockHeight(";
+    let start = err_str.find(marker)? + marker.len();
+    let end = start + err_str[start..].find(')')?;
+    let height: u32 = err_str[start..end].parse().ok()?;
+    Some(BlockHeight::from_u32(height))
 }
 
 /// Synchronous scan phase — inserts blocks, scans, handles reorgs.
@@ -1479,12 +1931,10 @@ fn process_downloaded_range(
                 u32::from(rewind_height)
             );
 
-            db_data
-                .truncate_to_height(rewind_height)
-                .map_err(|e| anyhow::anyhow!("truncate_to_height: {:?}", e))?;
+            let actual_rewind = safe_truncate_to_height_sync(db_data, rewind_height)?;
 
             db_cache
-                .truncate_from(u32::from(rewind_height))
+                .truncate_from(u32::from(actual_rewind))
                 .map_err(|e| anyhow::anyhow!("truncate cache: {:?}", e))?;
 
             Ok(ScanOutcome::Restarted)
@@ -1530,22 +1980,6 @@ fn count_work_units(blocks: &[CompactBlock]) -> usize {
                 .sum::<usize>()
         })
         .sum()
-}
-
-fn spawn_download_prefetch(
-    mut downloader: CompactTxStreamerClient<tonic::transport::Channel>,
-    scan_range: ScanRange,
-) -> tokio::task::JoinHandle<
-    Result<(
-        CompactTxStreamerClient<tonic::transport::Channel>,
-        ScanRange,
-        Option<DownloadedRange>,
-    )>,
-> {
-    tokio::spawn(async move {
-        let downloaded = download_range(&mut downloader, &scan_range).await?;
-        Ok((downloader, scan_range, downloaded))
-    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1623,6 +2057,28 @@ type DbType = WalletDb<
     zcash_client_sqlite::util::SystemClock,
     rand::rngs::OsRng,
 >;
+
+/// Refresh scan/recovery progress ratios from the wallet summary.
+async fn refresh_scan_progress(db_data: &mut DbType) {
+    let summary = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        db_data.get_wallet_summary(ConfirmationsPolicy::default())
+    }))
+    .ok()
+    .and_then(|r| r.ok())
+    .flatten();
+
+    if let Some(summary) = summary {
+        let progress = summary.progress();
+        let scan = progress.scan();
+        let mut p = SYNC_PROGRESS.lock().await;
+        p.scan_progress_num = *scan.numerator();
+        p.scan_progress_den = *scan.denominator();
+        if let Some(recovery) = progress.recovery() {
+            p.recovery_progress_num = *recovery.numerator();
+            p.recovery_progress_den = *recovery.denominator();
+        }
+    }
+}
 type ScanRange = zcash_client_backend::data_api::scanning::ScanRange;
 
 fn check_cancel() -> Result<()> {

@@ -3,8 +3,9 @@ import 'dart:math';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logger/logger.dart';
+import 'app_log.dart';
 
-final _logger = Logger();
+final _logger = createLogger();
 
 class SecureKeyStore {
   static const _storage = FlutterSecureStorage(

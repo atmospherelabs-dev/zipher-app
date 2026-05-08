@@ -16,13 +16,6 @@ class ZcashCoin extends CoinBase {
   List<LWInstance> lwd = [
     LWInstance("CipherScan (Mainnet)", "https://lightwalletd.mainnet.cipherscan.app:443"),
     LWInstance("Zec.rocks (Global)", "https://zec.rocks:443"),
-    LWInstance("Zcash Infra (USA)", "https://lwd1.zcash-infra.com:9067"),
-    LWInstance("Zcash Infra (HK)", "https://lwd2.zcash-infra.com:9067"),
-    LWInstance("Zcash Infra (USA)", "https://lwd3.zcash-infra.com:9067"),
-    LWInstance("Zcash Infra (Canada)", "https://lwd4.zcash-infra.com:9067"),
-    LWInstance("Zcash Infra (France)", "https://lwd5.zcash-infra.com:9067"),
-    LWInstance("Zcash Infra (USA)", "https://lwd6.zcash-infra.com:9067"),
-    LWInstance("Zcash Infra (Brazil)", "https://lwd7.zcash-infra.com:9067"),
     LWInstance("Zec.rocks (NA)", "https://na.zec.rocks:443"),
     LWInstance("Zec.rocks (SA)", "https://sa.zec.rocks:443"),
     LWInstance("Zec.rocks (EU)", "https://eu.zec.rocks:443"),

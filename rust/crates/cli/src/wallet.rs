@@ -7,7 +7,7 @@ use serde::Serialize;
 use zcash_protocol::consensus::Network;
 
 use crate::helpers::*;
-use crate::{print_ok, Config, ensure_data_dir};
+use crate::{ensure_data_dir, print_ok, Config};
 
 pub async fn cmd_info(cfg: &Config) {
     #[derive(Serialize)]
@@ -22,7 +22,12 @@ pub async fn cmd_info(cfg: &Config) {
     let data = InfoData {
         version: env!("CARGO_PKG_VERSION").to_string(),
         engine: "zipher-engine".to_string(),
-        network: if cfg.network == Network::TestNetwork { "testnet" } else { "mainnet" }.to_string(),
+        network: if cfg.network == Network::TestNetwork {
+            "testnet"
+        } else {
+            "mainnet"
+        }
+        .to_string(),
         data_dir: cfg.data_dir.clone(),
         server: cfg.server_url.clone(),
     };
@@ -53,7 +58,10 @@ pub async fn cmd_wallet_init(cfg: &Config) -> Result<()> {
 
     // Check if OWS vault already has a wallet with this name
     let seed_phrase = if ows_lib::get_wallet(&ows_wallet_name, None).is_ok() {
-        eprintln!("OWS wallet '{}' already exists — reusing it.", ows_wallet_name);
+        eprintln!(
+            "OWS wallet '{}' already exists — reusing it.",
+            ows_wallet_name
+        );
         let exported = ows_lib::export_wallet(&ows_wallet_name, Some(&ows_passphrase), None)
             .map_err(|e| anyhow::anyhow!("Failed to export OWS wallet: {}", e))?;
         if !exported.contains(' ') || exported.starts_with('{') {
@@ -65,9 +73,13 @@ pub async fn cmd_wallet_init(cfg: &Config) -> Result<()> {
         }
         exported
     } else {
-        let wallet_info = ows_lib::create_wallet(&ows_wallet_name, Some(24), Some(&ows_passphrase), None)
-            .map_err(|e| anyhow::anyhow!("Failed to create OWS wallet: {}", e))?;
-        eprintln!("Created OWS vault wallet '{}' (id: {})", ows_wallet_name, wallet_info.id);
+        let wallet_info =
+            ows_lib::create_wallet(&ows_wallet_name, Some(24), Some(&ows_passphrase), None)
+                .map_err(|e| anyhow::anyhow!("Failed to create OWS wallet: {}", e))?;
+        eprintln!(
+            "Created OWS vault wallet '{}' (id: {})",
+            ows_wallet_name, wallet_info.id
+        );
 
         ows_lib::export_wallet(&ows_wallet_name, Some(&ows_passphrase), None)
             .map_err(|e| anyhow::anyhow!("Failed to export seed from new wallet: {}", e))?
@@ -83,12 +95,13 @@ pub async fn cmd_wallet_init(cfg: &Config) -> Result<()> {
         height,
         None,
         None, // no Zipher vault — seed lives in OWS vault
-    ).await?;
+    )
+    .await?;
 
     // Create default spending policy
     let default_policy = zipher_engine::policy::SpendingPolicy {
-        max_per_tx: 1_000_000,        // 0.01 ZEC
-        daily_limit: 10_000_000,      // 0.1 ZEC
+        max_per_tx: 1_000_000,         // 0.01 ZEC
+        daily_limit: 10_000_000,       // 0.1 ZEC
         approval_threshold: 5_000_000, // 0.05 ZEC
         require_context_id: false,
         min_spend_interval_ms: 0,
@@ -97,8 +110,13 @@ pub async fn cmd_wallet_init(cfg: &Config) -> Result<()> {
     zipher_engine::policy::save_policy(&cfg.data_dir, &default_policy)?;
 
     // Get the wallet address for the MCP config
-    let addresses = zipher_engine::query::get_addresses().await.unwrap_or_default();
-    let address = addresses.first().map(|a| a.address.clone()).unwrap_or_default();
+    let addresses = zipher_engine::query::get_addresses()
+        .await
+        .unwrap_or_default();
+    let address = addresses
+        .first()
+        .map(|a| a.address.clone())
+        .unwrap_or_default();
 
     zipher_engine::wallet::close().await;
 
@@ -140,12 +158,27 @@ pub async fn cmd_wallet_init(cfg: &Config) -> Result<()> {
         println!("  Address:    {}", r.address);
         println!("  Birthday:   {}", r.birthday);
         println!("  Data dir:   {}", r.data_dir);
-        println!("  OWS wallet: {} (encrypted at ~/.ows/wallets/)", r.ows_wallet);
+        println!(
+            "  OWS wallet: {} (encrypted at ~/.ows/wallets/)",
+            r.ows_wallet
+        );
         println!();
         println!("  Default policy:");
-        println!("    max_per_tx:         {} ZAT ({:.4} ZEC)", r.policy.max_per_tx, r.policy.max_per_tx as f64 / 1e8);
-        println!("    daily_limit:        {} ZAT ({:.4} ZEC)", r.policy.daily_limit, r.policy.daily_limit as f64 / 1e8);
-        println!("    approval_threshold: {} ZAT ({:.4} ZEC)", r.policy.approval_threshold, r.policy.approval_threshold as f64 / 1e8);
+        println!(
+            "    max_per_tx:         {} ZAT ({:.4} ZEC)",
+            r.policy.max_per_tx,
+            r.policy.max_per_tx as f64 / 1e8
+        );
+        println!(
+            "    daily_limit:        {} ZAT ({:.4} ZEC)",
+            r.policy.daily_limit,
+            r.policy.daily_limit as f64 / 1e8
+        );
+        println!(
+            "    approval_threshold: {} ZAT ({:.4} ZEC)",
+            r.policy.approval_threshold,
+            r.policy.approval_threshold as f64 / 1e8
+        );
         println!("    Edit: {}/policy.toml", r.data_dir);
         println!();
         println!("  MCP config (add to Claude/Cursor settings):");
@@ -229,7 +262,11 @@ pub async fn cmd_wallet_restore(cfg: &Config, birthday: u32) -> Result<()> {
     }
 
     print_ok(
-        RestoreResult { birthday, data_dir: cfg.data_dir.clone(), vault: true },
+        RestoreResult {
+            birthday,
+            data_dir: cfg.data_dir.clone(),
+            vault: true,
+        },
         cfg.human,
         |r| {
             println!("Wallet restored (seed stored in encrypted vault).");
@@ -285,7 +322,10 @@ pub async fn cmd_sync_start(cfg: &Config) -> Result<()> {
                 } else {
                     0.0
                 };
-                eprint!("\r  {}/{} ({:.1}%)    ", p.synced_height, p.latest_height, pct);
+                eprint!(
+                    "\r  {}/{} ({:.1}%)    ",
+                    p.synced_height, p.latest_height, pct
+                );
                 io::stderr().flush().ok();
             }
         }
@@ -334,7 +374,10 @@ pub async fn cmd_sync_status(cfg: &Config) -> Result<()> {
         birthday: u32,
     }
 
-    let status = SyncStatus { synced_height: synced, birthday };
+    let status = SyncStatus {
+        synced_height: synced,
+        birthday,
+    };
 
     print_ok(status, cfg.human, |s| {
         println!("Synced height: {}", s.synced_height);
@@ -381,7 +424,11 @@ pub async fn cmd_address(cfg: &Config) -> Result<()> {
                 let pools: Vec<&str> = [
                     if a.has_orchard { Some("orchard") } else { None },
                     if a.has_sapling { Some("sapling") } else { None },
-                    if a.has_transparent { Some("transparent") } else { None },
+                    if a.has_transparent {
+                        Some("transparent")
+                    } else {
+                        None
+                    },
                 ]
                 .iter()
                 .filter_map(|p| *p)
@@ -480,14 +527,20 @@ pub async fn cmd_send_propose(
     // in cmd_send_confirm.)
     if !is_max {
         let daily_spent = zipher_engine::audit::daily_spent(&cfg.data_dir).unwrap_or(0);
-        if let Err(violation) = zipher_engine::policy::check_proposal(
-            &policy, &to, amount, &context_id, daily_spent,
-        ) {
+        if let Err(violation) =
+            zipher_engine::policy::check_proposal(&policy, &to, amount, &context_id, daily_spent)
+        {
             zipher_engine::audit::log_event(
-                &cfg.data_dir, "propose_send", Some(&to),
-                Some(amount), None, context_id.as_deref(),
-                None, Some(&violation.to_string()),
-            ).ok();
+                &cfg.data_dir,
+                "propose_send",
+                Some(&to),
+                Some(amount),
+                None,
+                context_id.as_deref(),
+                None,
+                Some(&violation.to_string()),
+            )
+            .ok();
             return Err(anyhow::anyhow!("{}", violation));
         }
     }
@@ -507,10 +560,16 @@ pub async fn cmd_send_propose(
     save_pending(&cfg.data_dir, &pending)?;
 
     zipher_engine::audit::log_event(
-        &cfg.data_dir, "propose_send", Some(&to),
-        Some(send_amount), Some(fee), context_id.as_deref(),
-        None, None,
-    ).ok();
+        &cfg.data_dir,
+        "propose_send",
+        Some(&to),
+        Some(send_amount),
+        Some(fee),
+        context_id.as_deref(),
+        None,
+        None,
+    )
+    .ok();
 
     #[derive(Serialize)]
     struct ProposalSummary {
@@ -534,7 +593,10 @@ pub async fn cmd_send_propose(
     print_ok(summary, cfg.human, |s| {
         println!("Proposal created:");
         println!("  To:     {}", s.address);
-        println!("  Amount: {:.8} ZEC ({} zat)", s.send_amount_zec, s.send_amount);
+        println!(
+            "  Amount: {:.8} ZEC ({} zat)",
+            s.send_amount_zec, s.send_amount
+        );
         println!("  Fee:    {:.8} ZEC ({} zat)", s.fee_zec, s.fee);
         println!("  Total:  {} zat", s.total);
         println!();
@@ -553,10 +615,16 @@ pub async fn cmd_send_confirm(cfg: &Config) -> Result<()> {
     let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
     if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
         zipher_engine::audit::log_event(
-            &cfg.data_dir, "confirm_send", Some(&pending.address),
-            Some(pending.amount), None, pending.context_id.as_deref(),
-            None, Some(&violation.to_string()),
-        ).ok();
+            &cfg.data_dir,
+            "confirm_send",
+            Some(&pending.address),
+            Some(pending.amount),
+            None,
+            pending.context_id.as_deref(),
+            None,
+            Some(&violation.to_string()),
+        )
+        .ok();
         return Err(anyhow::anyhow!("{}", violation));
     }
 
@@ -573,7 +641,10 @@ pub async fn cmd_send_confirm(cfg: &Config) -> Result<()> {
     if cfg.human {
         let zec = send_amount as f64 / 1e8;
         let fee_zec = fee as f64 / 1e8;
-        eprintln!("Confirming: {:.8} ZEC + {:.8} fee to {}", zec, fee_zec, pending.address);
+        eprintln!(
+            "Confirming: {:.8} ZEC + {:.8} fee to {}",
+            zec, fee_zec, pending.address
+        );
     }
 
     let seed = read_seed(&cfg.data_dir)?;
@@ -581,18 +652,30 @@ pub async fn cmd_send_confirm(cfg: &Config) -> Result<()> {
         Ok(txid) => {
             zipher_engine::policy::record_confirm();
             zipher_engine::audit::log_event(
-                &cfg.data_dir, "confirm_send", Some(&pending.address),
-                Some(send_amount), Some(fee), pending.context_id.as_deref(),
-                Some(&txid), None,
-            ).ok();
+                &cfg.data_dir,
+                "confirm_send",
+                Some(&pending.address),
+                Some(send_amount),
+                Some(fee),
+                pending.context_id.as_deref(),
+                Some(&txid),
+                None,
+            )
+            .ok();
             txid
         }
         Err(e) => {
             zipher_engine::audit::log_event(
-                &cfg.data_dir, "confirm_send", Some(&pending.address),
-                Some(send_amount), Some(fee), pending.context_id.as_deref(),
-                None, Some(&format!("{:#}", e)),
-            ).ok();
+                &cfg.data_dir,
+                "confirm_send",
+                Some(&pending.address),
+                Some(send_amount),
+                Some(fee),
+                pending.context_id.as_deref(),
+                None,
+                Some(&format!("{:#}", e)),
+            )
+            .ok();
             return Err(e);
         }
     };
@@ -608,7 +691,12 @@ pub async fn cmd_send_confirm(cfg: &Config) -> Result<()> {
     }
 
     print_ok(
-        SendResult { txid: txid.clone(), amount: send_amount, fee, address: pending.address.clone() },
+        SendResult {
+            txid: txid.clone(),
+            amount: send_amount,
+            fee,
+            address: pending.address.clone(),
+        },
         cfg.human,
         |r| {
             println!("Transaction broadcast.");
@@ -639,7 +727,10 @@ pub async fn cmd_send_max(cfg: &Config, to: String) -> Result<()> {
         },
         cfg.human,
         |m| {
-            println!("Max sendable to {}: {:.8} ZEC ({} zat)", m.address, m.max_amount_zec, m.max_amount);
+            println!(
+                "Max sendable to {}: {:.8} ZEC ({} zat)",
+                m.address, m.max_amount_zec, m.max_amount
+            );
         },
     );
 
@@ -681,14 +772,20 @@ pub async fn cmd_consolidate(cfg: &Config) -> Result<()> {
 
     if cfg.human {
         eprintln!("Consolidating shielded notes (send-to-self)...");
-        eprintln!("  Destination: {}...{}", &own_addr[..12], &own_addr[own_addr.len()-8..]);
+        eprintln!(
+            "  Destination: {}...{}",
+            &own_addr[..12],
+            &own_addr[own_addr.len() - 8..]
+        );
     }
 
-    let (send_amount, fee, _) =
-        zipher_engine::send::propose_send(&own_addr, 0, None, true).await?;
+    let (send_amount, fee, _) = zipher_engine::send::propose_send(&own_addr, 0, None, true).await?;
 
     if cfg.human {
-        eprintln!("  Amount: {:.8} ZEC (max minus fee)", send_amount as f64 / 1e8);
+        eprintln!(
+            "  Amount: {:.8} ZEC (max minus fee)",
+            send_amount as f64 / 1e8
+        );
         eprintln!("  Fee:    {} zat", fee);
     }
 
@@ -703,7 +800,11 @@ pub async fn cmd_consolidate(cfg: &Config) -> Result<()> {
     }
 
     print_ok(
-        ConsolidateResult { txid: txid.clone(), amount: send_amount, fee },
+        ConsolidateResult {
+            txid: txid.clone(),
+            amount: send_amount,
+            fee,
+        },
         cfg.human,
         |r| {
             println!("Notes consolidated successfully.");
@@ -718,14 +819,16 @@ pub async fn cmd_consolidate(cfg: &Config) -> Result<()> {
 }
 
 pub async fn cmd_store_signed_pczt(cfg: &Config, pczt_hex: String) -> Result<()> {
-    let pczt_bytes = hex::decode(&pczt_hex)
-        .map_err(|e| anyhow::anyhow!("Invalid hex: {}", e))?;
+    let pczt_bytes = hex::decode(&pczt_hex).map_err(|e| anyhow::anyhow!("Invalid hex: {}", e))?;
 
     ensure_data_dir(&cfg.data_dir)?;
     auto_open(cfg).await?;
 
     if cfg.human {
-        eprintln!("Storing signed PCZT in wallet DB ({} bytes)...", pczt_bytes.len());
+        eprintln!(
+            "Storing signed PCZT in wallet DB ({} bytes)...",
+            pczt_bytes.len()
+        );
     }
 
     let txid = zipher_engine::send::store_signed_pczt(&pczt_bytes).await?;
@@ -735,14 +838,10 @@ pub async fn cmd_store_signed_pczt(cfg: &Config, pczt_hex: String) -> Result<()>
         txid: String,
     }
 
-    print_ok(
-        StorePcztResult { txid: txid.clone() },
-        cfg.human,
-        |r| {
-            println!("Transaction stored: {}", r.txid);
-            println!("Notes marked as spent — safe to create new PCZTs.");
-        },
-    );
+    print_ok(StorePcztResult { txid: txid.clone() }, cfg.human, |r| {
+        println!("Transaction stored: {}", r.txid);
+        println!("Notes marked as spent — safe to create new PCZTs.");
+    });
 
     zipher_engine::wallet::close().await;
     Ok(())

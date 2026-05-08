@@ -120,11 +120,19 @@ pub async fn get_quote(
     let text = resp.text().await.unwrap_or_default();
 
     if !status.is_success() {
-        return Err(anyhow!("ParaSwap /prices returned {}: {}", status, &text[..text.len().min(500)]));
+        return Err(anyhow!(
+            "ParaSwap /prices returned {}: {}",
+            status,
+            &text[..text.len().min(500)]
+        ));
     }
 
-    let parsed: PriceResponse = serde_json::from_str(&text)
-        .map_err(|e| anyhow!("Failed to parse ParaSwap quote: {e} — body: {}", &text[..text.len().min(300)]))?;
+    let parsed: PriceResponse = serde_json::from_str(&text).map_err(|e| {
+        anyhow!(
+            "Failed to parse ParaSwap quote: {e} — body: {}",
+            &text[..text.len().min(300)]
+        )
+    })?;
 
     let pr = parsed.price_route;
     let full_json: serde_json::Value = serde_json::from_str(&text)?;
@@ -149,7 +157,10 @@ pub async fn build_swap_tx(
     slippage_bps: u32,
 ) -> Result<SwapTx> {
     let client = reqwest::Client::new();
-    let url = format!("{}/transactions/{}?ignoreChecks=true", PARASWAP_API, chain_id);
+    let url = format!(
+        "{}/transactions/{}?ignoreChecks=true",
+        PARASWAP_API, chain_id
+    );
 
     let body = serde_json::json!({
         "srcToken": quote.src_token,
@@ -178,11 +189,19 @@ pub async fn build_swap_tx(
     let text = resp.text().await.unwrap_or_default();
 
     if !status.is_success() {
-        return Err(anyhow!("ParaSwap /transactions returned {}: {}", status, &text[..text.len().min(500)]));
+        return Err(anyhow!(
+            "ParaSwap /transactions returned {}: {}",
+            status,
+            &text[..text.len().min(500)]
+        ));
     }
 
-    let tx_resp: TxResponse = serde_json::from_str(&text)
-        .map_err(|e| anyhow!("Failed to parse ParaSwap tx: {e} — body: {}", &text[..text.len().min(300)]))?;
+    let tx_resp: TxResponse = serde_json::from_str(&text).map_err(|e| {
+        anyhow!(
+            "Failed to parse ParaSwap tx: {e} — body: {}",
+            &text[..text.len().min(300)]
+        )
+    })?;
 
     let data_clean = tx_resp.data.trim_start_matches("0x");
     let data_bytes = hex::decode(data_clean).map_err(|e| anyhow!("Bad tx data hex: {e}"))?;
@@ -254,13 +273,17 @@ pub async fn execute_swap(params: &SwapParams) -> Result<SwapResult> {
         params.dest_decimals,
         &params.amount_raw,
         &params.user_address,
-    ).await?;
+    )
+    .await?;
 
     let dest_human = evm::format_token_amount(
         quote.dest_amount.parse::<u128>().unwrap_or(0),
         quote.dest_decimals as u8,
     );
-    info!("[swap] Quote: {} -> {} (expected output)", params.amount_raw, dest_human);
+    info!(
+        "[swap] Quote: {} -> {} (expected output)",
+        params.amount_raw, dest_human
+    );
 
     // Step 2: Approve if source is ERC-20 (not native token)
     let is_native = params.src_token.eq_ignore_ascii_case(evm::PARASWAP_NATIVE);
@@ -270,11 +293,16 @@ pub async fn execute_swap(params: &SwapParams) -> Result<SwapResult> {
             &params.src_token,
             &params.user_address,
             &quote.token_transfer_proxy,
-        ).await.unwrap_or(0);
+        )
+        .await
+        .unwrap_or(0);
 
         let needed: u128 = params.amount_raw.parse().unwrap_or(0);
         if allowance < needed {
-            info!("[swap] Allowance {} < needed {}, approving...", allowance, needed);
+            info!(
+                "[swap] Allowance {} < needed {}, approving...",
+                allowance, needed
+            );
             let fees = evm::suggest_eip1559_fees(&params.rpc_url, params.chain_id).await?;
             evm::approve_erc20(
                 &params.rpc_url,
@@ -285,7 +313,8 @@ pub async fn execute_swap(params: &SwapParams) -> Result<SwapResult> {
                 u128::MAX,
                 params.chain_id,
                 &fees,
-            ).await?;
+            )
+            .await?;
         } else {
             info!("[swap] Allowance sufficient ({})", allowance);
         }
@@ -298,7 +327,8 @@ pub async fn execute_swap(params: &SwapParams) -> Result<SwapResult> {
         &quote,
         &params.user_address,
         params.slippage_bps,
-    ).await?;
+    )
+    .await?;
 
     // Step 4: Dynamic gas fees
     info!("[swap] Fetching dynamic gas fees...");
@@ -311,7 +341,10 @@ pub async fn execute_swap(params: &SwapParams) -> Result<SwapResult> {
 
     // Step 6: Build unsigned EIP-1559 tx
     let gas_with_buffer = swap_tx.gas_estimate + swap_tx.gas_estimate / 5; // +20%
-    info!("[swap] Gas limit: {} (estimate {} + 20%)", gas_with_buffer, swap_tx.gas_estimate);
+    info!(
+        "[swap] Gas limit: {} (estimate {} + 20%)",
+        gas_with_buffer, swap_tx.gas_estimate
+    );
 
     let unsigned = evm::build_unsigned_eip1559_tx(
         params.chain_id,
@@ -324,15 +357,15 @@ pub async fn execute_swap(params: &SwapParams) -> Result<SwapResult> {
         &swap_tx.data,
     );
 
-    info!("[swap] Unsigned tx hex ({} bytes): 0x{}", unsigned.len(), hex::encode(&unsigned));
+    info!(
+        "[swap] Unsigned tx hex ({} bytes): 0x{}",
+        unsigned.len(),
+        hex::encode(&unsigned)
+    );
 
     // Step 7: Sign and broadcast
     info!("[swap] Signing with OWS and broadcasting...");
-    let tx_hash = evm::sign_and_broadcast(
-        &params.seed_phrase,
-        &unsigned,
-        &params.rpc_url,
-    ).await?;
+    let tx_hash = evm::sign_and_broadcast(&params.seed_phrase, &unsigned, &params.rpc_url).await?;
 
     info!("[swap] Broadcast OK — tx hash: {}", tx_hash);
 
@@ -341,10 +374,19 @@ pub async fn execute_swap(params: &SwapParams) -> Result<SwapResult> {
     let receipt = evm::wait_for_receipt(&params.rpc_url, &tx_hash, 120).await?;
 
     if receipt.status {
-        info!("[swap] SUCCESS — block {}, gas used: {}", receipt.block_number, receipt.gas_used);
+        info!(
+            "[swap] SUCCESS — block {}, gas used: {}",
+            receipt.block_number, receipt.gas_used
+        );
     } else {
-        info!("[swap] REVERTED — block {}, gas used: {}", receipt.block_number, receipt.gas_used);
-        return Err(anyhow!("Swap transaction reverted (block {})", receipt.block_number));
+        info!(
+            "[swap] REVERTED — block {}, gas used: {}",
+            receipt.block_number, receipt.gas_used
+        );
+        return Err(anyhow!(
+            "Swap transaction reverted (block {})",
+            receipt.block_number
+        ));
     }
 
     Ok(SwapResult {

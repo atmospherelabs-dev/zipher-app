@@ -160,7 +160,13 @@ pub async fn estimate_zec_needed(
             t.symbol.eq_ignore_ascii_case(target_symbol)
                 && t.blockchain.eq_ignore_ascii_case(target_chain)
         })
-        .ok_or_else(|| anyhow!("{} on {} not found in swap tokens", target_symbol, target_chain))?;
+        .ok_or_else(|| {
+            anyhow!(
+                "{} on {} not found in swap tokens",
+                target_symbol,
+                target_chain
+            )
+        })?;
 
     if let (Some(zec_price), Some(target_price)) = (zec_token.price, target_token.price) {
         if zec_price > 0.0 {
@@ -170,7 +176,10 @@ pub async fn estimate_zec_needed(
         }
     }
 
-    Err(anyhow!("Cannot estimate ZEC price for {} swap", target_symbol))
+    Err(anyhow!(
+        "Cannot estimate ZEC price for {} swap",
+        target_symbol
+    ))
 }
 
 // ---------------------------------------------------------------------------

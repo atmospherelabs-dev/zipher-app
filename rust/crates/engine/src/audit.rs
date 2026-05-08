@@ -78,11 +78,7 @@ pub fn log_event(
 // Read
 // ---------------------------------------------------------------------------
 
-pub fn query_log(
-    data_dir: &str,
-    limit: usize,
-    since: Option<&str>,
-) -> Result<Vec<AuditEntry>> {
+pub fn query_log(data_dir: &str, limit: usize, since: Option<&str>) -> Result<Vec<AuditEntry>> {
     let conn = open_audit_db(data_dir)?;
 
     let (sql, params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match since {

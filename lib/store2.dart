@@ -61,6 +61,7 @@ bool isSyncBoosted() {
 
 Future<void> startAutoSync() async {
   if (syncTimer == null) {
+    logger.i('[Sync] startAutoSync');
     initSyncListener();
     await syncStatus2.sync();
     _scheduleNextSync();
@@ -148,9 +149,7 @@ abstract class _SyncStatus2 with Store {
   }
 
   bool get isMaintaining {
-    return phase == 'enhancing' ||
-        phase == 'mempool' ||
-        maintenanceQueueLen > 0;
+    return phase == 'enhancing';
   }
 
   int? get confirmHeight {
@@ -261,8 +260,8 @@ abstract class _SyncStatus2 with Store {
           : progress.scanningUpTo > 0
               ? progress.scanningUpTo
               : h;
-      logger.d(
-          '[Sync] poll: synced=${progress.syncedHeight} scanning=${progress.scanningUpTo} latest=${progress.latestHeight} isSyncing=${progress.isSyncing} walletH=$h localH=$syncedHeight effectiveH=$effectiveH');
+      logger.i(
+          '[Sync] synced=${progress.syncedHeight} tip=${progress.latestHeight} phase=${progress.phase} queue=${progress.maintenanceQueueLen}');
       if (effectiveH > 0 && effectiveH < syncedHeight && progress.isSyncing) {
         syncedHeight = effectiveH;
         eta.checkpoint(syncedHeight, DateTime.now());
@@ -286,7 +285,7 @@ abstract class _SyncStatus2 with Store {
           startSyncedHeight = syncedHeight;
           eta.begin(lh);
           eta.checkpoint(syncedHeight, DateTime.now());
-          logger.d('[Sync] catching up from $syncedHeight to $lh');
+          logger.i('[Sync] catching up from $syncedHeight to $lh');
         }
         if (_shouldRefreshAccountWhileSyncing()) {
           await aa.update(syncedHeight);
@@ -301,7 +300,7 @@ abstract class _SyncStatus2 with Store {
           syncing = false;
           isRescan = false;
           eta.end();
-          logger.d('[Sync] completed at $syncedHeight');
+          logger.i('[Sync] completed at $syncedHeight');
         }
         await aa.update(syncedHeight);
         _lastAccountUpdateAt = DateTime.now();
@@ -336,6 +335,15 @@ abstract class _SyncStatus2 with Store {
         connected = connectionError == null;
         logger.w('[Engine] connection error: ${event.message}');
       }
+    } else if (eventType == 'sync_failed') {
+      final msg = event.message as String?;
+      connectionError = msg;
+      connected = false;
+      syncing = false;
+      logger.e('[Engine] sync failed: $msg');
+    } else if (eventType == 'engine_log') {
+      final msg = event.message as String?;
+      if (msg != null) logger.i('[Engine] $msg');
     } else if (eventType == 'transaction_updated') {
       final txid = event.txid as String?;
       final status = event.status as String?;

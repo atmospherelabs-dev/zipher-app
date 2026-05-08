@@ -61,13 +61,22 @@ class _DebugLogPageState extends State<DebugLogPage> {
           ),
           IconButton(
             icon: Icon(Icons.copy, color: ZipherColors.text60, size: 20),
-            onPressed: () {
-              final text = entries.map((e) =>
+            onPressed: () async {
+              final all = AppLog.instance.entries;
+              final header = 'Zipher Debug Log\n'
+                  'connected=$connected phase=$syncPhase\n'
+                  'height=$syncedH/$latestH queue=$queueLen\n'
+                  'error=${error ?? 'none'}\n'
+                  '---\n';
+              final body = all.map((e) =>
                 '${_ts(e.time)} [${_levelTag(e.level)}] ${e.message}').join('\n');
-              Clipboard.setData(ClipboardData(text: text));
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Log copied to clipboard')),
-              );
+              final text = header + body;
+              await Clipboard.setData(ClipboardData(text: text));
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Copied ${all.length} entries')),
+                );
+              }
             },
           ),
           IconButton(

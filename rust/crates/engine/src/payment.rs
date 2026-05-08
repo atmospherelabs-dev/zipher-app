@@ -81,7 +81,10 @@ pub fn detect_protocol(
     body: &str,
     expected_network: &str,
 ) -> Result<PaymentProtocol> {
-    if let Some(www_auth) = headers.get("www-authenticate").or(headers.get("WWW-Authenticate")) {
+    if let Some(www_auth) = headers
+        .get("www-authenticate")
+        .or(headers.get("WWW-Authenticate"))
+    {
         if www_auth.starts_with("Payment") || www_auth.starts_with("payment") {
             let challenge = mpp::parse_www_authenticate(www_auth)?;
 

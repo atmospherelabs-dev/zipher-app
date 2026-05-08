@@ -4042,6 +4042,10 @@ impl SseDecode for crate::api::engine_api::EngineSyncEvent {
         let mut var_status = <Option<String>>::sse_decode(deserializer);
         let mut var_scope = <Option<String>>::sse_decode(deserializer);
         let mut var_message = <Option<String>>::sse_decode(deserializer);
+        let mut var_scanProgressNum = <u64>::sse_decode(deserializer);
+        let mut var_scanProgressDen = <u64>::sse_decode(deserializer);
+        let mut var_recoveryProgressNum = <u64>::sse_decode(deserializer);
+        let mut var_recoveryProgressDen = <u64>::sse_decode(deserializer);
         return crate::api::engine_api::EngineSyncEvent {
             event_type: var_eventType,
             phase: var_phase,
@@ -4052,6 +4056,10 @@ impl SseDecode for crate::api::engine_api::EngineSyncEvent {
             status: var_status,
             scope: var_scope,
             message: var_message,
+            scan_progress_num: var_scanProgressNum,
+            scan_progress_den: var_scanProgressDen,
+            recovery_progress_num: var_recoveryProgressNum,
+            recovery_progress_den: var_recoveryProgressDen,
         };
     }
 }
@@ -4067,6 +4075,10 @@ impl SseDecode for crate::api::engine_api::EngineSyncProgress {
         let mut var_phase = <String>::sse_decode(deserializer);
         let mut var_scanningUpTo = <u32>::sse_decode(deserializer);
         let mut var_maintenanceQueueLen = <u32>::sse_decode(deserializer);
+        let mut var_scanProgressNum = <u64>::sse_decode(deserializer);
+        let mut var_scanProgressDen = <u64>::sse_decode(deserializer);
+        let mut var_recoveryProgressNum = <u64>::sse_decode(deserializer);
+        let mut var_recoveryProgressDen = <u64>::sse_decode(deserializer);
         return crate::api::engine_api::EngineSyncProgress {
             synced_height: var_syncedHeight,
             latest_height: var_latestHeight,
@@ -4076,6 +4088,10 @@ impl SseDecode for crate::api::engine_api::EngineSyncProgress {
             phase: var_phase,
             scanning_up_to: var_scanningUpTo,
             maintenance_queue_len: var_maintenanceQueueLen,
+            scan_progress_num: var_scanProgressNum,
+            scan_progress_den: var_scanProgressDen,
+            recovery_progress_num: var_recoveryProgressNum,
+            recovery_progress_den: var_recoveryProgressDen,
         };
     }
 }
@@ -5109,6 +5125,10 @@ impl flutter_rust_bridge::IntoDart for crate::api::engine_api::EngineSyncEvent {
             self.status.into_into_dart().into_dart(),
             self.scope.into_into_dart().into_dart(),
             self.message.into_into_dart().into_dart(),
+            self.scan_progress_num.into_into_dart().into_dart(),
+            self.scan_progress_den.into_into_dart().into_dart(),
+            self.recovery_progress_num.into_into_dart().into_dart(),
+            self.recovery_progress_den.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -5136,6 +5156,10 @@ impl flutter_rust_bridge::IntoDart for crate::api::engine_api::EngineSyncProgres
             self.phase.into_into_dart().into_dart(),
             self.scanning_up_to.into_into_dart().into_dart(),
             self.maintenance_queue_len.into_into_dart().into_dart(),
+            self.scan_progress_num.into_into_dart().into_dart(),
+            self.scan_progress_den.into_into_dart().into_dart(),
+            self.recovery_progress_num.into_into_dart().into_dart(),
+            self.recovery_progress_den.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -5637,6 +5661,10 @@ impl SseEncode for crate::api::engine_api::EngineSyncEvent {
         <Option<String>>::sse_encode(self.status, serializer);
         <Option<String>>::sse_encode(self.scope, serializer);
         <Option<String>>::sse_encode(self.message, serializer);
+        <u64>::sse_encode(self.scan_progress_num, serializer);
+        <u64>::sse_encode(self.scan_progress_den, serializer);
+        <u64>::sse_encode(self.recovery_progress_num, serializer);
+        <u64>::sse_encode(self.recovery_progress_den, serializer);
     }
 }
 
@@ -5651,6 +5679,10 @@ impl SseEncode for crate::api::engine_api::EngineSyncProgress {
         <String>::sse_encode(self.phase, serializer);
         <u32>::sse_encode(self.scanning_up_to, serializer);
         <u32>::sse_encode(self.maintenance_queue_len, serializer);
+        <u64>::sse_encode(self.scan_progress_num, serializer);
+        <u64>::sse_encode(self.scan_progress_den, serializer);
+        <u64>::sse_encode(self.recovery_progress_num, serializer);
+        <u64>::sse_encode(self.recovery_progress_den, serializer);
     }
 }
 

@@ -57,10 +57,7 @@ struct TxPayload {
 ///
 /// `expected_network` should be `"zcash:mainnet"` or `"zcash:testnet"`.
 /// Returns the first matching `accepts[]` entry.
-pub fn parse_402_response(
-    json: &str,
-    expected_network: &str,
-) -> Result<PaymentRequirements> {
+pub fn parse_402_response(json: &str, expected_network: &str) -> Result<PaymentRequirements> {
     let body: PaymentRequired =
         serde_json::from_str(json).map_err(|e| anyhow!("Invalid x402 body: {e}"))?;
 
@@ -75,16 +72,14 @@ pub fn parse_402_response(
         .accepts
         .into_iter()
         .find(|a| a.network == expected_network && a.asset.eq_ignore_ascii_case("ZEC"))
-        .ok_or_else(|| {
-            anyhow!(
-                "No Zcash payment option found for network '{expected_network}'"
-            )
-        })?;
+        .ok_or_else(|| anyhow!("No Zcash payment option found for network '{expected_network}'"))?;
 
-    let _amount: u64 = req
-        .amount
-        .parse()
-        .map_err(|_| anyhow!("Invalid amount '{}': expected zatoshis as integer string", req.amount))?;
+    let _amount: u64 = req.amount.parse().map_err(|_| {
+        anyhow!(
+            "Invalid amount '{}': expected zatoshis as integer string",
+            req.amount
+        )
+    })?;
 
     if req.pay_to.is_empty() {
         return Err(anyhow!("payTo address is empty"));

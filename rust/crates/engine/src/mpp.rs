@@ -164,8 +164,8 @@ pub fn parse_receipt(header_value: &str) -> Result<MppReceipt> {
     let json_bytes = B64URL
         .decode(header_value.trim())
         .map_err(|e| anyhow!("Invalid base64url in Payment-Receipt: {}", e))?;
-    let receipt: MppReceipt = serde_json::from_slice(&json_bytes)
-        .map_err(|e| anyhow!("Invalid receipt JSON: {}", e))?;
+    let receipt: MppReceipt =
+        serde_json::from_slice(&json_bytes).map_err(|e| anyhow!("Invalid receipt JSON: {}", e))?;
     Ok(receipt)
 }
 

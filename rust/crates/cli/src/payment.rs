@@ -5,7 +5,7 @@ use serde::Serialize;
 use zcash_protocol::consensus::Network;
 
 use crate::helpers::*;
-use crate::market::{run_ows, get_ows_evm_address};
+use crate::market::{get_ows_evm_address, run_ows};
 use crate::{print_ok, Config};
 
 fn read_402_body(body: &Option<String>) -> Result<String> {
@@ -58,23 +58,35 @@ pub async fn cmd_x402_pay(
     let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
 
     let daily_spent = zipher_engine::audit::daily_spent(&cfg.data_dir).unwrap_or(0);
-    if let Err(violation) = zipher_engine::policy::check_proposal(
-        &policy, &address, amount, &context_id, daily_spent,
-    ) {
+    if let Err(violation) =
+        zipher_engine::policy::check_proposal(&policy, &address, amount, &context_id, daily_spent)
+    {
         zipher_engine::audit::log_event(
-            &cfg.data_dir, "x402_pay", Some(&address),
-            Some(amount), None, context_id.as_deref(),
-            None, Some(&violation.to_string()),
-        ).ok();
+            &cfg.data_dir,
+            "x402_pay",
+            Some(&address),
+            Some(amount),
+            None,
+            context_id.as_deref(),
+            None,
+            Some(&violation.to_string()),
+        )
+        .ok();
         return Err(anyhow::anyhow!("{}", violation));
     }
 
     if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
         zipher_engine::audit::log_event(
-            &cfg.data_dir, "x402_pay", Some(&address),
-            Some(amount), None, context_id.as_deref(),
-            None, Some(&violation.to_string()),
-        ).ok();
+            &cfg.data_dir,
+            "x402_pay",
+            Some(&address),
+            Some(amount),
+            None,
+            context_id.as_deref(),
+            None,
+            Some(&violation.to_string()),
+        )
+        .ok();
         return Err(anyhow::anyhow!("{}", violation));
     }
 
@@ -97,18 +109,30 @@ pub async fn cmd_x402_pay(
         Ok(txid) => {
             zipher_engine::policy::record_confirm();
             zipher_engine::audit::log_event(
-                &cfg.data_dir, "x402_pay", Some(&address),
-                Some(send_amount), Some(fee), context_id.as_deref(),
-                Some(&txid), None,
-            ).ok();
+                &cfg.data_dir,
+                "x402_pay",
+                Some(&address),
+                Some(send_amount),
+                Some(fee),
+                context_id.as_deref(),
+                Some(&txid),
+                None,
+            )
+            .ok();
             txid
         }
         Err(e) => {
             zipher_engine::audit::log_event(
-                &cfg.data_dir, "x402_pay", Some(&address),
-                Some(send_amount), Some(fee), context_id.as_deref(),
-                None, Some(&format!("{:#}", e)),
-            ).ok();
+                &cfg.data_dir,
+                "x402_pay",
+                Some(&address),
+                Some(send_amount),
+                Some(fee),
+                context_id.as_deref(),
+                None,
+                Some(&format!("{:#}", e)),
+            )
+            .ok();
             return Err(e);
         }
     };
@@ -138,7 +162,11 @@ pub async fn cmd_x402_pay(
         |r| {
             println!("x402 payment broadcast.");
             println!("  txid: {}", r.txid);
-            println!("  amount: {:.8} ZEC ({} zat)", r.amount as f64 / 1e8, r.amount);
+            println!(
+                "  amount: {:.8} ZEC ({} zat)",
+                r.amount as f64 / 1e8,
+                r.amount
+            );
             println!("  fee:    {:.8} ZEC ({} zat)", r.fee as f64 / 1e8, r.fee);
             println!();
             println!("PAYMENT-SIGNATURE header:");
@@ -176,9 +204,9 @@ async fn pay_with_zec(
 
     let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
     let daily_spent = zipher_engine::audit::daily_spent(&cfg.data_dir).unwrap_or(0);
-    if let Err(violation) = zipher_engine::policy::check_proposal(
-        &policy, &address, amount, &context_id, daily_spent,
-    ) {
+    if let Err(violation) =
+        zipher_engine::policy::check_proposal(&policy, &address, amount, &context_id, daily_spent)
+    {
         return Err(anyhow::anyhow!("{}", violation));
     }
     if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
@@ -195,18 +223,30 @@ async fn pay_with_zec(
         Ok(txid) => {
             zipher_engine::policy::record_confirm();
             zipher_engine::audit::log_event(
-                &cfg.data_dir, "pay", Some(&address),
-                Some(send_amount), Some(fee), context_id.as_deref(),
-                Some(&txid), None,
-            ).ok();
+                &cfg.data_dir,
+                "pay",
+                Some(&address),
+                Some(send_amount),
+                Some(fee),
+                context_id.as_deref(),
+                Some(&txid),
+                None,
+            )
+            .ok();
             txid
         }
         Err(e) => {
             zipher_engine::audit::log_event(
-                &cfg.data_dir, "pay", Some(&address),
-                Some(send_amount), Some(fee), context_id.as_deref(),
-                None, Some(&format!("{:#}", e)),
-            ).ok();
+                &cfg.data_dir,
+                "pay",
+                Some(&address),
+                Some(send_amount),
+                Some(fee),
+                context_id.as_deref(),
+                None,
+                Some(&format!("{:#}", e)),
+            )
+            .ok();
             return Err(e);
         }
     };
@@ -216,9 +256,27 @@ async fn pay_with_zec(
     let (cred_header, cred_value) = protocol.build_credential(&txid);
 
     let retry_resp = match http_method.to_uppercase().as_str() {
-        "POST" => client.post(url).header(&cred_header, &cred_value).send().await,
-        "PUT" => client.put(url).header(&cred_header, &cred_value).send().await,
-        _ => client.get(url).header(&cred_header, &cred_value).send().await,
+        "POST" => {
+            client
+                .post(url)
+                .header(&cred_header, &cred_value)
+                .send()
+                .await
+        }
+        "PUT" => {
+            client
+                .put(url)
+                .header(&cred_header, &cred_value)
+                .send()
+                .await
+        }
+        _ => {
+            client
+                .get(url)
+                .header(&cred_header, &cred_value)
+                .send()
+                .await
+        }
     }
     .map_err(|e| anyhow::anyhow!("Retry request failed: {}", e))?;
 
@@ -357,17 +415,16 @@ async fn pay_cross_chain(
         .await?;
 
         if cfg.human {
-            eprintln!("  Swap quote: deposit {} ZEC to {}", quote.amount_in, quote.deposit_address);
+            eprintln!(
+                "  Swap quote: deposit {} ZEC to {}",
+                quote.amount_in, quote.deposit_address
+            );
         }
 
         let deposit_amount: u64 = quote.amount_in.parse().unwrap_or(zec_needed);
-        let (send_amount, fee, _) = zipher_engine::send::propose_send(
-            &quote.deposit_address,
-            deposit_amount,
-            None,
-            false,
-        )
-        .await?;
+        let (send_amount, fee, _) =
+            zipher_engine::send::propose_send(&quote.deposit_address, deposit_amount, None, false)
+                .await?;
 
         let seed = read_seed(&cfg.data_dir)?;
         let swap_txid = zipher_engine::send::confirm_send(&seed).await?;
@@ -389,7 +446,9 @@ async fn pay_cross_chain(
             eprintln!("  ZEC sent: {} (waiting for swap...)", swap_txid);
         }
 
-        zipher_engine::swap::submit_deposit(&quote.deposit_address, &swap_txid).await.ok();
+        zipher_engine::swap::submit_deposit(&quote.deposit_address, &swap_txid)
+            .await
+            .ok();
 
         // Wait for swap to complete
         for i in 0..30 {
@@ -409,24 +468,31 @@ async fn pay_cross_chain(
         }
 
         if cfg.human {
-            eprintln!("  Swap complete. {} available on {}", evm_info.asset_symbol, evm_info.chain.name);
+            eprintln!(
+                "  Swap complete. {} available on {}",
+                evm_info.asset_symbol, evm_info.chain.name
+            );
         }
 
         // Also check we have native gas on the EVM chain
-        let native_balance = zipher_engine::myriad::get_bnb_balance(
-            &evm_info.chain.rpc_url,
-            &evm_address,
-        )
-        .await
-        .unwrap_or(0);
+        let native_balance =
+            zipher_engine::myriad::get_bnb_balance(&evm_info.chain.rpc_url, &evm_address)
+                .await
+                .unwrap_or(0);
 
         if native_balance < 100_000_000_000_000 {
             if cfg.human {
-                eprintln!("  Warning: low native gas on {}. May need ETH/BNB for tx fees.", evm_info.chain.name);
+                eprintln!(
+                    "  Warning: low native gas on {}. May need ETH/BNB for tx fees.",
+                    evm_info.chain.name
+                );
             }
         }
     } else if cfg.human {
-        eprintln!("  Already have enough {} on {}", evm_info.asset_symbol, evm_info.chain.name);
+        eprintln!(
+            "  Already have enough {} on {}",
+            evm_info.asset_symbol, evm_info.chain.name
+        );
     }
 
     // Step 3: Delegate to OWS for the actual x402 payment.
@@ -436,11 +502,16 @@ async fn pay_cross_chain(
     }
 
     let ows_output = run_ows(&[
-        "pay", "request", url,
-        "--wallet", &ows_wallet,
-        "--method", http_method,
+        "pay",
+        "request",
+        url,
+        "--wallet",
+        &ows_wallet,
+        "--method",
+        http_method,
         "--no-passphrase",
-    ]).await?;
+    ])
+    .await?;
 
     zipher_engine::audit::log_event(
         &cfg.data_dir,
@@ -457,8 +528,14 @@ async fn pay_cross_chain(
     if cfg.human {
         println!("Cross-chain payment complete.");
         println!("  chain:  {} ({})", evm_info.chain.name, evm_info.network);
-        println!("  asset:  {} ({})", evm_info.asset_symbol, evm_info.asset_contract);
-        println!("  funded: ZEC (shielded) → {} via NEAR Intents", evm_info.asset_symbol);
+        println!(
+            "  asset:  {} ({})",
+            evm_info.asset_symbol, evm_info.asset_contract
+        );
+        println!(
+            "  funded: ZEC (shielded) → {} via NEAR Intents",
+            evm_info.asset_symbol
+        );
         println!("  paid:   EIP-3009 via OWS (no gas needed)");
         if ows_output.len() < 2000 {
             println!("\nResponse:\n{}", ows_output);
@@ -506,7 +583,11 @@ pub async fn cmd_pay(
             println!("{}", body);
             return Ok(());
         }
-        return Err(anyhow::anyhow!("Expected HTTP 402, got {}: {}", status, body));
+        return Err(anyhow::anyhow!(
+            "Expected HTTP 402, got {}: {}",
+            status,
+            body
+        ));
     }
 
     let mut headers = std::collections::HashMap::new();
@@ -521,30 +602,29 @@ pub async fn cmd_pay(
     let zec_protocol = zipher_engine::payment::detect_protocol(&headers, &body, network);
 
     match zec_protocol {
-        Ok(protocol) => {
-            pay_with_zec(cfg, &client, &url, &http_method, protocol, context_id).await
-        }
-        Err(_zec_err) => {
-            match zipher_engine::evm_pay::parse_evm_x402(&body) {
-                Ok(evm_info) => {
-                    if cfg.human {
-                        eprintln!(
-                            "402 detected: {} {} on {} (chain {})",
-                            evm_info.amount_raw, evm_info.asset_symbol,
-                            evm_info.chain.name, evm_info.chain.chain_id
-                        );
-                        eprintln!("  → cross-chain: ZEC (shielded) → {} on {} → pay", evm_info.asset_symbol, evm_info.chain.name);
-                    }
-                    pay_cross_chain(cfg, &client, &url, &http_method, evm_info, context_id).await
+        Ok(protocol) => pay_with_zec(cfg, &client, &url, &http_method, protocol, context_id).await,
+        Err(_zec_err) => match zipher_engine::evm_pay::parse_evm_x402(&body) {
+            Ok(evm_info) => {
+                if cfg.human {
+                    eprintln!(
+                        "402 detected: {} {} on {} (chain {})",
+                        evm_info.amount_raw,
+                        evm_info.asset_symbol,
+                        evm_info.chain.name,
+                        evm_info.chain.chain_id
+                    );
+                    eprintln!(
+                        "  → cross-chain: ZEC (shielded) → {} on {} → pay",
+                        evm_info.asset_symbol, evm_info.chain.name
+                    );
                 }
-                Err(_) => {
-                    Err(anyhow::anyhow!(
-                        "No supported payment method found. Zcash: {}. EVM chains: not matched.",
-                        _zec_err
-                    ))
-                }
+                pay_cross_chain(cfg, &client, &url, &http_method, evm_info, context_id).await
             }
-        }
+            Err(_) => Err(anyhow::anyhow!(
+                "No supported payment method found. Zcash: {}. EVM chains: not matched.",
+                _zec_err
+            )),
+        },
     }
 }
 
@@ -563,7 +643,12 @@ pub async fn cmd_sweep(
     let evm_chain = match chain.to_lowercase().as_str() {
         "base" => zipher_engine::evm_pay::BASE_MAINNET,
         "bsc" | "bnb" => zipher_engine::evm_pay::BSC_MAINNET,
-        _ => return Err(anyhow::anyhow!("Unsupported chain '{}'. Use: base, bsc", chain)),
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unsupported chain '{}'. Use: base, bsc",
+                chain
+            ))
+        }
     };
 
     // Find the token contract address from NEAR Intents token list
@@ -572,11 +657,10 @@ pub async fn cmd_sweep(
         .iter()
         .find(|t| {
             t.symbol.eq_ignore_ascii_case(&token_symbol)
-                && t.blockchain.eq_ignore_ascii_case(&evm_chain.near_intents_blockchain)
+                && t.blockchain
+                    .eq_ignore_ascii_case(&evm_chain.near_intents_blockchain)
         })
-        .ok_or_else(|| {
-            anyhow::anyhow!("{} on {} not found in swap tokens", token_symbol, chain)
-        })?;
+        .ok_or_else(|| anyhow::anyhow!("{} on {} not found in swap tokens", token_symbol, chain))?;
 
     let contract = zipher_engine::evm_pay::token_contract(&token_symbol, evm_chain.chain_id)
         .unwrap_or_else(|| {
@@ -587,12 +671,9 @@ pub async fn cmd_sweep(
         });
 
     if !contract.is_empty() {
-        let balance = zipher_engine::evm_pay::get_erc20_balance(
-            evm_chain.rpc_url,
-            contract,
-            &evm_address,
-        )
-        .await?;
+        let balance =
+            zipher_engine::evm_pay::get_erc20_balance(evm_chain.rpc_url, contract, &evm_address)
+                .await?;
 
         let decimals = match token_symbol.to_uppercase().as_str() {
             "USDC" | "USDT" => 6u32,
@@ -603,7 +684,10 @@ pub async fn cmd_sweep(
         if cfg.human {
             eprintln!(
                 "Balance: {:.6} {} on {} (wallet {})",
-                human_balance, token_symbol, evm_chain.name, &evm_address[..10]
+                human_balance,
+                token_symbol,
+                evm_chain.name,
+                &evm_address[..10]
             );
         }
 
@@ -629,7 +713,12 @@ pub async fn cmd_sweep(
         .ok_or_else(|| anyhow::anyhow!("ZEC not found in swap tokens"))?;
 
     if cfg.human {
-        eprintln!("Sweeping {} on {} → ZEC at {}", token_symbol, evm_chain.name, &zec_address[..20]);
+        eprintln!(
+            "Sweeping {} on {} → ZEC at {}",
+            token_symbol,
+            evm_chain.name,
+            &zec_address[..20]
+        );
         eprintln!("  This will swap via NEAR Intents back to your shielded wallet.");
         eprintln!();
         eprintln!("  To execute, use NEAR Intents reverse swap:");
@@ -664,7 +753,10 @@ pub async fn cmd_sweep(
                 {
                     Ok(quote) => {
                         eprintln!();
-                        eprintln!("  Quote: {} {} → ~{} ZEC", balance, token_symbol, quote.amount_out);
+                        eprintln!(
+                            "  Quote: {} {} → ~{} ZEC",
+                            balance, token_symbol, quote.amount_out
+                        );
                         eprintln!("  Deposit to: {}", quote.deposit_address);
                     }
                     Err(e) => {
@@ -675,7 +767,9 @@ pub async fn cmd_sweep(
         }
     }
 
-    println!("Sweep quote displayed. Execute with: zipher-cli swap execute --to ZEC --chain zcash ...");
+    println!(
+        "Sweep quote displayed. Execute with: zipher-cli swap execute --to ZEC --chain zcash ..."
+    );
     zipher_engine::wallet::close().await;
     Ok(())
 }

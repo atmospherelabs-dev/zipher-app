@@ -105,33 +105,109 @@ pub struct TokenInfo {
 pub fn known_tokens(chain_id: u64) -> Vec<TokenInfo> {
     match chain_id {
         137 => vec![
-            TokenInfo { symbol: "POL",    address: PARASWAP_NATIVE, decimals: 18 },
-            TokenInfo { symbol: "USDC.e", address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", decimals: 6 },
-            TokenInfo { symbol: "USDC",   address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6 },
-            TokenInfo { symbol: "USDT",   address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 },
-            TokenInfo { symbol: "WETH",   address: "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", decimals: 18 },
-            TokenInfo { symbol: "WMATIC", address: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270", decimals: 18 },
+            TokenInfo {
+                symbol: "POL",
+                address: PARASWAP_NATIVE,
+                decimals: 18,
+            },
+            TokenInfo {
+                symbol: "USDC.e",
+                address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+                decimals: 6,
+            },
+            TokenInfo {
+                symbol: "USDC",
+                address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+                decimals: 6,
+            },
+            TokenInfo {
+                symbol: "USDT",
+                address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
+                decimals: 6,
+            },
+            TokenInfo {
+                symbol: "WETH",
+                address: "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619",
+                decimals: 18,
+            },
+            TokenInfo {
+                symbol: "WMATIC",
+                address: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
+                decimals: 18,
+            },
         ],
         56 => vec![
-            TokenInfo { symbol: "BNB",  address: PARASWAP_NATIVE, decimals: 18 },
-            TokenInfo { symbol: "USDT", address: "0x55d398326f99059fF775485246999027B3197955", decimals: 18 },
-            TokenInfo { symbol: "USDC", address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", decimals: 18 },
-            TokenInfo { symbol: "WBNB", address: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c", decimals: 18 },
+            TokenInfo {
+                symbol: "BNB",
+                address: PARASWAP_NATIVE,
+                decimals: 18,
+            },
+            TokenInfo {
+                symbol: "USDT",
+                address: "0x55d398326f99059fF775485246999027B3197955",
+                decimals: 18,
+            },
+            TokenInfo {
+                symbol: "USDC",
+                address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+                decimals: 18,
+            },
+            TokenInfo {
+                symbol: "WBNB",
+                address: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+                decimals: 18,
+            },
         ],
         1 => vec![
-            TokenInfo { symbol: "ETH",  address: PARASWAP_NATIVE, decimals: 18 },
-            TokenInfo { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },
-            TokenInfo { symbol: "USDT", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6 },
-            TokenInfo { symbol: "WETH", address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", decimals: 18 },
+            TokenInfo {
+                symbol: "ETH",
+                address: PARASWAP_NATIVE,
+                decimals: 18,
+            },
+            TokenInfo {
+                symbol: "USDC",
+                address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+                decimals: 6,
+            },
+            TokenInfo {
+                symbol: "USDT",
+                address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+                decimals: 6,
+            },
+            TokenInfo {
+                symbol: "WETH",
+                address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+                decimals: 18,
+            },
         ],
         8453 => vec![
-            TokenInfo { symbol: "ETH",  address: PARASWAP_NATIVE, decimals: 18 },
-            TokenInfo { symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 },
+            TokenInfo {
+                symbol: "ETH",
+                address: PARASWAP_NATIVE,
+                decimals: 18,
+            },
+            TokenInfo {
+                symbol: "USDC",
+                address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                decimals: 6,
+            },
         ],
         42161 => vec![
-            TokenInfo { symbol: "ETH",  address: PARASWAP_NATIVE, decimals: 18 },
-            TokenInfo { symbol: "USDC", address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", decimals: 6 },
-            TokenInfo { symbol: "USDT", address: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9", decimals: 6 },
+            TokenInfo {
+                symbol: "ETH",
+                address: PARASWAP_NATIVE,
+                decimals: 18,
+            },
+            TokenInfo {
+                symbol: "USDC",
+                address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+                decimals: 6,
+            },
+            TokenInfo {
+                symbol: "USDT",
+                address: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+                decimals: 6,
+            },
         ],
         _ => vec![],
     }
@@ -141,7 +217,11 @@ pub fn known_tokens(chain_id: u64) -> Vec<TokenInfo> {
 // JSON-RPC helper
 // ---------------------------------------------------------------------------
 
-async fn rpc_call(rpc_url: &str, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+async fn rpc_call(
+    rpc_url: &str,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value> {
     let client = reqwest::Client::new();
     let body = serde_json::json!({
         "jsonrpc": "2.0",
@@ -161,7 +241,10 @@ async fn rpc_call(rpc_url: &str, method: &str, params: serde_json::Value) -> Res
         .map_err(|e| anyhow!("RPC {} parse error: {}", method, e))?;
 
     if let Some(err) = resp.get("error") {
-        let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown");
+        let msg = err
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown");
         return Err(anyhow!("RPC {} returned error: {}", method, msg));
     }
 
@@ -183,8 +266,15 @@ fn parse_hex_u128(hex: &str) -> Result<u128> {
 // ---------------------------------------------------------------------------
 
 pub async fn get_native_balance(rpc_url: &str, address: &str) -> Result<u128> {
-    let resp = rpc_call(rpc_url, "eth_getBalance", serde_json::json!([address, "latest"])).await?;
-    let hex = resp["result"].as_str().ok_or_else(|| anyhow!("No result in balance response"))?;
+    let resp = rpc_call(
+        rpc_url,
+        "eth_getBalance",
+        serde_json::json!([address, "latest"]),
+    )
+    .await?;
+    let hex = resp["result"]
+        .as_str()
+        .ok_or_else(|| anyhow!("No result in balance response"))?;
     parse_hex_u128(hex)
 }
 
@@ -204,15 +294,25 @@ pub async fn get_erc20_balance(rpc_url: &str, token: &str, owner: &str) -> Resul
             "to": token,
             "data": format!("0x{}", hex::encode(&data)),
         }, "latest"]),
-    ).await?;
+    )
+    .await?;
 
-    let hex = resp["result"].as_str().ok_or_else(|| anyhow!("No result in balanceOf response"))?;
+    let hex = resp["result"]
+        .as_str()
+        .ok_or_else(|| anyhow!("No result in balanceOf response"))?;
     parse_hex_u128(hex)
 }
 
 pub async fn get_nonce(rpc_url: &str, address: &str) -> Result<u64> {
-    let resp = rpc_call(rpc_url, "eth_getTransactionCount", serde_json::json!([address, "latest"])).await?;
-    let hex = resp["result"].as_str().ok_or_else(|| anyhow!("No result in nonce response"))?;
+    let resp = rpc_call(
+        rpc_url,
+        "eth_getTransactionCount",
+        serde_json::json!([address, "latest"]),
+    )
+    .await?;
+    let hex = resp["result"]
+        .as_str()
+        .ok_or_else(|| anyhow!("No result in nonce response"))?;
     parse_hex_u64(hex)
 }
 
@@ -232,7 +332,9 @@ pub async fn estimate_gas(
         tx["value"] = serde_json::Value::String(v.to_string());
     }
     let resp = rpc_call(rpc_url, "eth_estimateGas", serde_json::json!([tx])).await?;
-    let hex = resp["result"].as_str().ok_or_else(|| anyhow!("No result in gas estimate"))?;
+    let hex = resp["result"]
+        .as_str()
+        .ok_or_else(|| anyhow!("No result in gas estimate"))?;
     parse_hex_u64(hex)
 }
 
@@ -294,7 +396,8 @@ async fn polygon_gas_station() -> Result<Eip1559Fees> {
 }
 
 async fn rpc_gas_fees(rpc_url: &str) -> Result<Eip1559Fees> {
-    let priority_resp = rpc_call(rpc_url, "eth_maxPriorityFeePerGas", serde_json::json!([])).await?;
+    let priority_resp =
+        rpc_call(rpc_url, "eth_maxPriorityFeePerGas", serde_json::json!([])).await?;
     let priority_hex = priority_resp["result"].as_str().unwrap_or("0x0");
     let priority = parse_hex_u64(priority_hex)?;
 
@@ -302,7 +405,8 @@ async fn rpc_gas_fees(rpc_url: &str) -> Result<Eip1559Fees> {
         rpc_url,
         "eth_feeHistory",
         serde_json::json!(["0x1", "latest", []]),
-    ).await?;
+    )
+    .await?;
 
     let base_fee = fee_resp["result"]["baseFeePerGas"]
         .as_array()
@@ -474,7 +578,11 @@ pub struct TxReceipt {
     pub tx_hash: String,
 }
 
-pub async fn wait_for_receipt(rpc_url: &str, tx_hash: &str, timeout_secs: u64) -> Result<TxReceipt> {
+pub async fn wait_for_receipt(
+    rpc_url: &str,
+    tx_hash: &str,
+    timeout_secs: u64,
+) -> Result<TxReceipt> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
     let mut interval = 3;
 
@@ -483,7 +591,8 @@ pub async fn wait_for_receipt(rpc_url: &str, tx_hash: &str, timeout_secs: u64) -
             rpc_url,
             "eth_getTransactionReceipt",
             serde_json::json!([tx_hash]),
-        ).await?;
+        )
+        .await?;
 
         if let Some(result) = resp.get("result") {
             if !result.is_null() {
@@ -501,7 +610,11 @@ pub async fn wait_for_receipt(rpc_url: &str, tx_hash: &str, timeout_secs: u64) -
         }
 
         if std::time::Instant::now() >= deadline {
-            return Err(anyhow!("Receipt timeout after {}s for tx {}", timeout_secs, tx_hash));
+            return Err(anyhow!(
+                "Receipt timeout after {}s for tx {}",
+                timeout_secs,
+                tx_hash
+            ));
         }
 
         info!("Waiting for receipt... ({}s intervals)", interval);
@@ -528,7 +641,8 @@ pub async fn sign_and_broadcast(
         rpc_url,
         "eth_sendRawTransaction",
         serde_json::json!([signed_hex]),
-    ).await?;
+    )
+    .await?;
 
     resp["result"]
         .as_str()
@@ -569,11 +683,15 @@ pub async fn approve_erc20(
     let nonce = get_nonce(rpc_url, owner).await?;
     let calldata = build_erc20_approve_data(spender, amount);
 
-    let gas = estimate_gas(rpc_url, owner, token, &calldata, None).await
+    let gas = estimate_gas(rpc_url, owner, token, &calldata, None)
+        .await
         .unwrap_or(80_000);
     let gas_with_buffer = gas + gas / 5; // +20%
 
-    info!("Approving {} to spend token {} (gas: {})", spender, token, gas_with_buffer);
+    info!(
+        "Approving {} to spend token {} (gas: {})",
+        spender, token, gas_with_buffer
+    );
 
     let unsigned = build_unsigned_eip1559_tx(
         chain_id,
@@ -599,7 +717,12 @@ pub async fn approve_erc20(
 // ERC-20 allowance check
 // ---------------------------------------------------------------------------
 
-pub async fn get_erc20_allowance(rpc_url: &str, token: &str, owner: &str, spender: &str) -> Result<u128> {
+pub async fn get_erc20_allowance(
+    rpc_url: &str,
+    token: &str,
+    owner: &str,
+    spender: &str,
+) -> Result<u128> {
     let owner_clean = owner.trim_start_matches("0x");
     let spender_clean = spender.trim_start_matches("0x");
 
@@ -617,9 +740,12 @@ pub async fn get_erc20_allowance(rpc_url: &str, token: &str, owner: &str, spende
             "to": token,
             "data": format!("0x{}", hex::encode(&data)),
         }, "latest"]),
-    ).await?;
+    )
+    .await?;
 
-    let hex_str = resp["result"].as_str().ok_or_else(|| anyhow!("No result in allowance"))?;
+    let hex_str = resp["result"]
+        .as_str()
+        .ok_or_else(|| anyhow!("No result in allowance"))?;
     parse_hex_u128(hex_str)
 }
 
@@ -650,7 +776,8 @@ pub async fn erc1155_is_approved_for_all(
             "to": token_contract,
             "data": format!("0x{}", hex::encode(&data)),
         }, "latest"]),
-    ).await?;
+    )
+    .await?;
 
     let hex_str = resp["result"].as_str().unwrap_or("0x0");
     let val = parse_hex_u128(hex_str).unwrap_or(0);
@@ -730,7 +857,9 @@ pub fn parse_token_amount(input: &str, decimals: u8) -> Result<u128> {
         let frac_str = parts[1];
         let padded = format!("{:0<width$}", frac_str, width = decimals as usize);
         let truncated = &padded[..decimals as usize];
-        truncated.parse().map_err(|_| anyhow!("Invalid fractional part"))?
+        truncated
+            .parse()
+            .map_err(|_| anyhow!("Invalid fractional part"))?
     } else {
         0
     };
@@ -771,21 +900,24 @@ mod tests {
     #[test]
     fn test_parse_token_amount() {
         assert_eq!(parse_token_amount("1.5", 6).unwrap(), 1_500_000);
-        assert_eq!(parse_token_amount("1", 18).unwrap(), 1_000_000_000_000_000_000);
+        assert_eq!(
+            parse_token_amount("1", 18).unwrap(),
+            1_000_000_000_000_000_000
+        );
         assert_eq!(parse_token_amount("0.001", 6).unwrap(), 1_000);
     }
 
     #[test]
     fn test_eip1559_tx_structure() {
         let tx = build_unsigned_eip1559_tx(
-            137,   // Polygon
-            0,     // nonce
-            30_000_000_000, // 30 gwei priority
+            137,             // Polygon
+            0,               // nonce
+            30_000_000_000,  // 30 gwei priority
             100_000_000_000, // 100 gwei max
-            21_000, // gas limit
+            21_000,          // gas limit
             "0x0000000000000000000000000000000000000001",
             &u128_to_be_trimmed(1_000_000_000_000_000_000), // 1 POL
-            &[], // no data
+            &[],                                            // no data
         );
         assert_eq!(tx[0], 0x02); // EIP-1559 type
     }

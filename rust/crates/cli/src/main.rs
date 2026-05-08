@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use serde::Serialize;
 use zcash_protocol::consensus::Network;
 
+mod benchmark;
 mod daemon;
 mod evm_swap;
 mod helpers;
@@ -335,6 +336,17 @@ enum SyncCmd {
 
     /// Show current sync progress
     Status,
+
+    /// Benchmark sync progress for the current wallet
+    Benchmark {
+        /// Stop after this many seconds even if not caught up (0 = no limit)
+        #[arg(long, default_value_t = 0)]
+        max_seconds: u64,
+
+        /// Poll interval in milliseconds
+        #[arg(long, default_value_t = 1000)]
+        poll_ms: u64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -652,7 +664,11 @@ fn print_ok<T: Serialize>(data: T, human: bool, human_fmt: impl FnOnce(&T)) {
     if human {
         human_fmt(&data);
     } else {
-        let output = CliOutput { ok: true, data: Some(data), error: None };
+        let output = CliOutput {
+            ok: true,
+            data: Some(data),
+            error: None,
+        };
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     }
 }
@@ -685,18 +701,37 @@ pub struct Config {
 }
 
 fn resolve_config(cli: &Cli) -> Config {
-    let network = if cli.testnet { Network::TestNetwork } else { Network::MainNetwork };
+    let network = if cli.testnet {
+        Network::TestNetwork
+    } else {
+        Network::MainNetwork
+    };
 
-    let default_server = if cli.testnet { DEFAULT_TESTNET_SERVER } else { DEFAULT_MAINNET_SERVER };
-    let server_url = cli.server.clone().unwrap_or_else(|| default_server.to_string());
+    let default_server = if cli.testnet {
+        DEFAULT_TESTNET_SERVER
+    } else {
+        DEFAULT_MAINNET_SERVER
+    };
+    let server_url = cli
+        .server
+        .clone()
+        .unwrap_or_else(|| default_server.to_string());
 
     let net_suffix = if cli.testnet { "testnet" } else { "mainnet" };
     let data_dir = cli.data_dir.clone().unwrap_or_else(|| {
         let home = dirs::home_dir().expect("Cannot determine home directory");
-        home.join(".zipher").join(net_suffix).to_string_lossy().to_string()
+        home.join(".zipher")
+            .join(net_suffix)
+            .to_string_lossy()
+            .to_string()
     });
 
-    Config { data_dir, server_url, network, human: cli.human }
+    Config {
+        data_dir,
+        server_url,
+        network,
+        human: cli.human,
+    }
 }
 
 pub fn ensure_data_dir(data_dir: &str) -> Result<()> {
@@ -740,31 +775,41 @@ async fn main() {
         Commands::Sync(sub) => match sub {
             SyncCmd::Start => wallet::cmd_sync_start(&cfg).await,
             SyncCmd::Status => wallet::cmd_sync_status(&cfg).await,
+            SyncCmd::Benchmark {
+                max_seconds,
+                poll_ms,
+            } => benchmark::cmd_sync_benchmark(&cfg, max_seconds, poll_ms).await,
         },
         Commands::Balance => wallet::cmd_balance(&cfg).await,
         Commands::Address => wallet::cmd_address(&cfg).await,
         Commands::Keys => wallet::cmd_keys(&cfg).await,
         Commands::Transactions { limit } => wallet::cmd_transactions(&cfg, limit).await,
         Commands::Send(sub) => match sub {
-            SendCmd::Propose { to, amount, max, memo, context_id } => {
-                wallet::cmd_send_propose(&cfg, to, amount, max, memo, context_id).await
-            }
+            SendCmd::Propose {
+                to,
+                amount,
+                max,
+                memo,
+                context_id,
+            } => wallet::cmd_send_propose(&cfg, to, amount, max, memo, context_id).await,
             SendCmd::Confirm => wallet::cmd_send_confirm(&cfg).await,
             SendCmd::Max { to } => wallet::cmd_send_max(&cfg, to).await,
             SendCmd::Pczt { to, amount, memo } => {
                 market::cmd_send_pczt(&cfg, to, amount, memo).await
             }
-            SendCmd::StorePczt { pczt } => {
-                wallet::cmd_store_signed_pczt(&cfg, pczt).await
-            }
+            SendCmd::StorePczt { pczt } => wallet::cmd_store_signed_pczt(&cfg, pczt).await,
         },
         Commands::Shield => wallet::cmd_shield(&cfg).await,
         Commands::Consolidate => wallet::cmd_consolidate(&cfg).await,
         Commands::Policy(sub) => match sub {
             PolicyCmd::Show => policy::cmd_policy_show(&cfg).await,
             PolicyCmd::Set { field, value } => policy::cmd_policy_set(&cfg, field, value).await,
-            PolicyCmd::AddAllowlist { address } => policy::cmd_policy_add_allowlist(&cfg, address).await,
-            PolicyCmd::RemoveAllowlist { address } => policy::cmd_policy_remove_allowlist(&cfg, address).await,
+            PolicyCmd::AddAllowlist { address } => {
+                policy::cmd_policy_add_allowlist(&cfg, address).await
+            }
+            PolicyCmd::RemoveAllowlist { address } => {
+                policy::cmd_policy_remove_allowlist(&cfg, address).await
+            }
         },
         Commands::Audit { limit, since } => policy::cmd_audit(&cfg, limit, since).await,
         Commands::Daemon(sub) => match sub {
@@ -782,24 +827,52 @@ async fn main() {
                 payment::cmd_x402_pay(&cfg, body, context_id).await
             }
         },
-        Commands::Pay { url, context_id, method } => {
-            payment::cmd_pay(&cfg, url, context_id, method).await
-        }
+        Commands::Pay {
+            url,
+            context_id,
+            method,
+        } => payment::cmd_pay(&cfg, url, context_id, method).await,
         Commands::Swap(sub) => match sub {
             SwapCmd::Tokens => swap::cmd_swap_tokens(&cfg).await,
-            SwapCmd::Quote { to, chain, amount, recipient, slippage } => {
-                swap::cmd_swap_quote(&cfg, to, chain, amount, recipient, slippage).await
-            }
-            SwapCmd::Execute { to, chain, amount, recipient, slippage, context_id } => {
-                swap::cmd_swap_execute(&cfg, to, chain, amount, recipient, slippage, context_id).await
+            SwapCmd::Quote {
+                to,
+                chain,
+                amount,
+                recipient,
+                slippage,
+            } => swap::cmd_swap_quote(&cfg, to, chain, amount, recipient, slippage).await,
+            SwapCmd::Execute {
+                to,
+                chain,
+                amount,
+                recipient,
+                slippage,
+                context_id,
+            } => {
+                swap::cmd_swap_execute(&cfg, to, chain, amount, recipient, slippage, context_id)
+                    .await
             }
             SwapCmd::Status { deposit_address } => {
                 swap::cmd_swap_status(&cfg, deposit_address).await
             }
         },
         Commands::Session(sub) => match sub {
-            SessionCmd::Open { server_url, deposit, merchant_id, pay_to, context_id } => {
-                session::cmd_session_open(&cfg, server_url, deposit, merchant_id, pay_to, context_id).await
+            SessionCmd::Open {
+                server_url,
+                deposit,
+                merchant_id,
+                pay_to,
+                context_id,
+            } => {
+                session::cmd_session_open(
+                    &cfg,
+                    server_url,
+                    deposit,
+                    merchant_id,
+                    pay_to,
+                    context_id,
+                )
+                .await
             }
             SessionCmd::Request { url, method } => {
                 session::cmd_session_request(&cfg, url, method).await
@@ -808,42 +881,107 @@ async fn main() {
             SessionCmd::Close { session_id } => session::cmd_session_close(&cfg, session_id).await,
         },
         Commands::Market(sub) => match sub {
-            MarketCmd::List { keyword, limit } => market::cmd_market_list(&cfg, keyword, limit).await,
-            MarketCmd::Show { id } => market::cmd_market_show(&cfg, id).await,
-            MarketCmd::Bet { id, outcome, amount, ows_wallet, slippage, max_price_move } => {
-                market::cmd_market_bet(&cfg, id, outcome, amount, ows_wallet, slippage, max_price_move).await
+            MarketCmd::List { keyword, limit } => {
+                market::cmd_market_list(&cfg, keyword, limit).await
             }
-            MarketCmd::Positions { ows_wallet } => market::cmd_market_positions(&cfg, ows_wallet).await,
-            MarketCmd::Sweep { ows_wallet, to_zec } => market::cmd_market_sweep(&cfg, ows_wallet, to_zec).await,
-            MarketCmd::Agent { max_bet, min_edge_pct, bankroll, scan_limit, ows_wallet, dry_run, slippage, max_price_move } => {
-                market::cmd_market_agent(&cfg, max_bet, min_edge_pct, bankroll, scan_limit, ows_wallet, dry_run, slippage, max_price_move).await
+            MarketCmd::Show { id } => market::cmd_market_show(&cfg, id).await,
+            MarketCmd::Bet {
+                id,
+                outcome,
+                amount,
+                ows_wallet,
+                slippage,
+                max_price_move,
+            } => {
+                market::cmd_market_bet(
+                    &cfg,
+                    id,
+                    outcome,
+                    amount,
+                    ows_wallet,
+                    slippage,
+                    max_price_move,
+                )
+                .await
+            }
+            MarketCmd::Positions { ows_wallet } => {
+                market::cmd_market_positions(&cfg, ows_wallet).await
+            }
+            MarketCmd::Sweep { ows_wallet, to_zec } => {
+                market::cmd_market_sweep(&cfg, ows_wallet, to_zec).await
+            }
+            MarketCmd::Agent {
+                max_bet,
+                min_edge_pct,
+                bankroll,
+                scan_limit,
+                ows_wallet,
+                dry_run,
+                slippage,
+                max_price_move,
+            } => {
+                market::cmd_market_agent(
+                    &cfg,
+                    max_bet,
+                    min_edge_pct,
+                    bankroll,
+                    scan_limit,
+                    ows_wallet,
+                    dry_run,
+                    slippage,
+                    max_price_move,
+                )
+                .await
             }
         },
         Commands::Polymarket(sub) => match sub {
-            PolymarketCmd::List { keyword, limit, all } => {
-                market::cmd_polymarket_list(&cfg, keyword, limit, all).await
-            }
+            PolymarketCmd::List {
+                keyword,
+                limit,
+                all,
+            } => market::cmd_polymarket_list(&cfg, keyword, limit, all).await,
             PolymarketCmd::Show { condition_id } => {
                 market::cmd_polymarket_show(&cfg, condition_id).await
             }
             PolymarketCmd::Positions { user } => market::cmd_polymarket_positions(&cfg, user).await,
-            PolymarketCmd::TestOrder { token_id, amount, price, side, neg_risk } => {
-                market::cmd_polymarket_test_order(&cfg, token_id, amount, price, side, neg_risk).await
+            PolymarketCmd::TestOrder {
+                token_id,
+                amount,
+                price,
+                side,
+                neg_risk,
+            } => {
+                market::cmd_polymarket_test_order(&cfg, token_id, amount, price, side, neg_risk)
+                    .await
             }
-            PolymarketCmd::FullBet { token_id, amount, price, side, neg_risk } => {
+            PolymarketCmd::FullBet {
+                token_id,
+                amount,
+                price,
+                side,
+                neg_risk,
+            } => {
                 market::cmd_polymarket_full_bet(&cfg, token_id, amount, price, side, neg_risk).await
             }
         },
         Commands::Serve { port, price } => {
             serve::cmd_serve(&cfg, port, price).await;
             Ok(())
-        },
-        Commands::Sweep { token, chain, ows_wallet } => {
-            payment::cmd_sweep(&cfg, token, chain, ows_wallet).await
-        },
-        Commands::EvmSwap { chain, from, to, amount, slippage, yes, ows_wallet } => {
-            evm_swap::cmd_evm_swap(&cfg, chain, from, to, amount, slippage, yes, ows_wallet).await
-        },
+        }
+        Commands::Sweep {
+            token,
+            chain,
+            ows_wallet,
+        } => payment::cmd_sweep(&cfg, token, chain, ows_wallet).await,
+        Commands::EvmSwap {
+            chain,
+            from,
+            to,
+            amount,
+            slippage,
+            yes,
+            ows_wallet,
+        } => evm_swap::cmd_evm_swap(&cfg, chain, from, to, amount, slippage, yes, ows_wallet).await,
     };
 
     if let Err(e) = result {

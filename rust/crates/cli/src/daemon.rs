@@ -9,7 +9,7 @@ use tokio::net::UnixListener;
 use zeroize::Zeroize;
 
 use crate::helpers::*;
-use crate::{print_ok, Config, ensure_data_dir};
+use crate::{ensure_data_dir, print_ok, Config};
 
 fn sock_path(data_dir: &str) -> PathBuf {
     PathBuf::from(data_dir).join("daemon.sock")
@@ -36,18 +36,19 @@ pub fn is_running(data_dir: &str) -> bool {
 
 #[cfg(unix)]
 unsafe fn libc_kill(pid: u32) -> i32 {
-    extern "C" { fn kill(pid: i32, sig: i32) -> i32; }
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
     unsafe { kill(pid as i32, 0) }
 }
 
 #[cfg(not(unix))]
-unsafe fn libc_kill(_pid: u32) -> i32 { -1 }
+unsafe fn libc_kill(_pid: u32) -> i32 {
+    -1
+}
 
 fn write_pid(data_dir: &str) {
-    let _ = std::fs::write(
-        pid_path(data_dir),
-        format!("{}", std::process::id()),
-    );
+    let _ = std::fs::write(pid_path(data_dir), format!("{}", std::process::id()));
 }
 
 fn remove_pid(data_dir: &str) {
@@ -100,7 +101,8 @@ pub async fn cmd_start(cfg: &Config) -> Result<()> {
     let shutdown_clone = shutdown.clone();
     ctrlc::set_handler(move || {
         shutdown_clone.store(true, Ordering::SeqCst);
-    }).ok();
+    })
+    .ok();
 
     loop {
         if shutdown.load(Ordering::SeqCst) {
@@ -122,9 +124,7 @@ pub async fn cmd_start(cfg: &Config) -> Result<()> {
                 let mut lines = BufReader::new(reader).lines();
 
                 while let Ok(Some(line)) = lines.next_line().await {
-                    let resp = handle_ipc_command(
-                        &line, &state, &data_dir, &shutdown_ref,
-                    ).await;
+                    let resp = handle_ipc_command(&line, &state, &data_dir, &shutdown_ref).await;
                     let _ = writer.write_all(resp.as_bytes()).await;
                     let _ = writer.write_all(b"\n").await;
                 }
@@ -173,7 +173,8 @@ async fn handle_ipc_command(
                     "latest_height": progress.latest_height,
                     "is_syncing": progress.is_syncing,
                 }
-            })).unwrap_or_else(|_| r#"{"ok":false,"error":"serialize"}"#.into())
+            }))
+            .unwrap_or_else(|_| r#"{"ok":false,"error":"serialize"}"#.into())
         }
 
         "lock" => {
@@ -185,8 +186,16 @@ async fn handle_ipc_command(
             state.locked.store(true, Ordering::SeqCst);
 
             zipher_engine::audit::log_event(
-                data_dir, "daemon_lock", None, None, None, None, None, None,
-            ).ok();
+                data_dir,
+                "daemon_lock",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .ok();
 
             r#"{"ok":true,"data":"locked"}"#.to_string()
         }
@@ -201,8 +210,16 @@ async fn handle_ipc_command(
             state.locked.store(false, Ordering::SeqCst);
 
             zipher_engine::audit::log_event(
-                data_dir, "daemon_unlock", None, None, None, None, None, None,
-            ).ok();
+                data_dir,
+                "daemon_unlock",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .ok();
 
             r#"{"ok":true,"data":"unlocked"}"#.to_string()
         }
@@ -270,7 +287,8 @@ async fn send_daemon_command(data_dir: &str, cmd: &str) -> Result<String> {
         return Err(anyhow::anyhow!("Daemon is not running (no socket found)."));
     }
 
-    let stream = tokio::net::UnixStream::connect(&sock).await
+    let stream = tokio::net::UnixStream::connect(&sock)
+        .await
         .map_err(|e| anyhow::anyhow!("Cannot connect to daemon: {}", e))?;
 
     let (reader, mut writer) = stream.into_split();
@@ -279,7 +297,9 @@ async fn send_daemon_command(data_dir: &str, cmd: &str) -> Result<String> {
     writer.write_all(b"\n").await?;
 
     let mut lines = BufReader::new(reader).lines();
-    let response = lines.next_line().await?
+    let response = lines
+        .next_line()
+        .await?
         .unwrap_or_else(|| r#"{"ok":false,"error":"no response"}"#.to_string());
     Ok(response)
 }

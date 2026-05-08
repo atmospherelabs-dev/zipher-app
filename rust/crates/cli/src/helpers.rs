@@ -288,7 +288,8 @@ pub async fn sync_if_needed(cfg: &Config) -> Result<()> {
         false
     };
 
-    let needs_sync = blocks_behind > STALE_BLOCK_THRESHOLD || (blocks_behind > 0 && has_unconfirmed);
+    let needs_sync =
+        blocks_behind > STALE_BLOCK_THRESHOLD || (blocks_behind > 0 && has_unconfirmed);
 
     if !needs_sync {
         // Wallet DB is already at (or near) the chain tip, but the in-memory

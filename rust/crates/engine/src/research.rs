@@ -151,7 +151,10 @@ async fn search_firecrawl(query: &str, limit: usize, api_key: &str) -> Result<Re
 
 fn build_summary(query: &str, items: &[NewsItem]) -> String {
     if items.is_empty() {
-        return format!("No web results found for \"{}\". The LLM should rely on its own knowledge.", query);
+        return format!(
+            "No web results found for \"{}\". The LLM should rely on its own knowledge.",
+            query
+        );
     }
 
     let mut summary = format!(

@@ -20,22 +20,34 @@ pub async fn cmd_session_open(
     auto_open(cfg).await?;
     let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
     let daily_spent = zipher_engine::audit::daily_spent(&cfg.data_dir).unwrap_or(0);
-    if let Err(violation) = zipher_engine::policy::check_proposal(
-        &policy, &pay_to, deposit, &context_id, daily_spent,
-    ) {
+    if let Err(violation) =
+        zipher_engine::policy::check_proposal(&policy, &pay_to, deposit, &context_id, daily_spent)
+    {
         zipher_engine::audit::log_event(
-            &cfg.data_dir, "session_open", Some(&pay_to),
-            Some(deposit), None, context_id.as_deref(),
-            None, Some(&violation.to_string()),
-        ).ok();
+            &cfg.data_dir,
+            "session_open",
+            Some(&pay_to),
+            Some(deposit),
+            None,
+            context_id.as_deref(),
+            None,
+            Some(&violation.to_string()),
+        )
+        .ok();
         return Err(anyhow::anyhow!("{}", violation));
     }
     if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
         zipher_engine::audit::log_event(
-            &cfg.data_dir, "session_open", Some(&pay_to),
-            Some(deposit), None, context_id.as_deref(),
-            None, Some(&violation.to_string()),
-        ).ok();
+            &cfg.data_dir,
+            "session_open",
+            Some(&pay_to),
+            Some(deposit),
+            None,
+            context_id.as_deref(),
+            None,
+            Some(&violation.to_string()),
+        )
+        .ok();
         return Err(anyhow::anyhow!("{}", violation));
     }
 
@@ -47,32 +59,39 @@ pub async fn cmd_session_open(
         Ok(txid) => {
             zipher_engine::policy::record_confirm();
             zipher_engine::audit::log_event(
-                &cfg.data_dir, "session_open", Some(&pay_to),
-                Some(send_amount), Some(fee), context_id.as_deref(),
-                Some(&txid), None,
-            ).ok();
+                &cfg.data_dir,
+                "session_open",
+                Some(&pay_to),
+                Some(send_amount),
+                Some(fee),
+                context_id.as_deref(),
+                Some(&txid),
+                None,
+            )
+            .ok();
             txid
         }
         Err(e) => {
             zipher_engine::audit::log_event(
-                &cfg.data_dir, "session_open", Some(&pay_to),
-                Some(send_amount), Some(fee), context_id.as_deref(),
-                None, Some(&format!("{:#}", e)),
-            ).ok();
+                &cfg.data_dir,
+                "session_open",
+                Some(&pay_to),
+                Some(send_amount),
+                Some(fee),
+                context_id.as_deref(),
+                None,
+                Some(&format!("{:#}", e)),
+            )
+            .ok();
             return Err(e);
         }
     };
 
     delete_pending(&cfg.data_dir);
 
-    let session = zipher_engine::session::open_session(
-        None,
-        &txid,
-        &merchant_id,
-        &server_url,
-        &cfg.data_dir,
-    )
-    .await?;
+    let session =
+        zipher_engine::session::open_session(None, &txid, &merchant_id, &server_url, &cfg.data_dir)
+            .await?;
 
     print_ok(&session, cfg.human, |s| {
         println!("Session opened.");
@@ -87,33 +106,32 @@ pub async fn cmd_session_open(
     Ok(())
 }
 
-pub async fn cmd_session_request(
-    cfg: &Config,
-    url: String,
-    method: String,
-) -> Result<()> {
+pub async fn cmd_session_request(cfg: &Config, url: String, method: String) -> Result<()> {
     let host = url
         .split("//")
         .nth(1)
         .and_then(|s| s.split('/').next())
         .unwrap_or(&url);
-    let server_url = format!(
-        "{}//{}",
-        url.split("//").next().unwrap_or("https:"),
-        host
-    );
+    let server_url = format!("{}//{}", url.split("//").next().unwrap_or("https:"), host);
 
-    let session = zipher_engine::session::find_session(&cfg.data_dir, &server_url)
-        .ok_or_else(|| anyhow::anyhow!(
-            "No active session for {}. Use `session open` first.", server_url
-        ))?;
+    let session =
+        zipher_engine::session::find_session(&cfg.data_dir, &server_url).ok_or_else(|| {
+            anyhow::anyhow!(
+                "No active session for {}. Use `session open` first.",
+                server_url
+            )
+        })?;
 
     let (status, body, remaining) =
         zipher_engine::session::session_request(&session, &url, &method).await?;
 
     if let Some(rem) = remaining {
         let mut store = zipher_engine::session::load_sessions(&cfg.data_dir);
-        if let Some(s) = store.sessions.iter_mut().find(|s| s.session_id == session.session_id) {
+        if let Some(s) = store
+            .sessions
+            .iter_mut()
+            .find(|s| s.session_id == session.session_id)
+        {
             s.balance_remaining = rem;
         }
         zipher_engine::session::save_sessions(&cfg.data_dir, &store).ok();

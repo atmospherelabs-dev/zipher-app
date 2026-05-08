@@ -51,7 +51,10 @@ pub async fn cmd_swap_tokens(cfg: &Config) -> Result<()> {
             println!("{} swappable tokens available.", r.total);
             for t in &r.available_tokens {
                 let price = t.price.map_or("n/a".into(), |p| format!("${:.2}", p));
-                println!("  {} ({}) — {} — {}", t.symbol, t.blockchain, t.asset_id, price);
+                println!(
+                    "  {} ({}) — {} — {}",
+                    t.symbol, t.blockchain, t.asset_id, price
+                );
             }
         },
     );
@@ -93,14 +96,20 @@ pub async fn cmd_swap_quote(
     print_ok(&quote, cfg.human, |q| {
         println!("Swap quote received:");
         println!("  Send:    {} zat ZEC", q.amount_in);
-        println!("  Receive: {} {} ({})", q.amount_out, to_symbol, dest.blockchain);
+        println!(
+            "  Receive: {} {} ({})",
+            q.amount_out, to_symbol, dest.blockchain
+        );
         if let Some(ref min) = q.min_amount_out {
             println!("  Min out: {}", min);
         }
         println!("  Deposit: {}", q.deposit_address);
         println!("  Deadline: {}", q.deadline);
         println!();
-        println!("To execute: zipher-cli swap execute --to {} --amount {} --recipient {}", to_symbol, amount, recipient);
+        println!(
+            "To execute: zipher-cli swap execute --to {} --amount {} --recipient {}",
+            to_symbol, amount, recipient
+        );
     });
 
     zipher_engine::wallet::close().await;
@@ -155,21 +164,37 @@ pub async fn cmd_swap_execute(
     let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
     let daily_spent = zipher_engine::audit::daily_spent(&cfg.data_dir).unwrap_or(0);
     if let Err(violation) = zipher_engine::policy::check_proposal(
-        &policy, &quote.deposit_address, amount, &context_id, daily_spent,
+        &policy,
+        &quote.deposit_address,
+        amount,
+        &context_id,
+        daily_spent,
     ) {
         zipher_engine::audit::log_event(
-            &cfg.data_dir, "swap_execute", Some(&quote.deposit_address),
-            Some(amount), None, context_id.as_deref(),
-            None, Some(&violation.to_string()),
-        ).ok();
+            &cfg.data_dir,
+            "swap_execute",
+            Some(&quote.deposit_address),
+            Some(amount),
+            None,
+            context_id.as_deref(),
+            None,
+            Some(&violation.to_string()),
+        )
+        .ok();
         return Err(anyhow::anyhow!("{}", violation));
     }
     if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
         zipher_engine::audit::log_event(
-            &cfg.data_dir, "swap_execute", Some(&quote.deposit_address),
-            Some(amount), None, context_id.as_deref(),
-            None, Some(&violation.to_string()),
-        ).ok();
+            &cfg.data_dir,
+            "swap_execute",
+            Some(&quote.deposit_address),
+            Some(amount),
+            None,
+            context_id.as_deref(),
+            None,
+            Some(&violation.to_string()),
+        )
+        .ok();
         return Err(anyhow::anyhow!("{}", violation));
     }
 
@@ -181,18 +206,30 @@ pub async fn cmd_swap_execute(
         Ok(txid) => {
             zipher_engine::policy::record_confirm();
             zipher_engine::audit::log_event(
-                &cfg.data_dir, "swap_execute", Some(&quote.deposit_address),
-                Some(send_amount), Some(fee), context_id.as_deref(),
-                Some(&txid), None,
-            ).ok();
+                &cfg.data_dir,
+                "swap_execute",
+                Some(&quote.deposit_address),
+                Some(send_amount),
+                Some(fee),
+                context_id.as_deref(),
+                Some(&txid),
+                None,
+            )
+            .ok();
             txid
         }
         Err(e) => {
             zipher_engine::audit::log_event(
-                &cfg.data_dir, "swap_execute", Some(&quote.deposit_address),
-                Some(send_amount), Some(fee), context_id.as_deref(),
-                None, Some(&format!("{:#}", e)),
-            ).ok();
+                &cfg.data_dir,
+                "swap_execute",
+                Some(&quote.deposit_address),
+                Some(send_amount),
+                Some(fee),
+                context_id.as_deref(),
+                None,
+                Some(&format!("{:#}", e)),
+            )
+            .ok();
             return Err(e);
         }
     };
@@ -201,7 +238,10 @@ pub async fn cmd_swap_execute(
 
     if let Err(e) = zipher_engine::swap::submit_deposit(&txid, &quote.deposit_address).await {
         if cfg.human {
-            eprintln!("Warning: deposit submit notification failed: {}. Swap may still proceed.", e);
+            eprintln!(
+                "Warning: deposit submit notification failed: {}. Swap may still proceed.",
+                e
+            );
         }
     }
 
@@ -234,11 +274,17 @@ pub async fn cmd_swap_execute(
             println!("  ZEC txid:     {}", r.txid);
             println!("  Deposit addr: {}", r.deposit_address);
             println!("  Amount in:    {} zat", r.amount_in);
-            println!("  Amount out:   {} {} ({})", r.amount_out, r.destination_symbol, r.destination_chain);
+            println!(
+                "  Amount out:   {} {} ({})",
+                r.amount_out, r.destination_symbol, r.destination_chain
+            );
             println!("  Recipient:    {}", r.recipient);
             println!("  Fee:          {} zat", r.fee);
             println!();
-            println!("Check status: zipher-cli swap status --deposit-address {}", r.deposit_address);
+            println!(
+                "Check status: zipher-cli swap status --deposit-address {}",
+                r.deposit_address
+            );
         },
     );
 
@@ -269,9 +315,7 @@ pub fn find_destination_token<'a>(
     let matches: Vec<&zipher_engine::swap::SwapToken> = tokens
         .iter()
         .filter(|t| t.symbol.eq_ignore_ascii_case(symbol))
-        .filter(|t| {
-            chain.map_or(true, |c| t.blockchain.eq_ignore_ascii_case(c))
-        })
+        .filter(|t| chain.map_or(true, |c| t.blockchain.eq_ignore_ascii_case(c)))
         .collect();
 
     match matches.len() {

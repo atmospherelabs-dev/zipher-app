@@ -143,10 +143,7 @@ pub fn find_zec_token(tokens: &[SwapToken]) -> Option<&SwapToken> {
 pub fn swappable_tokens(tokens: &[SwapToken]) -> Vec<&SwapToken> {
     let mut list: Vec<&SwapToken> = tokens
         .iter()
-        .filter(|t| {
-            !t.symbol.eq_ignore_ascii_case("ZEC")
-                && t.price.map_or(false, |p| p > 0.0)
-        })
+        .filter(|t| !t.symbol.eq_ignore_ascii_case("ZEC") && t.price.map_or(false, |p| p > 0.0))
         .collect();
     list.sort_by(|a, b| a.symbol.cmp(&b.symbol));
     list
@@ -210,7 +207,10 @@ pub async fn get_quote(
         .map_err(|e| anyhow!("Failed to parse quote: {e}"))?;
 
     let quote = json.get("quote").unwrap_or(&json);
-    let request = json.get("quoteRequest").cloned().unwrap_or(serde_json::json!({}));
+    let request = json
+        .get("quoteRequest")
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
 
     let deposit_address = quote
         .get("depositAddress")

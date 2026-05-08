@@ -223,11 +223,14 @@ abstract class _ActiveAccount2 with Store {
       final hadBalance = poolBalances.total > 0;
       final newAllZero = next.total == 0;
       if (hadBalance && newAllZero) {
-        final transient = store2.syncStatus2.syncing || store2.isSyncBoosted();
+        final transient = store2.syncStatus2.syncing ||
+            store2.syncStatus2.maintenanceQueueLen > 0 ||
+            store2.isSyncBoosted();
         if (transient) {
           logger.w('[AA] suppressed transient zero balance '
               '(prev=${poolBalances.total} zat, '
               'syncing=${store2.syncStatus2.syncing}, '
+              'queue=${store2.syncStatus2.maintenanceQueueLen}, '
               'boosted=${store2.isSyncBoosted()})');
           return;
         }

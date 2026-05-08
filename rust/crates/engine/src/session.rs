@@ -42,7 +42,9 @@ pub struct SessionStore {
 
 impl SessionStore {
     pub fn new() -> Self {
-        Self { sessions: Vec::new() }
+        Self {
+            sessions: Vec::new(),
+        }
     }
 
     pub fn add(&mut self, session: Session) {
@@ -146,32 +148,23 @@ pub async fn open_session(
         .map_err(|e| anyhow!("Failed to parse session response: {e}"))?;
 
     let session = Session {
-        session_id: json["session_id"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
-        bearer_token: json["bearer_token"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
+        session_id: json["session_id"].as_str().unwrap_or("").to_string(),
+        bearer_token: json["bearer_token"].as_str().unwrap_or("").to_string(),
         server_url: server_url.to_string(),
         deposit_txid: txid.to_string(),
         balance_remaining: json["balance"]
             .as_u64()
             .or_else(|| json["balance_remaining"].as_u64())
             .unwrap_or(0),
-        expires_at: json["expires_at"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
+        expires_at: json["expires_at"].as_str().unwrap_or("").to_string(),
         created_at: now_iso(),
-        cost_per_request: json["cost_per_request"]
-            .as_u64()
-            .unwrap_or(0),
+        cost_per_request: json["cost_per_request"].as_u64().unwrap_or(0),
     };
 
     if session.session_id.is_empty() || session.bearer_token.is_empty() {
-        return Err(anyhow!("Invalid session response: missing session_id or bearer_token"));
+        return Err(anyhow!(
+            "Invalid session response: missing session_id or bearer_token"
+        ));
     }
 
     let mut store = load_sessions(data_dir);

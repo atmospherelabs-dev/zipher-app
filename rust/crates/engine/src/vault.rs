@@ -111,12 +111,12 @@ fn encrypt_seed(seed: &[u8], passphrase: &str) -> Result<Vec<u8>> {
     rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
 
     let mut key = derive_key(passphrase.as_bytes(), &salt)?;
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| anyhow!("AES key init: {}", e))?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| anyhow!("AES key init: {}", e))?;
     key.zeroize();
 
     let nonce = Nonce::from_slice(&nonce_bytes);
-    let ciphertext = cipher.encrypt(nonce, seed)
+    let ciphertext = cipher
+        .encrypt(nonce, seed)
         .map_err(|e| anyhow!("Encryption failed: {}", e))?;
 
     let mut output = Vec::with_capacity(SALT_LEN + NONCE_LEN + ciphertext.len());
@@ -142,12 +142,12 @@ fn decrypt_seed(data: &[u8], passphrase: &str) -> Result<Vec<u8>> {
     let ciphertext = &data[SALT_LEN + NONCE_LEN..];
 
     let mut key = derive_key(passphrase.as_bytes(), salt)?;
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| anyhow!("AES key init: {}", e))?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| anyhow!("AES key init: {}", e))?;
     key.zeroize();
 
     let nonce = Nonce::from_slice(nonce_bytes);
-    let plaintext = cipher.decrypt(nonce, ciphertext)
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext)
         .map_err(|_| anyhow!("Decryption failed — wrong passphrase or corrupted vault"))?;
 
     Ok(plaintext)

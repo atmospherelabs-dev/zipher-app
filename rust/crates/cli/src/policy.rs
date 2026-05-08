@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::{print_ok, Config, ensure_data_dir};
+use crate::{ensure_data_dir, print_ok, Config};
 
 pub async fn cmd_policy_show(cfg: &Config) -> Result<()> {
     let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
@@ -74,11 +74,7 @@ pub async fn cmd_policy_remove_allowlist(cfg: &Config, address: String) -> Resul
 }
 
 pub async fn cmd_audit(cfg: &Config, limit: usize, since: Option<String>) -> Result<()> {
-    let entries = zipher_engine::audit::query_log(
-        &cfg.data_dir,
-        limit,
-        since.as_deref(),
-    )?;
+    let entries = zipher_engine::audit::query_log(&cfg.data_dir, limit, since.as_deref())?;
 
     print_ok(&entries, cfg.human, |entries| {
         if entries.is_empty() {

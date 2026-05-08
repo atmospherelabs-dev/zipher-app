@@ -18,8 +18,7 @@ pub struct MultiChainAddresses {
 }
 
 fn parse_mnemonic(seed_phrase: &str) -> Result<Mnemonic> {
-    Mnemonic::from_phrase(seed_phrase)
-        .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {}", e))
+    Mnemonic::from_phrase(seed_phrase).map_err(|e| anyhow::anyhow!("Invalid seed phrase: {}", e))
 }
 
 fn derive_address_for<S: ChainSigner>(
@@ -123,7 +122,10 @@ pub async fn sign_and_broadcast_evm_tx(
     if let Some(error) = resp.get("error") {
         return Err(anyhow::anyhow!(
             "RPC error: {}",
-            error.get("message").and_then(|m| m.as_str()).unwrap_or("unknown")
+            error
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown")
         ));
     }
 

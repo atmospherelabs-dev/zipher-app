@@ -7,7 +7,7 @@ use zcash_protocol::consensus::NetworkType;
 
 use crate::types::{AddressInfo, EngineTransactionRecord, WalletBalance};
 
-use super::{open_wallet_db, open_cipher_conn, ENGINE};
+use super::{open_cipher_conn, open_wallet_db, ENGINE};
 
 fn network_type(params: &zcash_protocol::consensus::Network) -> NetworkType {
     match params {
@@ -115,9 +115,8 @@ pub async fn get_wallet_balance() -> Result<WalletBalance> {
     // causes the mobile UI to overwrite a known-good balance with 0 — which
     // looks to a user mid-send like their funds disappeared. Surface them as
     // explicit errors so Dart `updateBalance` can preserve the last balance.
-    let summary = summary.ok_or_else(|| {
-        anyhow::anyhow!("wallet summary not yet available (sync in progress)")
-    })?;
+    let summary = summary
+        .ok_or_else(|| anyhow::anyhow!("wallet summary not yet available (sync in progress)"))?;
 
     let account_ids = db
         .get_account_ids()
@@ -224,13 +223,13 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
             txid,
             COALESCE(mined_height, 0) AS height,
             COALESCE(block_time, CAST(strftime('%s', 'now') AS INTEGER)) AS block_time,
-            account_balance_delta AS delta,
+            COALESCE(account_balance_delta, 0) AS delta,
             fee_paid,
-            sent_note_count,
-            received_note_count,
-            has_change,
-            is_shielding,
-            expired_unmined
+            COALESCE(sent_note_count, 0) AS sent_note_count,
+            COALESCE(received_note_count, 0) AS received_note_count,
+            COALESCE(has_change, 0) AS has_change,
+            COALESCE(is_shielding, 0) AS is_shielding,
+            COALESCE(expired_unmined, 0) AS expired_unmined
         FROM v_transactions
         ORDER BY mined_height IS NOT NULL, mined_height DESC, tx_index DESC",
     )?;
@@ -265,9 +264,16 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
             "unknown"
         };
 
-        tracing::info!(
+        tracing::trace!(
             "[TX] txid={} h={} delta={} fee={:?} sent={} recv={} expired={} kind={}",
-            &txid_hex[..12], height, delta, fee_paid, sent_count, received_count, expired, kind
+            &txid_hex[..12],
+            height,
+            delta,
+            fee_paid,
+            sent_count,
+            received_count,
+            expired,
+            kind
         );
 
         Ok(EngineTransactionRecord {
@@ -293,6 +299,7 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
         }
     }
 
+    let mut memos_found = 0u32;
     for tx in &mut txs {
         let mut txid_bytes = hex::decode(&tx.txid).unwrap_or_default();
         txid_bytes.reverse();
@@ -307,14 +314,37 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
             .ok();
         if let Some(memo_bytes) = memo {
             if let Ok(memo_obj) = zcash_protocol::memo::MemoBytes::from_bytes(&memo_bytes) {
-                if let Ok(zcash_protocol::memo::Memo::Text(t)) =
-                    zcash_protocol::memo::Memo::try_from(memo_obj)
-                {
-                    tx.memo = Some(String::from(t));
+                match zcash_protocol::memo::Memo::try_from(memo_obj) {
+                    Ok(zcash_protocol::memo::Memo::Text(t)) => {
+                        let text = String::from(t);
+                        tracing::info!(
+                            "[TX] memo found for {}: {}",
+                            &tx.txid[..12],
+                            &text[..text.len().min(40)]
+                        );
+                        tx.memo = Some(text);
+                        memos_found += 1;
+                    }
+                    Ok(zcash_protocol::memo::Memo::Empty) => {}
+                    Ok(other) => {
+                        tracing::info!(
+                            "[TX] non-text memo for {}: {:?}",
+                            &tx.txid[..12],
+                            std::mem::discriminant(&other)
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("[TX] memo decode error for {}: {:?}", &tx.txid[..12], e);
+                    }
                 }
             }
         }
     }
+    tracing::info!(
+        "[TX] loaded {} transactions, {} with memos",
+        txs.len(),
+        memos_found
+    );
 
     Ok(txs)
 }

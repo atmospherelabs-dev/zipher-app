@@ -43,9 +43,7 @@ import 'widgets.dart';
 const DAY_SEC = 24 * 3600;
 const DAY_MS = DAY_SEC * 1000;
 
-var logger = Logger(
-  output: MultiOutput([ConsoleOutput(), AppLogOutput()]),
-);
+var logger = createLogger();
 
 const APP_NAME = "Zipher";
 const ZECUNIT = 100000000.0;

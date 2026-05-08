@@ -32,12 +32,7 @@ struct AppState {
 // x402 response builder
 // ---------------------------------------------------------------------------
 
-fn payment_required_body(
-    pay_to: &str,
-    network: &str,
-    price: u64,
-    path: &str,
-) -> serde_json::Value {
+fn payment_required_body(pay_to: &str, network: &str, price: u64, path: &str) -> serde_json::Value {
     serde_json::json!({
         "x402Version": 2,
         "resource": {
@@ -83,19 +78,27 @@ async fn verify_payment(
 
     let sig_b64 = match sig_header {
         Some(s) => s,
-        None => return Err((StatusCode::PAYMENT_REQUIRED, Json(serde_json::json!({"error": "missing_payment"})))),
+        None => {
+            return Err((
+                StatusCode::PAYMENT_REQUIRED,
+                Json(serde_json::json!({"error": "missing_payment"})),
+            ))
+        }
     };
 
-    let decoded = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        sig_b64,
-    )
-    .map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid PAYMENT-SIGNATURE encoding"})))
-    })?;
+    let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, sig_b64)
+        .map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid PAYMENT-SIGNATURE encoding"})),
+            )
+        })?;
 
     let payload: PaymentSignaturePayload = serde_json::from_slice(&decoded).map_err(|_| {
-        (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "invalid PAYMENT-SIGNATURE JSON"})))
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "invalid PAYMENT-SIGNATURE JSON"})),
+        )
     })?;
 
     let txid = &payload.payload.txid;
@@ -104,7 +107,10 @@ async fn verify_payment(
         Some(k) => k,
         None => {
             // Demo mode: accept any credential without CipherPay verification
-            tracing::warn!("Demo mode: accepting payment {} without verification", &txid[..16]);
+            tracing::warn!(
+                "Demo mode: accepting payment {} without verification",
+                &txid[..16]
+            );
             zipher_engine::audit::log_event(
                 &state.data_dir,
                 "serve_payment_demo",
@@ -120,8 +126,8 @@ async fn verify_payment(
         }
     };
 
-    let cipherpay_url = std::env::var("CIPHERPAY_URL")
-        .unwrap_or_else(|_| CIPHERPAY_API.to_string());
+    let cipherpay_url =
+        std::env::var("CIPHERPAY_URL").unwrap_or_else(|_| CIPHERPAY_API.to_string());
     let client = reqwest::Client::new();
     let resp = client
         .post(&format!("{}{}", cipherpay_url, VERIFY_PATH))
@@ -134,7 +140,10 @@ async fn verify_payment(
         .send()
         .await
         .map_err(|e| {
-            (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error": format!("CipherPay verify failed: {}", e)})))
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"error": format!("CipherPay verify failed: {}", e)})),
+            )
         })?;
 
     if !resp.status().is_success() {
@@ -346,7 +355,9 @@ pub async fn cmd_serve(config: &Config, port: u16, price: Option<u64>) {
 
     let cipherpay_key = std::env::var("CIPHERPAY_API_KEY").ok();
     if cipherpay_key.is_none() {
-        eprintln!("Warning: CIPHERPAY_API_KEY not set. Payment verification will be skipped (demo mode).");
+        eprintln!(
+            "Warning: CIPHERPAY_API_KEY not set. Payment verification will be skipped (demo mode)."
+        );
         eprintln!("         In demo mode, any PAYMENT-SIGNATURE header is accepted.");
     }
 
@@ -370,7 +381,10 @@ pub async fn cmd_serve(config: &Config, port: u16, price: Option<u64>) {
     println!("Zipher Agent API");
     println!("  Listening:  http://0.0.0.0:{}", port);
     println!("  Protocol:   x402 (pay-per-call with shielded ZEC)");
-    println!("  Price:      {} ZEC per call ({} zatoshis)", price_zec, price_zatoshis);
+    println!(
+        "  Price:      {} ZEC per call ({} zatoshis)",
+        price_zec, price_zatoshis
+    );
     println!("  Pay to:     {}", &pay_to[..pay_to.len().min(20)]);
     println!();
     println!("Endpoints:");

@@ -59,6 +59,14 @@ class _HomeState extends State<HomePageInner> {
   int _lastTxCount = -1;
   String? _accountEmoji;
 
+  /// True when the wallet is more than ~10 blocks behind the chain tip,
+  /// i.e. initial sync or recovery -- NOT routine 1-block catches.
+  bool get _isSignificantlyBehind {
+    final latest = syncStatus2.latestHeight;
+    if (latest == null || latest == 0) return true;
+    return syncStatus2.syncedHeight < latest - 10;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -445,8 +453,12 @@ class _HomeState extends State<HomePageInner> {
                                   ],
                                 ),
 
-                          // Pending indicator
-                          if (aa.poolBalances.hasUnconfirmed && !_balanceHidden) ...[
+                          // Pending indicator -- only show when significantly
+                          // behind the chain tip (initial sync / recovery),
+                          // not during routine 1-2 block catches.
+                          if (aa.poolBalances.hasUnconfirmed &&
+                              !_balanceHidden &&
+                              _isSignificantlyBehind) ...[
                             const Gap(4),
                             Text(
                               '${amountToString2(aa.poolBalances.unconfirmed)} pending',
@@ -605,6 +617,7 @@ class _HomeState extends State<HomePageInner> {
                             tx: recentTxs[index], index: index,
                             swapInfo: entry?.swap,
                             swapStatus: entry?.status,
+                            hideAmounts: _balanceHidden,
                           );
                         },
                         childCount: recentTxs.length,
@@ -1023,7 +1036,8 @@ class _TxRow extends StatefulWidget {
   final int index;
   final StoredSwap? swapInfo;
   final NearSwapStatus? swapStatus;
-  const _TxRow({required this.tx, required this.index, this.swapInfo, this.swapStatus});
+  final bool hideAmounts;
+  const _TxRow({required this.tx, required this.index, this.swapInfo, this.swapStatus, this.hideAmounts = false});
 
   @override
   State<_TxRow> createState() => _TxRowState();
@@ -1123,6 +1137,9 @@ class _TxRowState extends State<_TxRow> {
         : price != null
             ? '\$${(fiatValue * price).toStringAsFixed(2)}'
             : '';
+
+    final displayAmount = widget.hideAmounts ? '••••' : amountStr;
+    final displayFiat = widget.hideAmounts ? '' : fiat;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
@@ -1302,17 +1319,17 @@ class _TxRowState extends State<_TxRow> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      amountStr,
+                      displayAmount,
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
-                        color: amountColor,
+                        color: widget.hideAmounts ? ZipherColors.text40 : amountColor,
                       ),
                     ),
-                    if (fiat.isNotEmpty) ...[
+                    if (displayFiat.isNotEmpty) ...[
                       const Gap(1),
                       Text(
-                        fiat,
+                        displayFiat,
                         style: TextStyle(
                           fontSize: 11,
                           color: ZipherColors.text40,

@@ -318,6 +318,10 @@ pub async fn engine_get_sync_progress() -> Result<EngineSyncProgress> {
         phase: p.phase,
         scanning_up_to: p.scanning_up_to,
         maintenance_queue_len: p.maintenance_queue_len,
+        scan_progress_num: p.scan_progress_num,
+        scan_progress_den: p.scan_progress_den,
+        recovery_progress_num: p.recovery_progress_num,
+        recovery_progress_den: p.recovery_progress_den,
     })
 }
 
@@ -337,6 +341,10 @@ pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
                         status: event.status,
                         scope: event.scope,
                         message: event.message,
+                        scan_progress_num: event.scan_progress_num,
+                        scan_progress_den: event.scan_progress_den,
+                        recovery_progress_num: event.recovery_progress_num,
+                        recovery_progress_den: event.recovery_progress_den,
                     });
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -361,6 +369,10 @@ pub struct EngineSyncProgress {
     pub phase: String,
     pub scanning_up_to: u32,
     pub maintenance_queue_len: u32,
+    pub scan_progress_num: u64,
+    pub scan_progress_den: u64,
+    pub recovery_progress_num: u64,
+    pub recovery_progress_den: u64,
 }
 
 pub struct EngineSyncEvent {
@@ -373,6 +385,10 @@ pub struct EngineSyncEvent {
     pub status: Option<String>,
     pub scope: Option<String>,
     pub message: Option<String>,
+    pub scan_progress_num: u64,
+    pub scan_progress_den: u64,
+    pub recovery_progress_num: u64,
+    pub recovery_progress_den: u64,
 }
 
 // ---------------------------------------------------------------------------

@@ -41,7 +41,10 @@ pub async fn get_ows_evm_address(wallet: &str) -> Result<String> {
             break;
         }
     }
-    Err(anyhow::anyhow!("EVM address not found for wallet '{}'", wallet))
+    Err(anyhow::anyhow!(
+        "EVM address not found for wallet '{}'",
+        wallet
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -95,7 +98,10 @@ pub async fn cmd_send_pczt(
             println!("  Fee:    {} zat", r.fee);
             println!();
             println!("Sign and broadcast via OWS:");
-            println!("  ows send-tx --chain zcash:mainnet --wallet <name> --tx {}", &r.pczt_hex[..64.min(r.pczt_hex.len())]);
+            println!(
+                "  ows send-tx --chain zcash:mainnet --wallet <name> --tx {}",
+                &r.pczt_hex[..64.min(r.pczt_hex.len())]
+            );
         },
     );
 
@@ -118,7 +124,9 @@ pub async fn cmd_market_list(cfg: &Config, keyword: Option<String>, limit: u32) 
                 let state = m.state.as_deref().unwrap_or("unknown");
                 println!("  #{} [{}] {}", m.id, state, m.title);
                 if !m.outcomes.is_empty() {
-                    let outcomes: Vec<String> = m.outcomes.iter()
+                    let outcomes: Vec<String> = m
+                        .outcomes
+                        .iter()
                         .map(|o| format!("{}: {:.1}%", o.title, o.price * 100.0))
                         .collect();
                     println!("      {}", outcomes.join(" | "));
@@ -141,7 +149,13 @@ pub async fn cmd_market_show(cfg: &Config, id: u64) -> Result<()> {
         println!("  Network: {}", m.network_id.unwrap_or(0));
         println!();
         for (i, o) in m.outcomes.iter().enumerate() {
-            println!("  Outcome {}: {} — {:.1}% (${:.4})", i, o.title, o.price * 100.0, o.price);
+            println!(
+                "  Outcome {}: {} — {:.1}% (${:.4})",
+                i,
+                o.title,
+                o.price * 100.0,
+                o.price
+            );
         }
     });
     Ok(())
@@ -163,7 +177,11 @@ pub async fn cmd_market_bet(
         eprintln!();
         eprintln!("=== Placing prediction market bet with ZEC ===");
         eprintln!("    Chains: Zcash → NEAR → BNB Chain (BSC)");
-        eprintln!("    Slippage: {:.1}%, Max price move: {:.1}%", slippage * 100.0, max_price_move);
+        eprintln!(
+            "    Slippage: {:.1}%, Max price move: {:.1}%",
+            slippage * 100.0,
+            max_price_move
+        );
         eprintln!();
         eprintln!("[1/7] (BNB Chain) Resolving your BSC address via OWS...");
     }
@@ -176,22 +194,31 @@ pub async fn cmd_market_bet(
     let tokens = zipher_engine::swap::get_tokens().await?;
     let zec = zipher_engine::swap::find_zec_token(&tokens)
         .ok_or_else(|| anyhow::anyhow!("ZEC not found in NEAR Intents"))?;
-    let zec_price = zec.price
-        .ok_or_else(|| anyhow::anyhow!("ZEC price unavailable from NEAR Intents — cannot size swap safely"))?;
+    let zec_price = zec.price.ok_or_else(|| {
+        anyhow::anyhow!("ZEC price unavailable from NEAR Intents — cannot size swap safely")
+    })?;
 
     if cfg.human {
-        eprintln!("       Live ZEC price: ${:.2} (from NEAR Intents)", zec_price);
+        eprintln!(
+            "       Live ZEC price: ${:.2} (from NEAR Intents)",
+            zec_price
+        );
     }
 
-    let pre_quote = zipher_engine::myriad::get_quote(market_id, outcome, "buy", amount_usdt, slippage).await?;
+    let pre_quote =
+        zipher_engine::myriad::get_quote(market_id, outcome, "buy", amount_usdt, slippage).await?;
     let initial_price = pre_quote.price;
     if cfg.human {
-        eprintln!("       Pre-swap quote: {:.4} shares @ {:.4} price", pre_quote.shares, initial_price);
+        eprintln!(
+            "       Pre-swap quote: {:.4} shares @ {:.4} price",
+            pre_quote.shares, initial_price
+        );
     }
 
     auto_open(cfg).await?;
     let addresses = zipher_engine::query::get_addresses().await?;
-    let refund_addr = addresses.first()
+    let refund_addr = addresses
+        .first()
         .map(|a| a.address.clone())
         .unwrap_or_default();
 
@@ -199,19 +226,24 @@ pub async fn cmd_market_bet(
         eprintln!();
         eprintln!("[2/7] (BNB Chain) Checking BNB gas balance...");
     }
-    let bnb_balance = zipher_engine::myriad::get_bnb_balance(
-        zipher_engine::myriad::BSC_RPC, &bsc_address,
-    ).await?;
+    let bnb_balance =
+        zipher_engine::myriad::get_bnb_balance(zipher_engine::myriad::BSC_RPC, &bsc_address)
+            .await?;
 
     let needs_gas = bnb_balance < zipher_engine::myriad::MIN_BNB_FOR_GAS;
     if needs_gas {
         if cfg.human {
-            eprintln!("       BNB balance: {:.6} — not enough for gas, auto-funding...",
-                bnb_balance as f64 / 1e18);
+            eprintln!(
+                "       BNB balance: {:.6} — not enough for gas, auto-funding...",
+                bnb_balance as f64 / 1e18
+            );
         }
 
-        let bnb_token = tokens.iter()
-            .find(|t| t.symbol.eq_ignore_ascii_case("BNB") && t.blockchain.eq_ignore_ascii_case("bsc"))
+        let bnb_token = tokens
+            .iter()
+            .find(|t| {
+                t.symbol.eq_ignore_ascii_case("BNB") && t.blockchain.eq_ignore_ascii_case("bsc")
+            })
             .ok_or_else(|| anyhow::anyhow!("BNB on BSC not found in NEAR Intents"))?;
 
         let bnb_target = 0.005_f64;
@@ -220,33 +252,59 @@ pub async fn cmd_market_bet(
         let zec_for_bnb = (bnb_cost_usd / zec_price * 1e8) as u64;
 
         if cfg.human {
-            eprintln!("       (Zcash → NEAR → BSC) Swapping {:.8} ZEC → {:.4} BNB for gas...",
-                zec_for_bnb as f64 / 1e8, bnb_target);
+            eprintln!(
+                "       (Zcash → NEAR → BSC) Swapping {:.8} ZEC → {:.4} BNB for gas...",
+                zec_for_bnb as f64 / 1e8,
+                bnb_target
+            );
         }
 
         let bnb_swap_quote = zipher_engine::swap::get_quote(
-            &zec.asset_id, &bnb_token.asset_id,
-            &zec_for_bnb.to_string(), &bsc_address, &refund_addr, 200,
-        ).await?;
+            &zec.asset_id,
+            &bnb_token.asset_id,
+            &zec_for_bnb.to_string(),
+            &bsc_address,
+            &refund_addr,
+            200,
+        )
+        .await?;
 
         let (_send_amount, _fee, _) = zipher_engine::send::propose_send(
-            &bnb_swap_quote.deposit_address, zec_for_bnb, None, false,
-        ).await?;
+            &bnb_swap_quote.deposit_address,
+            zec_for_bnb,
+            None,
+            false,
+        )
+        .await?;
         let pczt_bytes = zipher_engine::send::create_pczt().await?;
         let pczt_hex = hex::encode(&pczt_bytes);
 
         let bnb_tx = run_ows(&[
-            "sign", "send-tx", "--chain", "zcash:mainnet", "--wallet", &ows_wallet,
-            "--rpc-url", &cfg.server_url, "--tx", &pczt_hex,
-        ]).await?;
+            "sign",
+            "send-tx",
+            "--chain",
+            "zcash:mainnet",
+            "--wallet",
+            &ows_wallet,
+            "--rpc-url",
+            &cfg.server_url,
+            "--tx",
+            &pczt_hex,
+        ])
+        .await?;
         zipher_engine::send::clear_pczt_lock(&cfg.data_dir);
 
         if cfg.human {
-            eprintln!("       (Zcash) Sent {:.8} ZEC for gas — tx: {}...",
-                zec_for_bnb as f64 / 1e8, &bnb_tx[..16.min(bnb_tx.len())]);
+            eprintln!(
+                "       (Zcash) Sent {:.8} ZEC for gas — tx: {}...",
+                zec_for_bnb as f64 / 1e8,
+                &bnb_tx[..16.min(bnb_tx.len())]
+            );
         }
 
-        zipher_engine::swap::submit_deposit(&bnb_tx, &bnb_swap_quote.deposit_address).await.ok();
+        zipher_engine::swap::submit_deposit(&bnb_tx, &bnb_swap_quote.deposit_address)
+            .await
+            .ok();
 
         if cfg.human {
             eprintln!("       (NEAR)  Waiting for BNB gas swap to settle...");
@@ -273,7 +331,10 @@ pub async fn cmd_market_bet(
         zipher_engine::wallet::close().await;
         force_sync(cfg).await?;
     } else if cfg.human {
-        eprintln!("       BNB balance: {:.6} — enough for gas", bnb_balance as f64 / 1e18);
+        eprintln!(
+            "       BNB balance: {:.6} — enough for gas",
+            bnb_balance as f64 / 1e18
+        );
     }
 
     if cfg.human {
@@ -281,23 +342,32 @@ pub async fn cmd_market_bet(
         eprintln!("[3/7] (Zcash → NEAR → BSC) Swapping ZEC → USDT via NEAR Intents...");
     }
 
-    let usdt_matches: Vec<_> = tokens.iter()
-        .filter(|t| t.symbol.eq_ignore_ascii_case("USDT") && t.blockchain.eq_ignore_ascii_case("bsc"))
+    let usdt_matches: Vec<_> = tokens
+        .iter()
+        .filter(|t| {
+            t.symbol.eq_ignore_ascii_case("USDT") && t.blockchain.eq_ignore_ascii_case("bsc")
+        })
         .collect();
-    let usdt = usdt_matches.first()
+    let usdt = usdt_matches
+        .first()
         .ok_or_else(|| anyhow::anyhow!("USDT on BSC not found in NEAR Intents"))?;
 
     let usdt_needed = amount_usdt * 1.02;
     let zec_needed = (usdt_needed / zec_price * 1e8) as u64;
 
     let swap_quote = zipher_engine::swap::get_quote(
-        &zec.asset_id, &usdt.asset_id,
-        &zec_needed.to_string(), &bsc_address, &refund_addr, 100,
-    ).await?;
+        &zec.asset_id,
+        &usdt.asset_id,
+        &zec_needed.to_string(),
+        &bsc_address,
+        &refund_addr,
+        100,
+    )
+    .await?;
 
-    let (_send_amount, _fee, _) = zipher_engine::send::propose_send(
-        &swap_quote.deposit_address, zec_needed, None, false,
-    ).await?;
+    let (_send_amount, _fee, _) =
+        zipher_engine::send::propose_send(&swap_quote.deposit_address, zec_needed, None, false)
+            .await?;
 
     let pczt_bytes = zipher_engine::send::create_pczt().await?;
     let pczt_hex = hex::encode(&pczt_bytes);
@@ -306,17 +376,31 @@ pub async fn cmd_market_bet(
         eprintln!("       (Zcash) Signing PCZT via OWS...");
     }
     let zcash_tx = run_ows(&[
-        "sign", "send-tx", "--chain", "zcash:mainnet", "--wallet", &ows_wallet,
-        "--rpc-url", &cfg.server_url, "--tx", &pczt_hex,
-    ]).await?;
+        "sign",
+        "send-tx",
+        "--chain",
+        "zcash:mainnet",
+        "--wallet",
+        &ows_wallet,
+        "--rpc-url",
+        &cfg.server_url,
+        "--tx",
+        &pczt_hex,
+    ])
+    .await?;
     zipher_engine::send::clear_pczt_lock(&cfg.data_dir);
 
     if cfg.human {
-        eprintln!("       (Zcash) Sent {:.8} ZEC — tx: {}...",
-            zec_needed as f64 / 1e8, &zcash_tx[..16.min(zcash_tx.len())]);
+        eprintln!(
+            "       (Zcash) Sent {:.8} ZEC — tx: {}...",
+            zec_needed as f64 / 1e8,
+            &zcash_tx[..16.min(zcash_tx.len())]
+        );
     }
 
-    zipher_engine::swap::submit_deposit(&zcash_tx, &swap_quote.deposit_address).await.ok();
+    zipher_engine::swap::submit_deposit(&zcash_tx, &swap_quote.deposit_address)
+        .await
+        .ok();
 
     if cfg.human {
         eprintln!("       (NEAR)  Waiting for cross-chain swap to settle...");
@@ -337,7 +421,9 @@ pub async fn cmd_market_bet(
         }
     }
     if !swap_settled {
-        return Err(anyhow::anyhow!("ZEC → USDT swap timed out after 10 minutes"));
+        return Err(anyhow::anyhow!(
+            "ZEC → USDT swap timed out after 10 minutes"
+        ));
     }
 
     if cfg.human {
@@ -348,7 +434,9 @@ pub async fn cmd_market_bet(
         zipher_engine::myriad::BSC_RPC,
         zipher_engine::myriad::USDT_BSC,
         &bsc_address,
-    ).await.unwrap_or(0);
+    )
+    .await
+    .unwrap_or(0);
 
     let usdt_balance_f = usdt_balance as f64 / 1e18; // BSC USDT = 18 decimals
     if cfg.human {
@@ -362,23 +450,34 @@ pub async fn cmd_market_bet(
     }
 
     // Adjust bet to actual balance (swap fees/slippage eat 1-5%)
-    let actual_bet = if usdt_balance_f < amount_usdt { usdt_balance_f } else { amount_usdt };
+    let actual_bet = if usdt_balance_f < amount_usdt {
+        usdt_balance_f
+    } else {
+        amount_usdt
+    };
     let adjusted = actual_bet < amount_usdt;
     if adjusted && cfg.human {
-        eprintln!("       Adjusting bet: ${:.2} → ${:.2} (swap fees)", amount_usdt, actual_bet);
+        eprintln!(
+            "       Adjusting bet: ${:.2} → ${:.2} (swap fees)",
+            amount_usdt, actual_bet
+        );
     }
 
     if cfg.human {
         eprintln!();
         eprintln!("[5/7] (BNB Chain) Refreshing prediction market quote + price check...");
     }
-    let quote = zipher_engine::myriad::get_quote(market_id, outcome, "buy", actual_bet, slippage).await?;
+    let quote =
+        zipher_engine::myriad::get_quote(market_id, outcome, "buy", actual_bet, slippage).await?;
 
     let current_price = quote.price;
     if initial_price > 0.0 && current_price > 0.0 {
         let price_move_pct = ((current_price - initial_price) / initial_price * 100.0).abs();
         if cfg.human {
-            eprintln!("       Price: {:.4} → {:.4} ({:+.1}% change)", initial_price, current_price, price_move_pct);
+            eprintln!(
+                "       Price: {:.4} → {:.4} ({:+.1}% change)",
+                initial_price, current_price, price_move_pct
+            );
         }
         if price_move_pct > max_price_move {
             return Err(anyhow::anyhow!(
@@ -389,7 +488,10 @@ pub async fn cmd_market_bet(
     }
 
     if cfg.human {
-        eprintln!("       You'll get {:.4} shares for ${:.2} USDT (fresh quote)", quote.shares, actual_bet);
+        eprintln!(
+            "       You'll get {:.4} shares for ${:.2} USDT (fresh quote)",
+            quote.shares, actual_bet
+        );
     }
 
     if cfg.human {
@@ -401,17 +503,30 @@ pub async fn cmd_market_bet(
         zipher_engine::myriad::PM_CONTRACT,
         &format!("{:064x}", approve_amount),
     );
-    let nonce = zipher_engine::myriad::get_nonce(
-        zipher_engine::myriad::BSC_RPC, &bsc_address,
-    ).await?;
+    let nonce =
+        zipher_engine::myriad::get_nonce(zipher_engine::myriad::BSC_RPC, &bsc_address).await?;
     let approve_tx = zipher_engine::myriad::build_unsigned_eip1559_tx(
-        56, nonce, 1_000_000_000, 5_000_000_000, 100_000,
-        zipher_engine::myriad::USDT_BSC, 0, &approve_data,
+        56,
+        nonce,
+        1_000_000_000,
+        5_000_000_000,
+        100_000,
+        zipher_engine::myriad::USDT_BSC,
+        0,
+        &approve_data,
     );
     let approve_hex = hex::encode(&approve_tx);
     run_ows(&[
-        "sign", "send-tx", "--chain", "eip155:56", "--wallet", &ows_wallet, "--tx", &approve_hex,
-    ]).await?;
+        "sign",
+        "send-tx",
+        "--chain",
+        "eip155:56",
+        "--wallet",
+        &ows_wallet,
+        "--tx",
+        &approve_hex,
+    ])
+    .await?;
 
     if cfg.human {
         eprintln!("       Approval signed via OWS and sent to BSC.");
@@ -425,13 +540,27 @@ pub async fn cmd_market_bet(
         .map_err(|e| anyhow::anyhow!("Invalid calldata: {}", e))?;
     let bet_nonce = nonce + 1;
     let bet_tx = zipher_engine::myriad::build_unsigned_eip1559_tx(
-        56, bet_nonce, 1_000_000_000, 5_000_000_000, 300_000,
-        zipher_engine::myriad::PM_CONTRACT, 0, &bet_data,
+        56,
+        bet_nonce,
+        1_000_000_000,
+        5_000_000_000,
+        300_000,
+        zipher_engine::myriad::PM_CONTRACT,
+        0,
+        &bet_data,
     );
     let bet_hex = hex::encode(&bet_tx);
     let bet_result = run_ows(&[
-        "sign", "send-tx", "--chain", "eip155:56", "--wallet", &ows_wallet, "--tx", &bet_hex,
-    ]).await?;
+        "sign",
+        "send-tx",
+        "--chain",
+        "eip155:56",
+        "--wallet",
+        &ows_wallet,
+        "--tx",
+        &bet_hex,
+    ])
+    .await?;
 
     #[derive(Serialize)]
     struct BetResult {
@@ -466,7 +595,10 @@ pub async fn cmd_market_bet(
             println!("  Amount:     ${:.2} USDT", r.amount_usdt);
             println!("  Shares:     {:.4}", r.shares);
             println!("  ZEC spent:  {:.8} ZEC", r.zec_spent as f64 / 1e8);
-            println!("  Price:      {:.4} → {:.4}", r.initial_price, r.final_price);
+            println!(
+                "  Price:      {:.4} → {:.4}",
+                r.initial_price, r.final_price
+            );
             println!("  BSC tx:     {}", r.bsc_tx);
             println!();
             println!("  Flow: ZEC → NEAR Intents → USDT (BSC) → Myriad bet");
@@ -493,28 +625,51 @@ pub async fn cmd_market_agent(
         eprintln!();
         eprintln!("=== Autonomous Market Agent ===");
         eprintln!("    Strategy: scan → research → Kelly-sized bet");
-        eprintln!("    Bankroll: ${:.2}, max bet: ${:.2}, min edge: {:.1}%", bankroll, max_bet, min_edge_pct);
-        eprintln!("    Slippage: {:.1}%, Max price move: {:.1}%", slippage * 100.0, max_price_move);
-        if dry_run { eprintln!("    Mode: DRY RUN (no trades executed)"); }
+        eprintln!(
+            "    Bankroll: ${:.2}, max bet: ${:.2}, min edge: {:.1}%",
+            bankroll, max_bet, min_edge_pct
+        );
+        eprintln!(
+            "    Slippage: {:.1}%, Max price move: {:.1}%",
+            slippage * 100.0,
+            max_price_move
+        );
+        if dry_run {
+            eprintln!("    Mode: DRY RUN (no trades executed)");
+        }
         eprintln!();
     }
 
-    if cfg.human { eprintln!("[1/4] Scanning prediction markets..."); }
+    if cfg.human {
+        eprintln!("[1/4] Scanning prediction markets...");
+    }
     let markets = zipher_engine::myriad::get_markets(None, scan_limit).await?;
     let scanned = zipher_engine::myriad::rank_for_research(&markets);
 
     if cfg.human {
-        eprintln!("      {} markets fetched, {} are contestable (uncertainty > 30%).",
-            markets.len(), scanned.len());
+        eprintln!(
+            "      {} markets fetched, {} are contestable (uncertainty > 30%).",
+            markets.len(),
+            scanned.len()
+        );
     }
 
     if scanned.is_empty() {
-        if cfg.human { eprintln!("      No contestable markets found. Agent standing by."); }
+        if cfg.human {
+            eprintln!("      No contestable markets found. Agent standing by.");
+        }
         #[derive(serde::Serialize)]
-        struct AgentResult { action: String, markets_scanned: usize }
+        struct AgentResult {
+            action: String,
+            markets_scanned: usize,
+        }
         print_ok(
-            AgentResult { action: "no_trade".into(), markets_scanned: markets.len() },
-            cfg.human, |_| {},
+            AgentResult {
+                action: "no_trade".into(),
+                markets_scanned: markets.len(),
+            },
+            cfg.human,
+            |_| {},
         );
         return Ok(());
     }
@@ -529,14 +684,21 @@ pub async fn cmd_market_agent(
 
     for sm in &top {
         let queries = zipher_engine::research::research_queries_for_market(&sm.market.title);
-        let query = queries.first().map(|s| s.as_str()).unwrap_or(&sm.market.title);
+        let query = queries
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or(&sm.market.title);
 
         if cfg.human {
-            eprintln!("      Researching: \"{}\" (uncertainty {:.0}%)",
-                sm.market.title, sm.uncertainty * 100.0);
+            eprintln!(
+                "      Researching: \"{}\" (uncertainty {:.0}%)",
+                sm.market.title,
+                sm.uncertainty * 100.0
+            );
         }
 
-        let report = zipher_engine::research::search_news(query, 5).await
+        let report = zipher_engine::research::search_news(query, 5)
+            .await
             .unwrap_or_else(|_| zipher_engine::research::ResearchReport {
                 query: query.to_string(),
                 items: vec![],
@@ -571,7 +733,10 @@ pub async fn cmd_market_agent(
                 &sm.market, idx, estimated, confidence, bankroll, max_bet,
             ) {
                 if signal.edge * 100.0 >= min_edge_pct {
-                    if best_signal.as_ref().map_or(true, |best| signal.expected_value > best.expected_value) {
+                    if best_signal
+                        .as_ref()
+                        .map_or(true, |best| signal.expected_value > best.expected_value)
+                    {
                         best_signal = Some(signal);
                     }
                 }
@@ -583,17 +748,25 @@ pub async fn cmd_market_agent(
         Some(s) => s,
         None => {
             if cfg.human {
-                eprintln!("      No opportunities meet the {:.1}% minimum edge. Agent standing by.", min_edge_pct);
+                eprintln!(
+                    "      No opportunities meet the {:.1}% minimum edge. Agent standing by.",
+                    min_edge_pct
+                );
             }
             #[derive(serde::Serialize)]
-            struct AgentResult { action: String, markets_scanned: usize, researched: usize }
+            struct AgentResult {
+                action: String,
+                markets_scanned: usize,
+                researched: usize,
+            }
             print_ok(
                 AgentResult {
                     action: "no_trade".into(),
                     markets_scanned: markets.len(),
                     researched: research_results.len(),
                 },
-                cfg.human, |_| {},
+                cfg.human,
+                |_| {},
             );
             return Ok(());
         }
@@ -602,8 +775,14 @@ pub async fn cmd_market_agent(
     if cfg.human {
         eprintln!();
         eprintln!("  Best opportunity:");
-        eprintln!("    Market:  #{} — {}", signal.market_id, signal.market_title);
-        eprintln!("    Outcome: #{} — {}", signal.outcome_index, signal.outcome_title);
+        eprintln!(
+            "    Market:  #{} — {}",
+            signal.market_id, signal.market_title
+        );
+        eprintln!(
+            "    Outcome: #{} — {}",
+            signal.outcome_index, signal.outcome_title
+        );
         eprintln!("    {}", signal.reason);
         eprintln!("    Bet:     ${:.2} USDT", signal.recommended_bet_usdt);
         eprintln!();
@@ -646,7 +825,11 @@ pub async fn cmd_market_agent(
                 println!("=== Agent Recommendation (dry run) ===");
                 println!("  Market:     #{} — {}", r.market_id, r.market_title);
                 println!("  Outcome:    #{} — {}", r.outcome_index, r.outcome_title);
-                println!("  Market:     {:.1}%  →  Estimate: {:.1}%", r.market_prob * 100.0, r.estimated_prob * 100.0);
+                println!(
+                    "  Market:     {:.1}%  →  Estimate: {:.1}%",
+                    r.market_prob * 100.0,
+                    r.estimated_prob * 100.0
+                );
                 println!("  Edge:       {:.1}%", r.edge_pct);
                 println!("  EV:         ${:.3} per $1 risked", r.expected_value);
                 println!("  Kelly:      {:.1}% of bankroll", r.kelly_fraction_pct);
@@ -672,7 +855,8 @@ pub async fn cmd_market_agent(
         ows_wallet,
         slippage,
         max_price_move,
-    ).await?;
+    )
+    .await?;
 
     Ok(())
 }
@@ -687,7 +871,10 @@ pub async fn cmd_market_positions(cfg: &Config, ows_wallet: String) -> Result<()
             println!("No open positions.");
         } else {
             for p in positions.iter() {
-                println!("  Market #{} — Outcome {} — {:.4} shares", p.market_id, p.outcome_id, p.shares);
+                println!(
+                    "  Market #{} — Outcome {} — {:.4} shares",
+                    p.market_id, p.outcome_id, p.shares
+                );
                 if let Some(ref title) = p.market_title {
                     println!("    {}", title);
                 }
@@ -698,11 +885,7 @@ pub async fn cmd_market_positions(cfg: &Config, ows_wallet: String) -> Result<()
 }
 
 /// Sell all open prediction market positions and sweep USDT back to ZEC.
-pub async fn cmd_market_sweep(
-    cfg: &Config,
-    ows_wallet: String,
-    sweep_to_zec: bool,
-) -> Result<()> {
+pub async fn cmd_market_sweep(cfg: &Config, ows_wallet: String, sweep_to_zec: bool) -> Result<()> {
     ensure_sapling_params(&cfg.data_dir).await?;
 
     let bsc_address = get_ows_evm_address(&ows_wallet).await?;
@@ -759,7 +942,8 @@ pub async fn cmd_market_sweep(
         let calldata_bytes = hex::decode(quote.calldata.trim_start_matches("0x"))
             .map_err(|e| anyhow::anyhow!("Invalid calldata: {}", e))?;
 
-        let nonce = zipher_engine::myriad::get_nonce(zipher_engine::myriad::BSC_RPC, &bsc_address).await?;
+        let nonce =
+            zipher_engine::myriad::get_nonce(zipher_engine::myriad::BSC_RPC, &bsc_address).await?;
         let gas_limit = zipher_engine::myriad::estimate_gas(
             zipher_engine::myriad::BSC_RPC,
             &bsc_address,
@@ -783,7 +967,14 @@ pub async fn cmd_market_sweep(
 
         let tx_hex = hex::encode(&tx_bytes);
         let signed = run_ows(&[
-            "sign", "send-tx", "--chain", "eip155:56", "--tx", &tx_hex, "--wallet", &ows_wallet,
+            "sign",
+            "send-tx",
+            "--chain",
+            "eip155:56",
+            "--tx",
+            &tx_hex,
+            "--wallet",
+            &ows_wallet,
         ])
         .await?;
 
@@ -795,7 +986,10 @@ pub async fn cmd_market_sweep(
     }
 
     if cfg.human {
-        println!("All positions sold. ~{:.2} USDT recovered on BSC.", total_usdt);
+        println!(
+            "All positions sold. ~{:.2} USDT recovered on BSC.",
+            total_usdt
+        );
     }
 
     // Sweep USDT back to ZEC if requested
@@ -813,7 +1007,9 @@ pub async fn cmd_market_sweep(
 
         let usdt_token = tokens
             .iter()
-            .find(|t| t.symbol.eq_ignore_ascii_case("USDT") && t.blockchain.eq_ignore_ascii_case("bsc"))
+            .find(|t| {
+                t.symbol.eq_ignore_ascii_case("USDT") && t.blockchain.eq_ignore_ascii_case("bsc")
+            })
             .ok_or_else(|| anyhow::anyhow!("USDT on BSC not found in swap tokens"))?;
 
         let usdt_balance = zipher_engine::evm_pay::get_erc20_balance(
@@ -969,7 +1165,8 @@ pub async fn cmd_polymarket_list(
 }
 
 pub async fn cmd_polymarket_show(cfg: &Config, condition_id: String) -> Result<()> {
-    let m = zipher_engine::polymarket::polymarket_gamma_get_market_by_condition(&condition_id).await?;
+    let m =
+        zipher_engine::polymarket::polymarket_gamma_get_market_by_condition(&condition_id).await?;
 
     let labels = m.outcome_labels();
     let prices = m.outcome_prices_vec();
@@ -1012,8 +1209,12 @@ pub async fn cmd_polymarket_show(cfg: &Config, condition_id: String) -> Result<(
         println!();
         println!(
             "  Bid: {}  Ask: {}  Spread: {}",
-            o.best_bid.map(|x| format!("{:.4}", x)).unwrap_or_else(|| "—".into()),
-            o.best_ask.map(|x| format!("{:.4}", x)).unwrap_or_else(|| "—".into()),
+            o.best_bid
+                .map(|x| format!("{:.4}", x))
+                .unwrap_or_else(|| "—".into()),
+            o.best_ask
+                .map(|x| format!("{:.4}", x))
+                .unwrap_or_else(|| "—".into()),
             o.spread
                 .map(|x| format!("{:.2}%", x * 100.0))
                 .unwrap_or_else(|| "—".into())
@@ -1101,7 +1302,8 @@ pub async fn cmd_polymarket_test_order(
     // 2. L1 auth — derive CLOB API credentials
     eprintln!("[2] L1 auth — deriving CLOB API key...");
     let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?.as_secs();
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
     let (auth_addr, auth_sig) = zipher_engine::polymarket::sign_clob_auth(seed, ts, 0)?;
     let ts_str = ts.to_string();
 
@@ -1118,20 +1320,29 @@ pub async fn cmd_polymarket_test_order(
     let mut resp = client
         .get("https://clob.polymarket.com/auth/derive-api-key")
         .headers(build_header_map(&l1_headers))
-        .send().await?;
+        .send()
+        .await?;
 
     if !resp.status().is_success() {
-        eprintln!("   derive-api-key returned {}, trying create...", resp.status());
+        eprintln!(
+            "   derive-api-key returned {}, trying create...",
+            resp.status()
+        );
         resp = client
             .post("https://clob.polymarket.com/auth/api-key")
             .headers(build_header_map(&l1_headers))
-            .send().await?;
+            .send()
+            .await?;
     }
 
     let auth_body: serde_json::Value = resp.json().await?;
-    eprintln!("   Auth response: {}", serde_json::to_string_pretty(&auth_body)?);
+    eprintln!(
+        "   Auth response: {}",
+        serde_json::to_string_pretty(&auth_body)?
+    );
 
-    let api_key = auth_body["apiKey"].as_str()
+    let api_key = auth_body["apiKey"]
+        .as_str()
         .or_else(|| auth_body["key"].as_str())
         .ok_or_else(|| anyhow::anyhow!("No API key in auth response"))?;
     let api_secret = auth_body["secret"].as_str().unwrap_or("");
@@ -1142,11 +1353,18 @@ pub async fn cmd_polymarket_test_order(
 
     // 3. Build & sign V2 order
     eprintln!("[3] Building V2 order...");
-    let side_int: u8 = if side.eq_ignore_ascii_case("BUY") { 0 } else { 1 };
+    let side_int: u8 = if side.eq_ignore_ascii_case("BUY") {
+        0
+    } else {
+        1
+    };
 
     // Fetch tick size for precision rounding
     let tick_size: f64 = {
-        let url = format!("https://clob.polymarket.com/tick-size?token_id={}", token_id);
+        let url = format!(
+            "https://clob.polymarket.com/tick-size?token_id={}",
+            token_id
+        );
         match client.get(&url).send().await {
             Ok(r) if r.status().is_success() => {
                 let txt = r.text().await.unwrap_or_default();
@@ -1164,7 +1382,12 @@ pub async fn cmd_polymarket_test_order(
     // Express price as integer ratio for exact tick alignment
     let price_denom = 10u64.pow(tick_decimals as u32);
     let price_num = (price / tick_size).round() as u64;
-    eprintln!("    Price as ratio: {}/{} = {:.6}", price_num, price_denom, price_num as f64 / price_denom as f64);
+    eprintln!(
+        "    Price as ratio: {}/{} = {:.6}",
+        price_num,
+        price_denom,
+        price_num as f64 / price_denom as f64
+    );
 
     let desired_taker = (amount / (price_num as f64 * tick_size) * 1e6).round() as u64;
     let shares_amount_raw = (desired_taker / price_denom) * price_denom;
@@ -1177,9 +1400,13 @@ pub async fn cmd_polymarket_test_order(
     };
 
     let salt = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?.as_millis().to_string();
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis()
+        .to_string();
     let timestamp = (std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?.as_secs()).to_string();
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs())
+    .to_string();
     let zero_bytes32 = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
     let order = zipher_engine::polymarket::PolymarketOrder {
@@ -1228,27 +1455,36 @@ pub async fn cmd_polymarket_test_order(
     // 5. Build L2 HMAC headers
     let body_str = serde_json::to_string(&order_body)?;
     let hmac_ts = (std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?.as_secs()).to_string();
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs())
+    .to_string();
     let hmac_message = format!("{}POST/order{}", hmac_ts, body_str);
-    eprintln!("   HMAC message: {}...{}", &hmac_message[..60.min(hmac_message.len())], &hmac_message[hmac_message.len().saturating_sub(30)..]);
+    eprintln!(
+        "   HMAC message: {}...{}",
+        &hmac_message[..60.min(hmac_message.len())],
+        &hmac_message[hmac_message.len().saturating_sub(30)..]
+    );
 
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
 
-    let secret_bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD, api_secret
-    ).unwrap_or_default();
+    let secret_bytes =
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, api_secret)
+            .unwrap_or_default();
     let mut mac = HmacSha256::new_from_slice(&secret_bytes)
         .map_err(|e| anyhow::anyhow!("HMAC init failed: {}", e))?;
     mac.update(hmac_message.as_bytes());
     let hmac_sig = base64::Engine::encode(
         &base64::engine::general_purpose::URL_SAFE,
-        mac.finalize().into_bytes()
+        mac.finalize().into_bytes(),
     );
 
     eprintln!("   HMAC sig: {}...", &hmac_sig[..20.min(hmac_sig.len())]);
-    eprintln!("   L2 headers: POLY_ADDRESS={}, POLY_API_KEY={}, POLY_TIMESTAMP={}", &address, api_key, &hmac_ts);
+    eprintln!(
+        "   L2 headers: POLY_ADDRESS={}, POLY_API_KEY={}, POLY_TIMESTAMP={}",
+        &address, api_key, &hmac_ts
+    );
 
     let l2_headers = [
         ("Content-Type", "application/json"),
@@ -1263,10 +1499,13 @@ pub async fn cmd_polymarket_test_order(
         .post("https://clob.polymarket.com/order")
         .headers(build_header_map(&l2_headers))
         .body(body_str)
-        .send().await?;
+        .send()
+        .await?;
 
     let status = resp.status();
-    let resp_body: serde_json::Value = resp.json().await
+    let resp_body: serde_json::Value = resp
+        .json()
+        .await
         .unwrap_or_else(|_| serde_json::json!({"error": "non-JSON response"}));
 
     eprintln!();
@@ -1337,8 +1576,10 @@ pub async fn cmd_polymarket_full_bet(
 
     let amount_micro = (amount * 1e6) as u128;
     if usdce_bal < amount_micro && pusd_bal < amount_micro {
-        eprintln!("\n  Not enough USDC.e or pUSD. Need {} but have USDC.e={}, pUSD={}",
-            amount_micro, usdce_bal, pusd_bal);
+        eprintln!(
+            "\n  Not enough USDC.e or pUSD. Need {} but have USDC.e={}, pUSD={}",
+            amount_micro, usdce_bal, pusd_bal
+        );
         return Err(anyhow::anyhow!("Insufficient balance"));
     }
 
@@ -1347,11 +1588,26 @@ pub async fn cmd_polymarket_full_bet(
         eprintln!("\n[3] Approving USDC.e → CollateralOnramp...");
         let fees = zipher_engine::evm::suggest_eip1559_fees(POLYGON_RPC, 137).await?;
         let approve_hash = zipher_engine::evm::approve_erc20(
-            POLYGON_RPC, &seed, &address, USDCE, ONRAMP, amount_micro, 137, &fees,
-        ).await?;
+            POLYGON_RPC,
+            &seed,
+            &address,
+            USDCE,
+            ONRAMP,
+            amount_micro,
+            137,
+            &fees,
+        )
+        .await?;
         let r = zipher_engine::evm::wait_for_receipt(POLYGON_RPC, &approve_hash, 60).await?;
-        eprintln!("    tx: {} (status: {}, gas: {})", approve_hash, if r.status { "OK" } else { "REVERTED" }, r.gas_used);
-        if !r.status { return Err(anyhow::anyhow!("Approve USDC.e reverted")); }
+        eprintln!(
+            "    tx: {} (status: {}, gas: {})",
+            approve_hash,
+            if r.status { "OK" } else { "REVERTED" },
+            r.gas_used
+        );
+        if !r.status {
+            return Err(anyhow::anyhow!("Approve USDC.e reverted"));
+        }
 
         eprintln!("[4] Wrapping USDC.e → pUSD via CollateralOnramp.wrap(asset,to,amount)...");
         // Build calldata: wrap(address _asset, address _to, uint256 _amount) = 0x62355638
@@ -1373,14 +1629,27 @@ pub async fn cmd_polymarket_full_bet(
         let nonce = zipher_engine::evm::get_nonce(POLYGON_RPC, &address).await?;
         let fees = zipher_engine::evm::suggest_eip1559_fees(POLYGON_RPC, 137).await?;
         let unsigned = zipher_engine::evm::build_unsigned_eip1559_tx(
-            137, nonce, fees.max_priority_fee_per_gas, fees.max_fee_per_gas,
-            200_000, ONRAMP, &[0], &calldata,
+            137,
+            nonce,
+            fees.max_priority_fee_per_gas,
+            fees.max_fee_per_gas,
+            200_000,
+            ONRAMP,
+            &[0],
+            &calldata,
         );
-        let wrap_hash = zipher_engine::evm::sign_and_broadcast(&seed, &unsigned, POLYGON_RPC).await?;
+        let wrap_hash =
+            zipher_engine::evm::sign_and_broadcast(&seed, &unsigned, POLYGON_RPC).await?;
         eprintln!("    tx: {}", wrap_hash);
         let r = zipher_engine::evm::wait_for_receipt(POLYGON_RPC, &wrap_hash, 60).await?;
-        eprintln!("    status: {}, gas: {}", if r.status { "OK" } else { "REVERTED" }, r.gas_used);
-        if !r.status { return Err(anyhow::anyhow!("Wrap USDC.e → pUSD reverted")); }
+        eprintln!(
+            "    status: {}, gas: {}",
+            if r.status { "OK" } else { "REVERTED" },
+            r.gas_used
+        );
+        if !r.status {
+            return Err(anyhow::anyhow!("Wrap USDC.e → pUSD reverted"));
+        }
 
         // Verify pUSD balance
         let new_pusd = zipher_engine::evm::get_erc20_balance(POLYGON_RPC, PUSD, &address).await?;
@@ -1391,19 +1660,40 @@ pub async fn cmd_polymarket_full_bet(
 
     // -- Approve pUSD to exchange with fee buffer --
     let approve_micro = (amount * 1.05 * 1e6) as u128; // 5% buffer for CLOB fees
-    eprintln!("[5] Approving {} pUSD → exchange {}...", approve_micro as f64 / 1e6, &exchange[..10]);
+    eprintln!(
+        "[5] Approving {} pUSD → exchange {}...",
+        approve_micro as f64 / 1e6,
+        &exchange[..10]
+    );
     let fees2 = zipher_engine::evm::suggest_eip1559_fees(POLYGON_RPC, 137).await?;
     let approve_hash = zipher_engine::evm::approve_erc20(
-        POLYGON_RPC, &seed, &address, PUSD, exchange, approve_micro, 137, &fees2,
-    ).await?;
+        POLYGON_RPC,
+        &seed,
+        &address,
+        PUSD,
+        exchange,
+        approve_micro,
+        137,
+        &fees2,
+    )
+    .await?;
     let r = zipher_engine::evm::wait_for_receipt(POLYGON_RPC, &approve_hash, 60).await?;
-    eprintln!("    tx: {} (status: {}, gas: {})", approve_hash, if r.status { "OK" } else { "REVERTED" }, r.gas_used);
-    if !r.status { return Err(anyhow::anyhow!("Approve pUSD reverted")); }
+    eprintln!(
+        "    tx: {} (status: {}, gas: {})",
+        approve_hash,
+        if r.status { "OK" } else { "REVERTED" },
+        r.gas_used
+    );
+    if !r.status {
+        return Err(anyhow::anyhow!("Approve pUSD reverted"));
+    }
 
     // -- L1 auth --
     eprintln!("[6] L1 auth...");
     let client = reqwest::Client::new();
-    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
     let (auth_addr, auth_sig) = zipher_engine::polymarket::sign_clob_auth(&seed, ts, 0)?;
     let ts_str = ts.to_string();
     let l1_headers = [
@@ -1415,23 +1705,33 @@ pub async fn cmd_polymarket_full_bet(
     let mut resp = client
         .get("https://clob.polymarket.com/auth/derive-api-key")
         .headers(build_header_map(&l1_headers))
-        .send().await?;
+        .send()
+        .await?;
     if !resp.status().is_success() {
         let st = resp.status();
         let body = resp.text().await.unwrap_or_default();
         eprintln!("    derive-api-key: {} — {}", st, body);
-        resp = client.post("https://clob.polymarket.com/auth/api-key")
+        resp = client
+            .post("https://clob.polymarket.com/auth/api-key")
             .headers(build_header_map(&l1_headers))
-            .send().await?;
+            .send()
+            .await?;
     }
     let auth_status = resp.status();
     let auth_body = resp.text().await?;
     if !auth_status.is_success() {
-        return Err(anyhow::anyhow!("L1 auth failed ({}): {}", auth_status, auth_body));
+        return Err(anyhow::anyhow!(
+            "L1 auth failed ({}): {}",
+            auth_status,
+            auth_body
+        ));
     }
-    let creds: serde_json::Value = serde_json::from_str(&auth_body)
-        .map_err(|e| anyhow::anyhow!("Failed to parse auth response: {} — body: {}", e, auth_body))?;
-    let api_key = creds["apiKey"].as_str().or(creds["key"].as_str())
+    let creds: serde_json::Value = serde_json::from_str(&auth_body).map_err(|e| {
+        anyhow::anyhow!("Failed to parse auth response: {} — body: {}", e, auth_body)
+    })?;
+    let api_key = creds["apiKey"]
+        .as_str()
+        .or(creds["key"].as_str())
         .ok_or_else(|| anyhow::anyhow!("No apiKey"))?;
     let api_secret = creds["secret"].as_str().unwrap_or("");
     let passphrase = creds["passphrase"].as_str().unwrap_or("");
@@ -1440,7 +1740,10 @@ pub async fn cmd_polymarket_full_bet(
     // -- Fetch tick size & build order --
     eprintln!("[7] Building order...");
     let tick_size: f64 = {
-        let url = format!("https://clob.polymarket.com/tick-size?token_id={}", token_id);
+        let url = format!(
+            "https://clob.polymarket.com/tick-size?token_id={}",
+            token_id
+        );
         match client.get(&url).send().await {
             Ok(r) if r.status().is_success() => {
                 let txt = r.text().await.unwrap_or_default();
@@ -1455,12 +1758,21 @@ pub async fn cmd_polymarket_full_bet(
     };
     eprintln!("    Tick size: {} ({} decimals)", tick_size, tick_decimals);
 
-    let side_int: u8 = if side.eq_ignore_ascii_case("BUY") { 0 } else { 1 };
+    let side_int: u8 = if side.eq_ignore_ascii_case("BUY") {
+        0
+    } else {
+        1
+    };
 
     // Express price as integer ratio for exact tick alignment
     let price_denom = 10u64.pow(tick_decimals as u32);
     let price_num = (price / tick_size).round() as u64;
-    eprintln!("    Price as ratio: {}/{} = {:.6}", price_num, price_denom, price_num as f64 / price_denom as f64);
+    eprintln!(
+        "    Price as ratio: {}/{} = {:.6}",
+        price_num,
+        price_denom,
+        price_num as f64 / price_denom as f64
+    );
 
     let desired_taker = (amount / (price_num as f64 * tick_size) * 1e6).round() as u64;
     let shares_amount_raw = (desired_taker / price_denom) * price_denom;
@@ -1473,19 +1785,28 @@ pub async fn cmd_polymarket_full_bet(
     };
     eprintln!("    makerAmount: {}, takerAmount: {}", m_raw, t_raw);
 
-    let salt = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?
-        .as_millis().to_string();
-    let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?
-        .as_secs().to_string();
+    let salt = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis()
+        .to_string();
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs()
+        .to_string();
     let zero_bytes32 = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
     let order = zipher_engine::polymarket::PolymarketOrder {
-        salt: salt.clone(), maker: address.clone(), signer: address.clone(),
+        salt: salt.clone(),
+        maker: address.clone(),
+        signer: address.clone(),
         token_id: token_id.clone(),
-        maker_amount: m_raw.clone(), taker_amount: t_raw.clone(),
-        side: side_int, signature_type: 0,
+        maker_amount: m_raw.clone(),
+        taker_amount: t_raw.clone(),
+        side: side_int,
+        signature_type: 0,
         timestamp: timestamp.clone(),
-        metadata: zero_bytes32.to_string(), builder: zero_bytes32.to_string(),
+        metadata: zero_bytes32.to_string(),
+        builder: zero_bytes32.to_string(),
     };
     let signature = zipher_engine::polymarket::sign_order(&seed, &order, neg_risk)?;
 
@@ -1505,22 +1826,24 @@ pub async fn cmd_polymarket_full_bet(
 
     let body_str = serde_json::to_string(&order_body)?;
     let hmac_ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?.as_secs().to_string();
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs()
+        .to_string();
     let hmac_message = format!("{}POST/order{}", hmac_ts, body_str);
 
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
 
-    let secret_bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD, api_secret
-    ).unwrap_or_default();
+    let secret_bytes =
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, api_secret)
+            .unwrap_or_default();
     let mut mac = HmacSha256::new_from_slice(&secret_bytes)
         .map_err(|e| anyhow::anyhow!("HMAC init failed: {}", e))?;
     mac.update(hmac_message.as_bytes());
     let hmac_sig = base64::Engine::encode(
         &base64::engine::general_purpose::URL_SAFE,
-        mac.finalize().into_bytes()
+        mac.finalize().into_bytes(),
     );
 
     let l2_headers = [
@@ -1536,7 +1859,8 @@ pub async fn cmd_polymarket_full_bet(
         .post("https://clob.polymarket.com/order")
         .headers(build_header_map(&l2_headers))
         .body(body_str)
-        .send().await?;
+        .send()
+        .await?;
 
     let status = resp.status();
     let body = resp.text().await?;

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
+import 'app_log.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../appsettings.dart';
@@ -16,7 +17,7 @@ import 'wallet_registry.dart';
 import 'secure_key_store.dart';
 import 'market_venue.dart' show polymarketGammaMarketPassesQuality;
 
-final _log = Logger();
+final _log = createLogger();
 
 class WalletBusyException implements Exception {
   @override
