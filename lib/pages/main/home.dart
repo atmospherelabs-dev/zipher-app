@@ -864,7 +864,7 @@ class _BalanceBreakdown extends StatelessWidget {
                                     fontWeight: FontWeight.w600,
                                     color: shieldableTransparentBal > 0
                                         ? ZipherColors.text60
-                                        : ZipherColors.text30,
+                                        : ZipherColors.text20,
                                     letterSpacing: 0.3,
                                   ),
                                 ),
