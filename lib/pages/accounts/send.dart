@@ -84,6 +84,10 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
   late bool _includeReplyTo = appSettings.includeReplyTo != 0;
   bool _balanceVisible = true;
   int get _spendable => aa.poolBalances.shielded;
+  int get _pendingShielded {
+    final pending = aa.poolBalances.totalShielded - aa.poolBalances.shielded;
+    return pending > 0 ? pending : 0;
+  }
 
   bool get _isTransparentAddress =>
       _address.startsWith('t1') || _address.startsWith('t3');
@@ -241,6 +245,13 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
             'Spendable:  ${amountToString2(_spendable)} ZEC',
             style: TextStyle(fontSize: 13, color: ZipherColors.text40),
           ),
+          if (_pendingShielded > 0) ...[
+            const Gap(4),
+            Text(
+              '${amountToString2(_pendingShielded)} ZEC confirming',
+              style: TextStyle(fontSize: 12, color: ZipherColors.warm),
+            ),
+          ],
           if (_hasUnshieldedFunds) ...[
             const Gap(8),
             Container(

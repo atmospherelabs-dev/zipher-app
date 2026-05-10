@@ -71,3 +71,7 @@ ios/certs/*.mobileprovision
 # Local Yarn v4 metadata in l10n tooling
 lib/l10n/.yarn/
 lib/l10n/.yarnrc.yml
+
+# Cursor IDE
+.cursor/
+.agents/

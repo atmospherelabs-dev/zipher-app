@@ -183,11 +183,9 @@ class _HomeState extends State<HomePageInner> {
           syncStatus2.changed;
 
           final totalBal = aa.poolBalances.total;
-          final shieldedBal = aa.poolBalances.shielded +
-              aa.poolBalances.unconfirmedSapling +
-              aa.poolBalances.unconfirmedOrchard;
-          final transparentBal = aa.poolBalances.transparent +
-              aa.poolBalances.unconfirmedTransparent;
+          final shieldedBal = aa.poolBalances.totalShielded;
+          final transparentBal = aa.poolBalances.totalTransparent;
+          final shieldableTransparentBal = aa.poolBalances.transparent;
 
           final fiatPrice = marketPrice.price;
           final fiatBalance =
@@ -514,8 +512,9 @@ class _HomeState extends State<HomePageInner> {
                         return _BalanceBreakdown(
                           shieldedBal: shieldedBal,
                           transparentBal: transparentBal,
+                          shieldableTransparentBal: shieldableTransparentBal,
                           shieldingInProgress: shieldingInProgress,
-                          onShield: () => _shield(transparentBal),
+                          onShield: () => _shield(shieldableTransparentBal),
                         );
                       }),
                     ),
@@ -718,12 +717,14 @@ class _HomeState extends State<HomePageInner> {
 class _BalanceBreakdown extends StatelessWidget {
   final int shieldedBal;
   final int transparentBal;
+  final int shieldableTransparentBal;
   final bool shieldingInProgress;
   final VoidCallback onShield;
 
   const _BalanceBreakdown({
     required this.shieldedBal,
     required this.transparentBal,
+    required this.shieldableTransparentBal,
     required this.shieldingInProgress,
     required this.onShield,
   });
@@ -838,7 +839,7 @@ class _BalanceBreakdown extends StatelessWidget {
                         ),
                         const Gap(10),
                         GestureDetector(
-                          onTap: onShield,
+                          onTap: shieldableTransparentBal > 0 ? onShield : null,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 12, vertical: 6),
@@ -861,7 +862,9 @@ class _BalanceBreakdown extends StatelessWidget {
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
-                                    color: ZipherColors.text60,
+                                    color: shieldableTransparentBal > 0
+                                        ? ZipherColors.text60
+                                        : ZipherColors.text30,
                                     letterSpacing: 0.3,
                                   ),
                                 ),

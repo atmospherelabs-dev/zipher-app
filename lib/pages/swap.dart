@@ -57,6 +57,10 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
   };
 
   int get _spendableZat => aa.poolBalances.shielded;
+  int get _pendingShieldedZat {
+    final pending = aa.poolBalances.totalShielded - aa.poolBalances.shielded;
+    return pending > 0 ? pending : 0;
+  }
 
   NearToken get _originToken => _direction == SwapDirection.fromZec ? _zecToken! : _selectedToken!;
   NearToken get _destToken => _direction == SwapDirection.fromZec ? _selectedToken! : _zecToken!;
@@ -793,9 +797,19 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
             )),
             const Spacer(),
             if (isZecFrom) ...[
-              Text(
-                'Spendable: ${amountToString2(_spendableZat)}',
-                style: TextStyle(fontSize: 12, color: ZipherColors.text40),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'Spendable: ${amountToString2(_spendableZat)}',
+                    style: TextStyle(fontSize: 12, color: ZipherColors.text40),
+                  ),
+                  if (_pendingShieldedZat > 0)
+                    Text(
+                      '${amountToString2(_pendingShieldedZat)} confirming',
+                      style: TextStyle(fontSize: 11, color: ZipherColors.warm),
+                    ),
+                ],
               ),
               const Gap(8),
               GestureDetector(

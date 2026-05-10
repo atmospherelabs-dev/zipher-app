@@ -19,6 +19,9 @@ class PoolBalance {
   int transparent;
   int sapling;
   int orchard;
+  int totalTransparent;
+  int totalSapling;
+  int totalOrchard;
   int unconfirmedTransparent;
   int unconfirmedSapling;
   int unconfirmedOrchard;
@@ -27,29 +30,43 @@ class PoolBalance {
     this.transparent = 0,
     this.sapling = 0,
     this.orchard = 0,
+    this.totalTransparent = 0,
+    this.totalSapling = 0,
+    this.totalOrchard = 0,
     this.unconfirmedTransparent = 0,
     this.unconfirmedSapling = 0,
     this.unconfirmedOrchard = 0,
   });
 
   factory PoolBalance.fromRust(rust_wallet.WalletBalance b) {
+    final transparent = b.transparent.toInt();
+    final sapling = b.sapling.toInt();
+    final orchard = b.orchard.toInt();
+    final totalTransparent = b.totalTransparent.toInt();
+    final totalSapling = b.totalSapling.toInt();
+    final totalOrchard = b.totalOrchard.toInt();
     return PoolBalance(
-      transparent: b.transparent.toInt(),
-      sapling: b.sapling.toInt(),
-      orchard: b.orchard.toInt(),
-      unconfirmedTransparent: b.unconfirmedTransparent.toInt(),
-      unconfirmedSapling: b.unconfirmedSapling.toInt(),
-      unconfirmedOrchard: b.unconfirmedOrchard.toInt(),
+      transparent: transparent,
+      sapling: sapling,
+      orchard: orchard,
+      totalTransparent: totalTransparent,
+      totalSapling: totalSapling,
+      totalOrchard: totalOrchard,
+      unconfirmedTransparent: max(0, totalTransparent - transparent),
+      unconfirmedSapling: max(0, totalSapling - sapling),
+      unconfirmedOrchard: max(0, totalOrchard - orchard),
     );
   }
 
   int get confirmed => transparent + sapling + orchard;
   int get shielded => sapling + orchard;
+  int get totalShielded => totalSapling + totalOrchard;
   int get unconfirmed =>
       unconfirmedTransparent + unconfirmedSapling + unconfirmedOrchard;
-  int get total => confirmed + unconfirmed;
+  int get total => totalTransparent + totalSapling + totalOrchard;
   bool get hasUnconfirmed => unconfirmed > 0;
-  bool get hasTransparent => transparent > 0 || unconfirmedTransparent > 0;
+  bool get hasTransparent => totalTransparent > 0;
+  bool get hasSpendableTransparent => transparent > 0;
 }
 
 final ActiveAccount2 nullAccount = ActiveAccount2(
