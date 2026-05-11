@@ -61,12 +61,33 @@ class PoolBalance {
   int get confirmed => transparent + sapling + orchard;
   int get shielded => sapling + orchard;
   int get totalShielded => totalSapling + totalOrchard;
+  int get unconfirmedShielded => unconfirmedSapling + unconfirmedOrchard;
   int get unconfirmed =>
       unconfirmedTransparent + unconfirmedSapling + unconfirmedOrchard;
   int get total => totalTransparent + totalSapling + totalOrchard;
   bool get hasUnconfirmed => unconfirmed > 0;
   bool get hasTransparent => totalTransparent > 0;
   bool get hasSpendableTransparent => transparent > 0;
+
+  PoolBalance withStableShieldedSpendable(int stableShielded) {
+    final stable = max(0, min(stableShielded, totalShielded));
+    var remaining = stable;
+    final stableOrchard = min(totalOrchard, remaining);
+    remaining -= stableOrchard;
+    final stableSapling = min(totalSapling, remaining);
+
+    return PoolBalance(
+      transparent: transparent,
+      sapling: stableSapling,
+      orchard: stableOrchard,
+      totalTransparent: totalTransparent,
+      totalSapling: totalSapling,
+      totalOrchard: totalOrchard,
+      unconfirmedTransparent: max(0, totalTransparent - transparent),
+      unconfirmedSapling: max(0, totalSapling - stableSapling),
+      unconfirmedOrchard: max(0, totalOrchard - stableOrchard),
+    );
+  }
 }
 
 final ActiveAccount2 nullAccount = ActiveAccount2(
@@ -253,11 +274,42 @@ abstract class _ActiveAccount2 with Store {
         }
       }
 
-      poolBalances = next;
-      logger.d('[AA] updateBalance: confirmed=${poolBalances.confirmed} unconfirmed=${poolBalances.unconfirmed}');
+      final adjusted = _stabilizeShieldedSpendable(next);
+      poolBalances = adjusted;
+      logger.d(
+          '[AA] updateBalance: confirmed=${poolBalances.confirmed} unconfirmed=${poolBalances.unconfirmed}');
     } catch (e) {
       logger.e('updateBalance error: $e');
     }
+  }
+
+  PoolBalance _stabilizeShieldedSpendable(PoolBalance next) {
+    final previous = poolBalances;
+    final previousSpendable = previous.shielded;
+    if (previousSpendable <= 0) return next;
+    if (next.shielded >= min(previousSpendable, next.totalShielded))
+      return next;
+    if (next.unconfirmedShielded <= 0) return next;
+
+    final phase = store2.syncStatus2.phase;
+    final transientSyncWindow = store2.syncStatus2.syncing ||
+        store2.syncStatus2.scanningUpTo > store2.syncStatus2.syncedHeight ||
+        phase == 'scanning' ||
+        phase == 'refreshing_utxos' ||
+        phase == 'updating_roots' ||
+        phase == 'connecting';
+    if (!transientSyncWindow) return next;
+
+    // The SDK can briefly classify previously-spendable shielded notes as
+    // pending when the chain tip moves before the new anchor shard is scanned.
+    // Preserve only the amount that was already spendable; new inbound funds
+    // still appear as confirming, and lower totals are clamped after sends.
+    final stableSpendable = min(previousSpendable, next.totalShielded);
+    if (stableSpendable <= next.shielded) return next;
+    logger.d('[AA] stabilized shielded spendable '
+        '(prev=$previousSpendable next=${next.shielded} '
+        'total=${next.totalShielded} phase=$phase)');
+    return next.withStableShieldedSpendable(stableSpendable);
   }
 
   @action
@@ -288,7 +340,8 @@ abstract class _ActiveAccount2 with Store {
       chainAddresses = await rust_engine.engineDeriveMultiChainAddresses(
         seedPhrase: seed,
       );
-      logger.d('[AA] chainAddresses: evm=${chainAddresses?.evm}, sol=${chainAddresses?.solana}, btc=${chainAddresses?.bitcoin}');
+      logger.d(
+          '[AA] chainAddresses: evm=${chainAddresses?.evm}, sol=${chainAddresses?.solana}, btc=${chainAddresses?.bitcoin}');
     } catch (e) {
       logger.e('updateChainAddresses error: $e');
     }

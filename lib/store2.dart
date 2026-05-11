@@ -128,6 +128,9 @@ abstract class _SyncStatus2 with Store {
   @observable
   int maintenanceQueueLen = 0;
 
+  @observable
+  int scanningUpTo = 0;
+
   @computed
   int get changed {
     connected;
@@ -138,6 +141,7 @@ abstract class _SyncStatus2 with Store {
     connectionError;
     maintenanceError;
     phase;
+    scanningUpTo;
     maintenanceQueueLen;
     return DateTime.now().microsecondsSinceEpoch;
   }
@@ -207,7 +211,8 @@ abstract class _SyncStatus2 with Store {
     if (!_syncStarted) {
       _syncStarted = true;
       try {
-        logger.i('[Sync] starting engine, server=${WalletService.instance.serverUrl}');
+        logger.i(
+            '[Sync] starting engine, server=${WalletService.instance.serverUrl}');
         await WalletService.instance.startSync();
       } catch (e) {
         final msg = e.toString();
@@ -240,6 +245,7 @@ abstract class _SyncStatus2 with Store {
       connectionError = progress.connectionError;
       maintenanceError = progress.maintenanceError;
       phase = progress.phase;
+      scanningUpTo = progress.scanningUpTo;
       maintenanceQueueLen = progress.maintenanceQueueLen;
       connected = connectionError == null;
       if (connectionError != null) {
@@ -261,8 +267,11 @@ abstract class _SyncStatus2 with Store {
               ? progress.scanningUpTo
               : h;
       logger.i(
-          '[Sync] synced=${progress.syncedHeight} tip=${progress.latestHeight} phase=${progress.phase} queue=${progress.maintenanceQueueLen}');
-      if (effectiveH > 0 && effectiveH < syncedHeight && progress.isSyncing) {
+          '[Sync] synced=${progress.syncedHeight} scanning_to=${progress.scanningUpTo} tip=${progress.latestHeight} phase=${progress.phase} queue=${progress.maintenanceQueueLen}');
+      if (effectiveH > 0 &&
+          effectiveH < syncedHeight &&
+          progress.isSyncing &&
+          isRescan) {
         syncedHeight = effectiveH;
         eta.checkpoint(syncedHeight, DateTime.now());
       } else if (effectiveH > syncedHeight) {
@@ -395,6 +404,7 @@ abstract class _SyncStatus2 with Store {
     connectionError = null;
     maintenanceError = null;
     phase = 'idle';
+    scanningUpTo = 0;
     maintenanceQueueLen = 0;
     syncedHeight = 0;
     _lastAccountUpdateAt = null;

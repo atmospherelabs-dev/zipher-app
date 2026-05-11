@@ -346,6 +346,14 @@ enum SyncCmd {
         /// Poll interval in milliseconds
         #[arg(long, default_value_t = 1000)]
         poll_ms: u64,
+
+        /// Number of scan batches to prefetch (0 disables prefetch for baseline runs)
+        #[arg(long, default_value_t = 3)]
+        prefetch_depth: usize,
+
+        /// Fetch scan batches from multiple known lightwalletd servers with primary fallback
+        #[arg(long, default_value_t = false)]
+        multi_server: bool,
     },
 }
 
@@ -778,7 +786,18 @@ async fn main() {
             SyncCmd::Benchmark {
                 max_seconds,
                 poll_ms,
-            } => benchmark::cmd_sync_benchmark(&cfg, max_seconds, poll_ms).await,
+                prefetch_depth,
+                multi_server,
+            } => {
+                benchmark::cmd_sync_benchmark(
+                    &cfg,
+                    max_seconds,
+                    poll_ms,
+                    prefetch_depth,
+                    multi_server,
+                )
+                .await
+            }
         },
         Commands::Balance => wallet::cmd_balance(&cfg).await,
         Commands::Address => wallet::cmd_address(&cfg).await,

@@ -7,7 +7,6 @@ import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../generated/intl/messages.dart';
 import '../../services/wallet_service.dart';
-import '../../src/rust/api/wallet.dart' as rust_wallet;
 import '../../store2.dart';
 import '../../zipher_theme.dart';
 import '../scan.dart';
@@ -42,7 +41,8 @@ class SendContext {
             memo = params['memo']!;
           }
         }
-        return SendContext(addr, 7, Amount(amount, false), MemoData(false, '', memo));
+        return SendContext(
+            addr, 7, Amount(amount, false), MemoData(false, '', memo));
       }
     } catch (_) {
       return null;
@@ -81,7 +81,6 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
   int _amountZat = 0;
   bool _deductFee = false;
   String _memoText = '';
-  late bool _includeReplyTo = appSettings.includeReplyTo != 0;
   bool _balanceVisible = true;
   int get _spendable => aa.poolBalances.shielded;
   int get _pendingShielded {
@@ -133,8 +132,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
         ),
         actions: [
           IconButton(
-            onPressed: () =>
-                setState(() => _balanceVisible = !_balanceVisible),
+            onPressed: () => setState(() => _balanceVisible = !_balanceVisible),
             icon: Icon(
               _balanceVisible
                   ? Icons.visibility_outlined
@@ -169,8 +167,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                           Row(
                             children: [
                               Icon(Icons.info_outline_rounded,
-                                  size: 13,
-                                  color: ZipherColors.text20),
+                                  size: 13, color: ZipherColors.text20),
                               const Gap(6),
                               Text(
                                 'Transparent addresses don\'t support memos',
@@ -303,8 +300,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
               Expanded(
                 child: TextField(
                   controller: _addressController,
-                  style:
-                      TextStyle(fontSize: 14, color: ZipherColors.text90),
+                  style: TextStyle(fontSize: 14, color: ZipherColors.text90),
                   decoration: InputDecoration(
                     hintText: 'Zcash address',
                     hintStyle:
@@ -320,8 +316,8 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
               GestureDetector(
                 onTap: () async {
                   final text = await scanQRCode(context,
-                      validator: composeOr(
-                          [addressValidator, paymentURIValidator]));
+                      validator:
+                          composeOr([addressValidator, paymentURIValidator]));
                   if (text.isEmpty) return;
                   final parsed = SendContext.fromPaymentURI(text);
                   if (parsed != null) {
@@ -367,8 +363,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                 });
               },
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: ZipherColors.cyan.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(ZipherRadius.sm),
@@ -377,8 +372,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                     style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color:
-                            ZipherColors.cyan.withValues(alpha: 0.7))),
+                        color: ZipherColors.cyan.withValues(alpha: 0.7))),
               ),
             ),
           ],
@@ -392,8 +386,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
           ),
           child: TextField(
             controller: _amountController,
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
             style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
@@ -456,8 +449,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
             style: TextStyle(fontSize: 14, color: ZipherColors.text90),
             decoration: InputDecoration(
               hintText: 'Write encrypted message here...',
-              hintStyle:
-                  TextStyle(fontSize: 14, color: ZipherColors.text40),
+              hintStyle: TextStyle(fontSize: 14, color: ZipherColors.text40),
               filled: false,
               border: InputBorder.none,
               contentPadding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
@@ -497,8 +489,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
       _memoController.text = _memoText;
     }
     _addressController.text = _address;
-    _amountController.text =
-        _amountZat > 0 ? amountToString2(_amountZat) : '';
+    _amountController.text = _amountZat > 0 ? amountToString2(_amountZat) : '';
   }
 
   void _send() async {
@@ -512,7 +503,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
       return;
     }
     if (_amountZat > _spendable) {
-      _showError(s.notEnoughBalance);
+      _showError(_notEnoughSpendableMessage(_amountZat));
       return;
     }
 
@@ -527,7 +518,8 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
 
   void _showConfirmationSheet(String addr) {
     final isTransparent = addr.startsWith('t1') || addr.startsWith('t3');
-    final memo = isTransparent ? null : (_memoText.isNotEmpty ? _memoText : null);
+    final memo =
+        isTransparent ? null : (_memoText.isNotEmpty ? _memoText : null);
 
     showModalBottomSheet(
       context: context,
@@ -551,37 +543,16 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
     }
   }
 
-  String _friendlyError(String raw) {
-    final r = raw.toLowerCase();
-    if (r.contains('insufficientfunds') || r.contains('insufficient funds') ||
-        r.contains('proposal failed')) {
-      if (_hasUnshieldedFunds && _spendable == 0) {
-        return 'Your funds need shielding before you can send. '
-            'Use the Shield button on the home screen.';
-      }
-      final available = RegExp(r'available.*?(\d+)').firstMatch(raw);
-      final required = RegExp(r'required.*?(\d+)').firstMatch(raw);
-      if (available != null && required != null) {
-        final avail = int.tryParse(available.group(1)!) ?? 0;
-        final req = int.tryParse(required.group(1)!) ?? 0;
-        final fee = (req - avail) / ZECUNIT;
-        return 'Not enough funds. You need ${fee.toStringAsFixed(4)} ZEC more to cover the network fee.';
-      }
-      return 'Not enough funds to cover the transaction and network fee.';
+  String _notEnoughSpendableMessage(int requestedZat) {
+    if (_pendingShielded > 0 && requestedZat <= aa.poolBalances.totalShielded) {
+      return '${amountToString2(_pendingShielded)} ZEC is still confirming. '
+          'You can send it once sync and confirmations finish.';
     }
-    if (r.contains('checkpointnotfound')) {
-      return 'Wallet is still syncing. Please wait for sync to complete before sending.';
+    if (_hasUnshieldedFunds && _spendable == 0) {
+      return 'Your ZEC needs shielding before you can send it. '
+          'Use the Shield button on the home screen.';
     }
-    if (r.contains('failed to create payment')) {
-      return 'Invalid payment. Check the address and amount.';
-    }
-    if (r.contains('wallet not initialized')) {
-      return 'Wallet is not open. Please restart the app.';
-    }
-    // Strip stack traces — only show the first line
-    final firstLine = raw.split('\n').first;
-    if (firstLine.length > 120) return '${firstLine.substring(0, 120)}…';
-    return firstLine;
+    return s.notEnoughBalance;
   }
 
   void _showError(String msg) {
@@ -590,13 +561,11 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
         content: Row(
           children: [
             Icon(Icons.error_outline_rounded,
-                size: 16,
-                color: ZipherColors.red.withValues(alpha: 0.8)),
+                size: 16, color: ZipherColors.red.withValues(alpha: 0.8)),
             const SizedBox(width: 10),
             Expanded(
               child: Text(msg,
-                  style: TextStyle(
-                      fontSize: 13, color: ZipherColors.text90)),
+                  style: TextStyle(fontSize: 13, color: ZipherColors.text90)),
             ),
           ],
         ),
@@ -604,8 +573,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ZipherRadius.md),
-          side: BorderSide(
-              color: ZipherColors.red.withValues(alpha: 0.15)),
+          side: BorderSide(color: ZipherColors.red.withValues(alpha: 0.15)),
         ),
         duration: const Duration(seconds: 3),
       ),
@@ -650,6 +618,11 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
     final s = raw.replaceFirst(RegExp(r'^(Exception|AnyhowException):\s*'), '');
     if (s.contains('InsufficientFunds') || s.contains('insufficient funds')) {
       return 'Not enough shielded funds to cover the transaction and network fee.';
+    }
+    if (s.toLowerCase().contains('checkpointnotfound') ||
+        s.toLowerCase().contains('wallet is') &&
+            s.toLowerCase().contains('blocks behind')) {
+      return 'Wallet is still syncing. Please wait for sync to complete before sending.';
     }
     final first = s.split('\n').first.split('Stack backtrace').first.trim();
     if (first.length > 150) return '${first.substring(0, 150)}…';
@@ -763,8 +736,8 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
                   Expanded(
                     child: Text(
                       _error!,
-                      style: TextStyle(
-                          fontSize: 13, color: ZipherColors.text90),
+                      style:
+                          TextStyle(fontSize: 13, color: ZipherColors.text90),
                     ),
                   ),
                 ],

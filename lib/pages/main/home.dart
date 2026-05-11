@@ -8,7 +8,6 @@ import 'package:timeago/timeago.dart' as timeago;
 import '../../services/wallet_service.dart';
 import '../../services/wallet_registry.dart';
 
-import '../../generated/intl/messages.dart';
 import '../../appsettings.dart';
 import '../../store2.dart';
 import '../../accounts.dart';
@@ -18,7 +17,6 @@ import '../../services/near_intents.dart';
 import '../accounts/send.dart';
 import '../accounts/split.dart';
 import '../scan.dart';
-import '../tx.dart';
 import '../utils.dart';
 import 'sync_status.dart';
 
@@ -109,7 +107,8 @@ class _HomeState extends State<HomePageInner> {
       if (depositKeys.isNotEmpty) {
         _pollSwapStatuses();
         _swapPollTimer = Timer.periodic(
-          const Duration(seconds: 15), (_) => _pollSwapStatuses(),
+          const Duration(seconds: 15),
+          (_) => _pollSwapStatuses(),
         );
       }
       if (mounted) setState(() {});
@@ -123,7 +122,8 @@ class _HomeState extends State<HomePageInner> {
         .where((e) => e.key == e.value.swap.depositAddress)
         .toList();
     for (final entry in depositEntries) {
-      if (entry.value.status != null && entry.value.status!.isTerminal) continue;
+      if (entry.value.status != null && entry.value.status!.isTerminal)
+        continue;
       if (entry.value.swap.provider != 'near_intents') continue;
       try {
         final status = await _nearApi.getStatus(entry.key);
@@ -171,7 +171,6 @@ class _HomeState extends State<HomePageInner> {
 
   @override
   Widget build(BuildContext context) {
-    final s = S.of(context);
     final topPad = MediaQuery.of(context).padding.top;
 
     return Scaffold(
@@ -184,14 +183,15 @@ class _HomeState extends State<HomePageInner> {
 
           final totalBal = aa.poolBalances.total;
           final shieldedBal = aa.poolBalances.totalShielded;
+          final spendableShieldedBal = aa.poolBalances.shielded;
           final transparentBal = aa.poolBalances.totalTransparent;
           final shieldableTransparentBal = aa.poolBalances.transparent;
+          final pendingBal = aa.poolBalances.unconfirmed;
 
           final fiatPrice = marketPrice.price;
           final fiatBalance =
               fiatPrice != null ? totalBal * fiatPrice / ZECUNIT : null;
-          final fiatStr =
-              fiatBalance != null ? _formatFiat(fiatBalance) : null;
+          final fiatStr = fiatBalance != null ? _formatFiat(fiatBalance) : null;
 
           final txs = aa.txs.items;
           final recentTxs = txs.length > 5 ? txs.sublist(0, 5) : txs;
@@ -219,8 +219,10 @@ class _HomeState extends State<HomePageInner> {
                           height: 620,
                           child: CustomPaint(
                             painter: _BeamPainter(
-                              colorTop: ZipherColors.cyan.withValues(alpha: 0.08),
-                              colorMid: ZipherColors.warm.withValues(alpha: 0.05),
+                              colorTop:
+                                  ZipherColors.cyan.withValues(alpha: 0.08),
+                              colorMid:
+                                  ZipherColors.warm.withValues(alpha: 0.05),
                             ),
                           ),
                         ),
@@ -229,440 +231,408 @@ class _HomeState extends State<HomePageInner> {
                   ),
                 ),
                 CustomScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: [
-                // Testnet banner
-                if (isTestnet)
-                  SliverToBoxAdapter(
-                    child: Container(
-                      width: double.infinity,
-                      padding: EdgeInsets.fromLTRB(20, topPad + 6, 20, 6),
-                      decoration: BoxDecoration(
-                        color: ZipherColors.orange.withValues(alpha: 0.15),
-                        border: Border(
-                          bottom: BorderSide(
-                            color: ZipherColors.orange.withValues(alpha: 0.3),
-                          ),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.science_outlined,
-                              size: 14, color: ZipherColors.orange),
-                          const Gap(6),
-                          Text(
-                            'TESTNET MODE',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1.2,
-                              color: ZipherColors.orange,
-                            ),
-                          ),
-                          const Gap(6),
-                          Text(
-                            '• TAZ have no real value',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: ZipherColors.orange.withValues(alpha: 0.9),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                // Header: logo + "Main" … QR scan
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(20, isTestnet ? 10 : topPad + 14, 20, 0),
-                    child: Row(
-                      children: [
-                        // Account avatar
-                        Container(
-                          width: 32,
-                          height: 32,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    // Testnet banner
+                    if (isTestnet)
+                      SliverToBoxAdapter(
+                        child: Container(
+                          width: double.infinity,
+                          padding: EdgeInsets.fromLTRB(20, topPad + 6, 20, 6),
                           decoration: BoxDecoration(
-                            color: ZipherColors.cyan.withValues(alpha: 0.10),
-                            borderRadius: BorderRadius.circular(ZipherRadius.md),
+                            color: ZipherColors.orange.withValues(alpha: 0.15),
+                            border: Border(
+                              bottom: BorderSide(
+                                color:
+                                    ZipherColors.orange.withValues(alpha: 0.3),
+                              ),
+                            ),
                           ),
-                          child: Center(
-                            child: _accountEmoji != null
-                                ? Text(
-                                    _accountEmoji!,
-                                    style: const TextStyle(fontSize: 17),
-                                  )
-                                : Text(
-                                    (aa.name.isNotEmpty ? aa.name[0] : '?')
-                                        .toUpperCase(),
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700,
-                                      color: ZipherColors.cyan
-                                          .withValues(alpha: 0.7),
-                                    ),
-                                  ),
-                          ),
-                        ),
-                        const Gap(10),
-                        GestureDetector(
-                          onTap: () => _showAccountSwitcher(context),
                           child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
+                              Icon(Icons.science_outlined,
+                                  size: 14, color: ZipherColors.orange),
+                              const Gap(6),
                               Text(
-                                aa.name,
+                                'TESTNET MODE',
                                 style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: ZipherColors.text90,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1.2,
+                                  color: ZipherColors.orange,
                                 ),
                               ),
-                              const Gap(4),
-                              Icon(
-                                Icons.expand_more_rounded,
-                                size: 20,
-                                color: ZipherColors.text40,
+                              const Gap(6),
+                              Text(
+                                '• TAZ have no real value',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: ZipherColors.orange
+                                      .withValues(alpha: 0.9),
+                                ),
                               ),
                             ],
                           ),
                         ),
-                        const Spacer(),
-                        // QR scan shortcut
-                        GestureDetector(
-                          onTap: () async {
-                            if (appSettings.protectSend) {
-                              final authed = await authBarrier(context, dismissable: true);
-                              if (!authed) return;
-                            }
-                            GoRouter.of(context).push(
-                              '/scan',
-                              extra: ScanQRContext((code) {
-                                // Check for multi-output ZIP-321 URI (e.g. CipherPay invoice)
-                                final multiPayments = parseZip321Uri(code);
-                                if (multiPayments != null && multiPayments.length > 1) {
-                                  GoRouter.of(context).push(
-                                    '/account/split',
-                                    extra: multiPayments,
-                                  );
-                                  return true;
-                                }
-                                try {
-                                  final sc = SendContext.fromPaymentURI(code);
-                                  GoRouter.of(context).push(
-                                    '/account/quick_send',
-                                    extra: sc,
-                                  );
-                                } catch (_) {
-                                  GoRouter.of(context).push(
-                                    '/account/quick_send',
-                                  );
-                                }
-                                return true;
-                              }),
-                            );
-                          },
-                          child: Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: ZipherColors.cardBgElevated,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.qr_code_scanner_rounded,
-                              size: 18,
-                              color: ZipherColors.text60,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Sync banner — only during active sync
-                SliverToBoxAdapter(child: SyncStatusWidget()),
-
-                // Balance area (tappable to toggle visibility)
-                SliverToBoxAdapter(
-                  child: GestureDetector(
-                    onTap: () =>
-                        setState(() => _balanceHidden = !_balanceHidden),
-                    behavior: HitTestBehavior.opaque,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
-                      child: Column(
-                        children: [
-                          // Balance display
-                          _balanceHidden
-                              ? const Text(
-                                  '••••••',
-                                  style: TextStyle(
-                                    fontSize: 40,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                    letterSpacing: 4,
-                                  ),
-                                )
-                              : Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.center,
-                                  children: [
-                                    Container(
-                                      width: 32,
-                                      height: 32,
-                                      decoration: BoxDecoration(
-                                        color: ZipherColors.cardBgElevated,
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Center(
-                                        child: Image.asset(
-                                          'assets/zcash_logo.png',
-                                          width: 24,
-                                          height: 24,
-                                          fit: BoxFit.contain,
+                      ),
+                    // Header: logo + "Main" … QR scan
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                            20, isTestnet ? 10 : topPad + 14, 20, 0),
+                        child: Row(
+                          children: [
+                            // Account avatar
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color:
+                                    ZipherColors.cyan.withValues(alpha: 0.10),
+                                borderRadius:
+                                    BorderRadius.circular(ZipherRadius.md),
+                              ),
+                              child: Center(
+                                child: _accountEmoji != null
+                                    ? Text(
+                                        _accountEmoji!,
+                                        style: const TextStyle(fontSize: 17),
+                                      )
+                                    : Text(
+                                        (aa.name.isNotEmpty ? aa.name[0] : '?')
+                                            .toUpperCase(),
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                          color: ZipherColors.cyan
+                                              .withValues(alpha: 0.7),
                                         ),
                                       ),
+                              ),
+                            ),
+                            const Gap(10),
+                            GestureDetector(
+                              onTap: () => _showAccountSwitcher(context),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    aa.name,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: ZipherColors.text90,
                                     ),
-                                    const Gap(10),
-                                    Text(
-                                      amountToString2(totalBal),
-                                      style: const TextStyle(
-                                        fontSize: 38,
+                                  ),
+                                  const Gap(4),
+                                  Icon(
+                                    Icons.expand_more_rounded,
+                                    size: 20,
+                                    color: ZipherColors.text40,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Spacer(),
+                            // QR scan shortcut
+                            GestureDetector(
+                              onTap: () async {
+                                if (appSettings.protectSend) {
+                                  final authed = await authBarrier(context,
+                                      dismissable: true);
+                                  if (!authed) return;
+                                }
+                                GoRouter.of(context).push(
+                                  '/scan',
+                                  extra: ScanQRContext((code) {
+                                    // Check for multi-output ZIP-321 URI (e.g. CipherPay invoice)
+                                    final multiPayments = parseZip321Uri(code);
+                                    if (multiPayments != null &&
+                                        multiPayments.length > 1) {
+                                      GoRouter.of(context).push(
+                                        '/account/split',
+                                        extra: multiPayments,
+                                      );
+                                      return true;
+                                    }
+                                    try {
+                                      final sc =
+                                          SendContext.fromPaymentURI(code);
+                                      GoRouter.of(context).push(
+                                        '/account/quick_send',
+                                        extra: sc,
+                                      );
+                                    } catch (_) {
+                                      GoRouter.of(context).push(
+                                        '/account/quick_send',
+                                      );
+                                    }
+                                    return true;
+                                  }),
+                                );
+                              },
+                              child: Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: ZipherColors.cardBgElevated,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  Icons.qr_code_scanner_rounded,
+                                  size: 18,
+                                  color: ZipherColors.text60,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // Sync banner — only during active sync
+                    SliverToBoxAdapter(child: SyncStatusWidget()),
+
+                    // Balance area (tappable to toggle visibility)
+                    SliverToBoxAdapter(
+                      child: GestureDetector(
+                        onTap: () =>
+                            setState(() => _balanceHidden = !_balanceHidden),
+                        behavior: HitTestBehavior.opaque,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 32, 24, 0),
+                          child: Column(
+                            children: [
+                              // Balance display
+                              _balanceHidden
+                                  ? const Text(
+                                      '••••••',
+                                      style: TextStyle(
+                                        fontSize: 40,
                                         fontWeight: FontWeight.w700,
                                         color: Colors.white,
-                                        letterSpacing: -1,
+                                        letterSpacing: 4,
                                       ),
-                                    ),
-                                    const Gap(8),
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 6),
-                                      child: Text(
-                                        'ZEC',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w500,
-                                          color: ZipherColors.text40,
+                                    )
+                                  : Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        Container(
+                                          width: 32,
+                                          height: 32,
+                                          decoration: BoxDecoration(
+                                            color: ZipherColors.cardBgElevated,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Center(
+                                            child: Image.asset(
+                                              'assets/zcash_logo.png',
+                                              width: 24,
+                                              height: 24,
+                                              fit: BoxFit.contain,
+                                            ),
+                                          ),
                                         ),
-                                      ),
+                                        const Gap(10),
+                                        Text(
+                                          amountToString2(totalBal),
+                                          style: const TextStyle(
+                                            fontSize: 38,
+                                            fontWeight: FontWeight.w700,
+                                            color: Colors.white,
+                                            letterSpacing: -1,
+                                          ),
+                                        ),
+                                        const Gap(8),
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 6),
+                                          child: Text(
+                                            'ZEC',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w500,
+                                              color: ZipherColors.text40,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
+
+                              if (aa.poolBalances.hasUnconfirmed &&
+                                  !_balanceHidden) ...[
+                                const Gap(4),
+                                Text(
+                                  '${amountToString2(pendingBal)} ${_isSignificantlyBehind ? 'pending sync' : 'confirming'}',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: ZipherColors.warm
+                                        .withValues(alpha: 0.8),
+                                  ),
                                 ),
+                              ],
 
-                          // Pending indicator -- only show when significantly
-                          // behind the chain tip (initial sync / recovery),
-                          // not during routine 1-2 block catches.
-                          if (aa.poolBalances.hasUnconfirmed &&
-                              !_balanceHidden &&
-                              _isSignificantlyBehind) ...[
-                            const Gap(4),
-                            Text(
-                              '${amountToString2(aa.poolBalances.unconfirmed)} pending',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: ZipherColors.warm.withValues(alpha: 0.8),
+                              // Fiat value
+                              if (fiatStr != null && !_balanceHidden) ...[
+                                const Gap(4),
+                                Text(
+                                  fiatStr,
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    color: ZipherColors.text40,
+                                  ),
+                                ),
+                              ],
+                              if (_balanceHidden) ...[
+                                const Gap(6),
+                                Text(
+                                  'Tap to reveal',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: ZipherColors.text40,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // Balance breakdown — shielded / transparent split
+                    if (totalBal > 0 && !_balanceHidden)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                          child: Builder(builder: (_) {
+                            // Clear shield flag when transparent reaches 0
+                            if (transparentBal == 0 &&
+                                lastShieldSubmit != null) {
+                              lastShieldSubmit = null;
+                            }
+                            final shieldingInProgress =
+                                lastShieldSubmit != null &&
+                                    DateTime.now()
+                                            .difference(lastShieldSubmit!)
+                                            .inMinutes <
+                                        10;
+                            return _BalanceBreakdown(
+                              shieldedBal: shieldedBal,
+                              spendableShieldedBal: spendableShieldedBal,
+                              transparentBal: transparentBal,
+                              pendingBal: pendingBal,
+                              shieldableTransparentBal:
+                                  shieldableTransparentBal,
+                              shieldingInProgress: shieldingInProgress,
+                              onShield: () => _shield(shieldableTransparentBal),
+                            );
+                          }),
+                        ),
+                      ),
+
+                    // Action buttons
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _ActionButton(
+                                icon: Icons.move_to_inbox_rounded,
+                                label: 'Receive',
+                                onTap: () => GoRouter.of(context)
+                                    .push('/account/pay_uri'),
+                              ),
+                            ),
+                            const Gap(12),
+                            Expanded(
+                              child: _ActionButton(
+                                icon: Icons.send_rounded,
+                                label: 'Send',
+                                onTap: () => _send(false),
                               ),
                             ),
                           ],
+                        ),
+                      ),
+                    ),
 
-                          // Fiat value
-                          if (fiatStr != null && !_balanceHidden) ...[
-                            const Gap(4),
+                    // Activity header
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 32, 20, 0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
                             Text(
-                              fiatStr,
+                              'Recent Activity',
                               style: TextStyle(
-                                fontSize: 15,
-                                color: ZipherColors.text40,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: ZipherColors.text90,
                               ),
                             ),
+                            if (recentTxs.isNotEmpty)
+                              GestureDetector(
+                                onTap: () =>
+                                    GoRouter.of(context).go('/more/history'),
+                                child: Text(
+                                  'See all',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                    color: ZipherColors.text40,
+                                  ),
+                                ),
+                              ),
                           ],
-                          if (_balanceHidden) ...[
-                            const Gap(6),
-                            Text(
-                              'Tap to reveal',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: ZipherColors.text40,
-                              ),
-                            ),
-                          ],
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                ),
 
-                // Balance breakdown — shielded / transparent split
-                if (totalBal > 0 && !_balanceHidden)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: Builder(builder: (_) {
-                        // Clear shield flag when transparent reaches 0
-                        if (transparentBal == 0 && lastShieldSubmit != null) {
-                          lastShieldSubmit = null;
-                        }
-                        final shieldingInProgress = lastShieldSubmit != null &&
-                            DateTime.now()
-                                    .difference(lastShieldSubmit!)
-                                    .inMinutes <
-                                10;
-                        return _BalanceBreakdown(
-                          shieldedBal: shieldedBal,
-                          transparentBal: transparentBal,
-                          shieldableTransparentBal: shieldableTransparentBal,
-                          shieldingInProgress: shieldingInProgress,
-                          onShield: () => _shield(shieldableTransparentBal),
-                        );
-                      }),
-                    ),
-                  ),
-
-                // Action buttons
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _ActionButton(
-                            icon: Icons.move_to_inbox_rounded,
-                            label: 'Receive',
-                            onTap: () => GoRouter.of(context)
-                                .push('/account/pay_uri'),
+                    // Transaction list or empty state
+                    if (recentTxs.isEmpty)
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                          child: ZipherWidgets.emptyState(
+                            icon: Icons.receipt_long_outlined,
+                            title: 'No transactions yet',
                           ),
                         ),
-                        const Gap(12),
-                        Expanded(
-                          child: _ActionButton(
-                            icon: Icons.send_rounded,
-                            label: 'Send',
-                            onTap: () => _send(false),
+                      )
+                    else
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (context, index) {
+                              final tx = recentTxs[index];
+                              final entry = _swapsByDepositAddr[tx.address] ??
+                                  _swapsByDepositAddr[tx.fullTxId] ??
+                                  _swapsByDepositAddr[tx.txId];
+                              return _TxRow(
+                                tx: recentTxs[index],
+                                index: index,
+                                swapInfo: entry?.swap,
+                                swapStatus: entry?.status,
+                                hideAmounts: _balanceHidden,
+                              );
+                            },
+                            childCount: recentTxs.length,
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Backup warning
-                if (false) // TODO: track backup status
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                      child: _buildBackupReminder(s),
-                    ),
-                  ),
-
-                // Activity header
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 32, 20, 0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Recent Activity',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: ZipherColors.text90,
-                          ),
-                        ),
-                        if (recentTxs.isNotEmpty)
-                          GestureDetector(
-                            onTap: () =>
-                                GoRouter.of(context).go('/more/history'),
-                            child: Text(
-                              'See all',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                                color: ZipherColors.text40,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Transaction list or empty state
-                if (recentTxs.isEmpty)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding:
-                          const EdgeInsets.fromLTRB(20, 12, 20, 32),
-                      child: ZipherWidgets.emptyState(
-                        icon: Icons.receipt_long_outlined,
-                        title: 'No transactions yet',
                       ),
-                    ),
-                  )
-                else
-                  SliverPadding(
-                    padding:
-                        const EdgeInsets.fromLTRB(20, 8, 20, 32),
-                    sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final tx = recentTxs[index];
-                          final entry = _swapsByDepositAddr[tx.address]
-                              ?? _swapsByDepositAddr[tx.fullTxId]
-                              ?? _swapsByDepositAddr[tx.txId];
-                          return _TxRow(
-                            tx: recentTxs[index], index: index,
-                            swapInfo: entry?.swap,
-                            swapStatus: entry?.status,
-                            hideAmounts: _balanceHidden,
-                          );
-                        },
-                        childCount: recentTxs.length,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+                  ],
+                ),
               ],
             ),
           );
         },
-      ),
-    );
-  }
-
-  Widget _buildBackupReminder(S s) {
-    return GestureDetector(
-      onTap: _backup,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: ZipherColors.orange.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.shield_outlined,
-                size: 18,
-                color: ZipherColors.orange.withValues(alpha: 0.8)),
-            const Gap(12),
-            Expanded(
-              child: Text(
-                'Back up your wallet',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: ZipherColors.orange.withValues(alpha: 0.9),
-                ),
-              ),
-            ),
-            Icon(Icons.chevron_right_rounded,
-                size: 18,
-                color: ZipherColors.orange.withValues(alpha: 0.7)),
-          ],
-        ),
       ),
     );
   }
@@ -677,10 +647,6 @@ class _HomeState extends State<HomePageInner> {
     GoRouter.of(context).push('/account/quick_send?custom=$c');
   }
 
-  void _backup() {
-    GoRouter.of(context).push('/more/backup');
-  }
-
   void _shield(int transparentBal) async {
     final protectSend = appSettings.protectSend;
     if (protectSend) {
@@ -689,7 +655,8 @@ class _HomeState extends State<HomePageInner> {
     }
 
     final amtStr = amountToString2(transparentBal);
-    logger.i('[Shield] transparent=$transparentBal ($amtStr ZEC), fee=${coinSettings.feeT.fee}');
+    logger.i(
+        '[Shield] transparent=$transparentBal ($amtStr ZEC), fee=${coinSettings.feeT.fee}');
 
     // Immediately show "Shielding..." state
     setState(() {
@@ -716,14 +683,18 @@ class _HomeState extends State<HomePageInner> {
 
 class _BalanceBreakdown extends StatelessWidget {
   final int shieldedBal;
+  final int spendableShieldedBal;
   final int transparentBal;
+  final int pendingBal;
   final int shieldableTransparentBal;
   final bool shieldingInProgress;
   final VoidCallback onShield;
 
   const _BalanceBreakdown({
     required this.shieldedBal,
+    required this.spendableShieldedBal,
     required this.transparentBal,
+    required this.pendingBal,
     required this.shieldableTransparentBal,
     required this.shieldingInProgress,
     required this.onShield,
@@ -733,8 +704,7 @@ class _BalanceBreakdown extends StatelessWidget {
   Widget build(BuildContext context) {
     final totalBal = shieldedBal + transparentBal;
     final isFullyShielded = transparentBal == 0;
-    final pct =
-        totalBal > 0 ? (shieldedBal / totalBal).clamp(0.0, 1.0) : 1.0;
+    final pct = totalBal > 0 ? (shieldedBal / totalBal).clamp(0.0, 1.0) : 1.0;
 
     // Consistent purple for bar, button, and shield icons
     const barColor = ZipherColors.purple;
@@ -763,12 +733,25 @@ class _BalanceBreakdown extends StatelessWidget {
                       color: ZipherColors.purple.withValues(alpha: 0.85),
                     ),
                     const Gap(8),
-                    Text(
-                      'Shielded',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: ZipherColors.text40,
-                      ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Shielded total',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: ZipherColors.text40,
+                          ),
+                        ),
+                        if (pendingBal > 0)
+                          Text(
+                            '${amountToString2(spendableShieldedBal)} ZEC spendable',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: ZipherColors.text40,
+                            ),
+                          ),
+                      ],
                     ),
                     const Spacer(),
                     Text(
@@ -845,7 +828,8 @@ class _BalanceBreakdown extends StatelessWidget {
                                 horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
                               color: ZipherColors.cardBgElevated,
-                              borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                              borderRadius:
+                                  BorderRadius.circular(ZipherRadius.sm),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -885,8 +869,7 @@ class _BalanceBreakdown extends StatelessWidget {
                         Icon(
                           Icons.check_circle_outline_rounded,
                           size: 13,
-                          color:
-                              ZipherColors.purple.withValues(alpha: 0.85),
+                          color: ZipherColors.purple.withValues(alpha: 0.85),
                         ),
                         const Gap(6),
                         Text(
@@ -1040,7 +1023,12 @@ class _TxRow extends StatefulWidget {
   final StoredSwap? swapInfo;
   final NearSwapStatus? swapStatus;
   final bool hideAmounts;
-  const _TxRow({required this.tx, required this.index, this.swapInfo, this.swapStatus, this.hideAmounts = false});
+  const _TxRow(
+      {required this.tx,
+      required this.index,
+      this.swapInfo,
+      this.swapStatus,
+      this.hideAmounts = false});
 
   @override
   State<_TxRow> createState() => _TxRowState();
@@ -1060,14 +1048,14 @@ class _TxRowState extends State<_TxRow> {
     final isSwapDeposit = swapInfo != null && !isIncoming;
 
     // Detect shielding: self-transfer (no address) or our auto-shield memo
-    final isShielding = !isSwapDeposit &&
-        (tx.kind == 'shield' || tx.kind == 'send-to-self');
+    final isShielding =
+        !isSwapDeposit && (tx.kind == 'shield' || tx.kind == 'send-to-self');
 
     // Check for message content: raw memo or outgoing cache
     final bool isMessage = !isSwapDeposit &&
         (memo.startsWith('\u{1F6E1}') ||
-        memo.startsWith('🛡') ||
-        (!isIncoming && getOutgoingMemo(tx.fullTxId) != null));
+            memo.startsWith('🛡') ||
+            (!isIncoming && getOutgoingMemo(tx.fullTxId) != null));
     final String? messageBody = isMessage
         ? (memo.isNotEmpty ? parseMemoBody(memo) : getOutgoingMemo(tx.fullTxId))
         : null;
@@ -1114,7 +1102,8 @@ class _TxRowState extends State<_TxRow> {
     if (isSwapDeposit) {
       final raw = double.tryParse(swapInfo!.toAmount) ?? 0;
       final sym = swapInfo!.toCurrency;
-      final isZecDest = sym.toUpperCase() == 'ZEC' || sym.toUpperCase() == 'TAZ';
+      final isZecDest =
+          sym.toUpperCase() == 'ZEC' || sym.toUpperCase() == 'TAZ';
       amountStr = '${raw.toStringAsFixed(isZecDest ? 4 : 2)} $sym';
     } else if (shieldedAmount != null) {
       amountStr = '${decimalToString(shieldedAmount)} ZEC';
@@ -1132,9 +1121,8 @@ class _TxRowState extends State<_TxRow> {
 
     // Fiat
     final price = marketPrice.price;
-    final fiatValue = isShielding && shieldedAmount != null
-        ? shieldedAmount
-        : tx.value.abs();
+    final fiatValue =
+        isShielding && shieldedAmount != null ? shieldedAmount : tx.value.abs();
     final fiat = isSwapDeposit
         ? ''
         : price != null
@@ -1165,8 +1153,7 @@ class _TxRowState extends State<_TxRow> {
             }
           },
           child: Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: ZipherColors.cardBg,
               borderRadius: BorderRadius.circular(ZipherRadius.lg),
@@ -1230,16 +1217,19 @@ class _TxRowState extends State<_TxRow> {
                       if ((isPending || tx.expiredUnmined) && !isSwapDeposit)
                         Builder(builder: (_) {
                           final isFailed = tx.expiredUnmined;
-                          final statusColor = isFailed ? ZipherColors.red : ZipherColors.orange;
+                          final statusColor =
+                              isFailed ? ZipherColors.red : ZipherColors.orange;
                           final statusLabel = isFailed ? 'Failed' : 'Pending';
                           return Row(
                             children: [
                               if (isFailed)
-                                Icon(Icons.error_outline_rounded, size: 12,
+                                Icon(Icons.error_outline_rounded,
+                                    size: 12,
                                     color: statusColor.withValues(alpha: 0.8))
                               else
                                 SizedBox(
-                                  width: 10, height: 10,
+                                  width: 10,
+                                  height: 10,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 1.5,
                                     color: statusColor.withValues(alpha: 0.8),
@@ -1269,18 +1259,21 @@ class _TxRowState extends State<_TxRow> {
                         Row(
                           children: [
                             Container(
-                              width: 6, height: 6,
+                              width: 6,
+                              height: 6,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 color: (swapStatus?.isSuccess == true)
                                     ? ZipherColors.green
-                                    : (swapStatus?.isFailed == true || swapStatus?.isRefunded == true)
+                                    : (swapStatus?.isFailed == true ||
+                                            swapStatus?.isRefunded == true)
                                         ? ZipherColors.red
                                         : ZipherColors.orange,
                               ),
                             ),
                             const Gap(5),
-                            Expanded(child: Text(
+                            Expanded(
+                                child: Text(
                               swapStatusLabel,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -1289,9 +1282,12 @@ class _TxRowState extends State<_TxRow> {
                                 fontWeight: FontWeight.w500,
                                 color: (swapStatus?.isSuccess == true)
                                     ? ZipherColors.green.withValues(alpha: 0.7)
-                                    : (swapStatus?.isFailed == true || swapStatus?.isRefunded == true)
-                                        ? ZipherColors.red.withValues(alpha: 0.7)
-                                        : ZipherColors.orange.withValues(alpha: 0.9),
+                                    : (swapStatus?.isFailed == true ||
+                                            swapStatus?.isRefunded == true)
+                                        ? ZipherColors.red
+                                            .withValues(alpha: 0.7)
+                                        : ZipherColors.orange
+                                            .withValues(alpha: 0.9),
                               ),
                             )),
                             const Gap(6),
@@ -1319,28 +1315,30 @@ class _TxRowState extends State<_TxRow> {
                 ConstrainedBox(
                   constraints: const BoxConstraints(minWidth: 110),
                   child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      displayAmount,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: widget.hideAmounts ? ZipherColors.text40 : amountColor,
-                      ),
-                    ),
-                    if (displayFiat.isNotEmpty) ...[
-                      const Gap(1),
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
                       Text(
-                        displayFiat,
+                        displayAmount,
                         style: TextStyle(
-                          fontSize: 11,
-                          color: ZipherColors.text40,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: widget.hideAmounts
+                              ? ZipherColors.text40
+                              : amountColor,
                         ),
                       ),
+                      if (displayFiat.isNotEmpty) ...[
+                        const Gap(1),
+                        Text(
+                          displayFiat,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: ZipherColors.text40,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
-                ),
+                  ),
                 ),
               ],
             ),
@@ -1390,7 +1388,11 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
   Widget build(BuildContext context) {
     final activeWalletId = WalletService.instance.activeWalletId;
     int activeAccountIndex;
-    try { activeAccountIndex = aa.accountIndex; } catch (_) { activeAccountIndex = 0; }
+    try {
+      activeAccountIndex = aa.accountIndex;
+    } catch (_) {
+      activeAccountIndex = 0;
+    }
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.65,
@@ -1433,8 +1435,8 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                 if (isTestnet) ...[
                   const Gap(8),
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 3),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
                       color: ZipherColors.orange.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(ZipherRadius.sm),
@@ -1454,8 +1456,8 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                 GestureDetector(
                   onTap: _addAccount,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: ZipherColors.cyan.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(ZipherRadius.md),
@@ -1533,9 +1535,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: isEditing
-                            ? null
-                            : () => _switchToAccount(fa),
+                        onTap: isEditing ? null : () => _switchToAccount(fa),
                         onLongPress: () => _startEditing(index, fa),
                         borderRadius: BorderRadius.circular(ZipherRadius.lg),
                         child: Container(
@@ -1560,16 +1560,19 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                                 height: 36,
                                 decoration: BoxDecoration(
                                   color: isActive
-                                      ? ZipherColors.cyan.withValues(alpha: 0.10)
+                                      ? ZipherColors.cyan
+                                          .withValues(alpha: 0.10)
                                       : ZipherColors.cardBg,
-                                  borderRadius: BorderRadius.circular(ZipherRadius.md),
+                                  borderRadius:
+                                      BorderRadius.circular(ZipherRadius.md),
                                 ),
                                 child: Center(
                                   child: Icon(
                                     Icons.account_circle_rounded,
                                     size: 18,
                                     color: isActive
-                                        ? ZipherColors.cyan.withValues(alpha: 0.7)
+                                        ? ZipherColors.cyan
+                                            .withValues(alpha: 0.7)
                                         : ZipherColors.text20,
                                   ),
                                 ),
@@ -1582,7 +1585,8 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                                             horizontal: 12, vertical: 10),
                                         decoration: BoxDecoration(
                                           color: ZipherColors.borderSubtle,
-                                          borderRadius: BorderRadius.circular(ZipherRadius.md),
+                                          borderRadius: BorderRadius.circular(
+                                              ZipherRadius.md),
                                         ),
                                         child: TextField(
                                           controller: _nameController,
@@ -1603,11 +1607,13 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                                             ),
                                             contentPadding: EdgeInsets.zero,
                                           ),
-                                          onSubmitted: (v) => _renameAccount(fa, v),
+                                          onSubmitted: (v) =>
+                                              _renameAccount(fa, v),
                                         ),
                                       )
                                     : Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             fa.displayName,
@@ -1623,7 +1629,8 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                                               style: TextStyle(
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.w500,
-                                                color: ZipherColors.green.withValues(alpha: 0.5),
+                                                color: ZipherColors.green
+                                                    .withValues(alpha: 0.5),
                                               ),
                                             ),
                                         ],
@@ -1646,24 +1653,29 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                                   child: Container(
                                     padding: const EdgeInsets.all(6),
                                     decoration: BoxDecoration(
-                                      color: ZipherColors.red.withValues(alpha: 0.08),
-                                      borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                                      color: ZipherColors.red
+                                          .withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(
+                                          ZipherRadius.sm),
                                     ),
                                     child: Icon(
                                       Icons.remove_circle_outline_rounded,
                                       size: 16,
-                                      color: ZipherColors.red.withValues(alpha: 0.5),
+                                      color: ZipherColors.red
+                                          .withValues(alpha: 0.5),
                                     ),
                                   ),
                                 ),
                                 const Gap(4),
                                 GestureDetector(
-                                  onTap: () => setState(() => _editingIndex = null),
+                                  onTap: () =>
+                                      setState(() => _editingIndex = null),
                                   child: Container(
                                     padding: const EdgeInsets.all(6),
                                     decoration: BoxDecoration(
                                       color: ZipherColors.cardBg,
-                                      borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                                      borderRadius: BorderRadius.circular(
+                                          ZipherRadius.sm),
                                     ),
                                     child: Icon(
                                       Icons.close_rounded,
@@ -1705,7 +1717,8 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
     final ws = WalletService.instance;
 
     // Already on this account
-    if (fa.walletId == ws.activeWalletId && fa.accountIndex == aa.accountIndex) {
+    if (fa.walletId == ws.activeWalletId &&
+        fa.accountIndex == aa.accountIndex) {
       Navigator.of(context).pop();
       return;
     }
@@ -1715,7 +1728,8 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
       if (fa.walletId != ws.activeWalletId) {
         await ws.switchWallet(fa.walletId);
         syncStatus2.resetForWalletSwitch();
-        Future.delayed(const Duration(milliseconds: 500), () => startAutoSync());
+        Future.delayed(
+            const Duration(milliseconds: 500), () => startAutoSync());
       }
 
       final profile = await WalletRegistry.instance.getById(fa.walletId);
@@ -1876,7 +1890,11 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
 
   Future<void> _load() async {
     final wallets = await WalletRegistry.instance.getAll();
-    if (mounted) setState(() { _wallets = wallets; _loading = false; });
+    if (mounted)
+      setState(() {
+        _wallets = wallets;
+        _loading = false;
+      });
   }
 
   @override
@@ -1934,15 +1952,19 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
               child: Column(
                 children: [
                   SizedBox(
-                    width: 24, height: 24,
+                    width: 24,
+                    height: 24,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2, color: ZipherColors.cyan,
+                      strokeWidth: 2,
+                      color: ZipherColors.cyan,
                     ),
                   ),
                   const Gap(12),
-                  Text('Creating account...', style: TextStyle(
-                    fontSize: 13, color: ZipherColors.text40,
-                  )),
+                  Text('Creating account...',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: ZipherColors.text40,
+                      )),
                 ],
               ),
             )
@@ -1964,18 +1986,19 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
                 ),
               ),
               ..._wallets.map((w) {
-                final accountNames = w.visibleAccounts
-                    .map((a) => a.name)
-                    .join(', ');
+                final accountNames =
+                    w.visibleAccounts.map((a) => a.name).join(', ');
                 return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
                       onTap: () => _deriveFromSeed(w),
                       borderRadius: BorderRadius.circular(ZipherRadius.lg),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
                         decoration: BoxDecoration(
                           color: ZipherColors.cardBg,
                           borderRadius: BorderRadius.circular(ZipherRadius.lg),
@@ -1984,10 +2007,12 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
                         child: Row(
                           children: [
                             Container(
-                              width: 36, height: 36,
+                              width: 36,
+                              height: 36,
                               decoration: BoxDecoration(
                                 color: ZipherColors.cardBgElevated,
-                                borderRadius: BorderRadius.circular(ZipherRadius.md),
+                                borderRadius:
+                                    BorderRadius.circular(ZipherRadius.md),
                               ),
                               child: Center(
                                 child: Icon(
@@ -2099,28 +2124,36 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
             child: Row(
               children: [
                 Container(
-                  width: 36, height: 36,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
                     color: ZipherColors.cardBgElevated,
                     borderRadius: BorderRadius.circular(ZipherRadius.md),
                   ),
-                  child: Center(child: Icon(icon, size: 16, color: ZipherColors.text20)),
+                  child: Center(
+                      child: Icon(icon, size: 16, color: ZipherColors.text20)),
                 ),
                 const Gap(12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(label, style: TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w500, color: ZipherColors.text90,
-                      )),
-                      Text(subtitle, style: TextStyle(
-                        fontSize: 11, color: ZipherColors.text40,
-                      )),
+                      Text(label,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: ZipherColors.text90,
+                          )),
+                      Text(subtitle,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: ZipherColors.text40,
+                          )),
                     ],
                   ),
                 ),
-                Icon(Icons.chevron_right_rounded, size: 18, color: ZipherColors.text20),
+                Icon(Icons.chevron_right_rounded,
+                    size: 18, color: ZipherColors.text20),
               ],
             ),
           ),
@@ -2147,8 +2180,8 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
       if (existing != null && existing.isHidden) {
         await WalletRegistry.instance.unhideAccount(w.id, newIndex);
       } else {
-        await WalletRegistry.instance.addAccount(w.id,
-            name: 'Account ${newIndex + 1}');
+        await WalletRegistry.instance
+            .addAccount(w.id, name: 'Account ${newIndex + 1}');
       }
 
       // Switch active account to the new one
@@ -2186,104 +2219,5 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
   void _importExisting() {
     Navigator.of(context).pop();
     GoRouter.of(context).push('/restore');
-  }
-}
-
-// ═══════════════════════════════════════════════════════════
-// EMOJI PICKER SHEET
-// ═══════════════════════════════════════════════════════════
-
-class _EmojiPickerSheet extends StatelessWidget {
-  final ValueChanged<String> onSelected;
-  final VoidCallback onClear;
-
-  const _EmojiPickerSheet({required this.onSelected, required this.onClear});
-
-  static const _emojis = [
-    '💰', '🏦', '🔒', '🛡️', '⚡', '🌙', '🌊', '🔥',
-    '💎', '🪙', '🏠', '🎯', '🚀', '✨', '🌿', '🍀',
-    '❄️', '☁️', '🌈', '⭐', '🎵', '🎨', '📚', '💼',
-    '🧳', '🎁', '🏆', '👑', '🦊', '🐱', '🐶', '🦁',
-    '🐻', '🦄', '🐝', '🦋', '🌸', '🌺', '🍄', '🌍',
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: ZipherColors.text10,
-              borderRadius: BorderRadius.circular(ZipherRadius.xxs),
-            ),
-          ),
-          const Gap(16),
-          Row(
-            children: [
-              Text(
-                'Pick an emoji',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: ZipherColors.text60,
-                ),
-              ),
-              const Spacer(),
-              GestureDetector(
-                onTap: onClear,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: ZipherColors.cardBg,
-                    borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                  ),
-                  child: Text(
-                    'Remove',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: ZipherColors.text40,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const Gap(16),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 8,
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-            ),
-            itemCount: _emojis.length,
-            itemBuilder: (context, index) {
-              return GestureDetector(
-                onTap: () => onSelected(_emojis[index]),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: ZipherColors.cardBg,
-                    borderRadius: BorderRadius.circular(ZipherRadius.md),
-                  ),
-                  child: Center(
-                    child: Text(
-                      _emojis[index],
-                      style: const TextStyle(fontSize: 22),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
   }
 }

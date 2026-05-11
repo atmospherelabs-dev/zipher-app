@@ -231,7 +231,7 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
             COALESCE(is_shielding, 0) AS is_shielding,
             COALESCE(expired_unmined, 0) AS expired_unmined
         FROM v_transactions
-        ORDER BY mined_height IS NOT NULL, mined_height DESC, tx_index DESC",
+        ORDER BY mined_height IS NULL, mined_height DESC, tx_index DESC",
     )?;
 
     let rows = stmt.query_map([], |row| {

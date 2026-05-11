@@ -38,6 +38,7 @@ class _DebugLogPageState extends State<DebugLogPage> {
     final entries = _filtered;
     final syncPhase = syncStatus2.phase;
     final syncedH = syncStatus2.syncedHeight;
+    final scanningUpTo = syncStatus2.scanningUpTo;
     final latestH = syncStatus2.latestHeight ?? 0;
     final connected = syncStatus2.connected;
     final error = syncStatus2.connectionError;
@@ -65,7 +66,7 @@ class _DebugLogPageState extends State<DebugLogPage> {
               final all = AppLog.instance.entries;
               final header = 'Zipher Debug Log\n'
                   'connected=$connected phase=$syncPhase\n'
-                  'height=$syncedH/$latestH queue=$queueLen\n'
+                  'height=$syncedH/$latestH scanning_to=$scanningUpTo queue=$queueLen\n'
                   'error=${error ?? 'none'}\n'
                   '---\n';
               final body = all.map((e) =>
@@ -126,7 +127,7 @@ class _DebugLogPageState extends State<DebugLogPage> {
                     Text('phase: $syncPhase'),
                   ]),
                   const SizedBox(height: 4),
-                  Text('height: $syncedH / $latestH   queue: $queueLen'),
+                  Text('height: $syncedH / $latestH   scanning to: $scanningUpTo   queue: $queueLen'),
                   if (error != null) ...[
                     const SizedBox(height: 4),
                     Text('error: $error',

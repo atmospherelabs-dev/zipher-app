@@ -48,6 +48,12 @@ lazy_static::lazy_static! {
     static ref SYNC_PROGRESS: TokioMutex<SyncProgressInfo> =
         TokioMutex::new(SyncProgressInfo::default());
 
+    static ref SYNC_RUNTIME_CONFIG: TokioMutex<SyncRuntimeConfig> =
+        TokioMutex::new(SyncRuntimeConfig::default());
+
+    static ref SYNC_PERF: TokioMutex<SyncPerfSnapshot> =
+        TokioMutex::new(SyncPerfSnapshot::default());
+
     static ref INACTIVE_WALLETS: TokioMutex<Vec<InactiveWallet>> =
         TokioMutex::new(Vec::new());
 
@@ -75,6 +81,39 @@ pub struct SyncProgressInfo {
     pub scan_progress_den: u64,
     pub recovery_progress_num: u64,
     pub recovery_progress_den: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct SyncRuntimeConfig {
+    pub prefetch_depth: usize,
+    pub alternate_servers: Vec<String>,
+}
+
+impl Default for SyncRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            prefetch_depth: 3,
+            alternate_servers: Vec::new(),
+        }
+    }
+}
+
+#[derive(Default, Clone, Debug, serde::Serialize)]
+pub struct SyncPerfSnapshot {
+    pub batches: u64,
+    pub blocks: u64,
+    pub work_units: u64,
+    pub download_ms: u64,
+    pub scan_ms: u64,
+    pub restarted_batches: u64,
+    pub avg_download_ms: u64,
+    pub avg_scan_ms: u64,
+    pub work_units_per_second: f64,
+    pub adaptive_batch_size: u32,
+    pub prefetch_depth: usize,
+    pub multi_server_enabled: bool,
+    pub multi_server_fallbacks: u64,
+    pub multi_server_mismatches: u64,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -133,6 +172,16 @@ pub async fn start() -> Result<()> {
 
     SYNC_RUNNING.store(true, Ordering::SeqCst);
     SYNC_CANCEL.store(false, Ordering::SeqCst);
+    {
+        let runtime = SYNC_RUNTIME_CONFIG.lock().await.clone();
+        let mut perf = SYNC_PERF.lock().await;
+        *perf = SyncPerfSnapshot {
+            adaptive_batch_size: SCAN_BATCH_SIZE,
+            prefetch_depth: runtime.prefetch_depth,
+            multi_server_enabled: !runtime.alternate_servers.is_empty(),
+            ..SyncPerfSnapshot::default()
+        };
+    }
     {
         let mut p = SYNC_PROGRESS.lock().await;
         p.is_syncing = true;
@@ -197,6 +246,19 @@ pub fn is_running() -> bool {
 
 pub async fn get_progress() -> SyncProgressInfo {
     SYNC_PROGRESS.lock().await.clone()
+}
+
+pub async fn get_perf_snapshot() -> SyncPerfSnapshot {
+    SYNC_PERF.lock().await.clone()
+}
+
+pub async fn configure_runtime(config: SyncRuntimeConfig) {
+    let mut runtime = SYNC_RUNTIME_CONFIG.lock().await;
+    *runtime = config;
+}
+
+pub async fn reset_runtime_config() {
+    configure_runtime(SyncRuntimeConfig::default()).await;
 }
 
 pub fn subscribe_events() -> broadcast::Receiver<SyncEventInfo> {
@@ -702,6 +764,7 @@ async fn sync_once(
 ) -> Result<()> {
     tracing::info!("[sync] starting pass, server={}", server_url);
     emit_log(&format!("sync pass start → {}", server_url));
+    let runtime = SYNC_RUNTIME_CONFIG.lock().await.clone();
     let mut perf = PassPerf::default();
 
     let mut db_data = open_wallet_db(db_data_path, params, db_cipher_key)?;
@@ -833,10 +896,12 @@ async fn sync_once(
                     let scan_elapsed_ms = scan_started.elapsed().as_millis() as u64;
                     if let Some(stats) = verify_stats {
                         perf.record(stats, scan_elapsed_ms, &outcome);
+                        perf.update_snapshot(batch_size, &runtime).await;
                     }
 
                     match outcome {
                         ScanOutcome::Restarted => {
+                            update_synced_progress_after_restart(&mut db_data).await;
                             scan_ranges = db_data
                                 .suggest_scan_ranges()
                                 .map_err(|e| anyhow::anyhow!("suggest_scan_ranges: {:?}", e))?;
@@ -845,9 +910,7 @@ async fn sync_once(
                             synced_height,
                             notes_found,
                         } => {
-                            let mut p = SYNC_PROGRESS.lock().await;
-                            p.synced_height = synced_height;
-                            drop(p);
+                            update_synced_progress(&mut db_data, synced_height, false).await;
                             if notes_found > 0 {
                                 let _ = enhance_transactions_inline(
                                     &mut db_data,
@@ -891,124 +954,132 @@ async fn sync_once(
                 p.phase = SYNC_PHASE_SCANNING.to_string();
             }
             emit_progress_event("phase_changed", None, None).await;
+            emit_log(&format!(
+                "scan batches: {} batch_size={} prefetch_depth={} multi_server={}",
+                batches.len(),
+                batch_size,
+                runtime.prefetch_depth,
+                !runtime.alternate_servers.is_empty()
+            ));
 
-            let (tx, mut rx) = mpsc::channel::<Result<PrefetchedRange>>(3);
-            let fetch_server_url = server_url.to_string();
-            let fetch_batches = batches;
-            let fetch_handle = tokio::spawn(async move {
-                let mut fetch_lwd = connect_lwd(&fetch_server_url).await?;
-                for scan_range in fetch_batches {
+            if runtime.prefetch_depth == 0 {
+                for current_range in batches {
                     check_cancel()?;
-                    let downloaded = download_range(&mut fetch_lwd, &scan_range).await?;
-                    if tx
-                        .send(Ok(PrefetchedRange {
-                            scan_range,
-                            downloaded,
-                        }))
-                        .await
-                        .is_err()
-                    {
-                        return Ok::<(), anyhow::Error>(());
-                    }
-                }
-                Ok::<(), anyhow::Error>(())
-            });
-
-            while let Some(prefetched) = rx.recv().await {
-                check_cancel()?;
-                if pass_started.elapsed() > SYNC_RESTART_TIMEOUT {
-                    tracing::info!(
-                        "[sync] pass timeout ({}s), restarting to refresh chain tip",
-                        SYNC_RESTART_TIMEOUT.as_secs()
-                    );
-                    emit_log("pass timeout, restarting to refresh chain tip");
-                    did_restart = true;
-                    break;
-                }
-                let PrefetchedRange {
-                    scan_range: current_range,
-                    downloaded,
-                } = prefetched?;
-                let batch_stats = downloaded.as_ref().map(|d| d.stats());
-                {
-                    let mut p = SYNC_PROGRESS.lock().await;
-                    p.scanning_up_to = u32::from(current_range.block_range().end);
-                }
-                emit_progress_event("phase_changed", None, None).await;
-                let scan_started = Instant::now();
-                let outcome = tokio::task::block_in_place(|| {
-                    process_downloaded_range(
-                        &params,
-                        &db_cache,
-                        &mut db_data,
-                        &current_range,
-                        downloaded,
-                    )
-                })?;
-                let scan_elapsed_ms = scan_started.elapsed().as_millis() as u64;
-                batch_size = adjust_batch_size(batch_size, scan_elapsed_ms);
-                if let Some(stats) = batch_stats {
-                    perf.record(stats, scan_elapsed_ms, &outcome);
-                }
-                {
-                    let mut p = SYNC_PROGRESS.lock().await;
-                    p.adaptive_batch_size = batch_size;
-                }
-                emit_progress_event("phase_changed", None, None).await;
-
-                match outcome {
-                    ScanOutcome::Restarted => {
+                    if pass_started.elapsed() > SYNC_RESTART_TIMEOUT {
+                        tracing::info!(
+                            "[sync] pass timeout ({}s), restarting to refresh chain tip",
+                            SYNC_RESTART_TIMEOUT.as_secs()
+                        );
+                        emit_log("pass timeout, restarting to refresh chain tip");
                         did_restart = true;
                         break;
                     }
-                    ScanOutcome::Scanned {
-                        synced_height,
-                        notes_found,
-                    } => {
-                        {
-                            let mut p = SYNC_PROGRESS.lock().await;
-                            p.synced_height = synced_height;
-                        }
-                        refresh_scan_progress(&mut db_data).await;
-                        if notes_found > 0 {
-                            let _ = enhance_transactions_inline(
-                                &mut db_data,
-                                &params,
-                                &mut lwd,
-                                db_data_path,
-                                db_cipher_key,
-                            )
-                            .await;
-                        }
-                        emit_event(SyncEventInfo {
-                            event_type: "balance_maybe_changed".to_string(),
-                            phase: None,
-                            synced_height,
-                            latest_height: 0,
-                            maintenance_queue_len: 0,
-                            txid: None,
-                            status: None,
-                            scope: None,
-                            message: None,
-                            scan_progress_num: 0,
-                            scan_progress_den: 0,
-                            recovery_progress_num: 0,
-                            recovery_progress_den: 0,
-                        });
+                    let downloaded = download_range(&mut lwd, &current_range).await?;
+                    {
+                        let mut p = SYNC_PROGRESS.lock().await;
+                        p.scanning_up_to = u32::from(current_range.block_range().end);
                     }
-                    ScanOutcome::NothingToScan => {}
+                    emit_progress_event("phase_changed", None, None).await;
+                    let outcome = process_prefetched_range(
+                        &params,
+                        &db_cache,
+                        &mut db_data,
+                        &mut batch_size,
+                        &mut perf,
+                        &current_range,
+                        downloaded,
+                        MultiServerCounters::default(),
+                    )?;
+                    perf.update_snapshot(batch_size, &runtime).await;
+                    {
+                        let mut p = SYNC_PROGRESS.lock().await;
+                        p.adaptive_batch_size = batch_size;
+                    }
+                    emit_progress_event("phase_changed", None, None).await;
+                    did_restart = handle_scan_outcome(
+                        outcome,
+                        &mut db_data,
+                        &params,
+                        &mut lwd,
+                        db_data_path,
+                        db_cipher_key,
+                    )
+                    .await?;
+                    if did_restart {
+                        break;
+                    }
                 }
-            }
-
-            if did_restart {
-                fetch_handle.abort();
             } else {
-                match fetch_handle.await {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => return Err(e),
-                    Err(e) if e.is_cancelled() => {}
-                    Err(e) => {
-                        return Err(anyhow::anyhow!("download prefetch task failed: {:?}", e))
+                let (tx, mut rx) = mpsc::channel::<Result<PrefetchedRange>>(runtime.prefetch_depth);
+                let fetch_server_url = server_url.to_string();
+                let fetch_batches = batches;
+                let fetch_runtime = runtime.clone();
+                let fetch_handle = tokio::spawn(async move {
+                    fetch_prefetched_ranges(fetch_server_url, fetch_batches, fetch_runtime, tx)
+                        .await
+                });
+
+                while let Some(prefetched) = rx.recv().await {
+                    check_cancel()?;
+                    if pass_started.elapsed() > SYNC_RESTART_TIMEOUT {
+                        tracing::info!(
+                            "[sync] pass timeout ({}s), restarting to refresh chain tip",
+                            SYNC_RESTART_TIMEOUT.as_secs()
+                        );
+                        emit_log("pass timeout, restarting to refresh chain tip");
+                        did_restart = true;
+                        break;
+                    }
+                    let PrefetchedRange {
+                        scan_range: current_range,
+                        downloaded,
+                        multi_server_counters,
+                    } = prefetched?;
+                    {
+                        let mut p = SYNC_PROGRESS.lock().await;
+                        p.scanning_up_to = u32::from(current_range.block_range().end);
+                    }
+                    emit_progress_event("phase_changed", None, None).await;
+                    let outcome = process_prefetched_range(
+                        &params,
+                        &db_cache,
+                        &mut db_data,
+                        &mut batch_size,
+                        &mut perf,
+                        &current_range,
+                        downloaded,
+                        multi_server_counters,
+                    )?;
+                    perf.update_snapshot(batch_size, &runtime).await;
+                    {
+                        let mut p = SYNC_PROGRESS.lock().await;
+                        p.adaptive_batch_size = batch_size;
+                    }
+                    emit_progress_event("phase_changed", None, None).await;
+                    did_restart = handle_scan_outcome(
+                        outcome,
+                        &mut db_data,
+                        &params,
+                        &mut lwd,
+                        db_data_path,
+                        db_cipher_key,
+                    )
+                    .await?;
+                    if did_restart {
+                        break;
+                    }
+                }
+
+                if did_restart {
+                    fetch_handle.abort();
+                } else {
+                    match fetch_handle.await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => return Err(e),
+                        Err(e) if e.is_cancelled() => {}
+                        Err(e) => {
+                            return Err(anyhow::anyhow!("download prefetch task failed: {:?}", e))
+                        }
                     }
                 }
             }
@@ -1102,6 +1173,7 @@ async fn sync_once(
     }
 
     perf.log_summary();
+    perf.update_snapshot(batch_size, &runtime).await;
     tracing::info!("[sync] pass complete");
     Ok(())
 }
@@ -1654,6 +1726,13 @@ struct DownloadedRange {
 struct PrefetchedRange {
     scan_range: zcash_client_backend::data_api::scanning::ScanRange,
     downloaded: Option<DownloadedRange>,
+    multi_server_counters: MultiServerCounters,
+}
+
+#[derive(Default)]
+struct MultiServerCounters {
+    fallbacks: u64,
+    mismatches: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1681,6 +1760,8 @@ struct PassPerf {
     download_ms: u64,
     scan_ms: u64,
     restarted_batches: u64,
+    multi_server_fallbacks: u64,
+    multi_server_mismatches: u64,
 }
 
 impl PassPerf {
@@ -1706,6 +1787,46 @@ impl PassPerf {
         }
     }
 
+    async fn update_snapshot(&self, adaptive_batch_size: u32, runtime: &SyncRuntimeConfig) {
+        let avg_download_ms = if self.batches == 0 {
+            0
+        } else {
+            self.download_ms / self.batches
+        };
+        let avg_scan_ms = if self.batches == 0 {
+            0
+        } else {
+            self.scan_ms / self.batches
+        };
+        let work_units_per_second = if self.scan_ms == 0 {
+            0.0
+        } else {
+            (self.work_units as f64) / (self.scan_ms as f64 / 1000.0)
+        };
+        let mut snapshot = SYNC_PERF.lock().await;
+        *snapshot = SyncPerfSnapshot {
+            batches: self.batches,
+            blocks: self.blocks,
+            work_units: self.work_units,
+            download_ms: self.download_ms,
+            scan_ms: self.scan_ms,
+            restarted_batches: self.restarted_batches,
+            avg_download_ms,
+            avg_scan_ms,
+            work_units_per_second,
+            adaptive_batch_size,
+            prefetch_depth: runtime.prefetch_depth,
+            multi_server_enabled: !runtime.alternate_servers.is_empty(),
+            multi_server_fallbacks: self.multi_server_fallbacks,
+            multi_server_mismatches: self.multi_server_mismatches,
+        };
+    }
+
+    fn record_multi_server(&mut self, counters: MultiServerCounters) {
+        self.multi_server_fallbacks += counters.fallbacks;
+        self.multi_server_mismatches += counters.mismatches;
+    }
+
     fn log_summary(&self) {
         if self.batches == 0 {
             tracing::info!("[sync][perf] no scan batches in this pass");
@@ -1728,6 +1849,18 @@ impl PassPerf {
             units_per_sec,
             self.restarted_batches
         );
+        emit_log(&format!(
+            "perf: batches={} blocks={} units={} avg_dl={}ms avg_scan={}ms units/s={:.1} restarts={} fallbacks={} mismatches={}",
+            self.batches,
+            self.blocks,
+            self.work_units,
+            avg_download_ms,
+            avg_scan_ms,
+            units_per_sec,
+            self.restarted_batches,
+            self.multi_server_fallbacks,
+            self.multi_server_mismatches
+        ));
     }
 }
 
@@ -1740,6 +1873,186 @@ fn adjust_batch_size(current: u32, scan_elapsed_ms: u64) -> u32 {
         (current / 2).max(MIN_BATCH_SIZE)
     } else {
         current
+    }
+}
+
+async fn fetch_prefetched_ranges(
+    primary_server_url: String,
+    batches: Vec<ScanRange>,
+    runtime: SyncRuntimeConfig,
+    tx: mpsc::Sender<Result<PrefetchedRange>>,
+) -> Result<()> {
+    let mut servers = vec![primary_server_url.clone()];
+    for server in runtime.alternate_servers {
+        if server != primary_server_url && !servers.iter().any(|s| s == &server) {
+            servers.push(server);
+        }
+    }
+
+    let mut primary_lwd = connect_lwd(&primary_server_url).await?;
+    for (idx, scan_range) in batches.into_iter().enumerate() {
+        check_cancel()?;
+        let candidate_url = servers
+            .get(idx % servers.len())
+            .cloned()
+            .unwrap_or_else(|| primary_server_url.clone());
+        let (downloaded, multi_server_counters) = if candidate_url == primary_server_url {
+            (
+                download_range(&mut primary_lwd, &scan_range).await?,
+                MultiServerCounters::default(),
+            )
+        } else {
+            download_range_from_candidate(
+                &primary_server_url,
+                &mut primary_lwd,
+                &candidate_url,
+                &scan_range,
+                idx,
+            )
+            .await?
+        };
+
+        if tx
+            .send(Ok(PrefetchedRange {
+                scan_range,
+                downloaded,
+                multi_server_counters,
+            }))
+            .await
+            .is_err()
+        {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+async fn download_range_from_candidate(
+    primary_server_url: &str,
+    primary_lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
+    candidate_url: &str,
+    scan_range: &ScanRange,
+    batch_index: usize,
+) -> Result<(Option<DownloadedRange>, MultiServerCounters)> {
+    let mut counters = MultiServerCounters::default();
+    let mut candidate_lwd = match connect_lwd(candidate_url).await {
+        Ok(lwd) => lwd,
+        Err(e) => {
+            counters.fallbacks += 1;
+            tracing::warn!(
+                "[sync] multi-server candidate failed to connect, falling back to primary: {}",
+                e
+            );
+            emit_log("multi-server: candidate connect failed, using primary server");
+            return Ok((download_range(primary_lwd, scan_range).await?, counters));
+        }
+    };
+
+    let candidate = match download_range(&mut candidate_lwd, scan_range).await {
+        Ok(downloaded) => downloaded,
+        Err(e) => {
+            counters.fallbacks += 1;
+            tracing::warn!(
+                "[sync] multi-server candidate download failed, falling back to primary: {}",
+                e
+            );
+            emit_log("multi-server: candidate download failed, using primary server");
+            return Ok((download_range(primary_lwd, scan_range).await?, counters));
+        }
+    };
+
+    // Cross-check a small deterministic sample against the primary server. This
+    // catches bad or divergent servers without doubling every download.
+    if batch_index % 20 == 0 {
+        let primary = download_range(primary_lwd, scan_range).await?;
+        if !downloaded_ranges_match(&candidate, &primary) {
+            counters.mismatches += 1;
+            counters.fallbacks += 1;
+            tracing::warn!(
+                "[sync] multi-server mismatch for {}, using primary result",
+                candidate_url
+            );
+            emit_log("multi-server: cross-check mismatch, using primary server");
+            return Ok((primary, counters));
+        }
+    }
+
+    tracing::debug!(
+        "[sync] downloaded range {}..{} from {} (primary {})",
+        u32::from(scan_range.block_range().start),
+        u32::from(scan_range.block_range().end),
+        candidate_url,
+        primary_server_url
+    );
+    Ok((candidate, counters))
+}
+
+fn process_prefetched_range(
+    params: &Network,
+    db_cache: &BlockCache,
+    db_data: &mut DbType,
+    batch_size: &mut u32,
+    perf: &mut PassPerf,
+    current_range: &ScanRange,
+    downloaded: Option<DownloadedRange>,
+    multi_server_counters: MultiServerCounters,
+) -> Result<ScanOutcome> {
+    let batch_stats = downloaded.as_ref().map(|d| d.stats());
+    let scan_started = Instant::now();
+    let outcome = tokio::task::block_in_place(|| {
+        process_downloaded_range(params, db_cache, db_data, current_range, downloaded)
+    })?;
+    let scan_elapsed_ms = scan_started.elapsed().as_millis() as u64;
+    *batch_size = adjust_batch_size(*batch_size, scan_elapsed_ms);
+    perf.record_multi_server(multi_server_counters);
+    if let Some(stats) = batch_stats {
+        perf.record(stats, scan_elapsed_ms, &outcome);
+    }
+    Ok(outcome)
+}
+
+async fn handle_scan_outcome(
+    outcome: ScanOutcome,
+    db_data: &mut DbType,
+    params: &Network,
+    lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
+    db_data_path: &Path,
+    db_cipher_key: &Option<String>,
+) -> Result<bool> {
+    match outcome {
+        ScanOutcome::Restarted => {
+            update_synced_progress_after_restart(db_data).await;
+            Ok(true)
+        }
+        ScanOutcome::Scanned {
+            synced_height,
+            notes_found,
+        } => {
+            update_synced_progress(db_data, synced_height, false).await;
+            refresh_scan_progress(db_data).await;
+            if notes_found > 0 {
+                let _ =
+                    enhance_transactions_inline(db_data, params, lwd, db_data_path, db_cipher_key)
+                        .await;
+            }
+            emit_event(SyncEventInfo {
+                event_type: "balance_maybe_changed".to_string(),
+                phase: None,
+                synced_height,
+                latest_height: 0,
+                maintenance_queue_len: 0,
+                txid: None,
+                status: None,
+                scope: None,
+                message: None,
+                scan_progress_num: 0,
+                scan_progress_den: 0,
+                recovery_progress_num: 0,
+                recovery_progress_den: 0,
+            });
+            Ok(false)
+        }
+        ScanOutcome::NothingToScan => Ok(false),
     }
 }
 
@@ -1763,6 +2076,7 @@ async fn download_range(
     if blocks.is_empty() {
         return Ok(None);
     }
+    validate_blocks_for_range(&blocks, range_start, range_end)?;
     let chain_state = download_chain_state(lwd, range_start).await?;
     let download_ms = download_started.elapsed().as_millis() as u64;
 
@@ -1982,6 +2296,50 @@ fn count_work_units(blocks: &[CompactBlock]) -> usize {
         .sum()
 }
 
+fn validate_blocks_for_range(
+    blocks: &[CompactBlock],
+    range_start: BlockHeight,
+    range_end: BlockHeight,
+) -> Result<()> {
+    let mut expected = u32::from(range_start);
+    let end = u32::from(range_end);
+    for block in blocks {
+        let height = block.height as u32;
+        if height != expected {
+            return Err(anyhow::anyhow!(
+                "compact block height mismatch: expected {}, got {}",
+                expected,
+                height
+            ));
+        }
+        expected += 1;
+    }
+    if expected != end {
+        return Err(anyhow::anyhow!(
+            "compact block range ended at {}, expected {}",
+            expected,
+            end
+        ));
+    }
+    Ok(())
+}
+
+fn downloaded_ranges_match(a: &Option<DownloadedRange>, b: &Option<DownloadedRange>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => {
+            a.range_start == b.range_start
+                && a.range_end == b.range_end
+                && a.blocks.len() == b.blocks.len()
+                && a.blocks
+                    .iter()
+                    .zip(b.blocks.iter())
+                    .all(|(left, right)| left.height == right.height && left.hash == right.hash)
+        }
+        _ => false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Subtree roots — always fetch from index 0 (idempotent, like ECC reference)
 // ---------------------------------------------------------------------------
@@ -2077,6 +2435,35 @@ async fn refresh_scan_progress(db_data: &mut DbType) {
             p.recovery_progress_num = *recovery.numerator();
             p.recovery_progress_den = *recovery.denominator();
         }
+    }
+}
+
+fn wallet_fully_scanned_height(db_data: &mut DbType) -> Option<u32> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        db_data.get_wallet_summary(ConfirmationsPolicy::MIN)
+    }))
+    .ok()
+    .and_then(|r| r.ok())
+    .flatten()
+    .map(|s| u32::from(s.fully_scanned_height()))
+}
+
+async fn update_synced_progress(db_data: &mut DbType, fallback_height: u32, allow_regress: bool) {
+    let height = wallet_fully_scanned_height(db_data).unwrap_or(fallback_height);
+    if height == 0 {
+        return;
+    }
+
+    let mut p = SYNC_PROGRESS.lock().await;
+    if allow_regress || height >= p.synced_height {
+        p.synced_height = height;
+    }
+}
+
+async fn update_synced_progress_after_restart(db_data: &mut DbType) {
+    if let Some(height) = wallet_fully_scanned_height(db_data) {
+        let mut p = SYNC_PROGRESS.lock().await;
+        p.synced_height = height;
     }
 }
 type ScanRange = zcash_client_backend::data_api::scanning::ScanRange;
