@@ -261,13 +261,15 @@ abstract class _SyncStatus2 with Store {
       }
 
       final h = await WalletService.instance.getWalletSyncedHeight();
+      final activeScanHeight =
+          progress.phase == 'verifying' ? 0 : progress.scanningUpTo;
       final effectiveH = progress.syncedHeight > 0
           ? progress.syncedHeight
-          : progress.scanningUpTo > 0
-              ? progress.scanningUpTo
+          : activeScanHeight > 0
+              ? activeScanHeight
               : h;
       logger.i(
-          '[Sync] synced=${progress.syncedHeight} scanning_to=${progress.scanningUpTo} tip=${progress.latestHeight} phase=${progress.phase} queue=${progress.maintenanceQueueLen}');
+          '[Sync] synced=${progress.syncedHeight} ${progress.phase == 'verifying' ? 'verifying_to' : 'scanning_to'}=${progress.scanningUpTo} tip=${progress.latestHeight} phase=${progress.phase} queue=${progress.maintenanceQueueLen}');
       if (effectiveH > 0 &&
           effectiveH < syncedHeight &&
           progress.isSyncing &&

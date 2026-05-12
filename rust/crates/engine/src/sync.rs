@@ -138,6 +138,7 @@ const SYNC_PHASE_CONNECTING: &str = "connecting";
 const SYNC_PHASE_UPDATING_ROOTS: &str = "updating_roots";
 const SYNC_PHASE_REFRESHING_UTXOS: &str = "refreshing_utxos";
 const SYNC_PHASE_SCANNING: &str = "scanning";
+const SYNC_PHASE_VERIFYING: &str = "verifying";
 const SYNC_PHASE_CAUGHT_UP: &str = "caught_up";
 const SYNC_PHASE_ENHANCING: &str = "enhancing";
 const SYNC_PHASE_RECONNECTING: &str = "reconnecting";
@@ -871,9 +872,15 @@ async fn sync_once(
                 Some(range) if range.priority() == ScanPriority::Verify => {
                     tracing::info!("[sync] verifying range {:?}", range.block_range());
                     let range_clone = range.clone();
+                    let verify_start = u32::from(range_clone.block_range().start);
+                    let verify_end = u32::from(range_clone.block_range().end);
+                    emit_log(&format!(
+                        "verifying old range {}..{}",
+                        verify_start, verify_end
+                    ));
                     {
                         let mut p = SYNC_PROGRESS.lock().await;
-                        p.phase = SYNC_PHASE_SCANNING.to_string();
+                        p.phase = SYNC_PHASE_VERIFYING.to_string();
                     }
                     emit_progress_event("phase_changed", None, None).await;
                     let downloaded = download_range(&mut lwd, &range_clone).await?;
@@ -901,6 +908,10 @@ async fn sync_once(
 
                     match outcome {
                         ScanOutcome::Restarted => {
+                            emit_log(&format!(
+                                "verify range {}..{} requested restart",
+                                verify_start, verify_end
+                            ));
                             update_synced_progress_after_restart(&mut db_data).await;
                             scan_ranges = db_data
                                 .suggest_scan_ranges()
@@ -910,6 +921,10 @@ async fn sync_once(
                             synced_height,
                             notes_found,
                         } => {
+                            emit_log(&format!(
+                                "verified old range {}..{}",
+                                verify_start, verify_end
+                            ));
                             update_synced_progress(&mut db_data, synced_height, false).await;
                             if notes_found > 0 {
                                 let _ = enhance_transactions_inline(
@@ -921,7 +936,9 @@ async fn sync_once(
                                 )
                                 .await;
                             }
-                            break;
+                            scan_ranges = db_data
+                                .suggest_scan_ranges()
+                                .map_err(|e| anyhow::anyhow!("suggest_scan_ranges: {:?}", e))?;
                         }
                         ScanOutcome::NothingToScan => break,
                     }
@@ -975,6 +992,12 @@ async fn sync_once(
                         break;
                     }
                     let downloaded = download_range(&mut lwd, &current_range).await?;
+                    emit_log(&format!(
+                        "scanning range {}..{} priority={:?}",
+                        u32::from(current_range.block_range().start),
+                        u32::from(current_range.block_range().end),
+                        current_range.priority()
+                    ));
                     {
                         let mut p = SYNC_PROGRESS.lock().await;
                         p.scanning_up_to = u32::from(current_range.block_range().end);
@@ -1035,6 +1058,12 @@ async fn sync_once(
                         downloaded,
                         multi_server_counters,
                     } = prefetched?;
+                    emit_log(&format!(
+                        "scanning range {}..{} priority={:?}",
+                        u32::from(current_range.block_range().start),
+                        u32::from(current_range.block_range().end),
+                        current_range.priority()
+                    ));
                     {
                         let mut p = SYNC_PROGRESS.lock().await;
                         p.scanning_up_to = u32::from(current_range.block_range().end);
@@ -1864,9 +1893,9 @@ impl PassPerf {
     }
 }
 
-const SCAN_BATCH_SIZE: u32 = 1_000;
-const MIN_BATCH_SIZE: u32 = 150;
-const SLOW_SCAN_MS: u64 = 5_000;
+const SCAN_BATCH_SIZE: u32 = 250;
+const MIN_BATCH_SIZE: u32 = 100;
+const SLOW_SCAN_MS: u64 = 3_000;
 
 fn adjust_batch_size(current: u32, scan_elapsed_ms: u64) -> u32 {
     if scan_elapsed_ms > SLOW_SCAN_MS {

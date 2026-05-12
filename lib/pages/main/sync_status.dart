@@ -50,9 +50,16 @@ class SyncStatusState extends State<SyncStatusWidget>
 
     switch (display % 4) {
       case 0:
+        if (phase == 'verifying') return 'Verifying wallet data';
         if (phase == 'refreshing_utxos') return 'Refreshing transparent funds';
         if (phase == 'updating_roots') return 'Updating wallet checkpoints';
         if (phase == 'enhancing') return 'Recovering transaction details';
+        final scanningTo = syncStatus2.scanningUpTo;
+        if (phase == 'scanning' &&
+            scanningTo > syncedHeight &&
+            scanningTo <= latestHeight + 1) {
+          return 'Scanning to $scanningTo / $latestHeight';
+        }
         return 'Syncing $syncedHeight / $latestHeight';
       case 1:
         final m = syncStatus2.isRescan ? s.rescan : s.catchup;

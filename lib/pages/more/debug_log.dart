@@ -18,8 +18,9 @@ class _DebugLogPageState extends State<DebugLogPage> {
   bool _autoScroll = true;
   Level _minLevel = Level.debug;
 
-  List<LogEntry> get _filtered =>
-      AppLog.instance.entries.where((e) => e.level.index >= _minLevel.index).toList();
+  List<LogEntry> get _filtered => AppLog.instance.entries
+      .where((e) => e.level.index >= _minLevel.index)
+      .toList();
 
   @override
   void dispose() {
@@ -40,6 +41,8 @@ class _DebugLogPageState extends State<DebugLogPage> {
     final syncedH = syncStatus2.syncedHeight;
     final scanningUpTo = syncStatus2.scanningUpTo;
     final latestH = syncStatus2.latestHeight ?? 0;
+    final activeLabel =
+        syncPhase == 'verifying' ? 'verifying to' : 'scanning to';
     final connected = syncStatus2.connected;
     final error = syncStatus2.connectionError;
     final queueLen = syncStatus2.maintenanceQueueLen;
@@ -56,7 +59,13 @@ class _DebugLogPageState extends State<DebugLogPage> {
             icon: Icon(Icons.filter_list, color: ZipherColors.text60, size: 20),
             onSelected: (level) => setState(() => _minLevel = level),
             itemBuilder: (_) => [
-              for (final l in [Level.trace, Level.debug, Level.info, Level.warning, Level.error])
+              for (final l in [
+                Level.trace,
+                Level.debug,
+                Level.info,
+                Level.warning,
+                Level.error
+              ])
                 PopupMenuItem(value: l, child: Text(_levelName(l))),
             ],
           ),
@@ -66,11 +75,13 @@ class _DebugLogPageState extends State<DebugLogPage> {
               final all = AppLog.instance.entries;
               final header = 'Zipher Debug Log\n'
                   'connected=$connected phase=$syncPhase\n'
-                  'height=$syncedH/$latestH scanning_to=$scanningUpTo queue=$queueLen\n'
+                  'committed_height=$syncedH/$latestH ${activeLabel.replaceAll(' ', '_')}=$scanningUpTo queue=$queueLen\n'
                   'error=${error ?? 'none'}\n'
                   '---\n';
-              final body = all.map((e) =>
-                '${_ts(e.time)} [${_levelTag(e.level)}] ${e.message}').join('\n');
+              final body = all
+                  .map((e) =>
+                      '${_ts(e.time)} [${_levelTag(e.level)}] ${e.message}')
+                  .join('\n');
               final text = header + body;
               await Clipboard.setData(ClipboardData(text: text));
               if (mounted) {
@@ -81,7 +92,8 @@ class _DebugLogPageState extends State<DebugLogPage> {
             },
           ),
           IconButton(
-            icon: Icon(Icons.delete_outline, color: ZipherColors.text60, size: 20),
+            icon: Icon(Icons.delete_outline,
+                color: ZipherColors.text60, size: 20),
             onPressed: () {
               AppLog.instance.clear();
               setState(() {});
@@ -111,7 +123,9 @@ class _DebugLogPageState extends State<DebugLogPage> {
                 children: [
                   Row(children: [
                     Icon(
-                      connected ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
+                      connected
+                          ? Icons.cloud_done_outlined
+                          : Icons.cloud_off_outlined,
                       size: 14,
                       color: connected ? ZipherColors.green : ZipherColors.red,
                     ),
@@ -119,7 +133,8 @@ class _DebugLogPageState extends State<DebugLogPage> {
                     Text(
                       connected ? 'Connected' : 'Disconnected',
                       style: TextStyle(
-                        color: connected ? ZipherColors.green : ZipherColors.red,
+                        color:
+                            connected ? ZipherColors.green : ZipherColors.red,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -127,11 +142,13 @@ class _DebugLogPageState extends State<DebugLogPage> {
                     Text('phase: $syncPhase'),
                   ]),
                   const SizedBox(height: 4),
-                  Text('height: $syncedH / $latestH   scanning to: $scanningUpTo   queue: $queueLen'),
+                  Text(
+                      'committed: $syncedH / $latestH   $activeLabel: $scanningUpTo   queue: $queueLen'),
                   if (error != null) ...[
                     const SizedBox(height: 4),
                     Text('error: $error',
-                        style: TextStyle(color: ZipherColors.red, fontSize: 10)),
+                        style:
+                            TextStyle(color: ZipherColors.red, fontSize: 10)),
                   ],
                 ],
               ),
@@ -144,7 +161,8 @@ class _DebugLogPageState extends State<DebugLogPage> {
                         style: TextStyle(color: ZipherColors.text40)))
                 : ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     itemCount: entries.length,
                     itemBuilder: (context, index) {
                       final e = entries[index];
@@ -173,24 +191,37 @@ class _DebugLogPageState extends State<DebugLogPage> {
 
   String _levelTag(Level l) {
     switch (l) {
-      case Level.trace: return 'TRC';
-      case Level.debug: return 'DBG';
-      case Level.info: return 'INF';
-      case Level.warning: return 'WRN';
-      case Level.error: return 'ERR';
-      case Level.fatal: return 'FTL';
-      default: return '???';
+      case Level.trace:
+        return 'TRC';
+      case Level.debug:
+        return 'DBG';
+      case Level.info:
+        return 'INF';
+      case Level.warning:
+        return 'WRN';
+      case Level.error:
+        return 'ERR';
+      case Level.fatal:
+        return 'FTL';
+      default:
+        return '???';
     }
   }
 
   String _levelName(Level l) {
     switch (l) {
-      case Level.trace: return 'Trace';
-      case Level.debug: return 'Debug';
-      case Level.info: return 'Info';
-      case Level.warning: return 'Warning';
-      case Level.error: return 'Error';
-      default: return l.name;
+      case Level.trace:
+        return 'Trace';
+      case Level.debug:
+        return 'Debug';
+      case Level.info:
+        return 'Info';
+      case Level.warning:
+        return 'Warning';
+      case Level.error:
+        return 'Error';
+      default:
+        return l.name;
     }
   }
 
