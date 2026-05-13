@@ -1463,23 +1463,61 @@ lazy_static::lazy_static! {
         TokioMutex::new(std::collections::HashMap::new());
 }
 
+/// Classification used both for logging and for deciding what counts as
+/// "real" work in the user-visible maintenance queue. Ephemeral t-address
+/// checks are background hygiene that the SDK re-emits on every pass, so
+/// they should not surface to users as "still recovering N items".
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RequestKind {
+    Enhancement,
+    Status,
+    SpendSearch,
+    EphemeralCheck,
+}
+
+fn classify_request(req: &TransactionDataRequest) -> RequestKind {
+    match req {
+        TransactionDataRequest::Enhancement(_) => RequestKind::Enhancement,
+        TransactionDataRequest::GetStatus(_) => RequestKind::Status,
+        TransactionDataRequest::TransactionsInvolvingAddress(r) => {
+            // Spend-search has a bounded end height + Mined filter; ephemeral
+            // checks have block_range_end = None and request_at = Some(time).
+            if r.block_range_end().is_some() {
+                RequestKind::SpendSearch
+            } else {
+                RequestKind::EphemeralCheck
+            }
+        }
+    }
+}
+
+fn count_blocking_requests(requests: &[TransactionDataRequest]) -> usize {
+    requests
+        .iter()
+        .filter(|r| classify_request(r) != RequestKind::EphemeralCheck)
+        .count()
+}
+
 fn describe_transaction_requests(requests: &[TransactionDataRequest]) -> String {
     let mut enhancement = 0usize;
     let mut status = 0usize;
-    let mut other = 0usize;
+    let mut spend_search = 0usize;
+    let mut ephemeral = 0usize;
     for req in requests {
-        match req {
-            TransactionDataRequest::Enhancement(_) => enhancement += 1,
-            TransactionDataRequest::GetStatus(_) => status += 1,
-            _ => other += 1,
+        match classify_request(req) {
+            RequestKind::Enhancement => enhancement += 1,
+            RequestKind::Status => status += 1,
+            RequestKind::SpendSearch => spend_search += 1,
+            RequestKind::EphemeralCheck => ephemeral += 1,
         }
     }
     format!(
-        "{} total ({} enhancement, {} status, {} other)",
+        "{} total ({} enhancement, {} status, {} spend-search, {} ephemeral)",
         requests.len(),
         enhancement,
         status,
-        other
+        spend_search,
+        ephemeral
     )
 }
 
@@ -1502,15 +1540,28 @@ async fn enhance_transactions_limited(
     }
 
     let total = requests.len();
+    let blocking_total = count_blocking_requests(&requests);
     {
         let mut p = SYNC_PROGRESS.lock().await;
-        p.phase = SYNC_PHASE_ENHANCING.to_string();
+        // Surface only "real" work to the home screen. Ephemeral t-address
+        // checks are re-emitted by the SDK on every pass as part of its
+        // privacy schedule and would otherwise pin the UI at "N left"
+        // forever.
+        p.maintenance_queue_len = blocking_total as u32;
+        if blocking_total > 0 {
+            p.phase = SYNC_PHASE_ENHANCING.to_string();
+        }
         p.maintenance_error = None;
-        p.maintenance_queue_len = total as u32;
     }
-    emit_progress_event("phase_changed", None, None).await;
+    if blocking_total > 0 {
+        emit_progress_event("phase_changed", None, None).await;
+    }
 
-    tracing::info!("[sync] enhancing: {} items in queue", total);
+    tracing::info!(
+        "[sync] enhancing: {} items in queue ({} blocking)",
+        total,
+        blocking_total
+    );
     emit_log(&format!(
         "enhancement queue: {}",
         describe_transaction_requests(&requests)
@@ -1522,6 +1573,10 @@ async fn enhance_transactions_limited(
     let mut processed = 0usize;
     let mut address_checks = 0usize;
     let mut address_txs_found = 0usize;
+    let mut ephemeral_processed_this_pass = 0usize;
+    let mut ephemeral_deferred = 0usize;
+    const MAX_EPHEMERAL_CHECKS_PER_PASS: usize = 1;
+    let now = std::time::SystemTime::now();
     let mut consecutive_rpc_errors = 0u32;
 
     for req in requests {
@@ -1637,6 +1692,22 @@ async fn enhance_transactions_limited(
                 }
             }
             TransactionDataRequest::TransactionsInvolvingAddress(req) => {
+                let is_ephemeral = req.block_range_end().is_none();
+                if is_ephemeral {
+                    // Privacy schedule: skip if not yet due. Cap to 1 per
+                    // pass so we don't decorrelate poorly by burst-checking.
+                    if let Some(scheduled) = req.request_at() {
+                        if scheduled > now {
+                            ephemeral_deferred += 1;
+                            continue;
+                        }
+                    }
+                    if ephemeral_processed_this_pass >= MAX_EPHEMERAL_CHECKS_PER_PASS {
+                        ephemeral_deferred += 1;
+                        continue;
+                    }
+                    ephemeral_processed_this_pass += 1;
+                }
                 match scan_address_transactions(db_data, params, lwd, &req).await {
                     Ok(found) => {
                         address_checks += 1;
@@ -1667,20 +1738,40 @@ async fn enhance_transactions_limited(
         }
     }
 
-    let remaining = total.saturating_sub(processed);
-    let remaining = db_data
-        .transaction_data_requests()
-        .map(|requests| requests.len())
-        .unwrap_or(remaining);
+    // Re-read the queue so we can split "blocking work" (what we surface
+    // to users) from "ephemeral hygiene" (forever-cycling background
+    // checks). The fallback `total - processed` only kicks in if the DB
+    // read fails.
+    let remaining_total = match db_data.transaction_data_requests() {
+        Ok(reqs) => Some(reqs),
+        Err(_) => None,
+    };
+    let remaining_count = remaining_total
+        .as_ref()
+        .map(|r| r.len())
+        .unwrap_or_else(|| total.saturating_sub(processed));
+    let remaining_blocking = remaining_total
+        .as_ref()
+        .map(|r| count_blocking_requests(r))
+        .unwrap_or(remaining_count);
+
     let msg = format!(
-        "enhanced {}, status {}, t-addr_checks {} ({} txs), skipped {}, remaining {}",
-        enhanced, status_checked, address_checks, address_txs_found, skipped, remaining
+        "enhanced {}, status {}, t-addr_checks {} ({} txs), skipped {}, \
+         remaining {} (blocking {}, ephemeral_deferred {})",
+        enhanced,
+        status_checked,
+        address_checks,
+        address_txs_found,
+        skipped,
+        remaining_count,
+        remaining_blocking,
+        ephemeral_deferred
     );
     tracing::info!("[sync] {}", msg);
     emit_log(&msg);
 
     let mut p = SYNC_PROGRESS.lock().await;
-    p.maintenance_queue_len = remaining as u32;
+    p.maintenance_queue_len = remaining_blocking as u32;
     if final_phase {
         p.phase = SYNC_PHASE_CAUGHT_UP.to_string();
     } else {
