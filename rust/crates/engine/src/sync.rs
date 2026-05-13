@@ -45,6 +45,16 @@ static SYNC_RUNNING: AtomicBool = AtomicBool::new(false);
 static SYNC_CANCEL: AtomicBool = AtomicBool::new(false);
 static SYNC_PASS_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+// Stuck-reorg detection: if we see the same continuity error at the same
+// height repeatedly across passes without making any committed progress,
+// the wallet has a reorg that the SDK won't let us rewind past (typically
+// because there are spendable notes at the affected height). Bail out of
+// the auto-restart loop so the wallet doesn't burn battery, and surface a
+// clear log telling the user to use "Recover Transactions".
+const STUCK_REORG_THRESHOLD: u32 = 3;
+static STUCK_REORG_HEIGHT: AtomicU32 = AtomicU32::new(0);
+static STUCK_REORG_COUNT: AtomicU32 = AtomicU32::new(0);
+
 lazy_static::lazy_static! {
     static ref SYNC_PROGRESS: TokioMutex<SyncProgressInfo> =
         TokioMutex::new(SyncProgressInfo::default());
@@ -1218,6 +1228,36 @@ async fn sync_once(
                 "pass #{} watchdog: no advance and no batches; treating as caught-up",
                 pass_num
             ));
+        }
+
+        // Stuck-reorg watchdog: same continuity error several passes in a
+        // row, all of which the SDK refused to rewind past. Stop the auto
+        // restart loop so the wallet stops spinning, and tell the user.
+        let stuck_count = STUCK_REORG_COUNT.load(Ordering::SeqCst);
+        let stuck_height = STUCK_REORG_HEIGHT.load(Ordering::SeqCst);
+        if stuck_count >= STUCK_REORG_THRESHOLD {
+            let msg = format!(
+                "wallet stuck on reorg at block {} ({} consecutive continuity errors, \
+                 SDK refuses deeper rewind). Tap More → Recover Transactions to rescan from \
+                 wallet birthday.",
+                stuck_height, stuck_count
+            );
+            tracing::error!("[sync] {}", msg);
+            emit_log(&msg);
+            {
+                let mut p = SYNC_PROGRESS.lock().await;
+                p.connection_error = Some(format!(
+                    "Wallet stuck on a chain reorg at block {}. Please use Recover \
+                     Transactions in the More tab.",
+                    stuck_height
+                ));
+                p.phase = SYNC_PHASE_CAUGHT_UP.to_string();
+            }
+            emit_progress_event("phase_changed", None, None).await;
+            // Reset counter so a future manual rescan can start cleanly.
+            STUCK_REORG_HEIGHT.store(0, Ordering::SeqCst);
+            STUCK_REORG_COUNT.store(0, Ordering::SeqCst);
+            break;
         }
 
         keep_running = did_restart;
@@ -2395,22 +2435,50 @@ fn process_downloaded_range(
             })
         }
         Err(ChainError::Scan(err)) if err.is_continuity_error() => {
+            let err_height = u32::from(err.at_height());
             let rewind_height = err.at_height().saturating_sub(10);
-            tracing::info!(
-                "[sync] reorg at {}, rewinding to {}",
-                err.at_height(),
-                u32::from(rewind_height)
-            );
-            emit_log(&format!(
-                "scan continuity restart at {}, rewinding to {}",
-                err.at_height(),
-                u32::from(rewind_height)
-            ));
-
             let actual_rewind = safe_truncate_to_height_sync(db_data, rewind_height)?;
 
+            // If the SDK can't rewind below the conflict point (typically
+            // because there are spendable notes there), we will keep getting
+            // the same continuity error forever. Track this so the outer
+            // pass loop can break out and tell the user.
+            let actual = u32::from(actual_rewind);
+            let stuck = actual >= err_height.saturating_sub(1);
+
+            tracing::info!(
+                "[sync] reorg at {}, rewinding to {} (actual {})",
+                err_height,
+                u32::from(rewind_height),
+                actual
+            );
+            emit_log(&format!(
+                "scan continuity restart at {}, rewinding to {} (actual {}){}",
+                err_height,
+                u32::from(rewind_height),
+                actual,
+                if stuck {
+                    " — wallet won't allow deeper rewind"
+                } else {
+                    ""
+                }
+            ));
+
+            if stuck {
+                let prev_height = STUCK_REORG_HEIGHT.load(Ordering::SeqCst);
+                if prev_height == err_height {
+                    STUCK_REORG_COUNT.fetch_add(1, Ordering::SeqCst);
+                } else {
+                    STUCK_REORG_HEIGHT.store(err_height, Ordering::SeqCst);
+                    STUCK_REORG_COUNT.store(1, Ordering::SeqCst);
+                }
+            } else {
+                STUCK_REORG_HEIGHT.store(0, Ordering::SeqCst);
+                STUCK_REORG_COUNT.store(0, Ordering::SeqCst);
+            }
+
             db_cache
-                .truncate_from(u32::from(actual_rewind))
+                .truncate_from(actual)
                 .map_err(|e| anyhow::anyhow!("truncate cache: {:?}", e))?;
 
             Ok(ScanOutcome::Restarted)
