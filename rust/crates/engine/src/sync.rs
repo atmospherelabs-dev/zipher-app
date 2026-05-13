@@ -59,7 +59,9 @@ lazy_static::lazy_static! {
         TokioMutex::new(Vec::new());
 
     static ref SYNC_EVENTS: broadcast::Sender<SyncEventInfo> = {
-        let (tx, _) = broadcast::channel(256);
+        // 4096 keeps headroom for verbose diagnostic logs without dropping
+        // events when the Dart consumer is briefly slow.
+        let (tx, _) = broadcast::channel(4096);
         tx
     };
 }

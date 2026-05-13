@@ -327,10 +327,36 @@ pub async fn engine_get_sync_progress() -> Result<EngineSyncProgress> {
 
 pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
     let mut receiver = engine::sync::subscribe_events();
+    // Send a definitive startup marker so Dart can confirm the event pipeline
+    // is actually wired up end-to-end in the binary the user is running.
+    let _ = sink.add(EngineSyncEvent {
+        event_type: "engine_log".to_string(),
+        phase: None,
+        synced_height: 0,
+        latest_height: 0,
+        maintenance_queue_len: 0,
+        txid: None,
+        status: None,
+        scope: None,
+        message: Some(format!(
+            "engine_sync_events subscribed at {}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        )),
+        scan_progress_num: 0,
+        scan_progress_den: 0,
+        recovery_progress_num: 0,
+        recovery_progress_den: 0,
+    });
     tokio::spawn(async move {
+        let mut forwarded: u64 = 0;
+        let mut lagged_total: u64 = 0;
         loop {
             match receiver.recv().await {
                 Ok(event) => {
+                    forwarded += 1;
                     let _ = sink.add(EngineSyncEvent {
                         event_type: event.event_type,
                         phase: event.phase,
@@ -346,8 +372,50 @@ pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
                         recovery_progress_num: event.recovery_progress_num,
                         recovery_progress_den: event.recovery_progress_den,
                     });
+                    // Periodic heartbeat so we can confirm events are flowing.
+                    if forwarded % 50 == 0 {
+                        let _ = sink.add(EngineSyncEvent {
+                            event_type: "engine_log".to_string(),
+                            phase: None,
+                            synced_height: 0,
+                            latest_height: 0,
+                            maintenance_queue_len: 0,
+                            txid: None,
+                            status: None,
+                            scope: None,
+                            message: Some(format!(
+                                "event pipeline: forwarded={} lagged={}",
+                                forwarded, lagged_total
+                            )),
+                            scan_progress_num: 0,
+                            scan_progress_den: 0,
+                            recovery_progress_num: 0,
+                            recovery_progress_den: 0,
+                        });
+                    }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    lagged_total += n;
+                    let _ = sink.add(EngineSyncEvent {
+                        event_type: "engine_log".to_string(),
+                        phase: None,
+                        synced_height: 0,
+                        latest_height: 0,
+                        maintenance_queue_len: 0,
+                        txid: None,
+                        status: None,
+                        scope: None,
+                        message: Some(format!(
+                            "event pipeline: lagged, dropped={} (total lagged={})",
+                            n, lagged_total
+                        )),
+                        scan_progress_num: 0,
+                        scan_progress_den: 0,
+                        recovery_progress_num: 0,
+                        recovery_progress_den: 0,
+                    });
+                    continue;
+                }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
