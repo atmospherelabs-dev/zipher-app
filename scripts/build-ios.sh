@@ -15,6 +15,16 @@ NEW_VERSION="${VERSION_NAME}+${NEW_BUILD}"
 sed -i '' "s/^version: .*/version: ${NEW_VERSION}/" "$PUBSPEC"
 echo "Bumped build: ${CURRENT} → ${NEW_VERSION}"
 
+# Regenerate the in-app version banner so the More tab matches the binary.
+COMMIT=$(git rev-parse HEAD)
+VERSION_DART="$(dirname "$0")/../lib/src/version.dart"
+cat > "$VERSION_DART" <<EOF
+// Generated code. Do not modify.
+const packageVersion = '${NEW_VERSION}';
+const commitId = '${COMMIT}';
+EOF
+echo "Wrote ${VERSION_DART} (version=${NEW_VERSION} commit=${COMMIT})"
+
 flutter build ipa --build-name="$VERSION_NAME" --build-number="$NEW_BUILD"
 
 echo ""
