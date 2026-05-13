@@ -2,7 +2,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use serde::Serialize;
-use zcash_protocol::consensus::Network;
 
 use crate::helpers::auto_open;
 use crate::{print_ok, Config};
@@ -46,7 +45,7 @@ pub async fn cmd_sync_benchmark(
     auto_open(cfg).await?;
 
     let alternate_servers = if multi_server {
-        known_lightwalletd_servers(cfg)
+        zipher_engine::sync::known_lightwalletd_servers(&cfg.network)
             .into_iter()
             .filter(|server| server != &cfg.server_url)
             .collect::<Vec<_>>()
@@ -219,20 +218,6 @@ pub async fn cmd_sync_benchmark(
     });
 
     Ok(())
-}
-
-fn known_lightwalletd_servers(cfg: &Config) -> Vec<String> {
-    match cfg.network {
-        Network::MainNetwork => vec![
-            "https://lightwalletd.mainnet.cipherscan.app:443".to_string(),
-            "https://zec.rocks:443".to_string(),
-            "https://na.zec.rocks:443".to_string(),
-            "https://sa.zec.rocks:443".to_string(),
-            "https://eu.zec.rocks:443".to_string(),
-            "https://ap.zec.rocks:443".to_string(),
-        ],
-        Network::TestNetwork => vec!["https://lightwalletd.testnet.cipherscan.app:443".to_string()],
-    }
 }
 
 fn record_phase(counts: &mut Vec<(String, usize)>, phase: &str) {

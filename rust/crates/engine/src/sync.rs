@@ -13,12 +13,14 @@ use zcash_client_backend::data_api::chain::{
 use zcash_client_backend::data_api::scanning::ScanPriority;
 use zcash_client_backend::data_api::wallet::{decrypt_and_store_transaction, ConfirmationsPolicy};
 use zcash_client_backend::data_api::{
-    TransactionDataRequest, TransactionStatus, WalletCommitmentTrees, WalletRead, WalletWrite,
+    TransactionDataRequest, TransactionStatus, TransactionsInvolvingAddress,
+    WalletCommitmentTrees, WalletRead, WalletWrite,
 };
 use zcash_client_backend::proto::compact_formats::CompactBlock;
 use zcash_client_backend::proto::service::{
     compact_tx_streamer_client::CompactTxStreamerClient, BlockId, BlockRange, ChainSpec, Empty,
-    GetAddressUtxosArg, GetSubtreeRootsArg, ShieldedProtocol, TxFilter,
+    GetAddressUtxosArg, GetSubtreeRootsArg, ShieldedProtocol, TransparentAddressBlockFilter,
+    TxFilter,
 };
 use zcash_client_backend::wallet::WalletTransparentOutput;
 use zcash_client_sqlite::error::SqliteClientError;
@@ -111,6 +113,37 @@ impl Default for SyncRuntimeConfig {
     }
 }
 
+/// Canonical lightwalletd servers we are willing to spread download load
+/// across when multi-server prefetch is enabled. We only auto-enable
+/// multi-server when the user's chosen primary is one of these — if the
+/// user picked a self-hosted node we leave them on a single server.
+pub fn known_lightwalletd_servers(params: &Network) -> Vec<String> {
+    match params {
+        Network::MainNetwork => vec![
+            "https://lightwalletd.mainnet.cipherscan.app:443".to_string(),
+            "https://zec.rocks:443".to_string(),
+            "https://na.zec.rocks:443".to_string(),
+            "https://sa.zec.rocks:443".to_string(),
+            "https://eu.zec.rocks:443".to_string(),
+            "https://ap.zec.rocks:443".to_string(),
+        ],
+        Network::TestNetwork => {
+            vec!["https://lightwalletd.testnet.cipherscan.app:443".to_string()]
+        }
+    }
+}
+
+/// Build the default alternate-server list for a given primary. Returns an
+/// empty list if the primary is not one of our known servers (we don't
+/// silently steer custom-server users toward third-party nodes).
+fn default_alternate_servers(params: &Network, primary: &str) -> Vec<String> {
+    let known = known_lightwalletd_servers(params);
+    if !known.iter().any(|s| s == primary) {
+        return Vec::new();
+    }
+    known.into_iter().filter(|s| s != primary).collect()
+}
+
 #[derive(Default, Clone, Debug, serde::Serialize)]
 pub struct SyncPerfSnapshot {
     pub batches: u64,
@@ -187,12 +220,29 @@ pub async fn start() -> Result<()> {
     SYNC_RUNNING.store(true, Ordering::SeqCst);
     SYNC_CANCEL.store(false, Ordering::SeqCst);
     {
-        let runtime = SYNC_RUNTIME_CONFIG.lock().await.clone();
+        let mut runtime = SYNC_RUNTIME_CONFIG.lock().await;
+        if runtime.alternate_servers.is_empty() {
+            let defaults = default_alternate_servers(&params, &server_url);
+            if !defaults.is_empty() {
+                tracing::info!(
+                    "[sync] auto-enabling multi-server with {} alternates",
+                    defaults.len()
+                );
+                emit_log(&format!(
+                    "multi-server: auto-enabled, {} alternates ({})",
+                    defaults.len(),
+                    short_server_list(&defaults)
+                ));
+                runtime.alternate_servers = defaults;
+            }
+        }
+        let runtime_snapshot = runtime.clone();
+        drop(runtime);
         let mut perf = SYNC_PERF.lock().await;
         *perf = SyncPerfSnapshot {
             adaptive_batch_size: SCAN_BATCH_SIZE,
-            prefetch_depth: runtime.prefetch_depth,
-            multi_server_enabled: !runtime.alternate_servers.is_empty(),
+            prefetch_depth: runtime_snapshot.prefetch_depth,
+            multi_server_enabled: !runtime_snapshot.alternate_servers.is_empty(),
             ..SyncPerfSnapshot::default()
         };
     }
@@ -825,14 +875,27 @@ async fn sync_once(
         }
     }
 
+    // Snapshot whether we entered this pass already caught-up. If so, the
+    // periodic maintenance work (subtree roots, UTXO refresh, tip check) is
+    // background bookkeeping — we keep the phase as CAUGHT_UP for the whole
+    // pass and only flip to a scanning phase if we actually discover work.
+    let was_caught_up_on_entry = {
+        let p = SYNC_PROGRESS.lock().await;
+        p.phase == SYNC_PHASE_CAUGHT_UP
+    };
+
     // Clear any stale error from a previous failed pass.
     {
         let mut p = SYNC_PROGRESS.lock().await;
         p.connection_error = None;
         p.maintenance_error = None;
-        p.phase = SYNC_PHASE_UPDATING_ROOTS.to_string();
+        if !was_caught_up_on_entry {
+            p.phase = SYNC_PHASE_UPDATING_ROOTS.to_string();
+        }
     }
-    emit_progress_event("phase_changed", None, None).await;
+    if !was_caught_up_on_entry {
+        emit_progress_event("phase_changed", None, None).await;
+    }
 
     // 1) Always update subtree roots (idempotent with start_index=0)
     tracing::info!("[sync] updating subtree roots...");
@@ -870,11 +933,12 @@ async fn sync_once(
         }
         emit_progress_event("phase_changed", None, None).await;
 
-        {
+        if !was_caught_up_on_entry {
             let mut p = SYNC_PROGRESS.lock().await;
             p.phase = SYNC_PHASE_REFRESHING_UTXOS.to_string();
+            drop(p);
+            emit_progress_event("phase_changed", None, None).await;
         }
-        emit_progress_event("phase_changed", None, None).await;
         if let Err(e) = refresh_transparent_utxos(&mut lwd, &mut db_data, &params).await {
             tracing::warn!("[sync] transparent UTXO refresh warning: {:?}", e);
         }
@@ -1456,6 +1520,8 @@ async fn enhance_transactions_limited(
     let mut status_checked = 0usize;
     let mut skipped = 0usize;
     let mut processed = 0usize;
+    let mut address_checks = 0usize;
+    let mut address_txs_found = 0usize;
     let mut consecutive_rpc_errors = 0u32;
 
     for req in requests {
@@ -1570,7 +1636,34 @@ async fn enhance_transactions_limited(
                     }
                 }
             }
-            _ => {}
+            TransactionDataRequest::TransactionsInvolvingAddress(req) => {
+                match scan_address_transactions(db_data, params, lwd, &req).await {
+                    Ok(found) => {
+                        address_checks += 1;
+                        address_txs_found += found;
+                        processed += 1;
+                        consecutive_rpc_errors = 0;
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    }
+                    Err(e) => {
+                        consecutive_rpc_errors += 1;
+                        processed += 1;
+                        tracing::info!("[sync] t-addr scan failed: {:?}", e);
+                        emit_log(&format!(
+                            "t-addr check: failed ({})",
+                            trim_log_error(&format!("{:?}", e))
+                        ));
+                        if consecutive_rpc_errors >= 3 {
+                            tracing::warn!(
+                                "[sync] 3 consecutive t-addr scan failures, \
+                                 aborting maintenance (connection likely dropped)"
+                            );
+                            emit_log("t-addr check: connection dropped, will retry next pass");
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1580,8 +1673,8 @@ async fn enhance_transactions_limited(
         .map(|requests| requests.len())
         .unwrap_or(remaining);
     let msg = format!(
-        "enhanced {}, status {}, skipped {}, remaining {}",
-        enhanced, status_checked, skipped, remaining
+        "enhanced {}, status {}, t-addr_checks {} ({} txs), skipped {}, remaining {}",
+        enhanced, status_checked, address_checks, address_txs_found, skipped, remaining
     );
     tracing::info!("[sync] {}", msg);
     emit_log(&msg);
@@ -1671,11 +1764,154 @@ async fn fetch_and_decrypt_tx(
     Ok(())
 }
 
+/// Respond to a `TransactionsInvolvingAddress` request by querying
+/// lightwalletd for transactions that touch the given t-address in the given
+/// block range, ingesting any new transactions, then notifying the SDK that
+/// the address has been checked up to the requested end height.
+///
+/// Returns the number of transactions stored from this request.
+async fn scan_address_transactions(
+    db_data: &mut DbType,
+    params: &Network,
+    lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
+    request: &TransactionsInvolvingAddress,
+) -> Result<usize> {
+    use zcash_client_backend::proto::service::RawTransaction;
+
+    let address_encoded = request.address().encode(params);
+    let start = u32::from(request.block_range_start());
+    // `block_range_end` is end-exclusive per the SDK contract. lightwalletd
+    // treats the gRPC range as inclusive of both endpoints, so we query up to
+    // `end - 1` and notify the SDK with that same height.
+    let (end_exclusive, end_inclusive) = match request.block_range_end() {
+        Some(end) => {
+            let end_u32 = u32::from(end);
+            (end_u32, end_u32.saturating_sub(1))
+        }
+        None => {
+            let tip = db_data
+                .chain_height()
+                .ok()
+                .flatten()
+                .map(u32::from)
+                .unwrap_or(start);
+            (tip + 1, tip)
+        }
+    };
+
+    if end_inclusive < start {
+        // Nothing to check; still notify so the SDK clears the request.
+        if let Err(e) = db_data
+            .notify_address_checked(request.clone(), BlockHeight::from_u32(end_inclusive))
+        {
+            tracing::warn!("[sync] notify_address_checked failed: {:?}", e);
+        }
+        return Ok(0);
+    }
+
+    emit_log(&format!(
+        "t-addr check: {} blocks {}..{}",
+        short_address(&address_encoded),
+        start,
+        end_exclusive
+    ));
+
+    let filter = TransparentAddressBlockFilter {
+        address: address_encoded,
+        range: Some(BlockRange {
+            start: Some(BlockId {
+                height: start as u64,
+                hash: Vec::new(),
+            }),
+            end: Some(BlockId {
+                height: end_inclusive as u64,
+                hash: Vec::new(),
+            }),
+        }),
+    };
+
+    let mut stream = lwd
+        .get_taddress_txids(filter)
+        .await
+        .map_err(|e| anyhow::anyhow!("get_taddress_txids: {:?}", e))?
+        .into_inner();
+
+    let mut stored = 0usize;
+    while let Some(raw) = stream
+        .message()
+        .await
+        .map_err(|e| anyhow::anyhow!("get_taddress_txids stream: {:?}", e))?
+    {
+        let RawTransaction { data, height } = raw;
+        if data.is_empty() {
+            continue;
+        }
+        let mined_height = if height == 0 {
+            None
+        } else {
+            Some(BlockHeight::from_u32(height as u32))
+        };
+        let branch_height = mined_height
+            .or_else(|| db_data.chain_height().ok().flatten())
+            .unwrap_or_else(|| {
+                params
+                    .activation_height(zcash_protocol::consensus::NetworkUpgrade::Nu5)
+                    .unwrap_or(BlockHeight::from_u32(0))
+            });
+        let branch_id = BranchId::for_height(params, branch_height);
+        let tx = Transaction::read(&data[..], branch_id)
+            .map_err(|e| anyhow::anyhow!("Transaction::read (t-addr): {:?}", e))?;
+        decrypt_and_store_transaction(params, db_data, &tx, mined_height).map_err(|e| {
+            anyhow::anyhow!("decrypt_and_store_transaction (t-addr): {:?}", e)
+        })?;
+        stored += 1;
+    }
+
+    // Mark the address as checked up to `end_inclusive`, even if zero txs
+    // were returned. The sqlite backend will reject mismatched heights with
+    // NotificationMismatch, so we mirror its expectation exactly.
+    if let Err(e) =
+        db_data.notify_address_checked(request.clone(), BlockHeight::from_u32(end_inclusive))
+    {
+        tracing::warn!("[sync] notify_address_checked failed: {:?}", e);
+        emit_log(&format!(
+            "t-addr check: notify failed ({})",
+            trim_log_error(&format!("{:?}", e))
+        ));
+    }
+
+    emit_log(&format!(
+        "t-addr check done: {} new txs in {}..{}",
+        stored, start, end_exclusive
+    ));
+    Ok(stored)
+}
+
+fn short_address(addr: &str) -> String {
+    if addr.len() <= 14 {
+        addr.to_string()
+    } else {
+        format!("{}…{}", &addr[..6], &addr[addr.len() - 4..])
+    }
+}
+
 fn short_txid(txid: TxId) -> String {
     let mut display = txid.as_ref().to_vec();
     display.reverse();
     let hex = hex::encode(display);
     hex[..hex.len().min(12)].to_string()
+}
+
+fn short_server_list(servers: &[String]) -> String {
+    fn host(url: &str) -> &str {
+        url.trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split('/')
+            .next()
+            .unwrap_or(url)
+    }
+    let hosts: Vec<&str> = servers.iter().map(|s| host(s.as_str())).collect();
+    hosts.join(", ")
 }
 
 fn trim_log_error(message: &str) -> String {
