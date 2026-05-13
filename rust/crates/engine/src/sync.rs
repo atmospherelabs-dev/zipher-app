@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -43,6 +43,7 @@ use super::{open_cipher_conn, open_wallet_db, ENGINE};
 
 static SYNC_RUNNING: AtomicBool = AtomicBool::new(false);
 static SYNC_CANCEL: AtomicBool = AtomicBool::new(false);
+static SYNC_PASS_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 lazy_static::lazy_static! {
     static ref SYNC_PROGRESS: TokioMutex<SyncProgressInfo> =
@@ -830,7 +831,11 @@ async fn sync_once(
     let mut keep_running = true;
     const SYNC_RESTART_TIMEOUT: Duration = Duration::from_secs(300);
     while keep_running {
+        let pass_num = SYNC_PASS_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
         let pass_started = Instant::now();
+        let pass_committed_start = wallet_fully_scanned_height(&mut db_data).unwrap_or(0);
+        let mut pass_restarts: u32 = 0;
+        let mut pass_batches_scanned: u32 = 0;
         check_cancel()?;
 
         // 3-4) Update chain tip
@@ -867,84 +872,107 @@ async fn sync_once(
             .suggest_scan_ranges()
             .map_err(|e| anyhow::anyhow!("suggest_scan_ranges: {:?}", e))?;
 
-        loop {
-            match scan_ranges.first() {
-                Some(range) if range.priority() == ScanPriority::Verify => {
-                    tracing::info!("[sync] verifying range {:?}", range.block_range());
-                    let range_clone = range.clone();
-                    let verify_start = u32::from(range_clone.block_range().start);
-                    let verify_end = u32::from(range_clone.block_range().end);
-                    emit_log(&format!(
-                        "verifying old range {}..{}",
-                        verify_start, verify_end
-                    ));
-                    {
-                        let mut p = SYNC_PROGRESS.lock().await;
-                        p.phase = SYNC_PHASE_VERIFYING.to_string();
-                    }
-                    emit_progress_event("phase_changed", None, None).await;
-                    let downloaded = download_range(&mut lwd, &range_clone).await?;
-                    let verify_stats = downloaded.as_ref().map(|d| d.stats());
-                    {
-                        let mut p = SYNC_PROGRESS.lock().await;
-                        p.scanning_up_to = u32::from(range_clone.block_range().end);
-                    }
-                    emit_progress_event("phase_changed", None, None).await;
-                    let scan_started = Instant::now();
-                    let outcome = tokio::task::block_in_place(|| {
-                        process_downloaded_range(
-                            &params,
-                            &db_cache,
-                            &mut db_data,
-                            &range_clone,
-                            downloaded,
-                        )
-                    })?;
-                    let scan_elapsed_ms = scan_started.elapsed().as_millis() as u64;
-                    if let Some(stats) = verify_stats {
-                        perf.record(stats, scan_elapsed_ms, &outcome);
-                        perf.update_snapshot(batch_size, &runtime).await;
-                    }
+        emit_log(&format!(
+            "pass #{} start: tip={} committed={} gap={} ranges={}",
+            pass_num,
+            u32::from(tip_height),
+            pass_committed_start,
+            u32::from(tip_height).saturating_sub(pass_committed_start),
+            scan_ranges.len()
+        ));
+        emit_log(&format!(
+            "pass #{} ranges: {}",
+            pass_num,
+            summarize_scan_ranges(&scan_ranges)
+        ));
 
-                    match outcome {
-                        ScanOutcome::Restarted => {
-                            emit_log(&format!(
-                                "verify range {}..{} requested restart",
-                                verify_start, verify_end
-                            ));
-                            update_synced_progress_after_restart(&mut db_data).await;
-                            scan_ranges = db_data
-                                .suggest_scan_ranges()
-                                .map_err(|e| anyhow::anyhow!("suggest_scan_ranges: {:?}", e))?;
-                        }
-                        ScanOutcome::Scanned {
-                            synced_height,
-                            notes_found,
-                        } => {
-                            emit_log(&format!(
-                                "verified old range {}..{}",
-                                verify_start, verify_end
-                            ));
-                            update_synced_progress(&mut db_data, synced_height, false).await;
-                            if notes_found > 0 {
-                                let _ = enhance_transactions_inline(
-                                    &mut db_data,
-                                    &params,
-                                    &mut lwd,
-                                    db_data_path,
-                                    db_cipher_key,
-                                )
-                                .await;
-                            }
-                            scan_ranges = db_data
-                                .suggest_scan_ranges()
-                                .map_err(|e| anyhow::anyhow!("suggest_scan_ranges: {:?}", e))?;
-                        }
-                        ScanOutcome::NothingToScan => break,
+        loop {
+            let Some(verify_idx) = scan_ranges
+                .iter()
+                .position(|range| range.priority() == ScanPriority::Verify)
+            else {
+                break;
+            };
+
+            let range_clone = scan_ranges[verify_idx].clone();
+            tracing::info!("[sync] verifying range {:?}", range_clone.block_range());
+            let verify_start = u32::from(range_clone.block_range().start);
+            let verify_end = u32::from(range_clone.block_range().end);
+            let verify_committed_before = wallet_fully_scanned_height(&mut db_data).unwrap_or(0);
+            emit_log(&format!(
+                "verify {}..{} ({} blocks): start, committed={}",
+                verify_start,
+                verify_end,
+                range_clone.len(),
+                verify_committed_before
+            ));
+            {
+                let mut p = SYNC_PROGRESS.lock().await;
+                p.phase = SYNC_PHASE_VERIFYING.to_string();
+                p.scanning_up_to = verify_end;
+            }
+            emit_progress_event("phase_changed", None, None).await;
+
+            let downloaded = download_range(&mut lwd, &range_clone).await?;
+            let verify_stats = downloaded.as_ref().map(|d| d.stats());
+            let scan_started = Instant::now();
+            let outcome = tokio::task::block_in_place(|| {
+                process_downloaded_range(&params, &db_cache, &mut db_data, &range_clone, downloaded)
+            })?;
+            let scan_elapsed_ms = scan_started.elapsed().as_millis() as u64;
+            if let Some(stats) = verify_stats {
+                perf.record(stats, scan_elapsed_ms, &outcome);
+                perf.update_snapshot(batch_size, &runtime).await;
+            }
+
+            match outcome {
+                ScanOutcome::Restarted => {
+                    update_synced_progress_after_restart(&mut db_data).await;
+                    let verify_committed_after = wallet_fully_scanned_height(&mut db_data)
+                        .unwrap_or(verify_committed_before);
+                    pass_restarts += 1;
+                    emit_log(&format!(
+                        "verify {}..{} restart: committed {} → {} (+{})",
+                        verify_start,
+                        verify_end,
+                        verify_committed_before,
+                        verify_committed_after,
+                        verify_committed_after.saturating_sub(verify_committed_before)
+                    ));
+                }
+                ScanOutcome::Scanned {
+                    synced_height,
+                    notes_found,
+                } => {
+                    update_synced_progress(&mut db_data, synced_height, false).await;
+                    let verify_committed_after = wallet_fully_scanned_height(&mut db_data)
+                        .unwrap_or(verify_committed_before);
+                    emit_log(&format!(
+                        "verify {}..{} done: committed {} → {} (+{}), notes_found={}",
+                        verify_start,
+                        verify_end,
+                        verify_committed_before,
+                        verify_committed_after,
+                        verify_committed_after.saturating_sub(verify_committed_before),
+                        notes_found
+                    ));
+                    if notes_found > 0 {
+                        let _ = enhance_transactions_inline(
+                            &mut db_data,
+                            &params,
+                            &mut lwd,
+                            db_data_path,
+                            db_cipher_key,
+                        )
+                        .await;
                     }
                 }
-                _ => break,
+                ScanOutcome::NothingToScan => break,
             }
+
+            scan_ranges = db_data
+                .suggest_scan_ranges()
+                .map_err(|e| anyhow::anyhow!("suggest_scan_ranges: {:?}", e))?;
         }
 
         // 7) Process remaining scan ranges, split into fixed-size chunks.
@@ -956,6 +984,7 @@ async fn sync_once(
             .into_iter()
             .flat_map(|r| split_into_batches(r, batch_size))
             .filter(|r| r.priority() > ScanPriority::Scanned)
+            .filter(|r| r.priority() != ScanPriority::Verify)
             .collect();
 
         tracing::debug!(
@@ -980,29 +1009,40 @@ async fn sync_once(
             ));
 
             if runtime.prefetch_depth == 0 {
+                let mut batch_idx: u32 = 0;
+                let total_batches = batches.len() as u32;
                 for current_range in batches {
                     check_cancel()?;
+                    batch_idx += 1;
                     if pass_started.elapsed() > SYNC_RESTART_TIMEOUT {
                         tracing::info!(
                             "[sync] pass timeout ({}s), restarting to refresh chain tip",
                             SYNC_RESTART_TIMEOUT.as_secs()
                         );
                         emit_log("pass timeout, restarting to refresh chain tip");
+                        pass_restarts += 1;
                         did_restart = true;
                         break;
                     }
+                    let committed_before = wallet_fully_scanned_height(&mut db_data).unwrap_or(0);
+                    let batch_started = Instant::now();
                     let downloaded = download_range(&mut lwd, &current_range).await?;
+                    let download_ms = batch_started.elapsed().as_millis() as u64;
                     emit_log(&format!(
-                        "scanning range {}..{} priority={:?}",
+                        "batch {}/{} [{:?}] {}..{}: downloaded in {} ms",
+                        batch_idx,
+                        total_batches,
+                        current_range.priority(),
                         u32::from(current_range.block_range().start),
                         u32::from(current_range.block_range().end),
-                        current_range.priority()
+                        download_ms
                     ));
                     {
                         let mut p = SYNC_PROGRESS.lock().await;
                         p.scanning_up_to = u32::from(current_range.block_range().end);
                     }
                     emit_progress_event("phase_changed", None, None).await;
+                    let scan_started = Instant::now();
                     let outcome = process_prefetched_range(
                         &params,
                         &db_cache,
@@ -1013,6 +1053,7 @@ async fn sync_once(
                         downloaded,
                         MultiServerCounters::default(),
                     )?;
+                    let scan_ms = scan_started.elapsed().as_millis() as u64;
                     perf.update_snapshot(batch_size, &runtime).await;
                     {
                         let mut p = SYNC_PROGRESS.lock().await;
@@ -1028,9 +1069,27 @@ async fn sync_once(
                         db_cipher_key,
                     )
                     .await?;
+                    let committed_after =
+                        wallet_fully_scanned_height(&mut db_data).unwrap_or(committed_before);
+                    let advance = committed_after.saturating_sub(committed_before);
                     if did_restart {
+                        pass_restarts += 1;
+                        emit_log(&format!(
+                            "batch {}/{} restart: committed {} (no advance, +0)",
+                            batch_idx, total_batches, committed_after
+                        ));
                         break;
                     }
+                    pass_batches_scanned += 1;
+                    emit_log(&format!(
+                        "batch {}/{} done: scanned in {} ms, committed {} → {} (+{} blocks)",
+                        batch_idx,
+                        total_batches,
+                        scan_ms,
+                        committed_before,
+                        committed_after,
+                        advance
+                    ));
                 }
             } else {
                 let (tx, mut rx) = mpsc::channel::<Result<PrefetchedRange>>(runtime.prefetch_depth);
@@ -1042,14 +1101,17 @@ async fn sync_once(
                         .await
                 });
 
+                let mut batch_idx: u32 = 0;
                 while let Some(prefetched) = rx.recv().await {
                     check_cancel()?;
+                    batch_idx += 1;
                     if pass_started.elapsed() > SYNC_RESTART_TIMEOUT {
                         tracing::info!(
                             "[sync] pass timeout ({}s), restarting to refresh chain tip",
                             SYNC_RESTART_TIMEOUT.as_secs()
                         );
                         emit_log("pass timeout, restarting to refresh chain tip");
+                        pass_restarts += 1;
                         did_restart = true;
                         break;
                     }
@@ -1058,17 +1120,20 @@ async fn sync_once(
                         downloaded,
                         multi_server_counters,
                     } = prefetched?;
+                    let committed_before = wallet_fully_scanned_height(&mut db_data).unwrap_or(0);
                     emit_log(&format!(
-                        "scanning range {}..{} priority={:?}",
+                        "batch {} [{:?}] {}..{}: prefetched, scanning",
+                        batch_idx,
+                        current_range.priority(),
                         u32::from(current_range.block_range().start),
                         u32::from(current_range.block_range().end),
-                        current_range.priority()
                     ));
                     {
                         let mut p = SYNC_PROGRESS.lock().await;
                         p.scanning_up_to = u32::from(current_range.block_range().end);
                     }
                     emit_progress_event("phase_changed", None, None).await;
+                    let scan_started = Instant::now();
                     let outcome = process_prefetched_range(
                         &params,
                         &db_cache,
@@ -1079,6 +1144,7 @@ async fn sync_once(
                         downloaded,
                         multi_server_counters,
                     )?;
+                    let scan_ms = scan_started.elapsed().as_millis() as u64;
                     perf.update_snapshot(batch_size, &runtime).await;
                     {
                         let mut p = SYNC_PROGRESS.lock().await;
@@ -1094,9 +1160,22 @@ async fn sync_once(
                         db_cipher_key,
                     )
                     .await?;
+                    let committed_after =
+                        wallet_fully_scanned_height(&mut db_data).unwrap_or(committed_before);
+                    let advance = committed_after.saturating_sub(committed_before);
                     if did_restart {
+                        pass_restarts += 1;
+                        emit_log(&format!(
+                            "batch {} restart: committed {} (no advance, +0)",
+                            batch_idx, committed_after
+                        ));
                         break;
                     }
+                    pass_batches_scanned += 1;
+                    emit_log(&format!(
+                        "batch {} done: scanned in {} ms, committed {} → {} (+{} blocks)",
+                        batch_idx, scan_ms, committed_before, committed_after, advance
+                    ));
                 }
 
                 if did_restart {
@@ -1112,6 +1191,31 @@ async fn sync_once(
                     }
                 }
             }
+        }
+
+        let pass_committed_end =
+            wallet_fully_scanned_height(&mut db_data).unwrap_or(pass_committed_start);
+        let pass_advance = pass_committed_end.saturating_sub(pass_committed_start);
+        emit_log(&format!(
+            "pass #{} end: committed {} → {} (+{} blocks), batches_scanned={}, restarts={}, duration={}s, will_restart={}",
+            pass_num,
+            pass_committed_start,
+            pass_committed_end,
+            pass_advance,
+            pass_batches_scanned,
+            pass_restarts,
+            pass_started.elapsed().as_secs(),
+            did_restart
+        ));
+
+        // No-progress watchdog: if a pass completes without making progress
+        // AND there were no restarts (i.e., nothing more to scan but committed
+        // didn't move), break the outer loop so we don't spin forever.
+        if pass_advance == 0 && !did_restart && pass_batches_scanned == 0 {
+            emit_log(&format!(
+                "pass #{} watchdog: no advance and no batches; treating as caught-up",
+                pass_num
+            ));
         }
 
         keep_running = did_restart;
@@ -2250,16 +2354,38 @@ fn process_downloaded_range(
                 .suggest_scan_ranges()
                 .map_err(|e| anyhow::anyhow!("suggest_scan_ranges: {:?}", e))?;
 
-            if let Some(first) = latest_ranges.first() {
-                if first.priority() > priority {
+            // Only restart when a Verify range appears (real reorg risk).
+            // A new ChainTip just means the chain advanced while we were
+            // scanning — that's normal, the next outer pass will pick it
+            // up. Restarting on every ChainTip move starves the Historic
+            // backlog and prevents fully_scanned_height from advancing.
+            if priority != ScanPriority::Verify {
+                if let Some(verify) = latest_ranges
+                    .iter()
+                    .find(|r| r.priority() == ScanPriority::Verify)
+                {
                     tracing::info!(
-                        "[sync] higher priority range appeared ({:?} > {:?}), restarting",
-                        first.priority(),
+                        "[sync] verify range appeared at {:?} while scanning {:?}, restarting",
+                        verify.block_range(),
                         priority
                     );
+                    emit_log(&format!(
+                        "scan restart: new Verify range {}..{} appeared while scanning {:?}",
+                        u32::from(verify.block_range().start),
+                        u32::from(verify.block_range().end),
+                        priority
+                    ));
                     return Ok(ScanOutcome::Restarted);
                 }
             }
+
+            emit_log(&format!(
+                "scanned range {}..{} priority={:?} committed_candidate={}",
+                u32::from(scan_range.block_range().start),
+                u32::from(scan_range.block_range().end),
+                priority,
+                scanned_end
+            ));
 
             Ok(ScanOutcome::Scanned {
                 synced_height: scanned_end,
@@ -2273,6 +2399,11 @@ fn process_downloaded_range(
                 err.at_height(),
                 u32::from(rewind_height)
             );
+            emit_log(&format!(
+                "scan continuity restart at {}, rewinding to {}",
+                err.at_height(),
+                u32::from(rewind_height)
+            ));
 
             let actual_rewind = safe_truncate_to_height_sync(db_data, rewind_height)?;
 
@@ -2464,6 +2595,31 @@ async fn refresh_scan_progress(db_data: &mut DbType) {
             p.recovery_progress_num = *recovery.numerator();
             p.recovery_progress_den = *recovery.denominator();
         }
+    }
+}
+
+fn summarize_scan_ranges(ranges: &[ScanRange]) -> String {
+    if ranges.is_empty() {
+        return "[]".to_string();
+    }
+    let total = ranges.len();
+    let parts: Vec<String> = ranges
+        .iter()
+        .take(8)
+        .map(|r| {
+            format!(
+                "{:?} {}..{} ({} blocks)",
+                r.priority(),
+                u32::from(r.block_range().start),
+                u32::from(r.block_range().end),
+                r.len()
+            )
+        })
+        .collect();
+    if total > 8 {
+        format!("[{}, ...({} total)]", parts.join(" | "), total)
+    } else {
+        format!("[{}]", parts.join(" | "))
     }
 }
 
