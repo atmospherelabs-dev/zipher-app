@@ -219,6 +219,10 @@ class _SplashState extends State<SplashPage> {
   }
 
   Future<void> _initBackgroundSync() async {
+    // Workmanager periodic tasks are Android-only. Calling registerPeriodicTask
+    // on iOS throws PlatformException("unhandledMethod"), which prevented the
+    // rest of splash init (including starting auto-sync) from running cleanly.
+    if (!Platform.isAndroid) return;
     try {
       logger.d('${appSettings.backgroundSync}');
       await Workmanager().initialize(

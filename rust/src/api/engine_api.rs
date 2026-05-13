@@ -350,11 +350,15 @@ pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
         recovery_progress_num: 0,
         recovery_progress_den: 0,
     });
-    tokio::spawn(async move {
+    // Use a dedicated OS thread + blocking_recv. tokio::spawn from a sync
+    // FRB function has no current runtime, so the async task would never
+    // execute. A plain std::thread + broadcast::Receiver::blocking_recv
+    // works regardless of FRB's threading model.
+    std::thread::spawn(move || {
         let mut forwarded: u64 = 0;
         let mut lagged_total: u64 = 0;
         loop {
-            match receiver.recv().await {
+            match receiver.blocking_recv() {
                 Ok(event) => {
                     forwarded += 1;
                     let _ = sink.add(EngineSyncEvent {
@@ -372,8 +376,7 @@ pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
                         recovery_progress_num: event.recovery_progress_num,
                         recovery_progress_den: event.recovery_progress_den,
                     });
-                    // Periodic heartbeat so we can confirm events are flowing.
-                    if forwarded % 50 == 0 {
+                    if forwarded % 200 == 0 {
                         let _ = sink.add(EngineSyncEvent {
                             event_type: "engine_log".to_string(),
                             phase: None,
