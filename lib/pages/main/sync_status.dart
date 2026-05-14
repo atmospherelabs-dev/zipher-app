@@ -44,32 +44,47 @@ class SyncStatusState extends State<SyncStatusWidget>
     }
     if (!syncStatus2.syncing) return '';
 
-    final remaining = syncStatus2.eta.remaining;
-    final percent = syncStatus2.eta.progress;
     final phase = syncStatus2.phase;
+    // For sub-phases that are not block scanning, show their own copy
+    // and skip the percentage rotation — those phases don't have meaningful
+    // block-progress numbers.
+    if (phase == 'refreshing_utxos') return 'Refreshing transparent funds';
+    if (phase == 'updating_roots') return 'Updating wallet checkpoints';
+    if (phase == 'enhancing') return 'Recovering transaction details';
 
-    switch (display % 4) {
+    // Drive the user-facing percentage off block-progress so phase 1
+    // (ChainTip pre-scan) and phase 2 (Historic fill) both move the bar.
+    // Falls back to the height-based ETA when the engine hasn't reported
+    // block totals yet (single-pass tip-following case).
+    final blocksProgress = syncStatus2.blocksProgress;
+    final blocksScanned = syncStatus2.blocksScanned;
+    final blocksTotal = syncStatus2.blocksTotal;
+    final etaProgress = syncStatus2.eta.progress;
+    final percent = blocksProgress != null
+        ? (blocksProgress * 100).round()
+        : (etaProgress ?? 0);
+    final remaining = blocksProgress != null
+        ? (blocksTotal - blocksScanned)
+        : syncStatus2.eta.remaining;
+
+    switch (display % 3) {
       case 0:
-        if (phase == 'verifying') return 'Verifying wallet data';
-        if (phase == 'refreshing_utxos') return 'Refreshing transparent funds';
-        if (phase == 'updating_roots') return 'Updating wallet checkpoints';
-        if (phase == 'enhancing') return 'Recovering transaction details';
-        final scanningTo = syncStatus2.scanningUpTo;
-        if (phase == 'scanning' &&
-            scanningTo > syncedHeight &&
-            scanningTo <= latestHeight + 1) {
-          return 'Scanning to $scanningTo / $latestHeight';
-        }
-        return 'Syncing $syncedHeight / $latestHeight';
+        return 'Syncing $percent%';
       case 1:
-        final m = syncStatus2.isRescan ? s.rescan : s.catchup;
-        return '$m ${percent ?? 0}%';
+        if (remaining != null && remaining > 0) {
+          return '${_formatBlocks(remaining)} blocks remaining';
+        }
+        return 'Syncing $percent%';
       case 2:
-        return remaining != null ? '$remaining remaining' : '';
-      case 3:
         return syncStatus2.eta.timeRemaining;
     }
     return '';
+  }
+
+  String _formatBlocks(int n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(0)}k';
+    return '$n';
   }
 
   @override
@@ -81,8 +96,12 @@ class SyncStatusState extends State<SyncStatusWidget>
 
     final syncedHeight = syncStatus2.syncedHeight;
     final text = visible ? getSyncText(syncedHeight) : '';
+    // Prefer block-based progress (smooth across phase 1 and phase 2).
+    // Fall back to height-based ETA progress if the engine hasn't reported
+    // block totals yet.
     final value = syncing
-        ? syncStatus2.eta.progress?.let((x) => x.toDouble() / 100.0)
+        ? (syncStatus2.blocksProgress ??
+            syncStatus2.eta.progress?.let((x) => x.toDouble() / 100.0))
         : null;
 
     return AnimatedSize(
@@ -165,7 +184,7 @@ class SyncStatusState extends State<SyncStatusWidget>
     }
     if (syncStatus2.syncing) {
       setState(() {
-        display = (display + 1) % 4;
+        display = (display + 1) % 3;
       });
     } else {
       if (syncStatus2.paused) syncStatus2.paused = false;

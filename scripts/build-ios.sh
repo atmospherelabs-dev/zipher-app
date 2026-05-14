@@ -25,6 +25,12 @@ const commitId = '${COMMIT}';
 EOF
 echo "Wrote ${VERSION_DART} (version=${NEW_VERSION} commit=${COMMIT})"
 
+# Regenerate codegen output (.g.dart / .freezed.dart). These are
+# gitignored so we need a clean rebuild before every IPA, otherwise new
+# observables / new FRB fields won't be wired up.
+echo "Running build_runner..."
+dart run build_runner build --delete-conflicting-outputs
+
 flutter build ipa --build-name="$VERSION_NAME" --build-number="$NEW_BUILD"
 
 echo ""

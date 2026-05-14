@@ -96,6 +96,16 @@ pub struct SyncProgressInfo {
     pub scan_progress_den: u64,
     pub recovery_progress_num: u64,
     pub recovery_progress_den: u64,
+    /// Blocks scanned in this sync session, summed across every priority
+    /// (ChainTip, Historic, FoundNote, Verify). Drives the user-facing
+    /// progress bar so it advances smoothly during ChainTip-first scanning,
+    /// before `synced_height` (the fully-scanned committed height) catches up.
+    pub blocks_scanned: u64,
+    /// Total blocks to scan in this sync session. Recomputed at the start
+    /// of each pass as `blocks_scanned + sum(remaining_ranges.len())`, so
+    /// it stays correct when librustzcash adds new ranges mid-sync
+    /// (e.g. FoundNote ranges after pass 1).
+    pub blocks_total: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -184,6 +194,8 @@ pub struct SyncEventInfo {
     pub scan_progress_den: u64,
     pub recovery_progress_num: u64,
     pub recovery_progress_den: u64,
+    pub blocks_scanned: u64,
+    pub blocks_total: u64,
 }
 
 const SYNC_PHASE_IDLE: &str = "idle";
@@ -264,6 +276,8 @@ pub async fn start() -> Result<()> {
         p.scanning_up_to = 0;
         p.adaptive_batch_size = SCAN_BATCH_SIZE;
         p.maintenance_queue_len = 0;
+        p.blocks_scanned = 0;
+        p.blocks_total = 0;
     }
     emit_progress_event("phase_changed", None, None).await;
 
@@ -356,6 +370,8 @@ async fn emit_progress_event(event_type: &str, scope: Option<&str>, message: Opt
         scan_progress_den: p.scan_progress_den,
         recovery_progress_num: p.recovery_progress_num,
         recovery_progress_den: p.recovery_progress_den,
+        blocks_scanned: p.blocks_scanned,
+        blocks_total: p.blocks_total,
     });
 }
 
@@ -374,6 +390,8 @@ pub fn emit_transaction_event(txid: String, status: &str) {
         scan_progress_den: 0,
         recovery_progress_num: 0,
         recovery_progress_den: 0,
+        blocks_scanned: 0,
+        blocks_total: 0,
     });
     emit_event(SyncEventInfo {
         event_type: "balance_maybe_changed".to_string(),
@@ -389,6 +407,8 @@ pub fn emit_transaction_event(txid: String, status: &str) {
         scan_progress_den: 0,
         recovery_progress_num: 0,
         recovery_progress_den: 0,
+        blocks_scanned: 0,
+        blocks_total: 0,
     });
 }
 
@@ -408,6 +428,8 @@ pub fn emit_log(message: &str) {
         scan_progress_den: 0,
         recovery_progress_num: 0,
         recovery_progress_den: 0,
+        blocks_scanned: 0,
+        blocks_total: 0,
     });
 }
 
@@ -969,6 +991,13 @@ async fn sync_once(
             summarize_scan_ranges(&scan_ranges)
         ));
 
+        // Seed the block-progress total. Sum the lengths of every
+        // unscanned range (across all priorities) and add to whatever
+        // we've already scanned in this session. The progress bar in
+        // the UI is `blocks_scanned / blocks_total`.
+        let remaining_blocks: u64 = scan_ranges.iter().map(|r| r.len() as u64).sum();
+        refresh_blocks_total(remaining_blocks).await;
+
         loop {
             let Some(verify_idx) = scan_ranges
                 .iter()
@@ -1028,6 +1057,7 @@ async fn sync_once(
                     notes_found,
                 } => {
                     update_synced_progress(&mut db_data, synced_height, false).await;
+                    record_blocks_scanned(range_clone.len() as u64).await;
                     let verify_committed_after = wallet_fully_scanned_height(&mut db_data)
                         .unwrap_or(verify_committed_before);
                     emit_log(&format!(
@@ -1173,6 +1203,7 @@ async fn sync_once(
                         break;
                     }
                     pass_batches_scanned += 1;
+                    record_blocks_scanned(current_range.len() as u64).await;
                     emit_log(&format!(
                         "batch {}/{} done: scanned in {} ms, committed {} → {} (+{} blocks)",
                         batch_idx,
@@ -1272,6 +1303,7 @@ async fn sync_once(
                         break;
                     }
                     pass_batches_scanned += 1;
+                    record_blocks_scanned(current_range.len() as u64).await;
                     emit_log(&format!(
                         "batch {} done: scanned in {} ms, committed {} → {} (+{} blocks)",
                         batch_idx, scan_ms, committed_before, committed_after, advance
@@ -2620,6 +2652,8 @@ async fn handle_scan_outcome(
                 scan_progress_den: 0,
                 recovery_progress_num: 0,
                 recovery_progress_den: 0,
+                blocks_scanned: 0,
+                blocks_total: 0,
             });
             Ok(false)
         }
@@ -3099,6 +3133,39 @@ async fn update_synced_progress_after_restart(db_data: &mut DbType) {
     if let Some(height) = wallet_fully_scanned_height(db_data) {
         let mut p = SYNC_PROGRESS.lock().await;
         p.synced_height = height;
+    }
+}
+
+/// Recompute the user-facing block-progress total at pass start. The total
+/// is `blocks_scanned_so_far + remaining_blocks_across_all_ranges`. This
+/// keeps the progress bar accurate when librustzcash adds new ranges
+/// (Verify, FoundNote) between passes — the bar shifts slightly but never
+/// jumps backward.
+async fn refresh_blocks_total(remaining_blocks: u64) {
+    let mut p = SYNC_PROGRESS.lock().await;
+    let new_total = p.blocks_scanned.saturating_add(remaining_blocks);
+    if new_total > p.blocks_total {
+        p.blocks_total = new_total;
+    }
+}
+
+/// Record blocks that just finished scanning. Called after a batch
+/// successfully scans (regardless of priority — ChainTip, Historic,
+/// FoundNote, Verify all count). This is what makes the progress bar
+/// move during the priority-queue's "ChainTip-first" pre-pass, when
+/// `synced_height` (the fully-scanned committed height) stays pinned at
+/// the wallet birthday.
+async fn record_blocks_scanned(blocks: u64) {
+    if blocks == 0 {
+        return;
+    }
+    let mut p = SYNC_PROGRESS.lock().await;
+    p.blocks_scanned = p.blocks_scanned.saturating_add(blocks);
+    // Self-correct if our running counter passes the previously recorded
+    // total (can happen if librustzcash returns a slightly stale range
+    // count between passes).
+    if p.blocks_scanned > p.blocks_total {
+        p.blocks_total = p.blocks_scanned;
     }
 }
 type ScanRange = zcash_client_backend::data_api::scanning::ScanRange;

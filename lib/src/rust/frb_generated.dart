@@ -3407,8 +3407,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   EngineSyncEvent dco_decode_engine_sync_event(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 13)
-      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
+    if (arr.length != 15)
+      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
     return EngineSyncEvent(
       eventType: dco_decode_String(arr[0]),
       phase: dco_decode_opt_String(arr[1]),
@@ -3423,6 +3423,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       scanProgressDen: dco_decode_u_64(arr[10]),
       recoveryProgressNum: dco_decode_u_64(arr[11]),
       recoveryProgressDen: dco_decode_u_64(arr[12]),
+      blocksScanned: dco_decode_u_64(arr[13]),
+      blocksTotal: dco_decode_u_64(arr[14]),
     );
   }
 
@@ -3430,8 +3432,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   EngineSyncProgress dco_decode_engine_sync_progress(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 12)
-      throw Exception('unexpected arr length: expect 12 but see ${arr.length}');
+    if (arr.length != 14)
+      throw Exception('unexpected arr length: expect 14 but see ${arr.length}');
     return EngineSyncProgress(
       syncedHeight: dco_decode_u_32(arr[0]),
       latestHeight: dco_decode_u_32(arr[1]),
@@ -3445,6 +3447,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       scanProgressDen: dco_decode_u_64(arr[9]),
       recoveryProgressNum: dco_decode_u_64(arr[10]),
       recoveryProgressDen: dco_decode_u_64(arr[11]),
+      blocksScanned: dco_decode_u_64(arr[12]),
+      blocksTotal: dco_decode_u_64(arr[13]),
     );
   }
 
@@ -3925,6 +3929,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_scanProgressDen = sse_decode_u_64(deserializer);
     var var_recoveryProgressNum = sse_decode_u_64(deserializer);
     var var_recoveryProgressDen = sse_decode_u_64(deserializer);
+    var var_blocksScanned = sse_decode_u_64(deserializer);
+    var var_blocksTotal = sse_decode_u_64(deserializer);
     return EngineSyncEvent(
         eventType: var_eventType,
         phase: var_phase,
@@ -3938,7 +3944,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         scanProgressNum: var_scanProgressNum,
         scanProgressDen: var_scanProgressDen,
         recoveryProgressNum: var_recoveryProgressNum,
-        recoveryProgressDen: var_recoveryProgressDen);
+        recoveryProgressDen: var_recoveryProgressDen,
+        blocksScanned: var_blocksScanned,
+        blocksTotal: var_blocksTotal);
   }
 
   @protected
@@ -3957,6 +3965,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_scanProgressDen = sse_decode_u_64(deserializer);
     var var_recoveryProgressNum = sse_decode_u_64(deserializer);
     var var_recoveryProgressDen = sse_decode_u_64(deserializer);
+    var var_blocksScanned = sse_decode_u_64(deserializer);
+    var var_blocksTotal = sse_decode_u_64(deserializer);
     return EngineSyncProgress(
         syncedHeight: var_syncedHeight,
         latestHeight: var_latestHeight,
@@ -3969,7 +3979,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         scanProgressNum: var_scanProgressNum,
         scanProgressDen: var_scanProgressDen,
         recoveryProgressNum: var_recoveryProgressNum,
-        recoveryProgressDen: var_recoveryProgressDen);
+        recoveryProgressDen: var_recoveryProgressDen,
+        blocksScanned: var_blocksScanned,
+        blocksTotal: var_blocksTotal);
   }
 
   @protected
@@ -4525,6 +4537,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_64(self.scanProgressDen, serializer);
     sse_encode_u_64(self.recoveryProgressNum, serializer);
     sse_encode_u_64(self.recoveryProgressDen, serializer);
+    sse_encode_u_64(self.blocksScanned, serializer);
+    sse_encode_u_64(self.blocksTotal, serializer);
   }
 
   @protected
@@ -4543,6 +4557,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_64(self.scanProgressDen, serializer);
     sse_encode_u_64(self.recoveryProgressNum, serializer);
     sse_encode_u_64(self.recoveryProgressDen, serializer);
+    sse_encode_u_64(self.blocksScanned, serializer);
+    sse_encode_u_64(self.blocksTotal, serializer);
   }
 
   @protected

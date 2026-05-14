@@ -4046,6 +4046,8 @@ impl SseDecode for crate::api::engine_api::EngineSyncEvent {
         let mut var_scanProgressDen = <u64>::sse_decode(deserializer);
         let mut var_recoveryProgressNum = <u64>::sse_decode(deserializer);
         let mut var_recoveryProgressDen = <u64>::sse_decode(deserializer);
+        let mut var_blocksScanned = <u64>::sse_decode(deserializer);
+        let mut var_blocksTotal = <u64>::sse_decode(deserializer);
         return crate::api::engine_api::EngineSyncEvent {
             event_type: var_eventType,
             phase: var_phase,
@@ -4060,6 +4062,8 @@ impl SseDecode for crate::api::engine_api::EngineSyncEvent {
             scan_progress_den: var_scanProgressDen,
             recovery_progress_num: var_recoveryProgressNum,
             recovery_progress_den: var_recoveryProgressDen,
+            blocks_scanned: var_blocksScanned,
+            blocks_total: var_blocksTotal,
         };
     }
 }
@@ -4079,6 +4083,8 @@ impl SseDecode for crate::api::engine_api::EngineSyncProgress {
         let mut var_scanProgressDen = <u64>::sse_decode(deserializer);
         let mut var_recoveryProgressNum = <u64>::sse_decode(deserializer);
         let mut var_recoveryProgressDen = <u64>::sse_decode(deserializer);
+        let mut var_blocksScanned = <u64>::sse_decode(deserializer);
+        let mut var_blocksTotal = <u64>::sse_decode(deserializer);
         return crate::api::engine_api::EngineSyncProgress {
             synced_height: var_syncedHeight,
             latest_height: var_latestHeight,
@@ -4092,6 +4098,8 @@ impl SseDecode for crate::api::engine_api::EngineSyncProgress {
             scan_progress_den: var_scanProgressDen,
             recovery_progress_num: var_recoveryProgressNum,
             recovery_progress_den: var_recoveryProgressDen,
+            blocks_scanned: var_blocksScanned,
+            blocks_total: var_blocksTotal,
         };
     }
 }
@@ -5129,6 +5137,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::engine_api::EngineSyncEvent {
             self.scan_progress_den.into_into_dart().into_dart(),
             self.recovery_progress_num.into_into_dart().into_dart(),
             self.recovery_progress_den.into_into_dart().into_dart(),
+            self.blocks_scanned.into_into_dart().into_dart(),
+            self.blocks_total.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -5160,6 +5170,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::engine_api::EngineSyncProgres
             self.scan_progress_den.into_into_dart().into_dart(),
             self.recovery_progress_num.into_into_dart().into_dart(),
             self.recovery_progress_den.into_into_dart().into_dart(),
+            self.blocks_scanned.into_into_dart().into_dart(),
+            self.blocks_total.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -5665,6 +5677,8 @@ impl SseEncode for crate::api::engine_api::EngineSyncEvent {
         <u64>::sse_encode(self.scan_progress_den, serializer);
         <u64>::sse_encode(self.recovery_progress_num, serializer);
         <u64>::sse_encode(self.recovery_progress_den, serializer);
+        <u64>::sse_encode(self.blocks_scanned, serializer);
+        <u64>::sse_encode(self.blocks_total, serializer);
     }
 }
 
@@ -5683,6 +5697,8 @@ impl SseEncode for crate::api::engine_api::EngineSyncProgress {
         <u64>::sse_encode(self.scan_progress_den, serializer);
         <u64>::sse_encode(self.recovery_progress_num, serializer);
         <u64>::sse_encode(self.recovery_progress_den, serializer);
+        <u64>::sse_encode(self.blocks_scanned, serializer);
+        <u64>::sse_encode(self.blocks_total, serializer);
     }
 }
 

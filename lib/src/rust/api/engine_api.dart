@@ -511,6 +511,8 @@ class EngineSyncEvent {
   final BigInt scanProgressDen;
   final BigInt recoveryProgressNum;
   final BigInt recoveryProgressDen;
+  final BigInt blocksScanned;
+  final BigInt blocksTotal;
 
   const EngineSyncEvent({
     required this.eventType,
@@ -526,6 +528,8 @@ class EngineSyncEvent {
     required this.scanProgressDen,
     required this.recoveryProgressNum,
     required this.recoveryProgressDen,
+    required this.blocksScanned,
+    required this.blocksTotal,
   });
 
   @override
@@ -542,7 +546,9 @@ class EngineSyncEvent {
       scanProgressNum.hashCode ^
       scanProgressDen.hashCode ^
       recoveryProgressNum.hashCode ^
-      recoveryProgressDen.hashCode;
+      recoveryProgressDen.hashCode ^
+      blocksScanned.hashCode ^
+      blocksTotal.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -561,7 +567,9 @@ class EngineSyncEvent {
           scanProgressNum == other.scanProgressNum &&
           scanProgressDen == other.scanProgressDen &&
           recoveryProgressNum == other.recoveryProgressNum &&
-          recoveryProgressDen == other.recoveryProgressDen;
+          recoveryProgressDen == other.recoveryProgressDen &&
+          blocksScanned == other.blocksScanned &&
+          blocksTotal == other.blocksTotal;
 }
 
 /// Sync progress reported to Dart.
@@ -578,6 +586,8 @@ class EngineSyncProgress {
   final BigInt scanProgressDen;
   final BigInt recoveryProgressNum;
   final BigInt recoveryProgressDen;
+  final BigInt blocksScanned;
+  final BigInt blocksTotal;
 
   const EngineSyncProgress({
     required this.syncedHeight,
@@ -592,6 +602,8 @@ class EngineSyncProgress {
     required this.scanProgressDen,
     required this.recoveryProgressNum,
     required this.recoveryProgressDen,
+    required this.blocksScanned,
+    required this.blocksTotal,
   });
 
   @override
@@ -607,7 +619,9 @@ class EngineSyncProgress {
       scanProgressNum.hashCode ^
       scanProgressDen.hashCode ^
       recoveryProgressNum.hashCode ^
-      recoveryProgressDen.hashCode;
+      recoveryProgressDen.hashCode ^
+      blocksScanned.hashCode ^
+      blocksTotal.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -625,7 +639,9 @@ class EngineSyncProgress {
           scanProgressNum == other.scanProgressNum &&
           scanProgressDen == other.scanProgressDen &&
           recoveryProgressNum == other.recoveryProgressNum &&
-          recoveryProgressDen == other.recoveryProgressDen;
+          recoveryProgressDen == other.recoveryProgressDen &&
+          blocksScanned == other.blocksScanned &&
+          blocksTotal == other.blocksTotal;
 }
 
 class EngineTransactionRecord {

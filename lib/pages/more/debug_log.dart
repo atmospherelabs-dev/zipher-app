@@ -46,6 +46,11 @@ class _DebugLogPageState extends State<DebugLogPage> {
     final connected = syncStatus2.connected;
     final error = syncStatus2.connectionError;
     final queueLen = syncStatus2.maintenanceQueueLen;
+    final blocksScanned = syncStatus2.blocksScanned;
+    final blocksTotal = syncStatus2.blocksTotal;
+    final blocksPct = syncStatus2.blocksProgress;
+    final blocksPctStr =
+        blocksPct != null ? '${(blocksPct * 100).toStringAsFixed(1)}%' : '–';
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
@@ -76,6 +81,7 @@ class _DebugLogPageState extends State<DebugLogPage> {
               final header = 'Zipher Debug Log\n'
                   'connected=$connected phase=$syncPhase\n'
                   'committed_height=$syncedH/$latestH ${activeLabel.replaceAll(' ', '_')}=$scanningUpTo queue=$queueLen\n'
+                  'blocks=$blocksScanned/$blocksTotal ($blocksPctStr)\n'
                   'error=${error ?? 'none'}\n'
                   '---\n';
               final body = all
@@ -144,6 +150,9 @@ class _DebugLogPageState extends State<DebugLogPage> {
                   const SizedBox(height: 4),
                   Text(
                       'committed: $syncedH / $latestH   $activeLabel: $scanningUpTo   queue: $queueLen'),
+                  const SizedBox(height: 2),
+                  Text(
+                      'blocks: $blocksScanned / $blocksTotal   progress: $blocksPctStr'),
                   if (error != null) ...[
                     const SizedBox(height: 4),
                     Text('error: $error',

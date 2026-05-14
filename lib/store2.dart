@@ -131,6 +131,29 @@ abstract class _SyncStatus2 with Store {
   @observable
   int scanningUpTo = 0;
 
+  /// User-facing progress signal: blocks scanned in the current sync session,
+  /// summed across every priority (ChainTip, Historic, FoundNote, Verify).
+  /// Unlike `syncedHeight`, this advances smoothly during the ChainTip
+  /// pre-scan when committed_height is still pinned at the wallet birthday.
+  @observable
+  int blocksScanned = 0;
+
+  /// Total blocks to scan in the current session. Recomputed by the Rust
+  /// engine at each pass start as `blocksScanned + remaining_blocks_in_all_ranges`,
+  /// so it adjusts if librustzcash adds new ranges mid-sync.
+  @observable
+  int blocksTotal = 0;
+
+  /// Smooth progress as a fraction in [0, 1] when block totals are known.
+  /// Falls back to `null` so the UI can hide the bar until we have data.
+  @computed
+  double? get blocksProgress {
+    if (blocksTotal == 0) return null;
+    final p = blocksScanned / blocksTotal;
+    if (p.isNaN || p.isInfinite) return null;
+    return p.clamp(0.0, 1.0);
+  }
+
   @computed
   int get changed {
     connected;
@@ -143,6 +166,8 @@ abstract class _SyncStatus2 with Store {
     phase;
     scanningUpTo;
     maintenanceQueueLen;
+    blocksScanned;
+    blocksTotal;
     return DateTime.now().microsecondsSinceEpoch;
   }
 
@@ -247,6 +272,8 @@ abstract class _SyncStatus2 with Store {
       phase = progress.phase;
       scanningUpTo = progress.scanningUpTo;
       maintenanceQueueLen = progress.maintenanceQueueLen;
+      blocksScanned = progress.blocksScanned.toInt();
+      blocksTotal = progress.blocksTotal.toInt();
       connected = connectionError == null;
       if (connectionError != null) {
         logger.w('[Sync] connection error: $connectionError');
@@ -341,6 +368,15 @@ abstract class _SyncStatus2 with Store {
         eta.checkpoint(syncedHeight, DateTime.now());
       }
       maintenanceQueueLen = event.maintenanceQueueLen as int;
+      try {
+        final eventScanned = (event.blocksScanned as BigInt).toInt();
+        final eventTotal = (event.blocksTotal as BigInt).toInt();
+        if (eventTotal > 0) {
+          blocksScanned = eventScanned;
+          blocksTotal = eventTotal;
+        }
+      } catch (_) {
+      }
       if (eventType == 'connection_error') {
         connectionError = event.message as String?;
         connected = connectionError == null;
@@ -409,6 +445,8 @@ abstract class _SyncStatus2 with Store {
     scanningUpTo = 0;
     maintenanceQueueLen = 0;
     syncedHeight = 0;
+    blocksScanned = 0;
+    blocksTotal = 0;
     _lastAccountUpdateAt = null;
     eta.end();
     syncTimer?.cancel();
