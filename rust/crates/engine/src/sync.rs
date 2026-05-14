@@ -1187,9 +1187,12 @@ async fn sync_once(
                 });
 
                 let mut batch_idx: u32 = 0;
-                while let Some(prefetched) = rx.recv().await {
+                // Polling timeout for rx.recv: ensures the pass timeout
+                // check below can fire even if the prefetcher hangs and
+                // never emits a batch.
+                const RX_POLL_TIMEOUT: Duration = Duration::from_secs(30);
+                loop {
                     check_cancel()?;
-                    batch_idx += 1;
                     if pass_started.elapsed() > SYNC_RESTART_TIMEOUT {
                         tracing::info!(
                             "[sync] pass timeout ({}s), restarting to refresh chain tip",
@@ -1200,6 +1203,29 @@ async fn sync_once(
                         did_restart = true;
                         break;
                     }
+                    let prefetched = match tokio::time::timeout(
+                        RX_POLL_TIMEOUT,
+                        rx.recv(),
+                    )
+                    .await
+                    {
+                        Ok(Some(p)) => p,
+                        Ok(None) => break,
+                        Err(_) => {
+                            tracing::warn!(
+                                "[sync] prefetch stalled: no batch in {}s, pass running for {}s",
+                                RX_POLL_TIMEOUT.as_secs(),
+                                pass_started.elapsed().as_secs()
+                            );
+                            emit_log(&format!(
+                                "prefetch stalled: no batch in {}s (pass running {}s)",
+                                RX_POLL_TIMEOUT.as_secs(),
+                                pass_started.elapsed().as_secs()
+                            ));
+                            continue;
+                        }
+                    };
+                    batch_idx += 1;
                     let PrefetchedRange {
                         scan_range: current_range,
                         downloaded,
@@ -2431,6 +2457,7 @@ async fn fetch_prefetched_ranges(
         String,
         CompactTxStreamerClient<tonic::transport::Channel>,
     > = std::collections::HashMap::new();
+    let pool_started = Instant::now();
     let primary_client = connect_lwd(&primary_server_url).await?;
     server_clients.insert(primary_server_url.clone(), primary_client);
     for server in &servers {
@@ -2454,6 +2481,13 @@ async fn fetch_prefetched_ranges(
             }
         }
     }
+    emit_log(&format!(
+        "prefetch pool ready: {} servers in {} ms ({} batches, parallelism={})",
+        server_clients.len(),
+        pool_started.elapsed().as_millis(),
+        total_batches,
+        parallelism
+    ));
     let primary_for_clone = primary_server_url.clone();
 
     // Internal completion channel: each download task posts (idx, result)
@@ -2469,6 +2503,12 @@ async fn fetch_prefetched_ranges(
         usize,
         Result<(Option<DownloadedRange>, MultiServerCounters)>,
     > = std::collections::HashMap::with_capacity(parallelism);
+
+    /// Per-batch download timeout. Caps the worst case where a single
+    /// alternate server accepts the request but never streams blocks —
+    /// without this, a stalled stream can wedge the pipeline because the
+    /// consumer can't time out before its producer emits at least once.
+    const PER_BATCH_TIMEOUT: Duration = Duration::from_secs(45);
 
     fn spawn_download(
         batch_idx: usize,
@@ -2507,23 +2547,44 @@ async fn fetch_prefetched_ranges(
         let scan_range = batches_ref[batch_idx].clone();
         let done_tx = done_tx.clone();
         tokio::spawn(async move {
-            let result = if effective_url == primary_url_owned {
-                let mut c = primary_client;
-                download_range(&mut c, &scan_range)
+            let download_fut = async {
+                if effective_url == primary_url_owned {
+                    let mut c = primary_client;
+                    download_range(&mut c, &scan_range)
+                        .await
+                        .map(|d| (d, MultiServerCounters::default()))
+                } else {
+                    let mut primary = primary_client;
+                    let mut candidate = candidate_client;
+                    download_range_from_candidate_pooled(
+                        &primary_url_owned,
+                        &mut primary,
+                        &effective_url,
+                        &mut candidate,
+                        &scan_range,
+                        batch_idx,
+                    )
                     .await
-                    .map(|d| (d, MultiServerCounters::default()))
-            } else {
-                let mut primary = primary_client;
-                let mut candidate = candidate_client;
-                download_range_from_candidate_pooled(
-                    &primary_url_owned,
-                    &mut primary,
-                    &effective_url,
-                    &mut candidate,
-                    &scan_range,
-                    batch_idx,
-                )
-                .await
+                }
+            };
+            let result = match tokio::time::timeout(PER_BATCH_TIMEOUT, download_fut).await {
+                Ok(r) => r,
+                Err(_) => {
+                    tracing::warn!(
+                        "[sync] download timeout (batch {} from {}), retrying via primary on next pass",
+                        batch_idx,
+                        effective_url
+                    );
+                    emit_log(&format!(
+                        "multi-server: batch {} timed out via {}, will retry",
+                        batch_idx, effective_url
+                    ));
+                    Err(anyhow::anyhow!(
+                        "download timeout for batch {} after {}s",
+                        batch_idx,
+                        PER_BATCH_TIMEOUT.as_secs()
+                    ))
+                }
             };
             let _ = done_tx.send((batch_idx, result)).await;
         });
