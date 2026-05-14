@@ -75,3 +75,4 @@ lib/l10n/.yarnrc.yml
 # Cursor IDE
 .cursor/
 .agents/
+.refs/

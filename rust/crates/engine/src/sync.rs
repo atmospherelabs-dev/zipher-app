@@ -100,13 +100,14 @@ pub struct SyncProgressInfo {
 
 #[derive(Clone, Debug)]
 pub struct SyncRuntimeConfig {
+    /// How many batches the producer is allowed to download ahead of the
+    /// scanner. The scanner is the bottleneck so this just hides download
+    /// latency; bumping it past ~3 does nothing.
     pub prefetch_depth: usize,
+    /// Optional lightwalletd peers we round-robin batch downloads across.
+    /// One failed batch silently falls back to the primary. Empty means
+    /// single-server.
     pub alternate_servers: Vec<String>,
-    /// Maximum number of concurrent block-range downloads in flight at any
-    /// moment. Each batch is still scanned in order, but downloads can race
-    /// across our (up to 6) lightwalletd peers. Tune up for desktop / fast
-    /// pipes, down for poor mobile connectivity.
-    pub download_parallelism: usize,
 }
 
 impl Default for SyncRuntimeConfig {
@@ -114,7 +115,6 @@ impl Default for SyncRuntimeConfig {
         Self {
             prefetch_depth: 3,
             alternate_servers: Vec::new(),
-            download_parallelism: 4,
         }
     }
 }
@@ -163,10 +163,10 @@ pub struct SyncPerfSnapshot {
     pub work_units_per_second: f64,
     pub adaptive_batch_size: u32,
     pub prefetch_depth: usize,
-    pub download_parallelism: usize,
     pub multi_server_enabled: bool,
+    /// Number of times a batch failed on an alternate and fell back to
+    /// the primary. High counts here mean an alternate is unhealthy.
     pub multi_server_fallbacks: u64,
-    pub multi_server_mismatches: u64,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -249,7 +249,6 @@ pub async fn start() -> Result<()> {
         *perf = SyncPerfSnapshot {
             adaptive_batch_size: SCAN_BATCH_SIZE,
             prefetch_depth: runtime_snapshot.prefetch_depth,
-            download_parallelism: runtime_snapshot.download_parallelism,
             multi_server_enabled: !runtime_snapshot.alternate_servers.is_empty(),
             ..SyncPerfSnapshot::default()
         };
@@ -1066,7 +1065,17 @@ async fn sync_once(
 
         let batches: Vec<ScanRange> = scan_ranges
             .into_iter()
-            .flat_map(|r| split_into_batches(r, batch_size))
+            .flat_map(|r| {
+                // Use a smaller batch size when this range overlaps
+                // the Zcash sandblasting attack window — those blocks
+                // are ~10x heavier to scan and OOM-prone at full size.
+                let size = batch_size_for_range(
+                    batch_size,
+                    r.block_range().start,
+                    r.block_range().end,
+                );
+                split_into_batches(r, size)
+            })
             .filter(|r| r.priority() > ScanPriority::Scanned)
             .filter(|r| r.priority() != ScanPriority::Verify)
             .collect();
@@ -1085,11 +1094,10 @@ async fn sync_once(
             }
             emit_progress_event("phase_changed", None, None).await;
             emit_log(&format!(
-                "scan batches: {} batch_size={} prefetch_depth={} parallelism={} multi_server={}",
+                "scan batches: {} batch_size={} prefetch_depth={} multi_server={}",
                 batches.len(),
                 batch_size,
                 runtime.prefetch_depth,
-                runtime.download_parallelism,
                 !runtime.alternate_servers.is_empty()
             ));
 
@@ -1136,7 +1144,6 @@ async fn sync_once(
                         &mut perf,
                         &current_range,
                         downloaded,
-                        MultiServerCounters::default(),
                     )?;
                     let scan_ms = scan_started.elapsed().as_millis() as u64;
                     perf.update_snapshot(batch_size, &runtime).await;
@@ -1181,18 +1188,21 @@ async fn sync_once(
                 let fetch_server_url = server_url.to_string();
                 let fetch_batches = batches;
                 let fetch_runtime = runtime.clone();
-                let fetch_handle = tokio::spawn(async move {
+                // Wrap the prefetch task in an abort-on-drop guard.
+                // Any non-normal exit from this scope (`?` propagating an
+                // error, panic unwind, early `return`) drops the guard,
+                // which aborts the spawned task. Without this, detached
+                // download workers could keep streaming on alt servers
+                // for up to 30 s after sync gave up on the pass.
+                let fetch_handle = AbortOnDrop::new(tokio::spawn(async move {
                     fetch_prefetched_ranges(fetch_server_url, fetch_batches, fetch_runtime, tx)
                         .await
-                });
+                }));
 
                 let mut batch_idx: u32 = 0;
-                // Polling timeout for rx.recv: ensures the pass timeout
-                // check below can fire even if the prefetcher hangs and
-                // never emits a batch.
-                const RX_POLL_TIMEOUT: Duration = Duration::from_secs(30);
-                loop {
+                while let Some(prefetched) = rx.recv().await {
                     check_cancel()?;
+                    batch_idx += 1;
                     if pass_started.elapsed() > SYNC_RESTART_TIMEOUT {
                         tracing::info!(
                             "[sync] pass timeout ({}s), restarting to refresh chain tip",
@@ -1203,34 +1213,14 @@ async fn sync_once(
                         did_restart = true;
                         break;
                     }
-                    let prefetched = match tokio::time::timeout(
-                        RX_POLL_TIMEOUT,
-                        rx.recv(),
-                    )
-                    .await
-                    {
-                        Ok(Some(p)) => p,
-                        Ok(None) => break,
-                        Err(_) => {
-                            tracing::warn!(
-                                "[sync] prefetch stalled: no batch in {}s, pass running for {}s",
-                                RX_POLL_TIMEOUT.as_secs(),
-                                pass_started.elapsed().as_secs()
-                            );
-                            emit_log(&format!(
-                                "prefetch stalled: no batch in {}s (pass running {}s)",
-                                RX_POLL_TIMEOUT.as_secs(),
-                                pass_started.elapsed().as_secs()
-                            ));
-                            continue;
-                        }
-                    };
-                    batch_idx += 1;
                     let PrefetchedRange {
                         scan_range: current_range,
                         downloaded,
-                        multi_server_counters,
+                        fell_back_to_primary,
                     } = prefetched?;
+                    if fell_back_to_primary {
+                        perf.record_fallback();
+                    }
                     let committed_before = wallet_fully_scanned_height(&mut db_data).unwrap_or(0);
                     emit_log(&format!(
                         "batch {} [{:?}] {}..{}: prefetched, scanning",
@@ -1253,7 +1243,6 @@ async fn sync_once(
                         &mut perf,
                         &current_range,
                         downloaded,
-                        multi_server_counters,
                     )?;
                     let scan_ms = scan_started.elapsed().as_millis() as u64;
                     perf.update_snapshot(batch_size, &runtime).await;
@@ -1290,9 +1279,11 @@ async fn sync_once(
                 }
 
                 if did_restart {
-                    fetch_handle.abort();
+                    // AbortOnDrop drops at end of scope and aborts the
+                    // task, no explicit call needed.
+                    drop(fetch_handle);
                 } else {
-                    match fetch_handle.await {
+                    match fetch_handle.into_inner().await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => return Err(e),
                         Err(e) if e.is_cancelled() => {}
@@ -1963,10 +1954,8 @@ async fn scan_address_transactions(
         .into_inner();
 
     let mut stored = 0usize;
-    while let Some(raw) = stream
-        .message()
-        .await
-        .map_err(|e| anyhow::anyhow!("get_taddress_txids stream: {:?}", e))?
+    while let Some(raw) =
+        next_stream_message(&mut stream, "get_taddress_txids stream").await?
     {
         let RawTransaction { data, height } = raw;
         if data.is_empty() {
@@ -2263,13 +2252,11 @@ struct DownloadedRange {
 struct PrefetchedRange {
     scan_range: zcash_client_backend::data_api::scanning::ScanRange,
     downloaded: Option<DownloadedRange>,
-    multi_server_counters: MultiServerCounters,
-}
-
-#[derive(Default)]
-struct MultiServerCounters {
-    fallbacks: u64,
-    mismatches: u64,
+    /// True if the producer had to fall back to the primary server after
+    /// the assigned alternate failed for this batch. Surfaced into the
+    /// `fallbacks` perf counter so we can see at a glance how often
+    /// alternates are misbehaving.
+    fell_back_to_primary: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2298,7 +2285,6 @@ struct PassPerf {
     scan_ms: u64,
     restarted_batches: u64,
     multi_server_fallbacks: u64,
-    multi_server_mismatches: u64,
 }
 
 impl PassPerf {
@@ -2353,16 +2339,13 @@ impl PassPerf {
             work_units_per_second,
             adaptive_batch_size,
             prefetch_depth: runtime.prefetch_depth,
-            download_parallelism: runtime.download_parallelism,
             multi_server_enabled: !runtime.alternate_servers.is_empty(),
             multi_server_fallbacks: self.multi_server_fallbacks,
-            multi_server_mismatches: self.multi_server_mismatches,
         };
     }
 
-    fn record_multi_server(&mut self, counters: MultiServerCounters) {
-        self.multi_server_fallbacks += counters.fallbacks;
-        self.multi_server_mismatches += counters.mismatches;
+    fn record_fallback(&mut self) {
+        self.multi_server_fallbacks += 1;
     }
 
     fn log_summary(&self) {
@@ -2388,7 +2371,7 @@ impl PassPerf {
             self.restarted_batches
         );
         emit_log(&format!(
-            "perf: batches={} blocks={} units={} avg_dl={}ms avg_scan={}ms units/s={:.1} restarts={} fallbacks={} mismatches={}",
+            "perf: batches={} blocks={} units={} avg_dl={}ms avg_scan={}ms units/s={:.1} restarts={} fallbacks={}",
             self.batches,
             self.blocks,
             self.work_units,
@@ -2397,14 +2380,42 @@ impl PassPerf {
             units_per_sec,
             self.restarted_batches,
             self.multi_server_fallbacks,
-            self.multi_server_mismatches
         ));
     }
 }
 
-const SCAN_BATCH_SIZE: u32 = 250;
+/// Default batch size. Matches what Vizor / the canonical
+/// zcash-android-wallet-sdk use for mobile: large enough to amortise
+/// per-batch fixed overhead (SQL setup, channel sends, FFI hops) but
+/// small enough to keep iOS memory usage well under control
+/// (~10 MB per in-flight batch at average block density).
+const SCAN_BATCH_SIZE: u32 = 1_000;
 const MIN_BATCH_SIZE: u32 = 100;
 const SLOW_SCAN_MS: u64 = 3_000;
+
+/// Zcash mainnet "sandblasting" attack window. Blocks in this range
+/// carry roughly an order of magnitude more shielded outputs than
+/// surrounding blocks, so scanning them at the full batch size spikes
+/// memory and stretches per-batch wall time past the slow-scan
+/// threshold. We auto-drop to a much smaller batch when the current
+/// scan range touches this window. Mirrors the constant in
+/// zcash-android-wallet-sdk and Vizor.
+const SANDBLASTING_START: u32 = 1_710_000;
+const SANDBLASTING_END: u32 = 2_050_000;
+const SANDBLASTING_BATCH_SIZE: u32 = 100;
+
+/// Pick the right batch size for a range based on whether it overlaps
+/// the sandblasting attack window.
+fn batch_size_for_range(base: u32, start: BlockHeight, end: BlockHeight) -> u32 {
+    let s = u32::from(start);
+    let e = u32::from(end);
+    // half-open overlap of [s, e) with [SANDBLASTING_START, SANDBLASTING_END)
+    if s < SANDBLASTING_END && e > SANDBLASTING_START {
+        SANDBLASTING_BATCH_SIZE
+    } else {
+        base
+    }
+}
 
 fn adjust_batch_size(current: u32, scan_elapsed_ms: u64) -> u32 {
     if scan_elapsed_ms > SLOW_SCAN_MS {
@@ -2414,59 +2425,60 @@ fn adjust_batch_size(current: u32, scan_elapsed_ms: u64) -> u32 {
     }
 }
 
-/// Producer task for the prefetch pipeline. Downloads up to
-/// `runtime.download_parallelism` block ranges concurrently across the
-/// configured lightwalletd servers (round-robin by batch index), then
-/// emits the completed ranges to the scan consumer in batch order so the
-/// wallet's committed height advances monotonically.
+/// Producer task for the prefetch pipeline. Downloads block ranges
+/// sequentially, round-robin'ing across the configured lightwalletd
+/// peers so load spreads, and emits each downloaded batch to the scan
+/// consumer in order via `tx` (its capacity, `runtime.prefetch_depth`,
+/// is the pipeline depth — we can stay that many batches ahead of the
+/// scanner before blocking).
 ///
-/// Behaviour preserved from the previous sequential implementation:
-/// - Per-batch fallback to the primary server on candidate connect /
-///   download failure.
-/// - Deterministic cross-check sample (every 20th batch) against the
-///   primary to catch divergent alternates.
-/// - mpsc cancel propagation: returning Ok early when the consumer
-///   hangs up.
-/// - `check_cancel()` between batch emissions.
+/// Since scanning is the bottleneck (~500-2000 ms/batch vs ~200-800 ms
+/// to download a 1k-block batch), there's nothing to be gained from
+/// parallelising downloads further: the channel buffer alone gives us
+/// all the latency hiding we need. The per-message stream idle timeout
+/// in `download_blocks` (30 s) is what keeps a silent server from
+/// wedging the pipeline.
+///
+/// Returns `Ok(())` early when the consumer drops `rx` (sync stopping
+/// or pass restarting). One failed download on an alternate falls back
+/// to the primary; if the primary also fails, the error propagates up
+/// and `sync_forever` handles retry / backoff.
 async fn fetch_prefetched_ranges(
     primary_server_url: String,
     batches: Vec<ScanRange>,
     runtime: SyncRuntimeConfig,
     tx: mpsc::Sender<Result<PrefetchedRange>>,
 ) -> Result<()> {
+    let total_batches = batches.len();
+    if total_batches == 0 {
+        return Ok(());
+    }
+
+    // Build the rotation: primary first, then unique alternates.
     let mut servers = vec![primary_server_url.clone()];
     for server in runtime.alternate_servers {
         if server != primary_server_url && !servers.iter().any(|s| s == &server) {
             servers.push(server);
         }
     }
-    let total_batches = batches.len();
-    if total_batches == 0 {
-        return Ok(());
-    }
-    let parallelism = runtime
-        .download_parallelism
-        .max(1)
-        .min(total_batches.max(1));
 
-    // One persistent connection per server, shared across concurrent
-    // download tasks via Clone. tonic's underlying tonic::transport::Channel
-    // multiplexes streams over a single HTTP/2 connection, so cloning is
-    // effectively free and gives us in-server-parallelism for free.
-    let mut server_clients: std::collections::HashMap<
+    // Connect every server up-front. Failures are non-fatal — we just
+    // drop the unreachable server from the rotation. The primary MUST
+    // succeed; if it doesn't we have nowhere to fall back to.
+    let pool_started = Instant::now();
+    let mut clients: std::collections::HashMap<
         String,
         CompactTxStreamerClient<tonic::transport::Channel>,
     > = std::collections::HashMap::new();
-    let pool_started = Instant::now();
     let primary_client = connect_lwd(&primary_server_url).await?;
-    server_clients.insert(primary_server_url.clone(), primary_client);
+    clients.insert(primary_server_url.clone(), primary_client);
     for server in &servers {
-        if server_clients.contains_key(server) {
+        if clients.contains_key(server) {
             continue;
         }
         match connect_lwd(server).await {
             Ok(client) => {
-                server_clients.insert(server.clone(), client);
+                clients.insert(server.clone(), client);
             }
             Err(e) => {
                 tracing::warn!(
@@ -2475,230 +2487,77 @@ async fn fetch_prefetched_ranges(
                     e
                 );
                 emit_log(&format!(
-                    "multi-server: alternate {} unreachable, will use primary for its slots",
+                    "multi-server: {} unreachable, will use primary for its slots",
                     short_server_list(&[server.clone()])
                 ));
             }
         }
     }
+    let reachable: Vec<String> = servers
+        .iter()
+        .filter(|s| clients.contains_key(*s))
+        .cloned()
+        .collect();
     emit_log(&format!(
-        "prefetch pool ready: {} servers in {} ms ({} batches, parallelism={})",
-        server_clients.len(),
+        "prefetch pool ready: {} servers in {} ms ({} batches)",
+        reachable.len(),
         pool_started.elapsed().as_millis(),
-        total_batches,
-        parallelism
+        total_batches
     ));
-    let primary_for_clone = primary_server_url.clone();
 
-    // Internal completion channel: each download task posts (idx, result)
-    // when done, in whatever order they finish.
-    type DownloadResult = (usize, Result<(Option<DownloadedRange>, MultiServerCounters)>);
-    let (done_tx, mut done_rx) = mpsc::channel::<DownloadResult>(parallelism * 2);
+    for (batch_idx, scan_range) in batches.into_iter().enumerate() {
+        check_cancel()?;
 
-    let batches_ref: std::sync::Arc<Vec<ScanRange>> = std::sync::Arc::new(batches);
-    let mut inflight: usize = 0;
-    let mut next_to_start: usize = 0;
-    let mut next_to_emit: usize = 0;
-    let mut pending: std::collections::HashMap<
-        usize,
-        Result<(Option<DownloadedRange>, MultiServerCounters)>,
-    > = std::collections::HashMap::with_capacity(parallelism);
-
-    /// Per-batch download timeout. Caps the worst case where a single
-    /// alternate server accepts the request but never streams blocks —
-    /// without this, a stalled stream can wedge the pipeline because the
-    /// consumer can't time out before its producer emits at least once.
-    const PER_BATCH_TIMEOUT: Duration = Duration::from_secs(45);
-
-    fn spawn_download(
-        batch_idx: usize,
-        servers: &[String],
-        server_clients: &std::collections::HashMap<
-            String,
-            CompactTxStreamerClient<tonic::transport::Channel>,
-        >,
-        primary_url: &str,
-        batches_ref: &std::sync::Arc<Vec<ScanRange>>,
-        done_tx: &mpsc::Sender<(
-            usize,
-            Result<(Option<DownloadedRange>, MultiServerCounters)>,
-        )>,
-    ) {
-        let candidate_url = servers
-            .get(batch_idx % servers.len())
+        // Pick this batch's server round-robin among reachable peers.
+        // Unreachable alternates are already filtered out of `reachable`,
+        // so this only picks servers we know we can talk to.
+        let server_url = reachable
+            .get(batch_idx % reachable.len().max(1))
             .cloned()
-            .unwrap_or_else(|| primary_url.to_string());
-        // If we failed to connect to the assigned candidate at startup,
-        // substitute the primary client and treat this as a primary batch.
-        let effective_url = if server_clients.contains_key(&candidate_url) {
-            candidate_url
-        } else {
-            primary_url.to_string()
-        };
-        let candidate_client = server_clients
-            .get(&effective_url)
+            .unwrap_or_else(|| primary_server_url.clone());
+        let mut client = clients
+            .get(&server_url)
             .cloned()
-            .expect("primary client always present");
-        let primary_client = server_clients
-            .get(primary_url)
-            .cloned()
-            .expect("primary client always present");
-        let primary_url_owned = primary_url.to_string();
-        let scan_range = batches_ref[batch_idx].clone();
-        let done_tx = done_tx.clone();
-        tokio::spawn(async move {
-            let download_fut = async {
-                if effective_url == primary_url_owned {
-                    let mut c = primary_client;
-                    download_range(&mut c, &scan_range)
-                        .await
-                        .map(|d| (d, MultiServerCounters::default()))
-                } else {
-                    let mut primary = primary_client;
-                    let mut candidate = candidate_client;
-                    download_range_from_candidate_pooled(
-                        &primary_url_owned,
-                        &mut primary,
-                        &effective_url,
-                        &mut candidate,
-                        &scan_range,
-                        batch_idx,
-                    )
-                    .await
-                }
-            };
-            let result = match tokio::time::timeout(PER_BATCH_TIMEOUT, download_fut).await {
-                Ok(r) => r,
-                Err(_) => {
+            .expect("server already validated reachable");
+
+        let (downloaded, fell_back_to_primary) =
+            match download_range(&mut client, &scan_range).await {
+                Ok(d) => (d, false),
+                Err(e) if server_url != primary_server_url => {
+                    // Alternate failed mid-download. Retry on primary; if
+                    // that fails too the error propagates and sync_forever
+                    // backs off and retries the whole pass.
                     tracing::warn!(
-                        "[sync] download timeout (batch {} from {}), retrying via primary on next pass",
+                        "[sync] batch {} from {} failed ({}), falling back to primary",
                         batch_idx,
-                        effective_url
+                        server_url,
+                        e
                     );
                     emit_log(&format!(
-                        "multi-server: batch {} timed out via {}, will retry",
-                        batch_idx, effective_url
+                        "multi-server: batch {} fallback to primary",
+                        batch_idx
                     ));
-                    Err(anyhow::anyhow!(
-                        "download timeout for batch {} after {}s",
-                        batch_idx,
-                        PER_BATCH_TIMEOUT.as_secs()
-                    ))
+                    let mut primary = clients
+                        .get(&primary_server_url)
+                        .cloned()
+                        .expect("primary always present");
+                    (download_range(&mut primary, &scan_range).await?, true)
                 }
+                Err(e) => return Err(e),
             };
-            let _ = done_tx.send((batch_idx, result)).await;
+
+        let send_result = Ok(PrefetchedRange {
+            scan_range,
+            downloaded,
+            fell_back_to_primary,
         });
-    }
-
-    // Prime the pipeline.
-    while inflight < parallelism && next_to_start < total_batches {
-        check_cancel()?;
-        spawn_download(
-            next_to_start,
-            &servers,
-            &server_clients,
-            &primary_for_clone,
-            &batches_ref,
-            &done_tx,
-        );
-        next_to_start += 1;
-        inflight += 1;
-    }
-
-    while next_to_emit < total_batches {
-        let Some((idx, result)) = done_rx.recv().await else {
-            return Err(anyhow::anyhow!(
-                "prefetch pipeline ended before all batches were downloaded"
-            ));
-        };
-        inflight = inflight.saturating_sub(1);
-        pending.insert(idx, result);
-
-        // Emit in strict batch order so the scanner sees committed
-        // heights advance monotonically.
-        while let Some(entry) = pending.remove(&next_to_emit) {
-            let send_result = match entry {
-                Ok((downloaded, counters)) => Ok(PrefetchedRange {
-                    scan_range: batches_ref[next_to_emit].clone(),
-                    downloaded,
-                    multi_server_counters: counters,
-                }),
-                Err(e) => Err(e),
-            };
-            if tx.send(send_result).await.is_err() {
-                return Ok(());
-            }
-            next_to_emit += 1;
-            check_cancel()?;
-        }
-
-        // Top up: spawn the next batch for the freed-up worker slot.
-        while inflight < parallelism && next_to_start < total_batches {
-            check_cancel()?;
-            spawn_download(
-                next_to_start,
-                &servers,
-                &server_clients,
-                &primary_for_clone,
-                &batches_ref,
-                &done_tx,
-            );
-            next_to_start += 1;
-            inflight += 1;
+        if tx.send(send_result).await.is_err() {
+            // Consumer hung up (sync stopping or pass restarting).
+            return Ok(());
         }
     }
 
     Ok(())
-}
-
-/// Pool-aware variant of `download_range_from_candidate`: takes
-/// already-connected clients and reuses them, avoiding the per-batch TLS
-/// handshake cost of the sequential prefetcher.
-async fn download_range_from_candidate_pooled(
-    primary_server_url: &str,
-    primary_lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
-    candidate_url: &str,
-    candidate_lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
-    scan_range: &ScanRange,
-    batch_index: usize,
-) -> Result<(Option<DownloadedRange>, MultiServerCounters)> {
-    let mut counters = MultiServerCounters::default();
-    let candidate = match download_range(candidate_lwd, scan_range).await {
-        Ok(downloaded) => downloaded,
-        Err(e) => {
-            counters.fallbacks += 1;
-            tracing::warn!(
-                "[sync] multi-server candidate {} download failed, falling back to primary: {}",
-                candidate_url,
-                e
-            );
-            emit_log("multi-server: candidate download failed, using primary server");
-            return Ok((download_range(primary_lwd, scan_range).await?, counters));
-        }
-    };
-
-    if batch_index % 20 == 0 {
-        let primary = download_range(primary_lwd, scan_range).await?;
-        if !downloaded_ranges_match(&candidate, &primary) {
-            counters.mismatches += 1;
-            counters.fallbacks += 1;
-            tracing::warn!(
-                "[sync] multi-server mismatch for {}, using primary result",
-                candidate_url
-            );
-            emit_log("multi-server: cross-check mismatch, using primary server");
-            return Ok((primary, counters));
-        }
-    }
-
-    tracing::debug!(
-        "[sync] downloaded range {}..{} from {} (primary {})",
-        u32::from(scan_range.block_range().start),
-        u32::from(scan_range.block_range().end),
-        candidate_url,
-        primary_server_url
-    );
-    Ok((candidate, counters))
 }
 
 fn process_prefetched_range(
@@ -2709,7 +2568,6 @@ fn process_prefetched_range(
     perf: &mut PassPerf,
     current_range: &ScanRange,
     downloaded: Option<DownloadedRange>,
-    multi_server_counters: MultiServerCounters,
 ) -> Result<ScanOutcome> {
     let batch_stats = downloaded.as_ref().map(|d| d.stats());
     let scan_started = Instant::now();
@@ -2718,7 +2576,6 @@ fn process_prefetched_range(
     })?;
     let scan_elapsed_ms = scan_started.elapsed().as_millis() as u64;
     *batch_size = adjust_batch_size(*batch_size, scan_elapsed_ms);
-    perf.record_multi_server(multi_server_counters);
     if let Some(stats) = batch_stats {
         perf.record(stats, scan_elapsed_ms, &outcome);
     }
@@ -3093,22 +2950,6 @@ fn validate_blocks_for_range(
     Ok(())
 }
 
-fn downloaded_ranges_match(a: &Option<DownloadedRange>, b: &Option<DownloadedRange>) -> bool {
-    match (a, b) {
-        (None, None) => true,
-        (Some(a), Some(b)) => {
-            a.range_start == b.range_start
-                && a.range_end == b.range_end
-                && a.blocks.len() == b.blocks.len()
-                && a.blocks
-                    .iter()
-                    .zip(b.blocks.iter())
-                    .all(|(left, right)| left.height == right.height && left.hash == right.hash)
-        }
-        _ => false,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Subtree roots — always fetch from index 0 (idempotent, like ECC reference)
 // ---------------------------------------------------------------------------
@@ -3262,6 +3103,36 @@ async fn update_synced_progress_after_restart(db_data: &mut DbType) {
 }
 type ScanRange = zcash_client_backend::data_api::scanning::ScanRange;
 
+/// Holds a `tokio::task::JoinHandle` and aborts it on drop. Use for
+/// background tasks that must not outlive the scope they were spawned
+/// from — without this, a detached spawn keeps running until its own
+/// natural completion, which can mean an extra 30 s of network traffic
+/// after sync gave up on a pass.
+struct AbortOnDrop<T: Send + 'static> {
+    handle: Option<tokio::task::JoinHandle<T>>,
+}
+
+impl<T: Send + 'static> AbortOnDrop<T> {
+    fn new(handle: tokio::task::JoinHandle<T>) -> Self {
+        Self {
+            handle: Some(handle),
+        }
+    }
+    /// Take ownership of the inner handle and skip the abort-on-drop.
+    /// Use when you want to `.await` the task to natural completion.
+    fn into_inner(mut self) -> tokio::task::JoinHandle<T> {
+        self.handle.take().expect("AbortOnDrop already consumed")
+    }
+}
+
+impl<T: Send + 'static> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        if let Some(h) = self.handle.take() {
+            h.abort();
+        }
+    }
+}
+
 fn check_cancel() -> Result<()> {
     if SYNC_CANCEL.load(Ordering::SeqCst) {
         Err(anyhow::anyhow!("Sync cancelled"))
@@ -3302,6 +3173,30 @@ async fn download_chain_state(
         .map_err(|e| anyhow::anyhow!("to_chain_state: {:?}", e))
 }
 
+/// Per-message idle timeout for any server-streaming lightwalletd RPC.
+/// We bound how long we wait between consecutive stream messages, not
+/// the total stream lifetime — a stream that's actively returning
+/// blocks should be allowed to take however long it needs, but a
+/// stream that accepts and then goes silent must surface as an error
+/// promptly so the outer retry path can pick a different server.
+const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Read the next message from a tonic server-streaming RPC, bounding
+/// the wait so a silent stream can't wedge the sync loop.
+async fn next_stream_message<T>(
+    stream: &mut tonic::Streaming<T>,
+    label: &str,
+) -> Result<Option<T>> {
+    match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.message()).await {
+        Ok(Ok(m)) => Ok(m),
+        Ok(Err(e)) => Err(anyhow::anyhow!("{label}: {:?}", e)),
+        Err(_) => Err(anyhow::anyhow!(
+            "{label}: timed out after {}s waiting for next message",
+            STREAM_IDLE_TIMEOUT.as_secs()
+        )),
+    }
+}
+
 async fn download_blocks(
     lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
     from: BlockHeight,
@@ -3325,11 +3220,7 @@ async fn download_blocks(
         .into_inner();
 
     let mut blocks = Vec::new();
-    while let Some(block) = stream
-        .message()
-        .await
-        .map_err(|e| anyhow::anyhow!("stream block: {:?}", e))?
-    {
+    while let Some(block) = next_stream_message(&mut stream, "get_block_range stream").await? {
         blocks.push(block);
     }
 

@@ -55,8 +55,6 @@ pub async fn cmd_sync_benchmark(
     zipher_engine::sync::configure_runtime(zipher_engine::sync::SyncRuntimeConfig {
         prefetch_depth,
         alternate_servers: alternate_servers.clone(),
-        download_parallelism: zipher_engine::sync::SyncRuntimeConfig::default()
-            .download_parallelism,
     })
     .await;
 
@@ -206,10 +204,7 @@ pub async fn cmd_sync_benchmark(
             r.perf.work_units_per_second
         );
         if r.perf.multi_server_enabled {
-            println!(
-                "  fetch fallback: fallbacks={} mismatches={}",
-                r.perf.multi_server_fallbacks, r.perf.multi_server_mismatches
-            );
+            println!("  fetch fallbacks: {}", r.perf.multi_server_fallbacks);
         }
         if let Some(err) = &r.connection_error {
             println!("  connection:    {}", err);
