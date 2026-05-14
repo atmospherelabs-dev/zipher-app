@@ -55,6 +55,8 @@ pub async fn cmd_sync_benchmark(
     zipher_engine::sync::configure_runtime(zipher_engine::sync::SyncRuntimeConfig {
         prefetch_depth,
         alternate_servers: alternate_servers.clone(),
+        download_parallelism: zipher_engine::sync::SyncRuntimeConfig::default()
+            .download_parallelism,
     })
     .await;
 

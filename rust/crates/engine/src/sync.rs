@@ -102,6 +102,11 @@ pub struct SyncProgressInfo {
 pub struct SyncRuntimeConfig {
     pub prefetch_depth: usize,
     pub alternate_servers: Vec<String>,
+    /// Maximum number of concurrent block-range downloads in flight at any
+    /// moment. Each batch is still scanned in order, but downloads can race
+    /// across our (up to 6) lightwalletd peers. Tune up for desktop / fast
+    /// pipes, down for poor mobile connectivity.
+    pub download_parallelism: usize,
 }
 
 impl Default for SyncRuntimeConfig {
@@ -109,6 +114,7 @@ impl Default for SyncRuntimeConfig {
         Self {
             prefetch_depth: 3,
             alternate_servers: Vec::new(),
+            download_parallelism: 4,
         }
     }
 }
@@ -157,6 +163,7 @@ pub struct SyncPerfSnapshot {
     pub work_units_per_second: f64,
     pub adaptive_batch_size: u32,
     pub prefetch_depth: usize,
+    pub download_parallelism: usize,
     pub multi_server_enabled: bool,
     pub multi_server_fallbacks: u64,
     pub multi_server_mismatches: u64,
@@ -242,6 +249,7 @@ pub async fn start() -> Result<()> {
         *perf = SyncPerfSnapshot {
             adaptive_batch_size: SCAN_BATCH_SIZE,
             prefetch_depth: runtime_snapshot.prefetch_depth,
+            download_parallelism: runtime_snapshot.download_parallelism,
             multi_server_enabled: !runtime_snapshot.alternate_servers.is_empty(),
             ..SyncPerfSnapshot::default()
         };
@@ -1077,10 +1085,11 @@ async fn sync_once(
             }
             emit_progress_event("phase_changed", None, None).await;
             emit_log(&format!(
-                "scan batches: {} batch_size={} prefetch_depth={} multi_server={}",
+                "scan batches: {} batch_size={} prefetch_depth={} parallelism={} multi_server={}",
                 batches.len(),
                 batch_size,
                 runtime.prefetch_depth,
+                runtime.download_parallelism,
                 !runtime.alternate_servers.is_empty()
             ));
 
@@ -2318,6 +2327,7 @@ impl PassPerf {
             work_units_per_second,
             adaptive_batch_size,
             prefetch_depth: runtime.prefetch_depth,
+            download_parallelism: runtime.download_parallelism,
             multi_server_enabled: !runtime.alternate_servers.is_empty(),
             multi_server_fallbacks: self.multi_server_fallbacks,
             multi_server_mismatches: self.multi_server_mismatches,
@@ -2378,6 +2388,20 @@ fn adjust_batch_size(current: u32, scan_elapsed_ms: u64) -> u32 {
     }
 }
 
+/// Producer task for the prefetch pipeline. Downloads up to
+/// `runtime.download_parallelism` block ranges concurrently across the
+/// configured lightwalletd servers (round-robin by batch index), then
+/// emits the completed ranges to the scan consumer in batch order so the
+/// wallet's committed height advances monotonically.
+///
+/// Behaviour preserved from the previous sequential implementation:
+/// - Per-batch fallback to the primary server on candidate connect /
+///   download failure.
+/// - Deterministic cross-check sample (every 20th batch) against the
+///   primary to catch divergent alternates.
+/// - mpsc cancel propagation: returning Ok early when the consumer
+///   hangs up.
+/// - `check_cancel()` between batch emissions.
 async fn fetch_prefetched_ranges(
     primary_server_url: String,
     batches: Vec<ScanRange>,
@@ -2390,72 +2414,201 @@ async fn fetch_prefetched_ranges(
             servers.push(server);
         }
     }
+    let total_batches = batches.len();
+    if total_batches == 0 {
+        return Ok(());
+    }
+    let parallelism = runtime
+        .download_parallelism
+        .max(1)
+        .min(total_batches.max(1));
 
-    let mut primary_lwd = connect_lwd(&primary_server_url).await?;
-    for (idx, scan_range) in batches.into_iter().enumerate() {
-        check_cancel()?;
-        let candidate_url = servers
-            .get(idx % servers.len())
-            .cloned()
-            .unwrap_or_else(|| primary_server_url.clone());
-        let (downloaded, multi_server_counters) = if candidate_url == primary_server_url {
-            (
-                download_range(&mut primary_lwd, &scan_range).await?,
-                MultiServerCounters::default(),
-            )
-        } else {
-            download_range_from_candidate(
-                &primary_server_url,
-                &mut primary_lwd,
-                &candidate_url,
-                &scan_range,
-                idx,
-            )
-            .await?
-        };
-
-        if tx
-            .send(Ok(PrefetchedRange {
-                scan_range,
-                downloaded,
-                multi_server_counters,
-            }))
-            .await
-            .is_err()
-        {
-            return Ok(());
+    // One persistent connection per server, shared across concurrent
+    // download tasks via Clone. tonic's underlying tonic::transport::Channel
+    // multiplexes streams over a single HTTP/2 connection, so cloning is
+    // effectively free and gives us in-server-parallelism for free.
+    let mut server_clients: std::collections::HashMap<
+        String,
+        CompactTxStreamerClient<tonic::transport::Channel>,
+    > = std::collections::HashMap::new();
+    let primary_client = connect_lwd(&primary_server_url).await?;
+    server_clients.insert(primary_server_url.clone(), primary_client);
+    for server in &servers {
+        if server_clients.contains_key(server) {
+            continue;
+        }
+        match connect_lwd(server).await {
+            Ok(client) => {
+                server_clients.insert(server.clone(), client);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "[sync] prefetch: skipping alternate {} (connect failed: {})",
+                    server,
+                    e
+                );
+                emit_log(&format!(
+                    "multi-server: alternate {} unreachable, will use primary for its slots",
+                    short_server_list(&[server.clone()])
+                ));
+            }
         }
     }
+    let primary_for_clone = primary_server_url.clone();
+
+    // Internal completion channel: each download task posts (idx, result)
+    // when done, in whatever order they finish.
+    type DownloadResult = (usize, Result<(Option<DownloadedRange>, MultiServerCounters)>);
+    let (done_tx, mut done_rx) = mpsc::channel::<DownloadResult>(parallelism * 2);
+
+    let batches_ref: std::sync::Arc<Vec<ScanRange>> = std::sync::Arc::new(batches);
+    let mut inflight: usize = 0;
+    let mut next_to_start: usize = 0;
+    let mut next_to_emit: usize = 0;
+    let mut pending: std::collections::HashMap<
+        usize,
+        Result<(Option<DownloadedRange>, MultiServerCounters)>,
+    > = std::collections::HashMap::with_capacity(parallelism);
+
+    fn spawn_download(
+        batch_idx: usize,
+        servers: &[String],
+        server_clients: &std::collections::HashMap<
+            String,
+            CompactTxStreamerClient<tonic::transport::Channel>,
+        >,
+        primary_url: &str,
+        batches_ref: &std::sync::Arc<Vec<ScanRange>>,
+        done_tx: &mpsc::Sender<(
+            usize,
+            Result<(Option<DownloadedRange>, MultiServerCounters)>,
+        )>,
+    ) {
+        let candidate_url = servers
+            .get(batch_idx % servers.len())
+            .cloned()
+            .unwrap_or_else(|| primary_url.to_string());
+        // If we failed to connect to the assigned candidate at startup,
+        // substitute the primary client and treat this as a primary batch.
+        let effective_url = if server_clients.contains_key(&candidate_url) {
+            candidate_url
+        } else {
+            primary_url.to_string()
+        };
+        let candidate_client = server_clients
+            .get(&effective_url)
+            .cloned()
+            .expect("primary client always present");
+        let primary_client = server_clients
+            .get(primary_url)
+            .cloned()
+            .expect("primary client always present");
+        let primary_url_owned = primary_url.to_string();
+        let scan_range = batches_ref[batch_idx].clone();
+        let done_tx = done_tx.clone();
+        tokio::spawn(async move {
+            let result = if effective_url == primary_url_owned {
+                let mut c = primary_client;
+                download_range(&mut c, &scan_range)
+                    .await
+                    .map(|d| (d, MultiServerCounters::default()))
+            } else {
+                let mut primary = primary_client;
+                let mut candidate = candidate_client;
+                download_range_from_candidate_pooled(
+                    &primary_url_owned,
+                    &mut primary,
+                    &effective_url,
+                    &mut candidate,
+                    &scan_range,
+                    batch_idx,
+                )
+                .await
+            };
+            let _ = done_tx.send((batch_idx, result)).await;
+        });
+    }
+
+    // Prime the pipeline.
+    while inflight < parallelism && next_to_start < total_batches {
+        check_cancel()?;
+        spawn_download(
+            next_to_start,
+            &servers,
+            &server_clients,
+            &primary_for_clone,
+            &batches_ref,
+            &done_tx,
+        );
+        next_to_start += 1;
+        inflight += 1;
+    }
+
+    while next_to_emit < total_batches {
+        let Some((idx, result)) = done_rx.recv().await else {
+            return Err(anyhow::anyhow!(
+                "prefetch pipeline ended before all batches were downloaded"
+            ));
+        };
+        inflight = inflight.saturating_sub(1);
+        pending.insert(idx, result);
+
+        // Emit in strict batch order so the scanner sees committed
+        // heights advance monotonically.
+        while let Some(entry) = pending.remove(&next_to_emit) {
+            let send_result = match entry {
+                Ok((downloaded, counters)) => Ok(PrefetchedRange {
+                    scan_range: batches_ref[next_to_emit].clone(),
+                    downloaded,
+                    multi_server_counters: counters,
+                }),
+                Err(e) => Err(e),
+            };
+            if tx.send(send_result).await.is_err() {
+                return Ok(());
+            }
+            next_to_emit += 1;
+            check_cancel()?;
+        }
+
+        // Top up: spawn the next batch for the freed-up worker slot.
+        while inflight < parallelism && next_to_start < total_batches {
+            check_cancel()?;
+            spawn_download(
+                next_to_start,
+                &servers,
+                &server_clients,
+                &primary_for_clone,
+                &batches_ref,
+                &done_tx,
+            );
+            next_to_start += 1;
+            inflight += 1;
+        }
+    }
+
     Ok(())
 }
 
-async fn download_range_from_candidate(
+/// Pool-aware variant of `download_range_from_candidate`: takes
+/// already-connected clients and reuses them, avoiding the per-batch TLS
+/// handshake cost of the sequential prefetcher.
+async fn download_range_from_candidate_pooled(
     primary_server_url: &str,
     primary_lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
     candidate_url: &str,
+    candidate_lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
     scan_range: &ScanRange,
     batch_index: usize,
 ) -> Result<(Option<DownloadedRange>, MultiServerCounters)> {
     let mut counters = MultiServerCounters::default();
-    let mut candidate_lwd = match connect_lwd(candidate_url).await {
-        Ok(lwd) => lwd,
-        Err(e) => {
-            counters.fallbacks += 1;
-            tracing::warn!(
-                "[sync] multi-server candidate failed to connect, falling back to primary: {}",
-                e
-            );
-            emit_log("multi-server: candidate connect failed, using primary server");
-            return Ok((download_range(primary_lwd, scan_range).await?, counters));
-        }
-    };
-
-    let candidate = match download_range(&mut candidate_lwd, scan_range).await {
+    let candidate = match download_range(candidate_lwd, scan_range).await {
         Ok(downloaded) => downloaded,
         Err(e) => {
             counters.fallbacks += 1;
             tracing::warn!(
-                "[sync] multi-server candidate download failed, falling back to primary: {}",
+                "[sync] multi-server candidate {} download failed, falling back to primary: {}",
+                candidate_url,
                 e
             );
             emit_log("multi-server: candidate download failed, using primary server");
@@ -2463,8 +2616,6 @@ async fn download_range_from_candidate(
         }
     };
 
-    // Cross-check a small deterministic sample against the primary server. This
-    // catches bad or divergent servers without doubling every download.
     if batch_index % 20 == 0 {
         let primary = download_range(primary_lwd, scan_range).await?;
         if !downloaded_ranges_match(&candidate, &primary) {

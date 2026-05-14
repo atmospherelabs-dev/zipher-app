@@ -218,6 +218,13 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
 
     let conn = open_cipher_conn(&engine.db_data_path, &engine.db_cipher_key)?;
 
+    // Ordering rationale:
+    // 1. Active pending transactions (mined_height IS NULL, not expired)
+    //    go to the top — these are sends the user just made / incoming
+    //    mempool receives the wallet just saw.
+    // 2. Mined transactions in reverse-chronological order beneath them.
+    // 3. Expired-unmined transactions sink to the bottom: they aren't
+    //    coming back, but we keep them visible for the user's records.
     let mut stmt = conn.prepare(
         "SELECT
             txid,
@@ -231,7 +238,14 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
             COALESCE(is_shielding, 0) AS is_shielding,
             COALESCE(expired_unmined, 0) AS expired_unmined
         FROM v_transactions
-        ORDER BY mined_height IS NULL, mined_height DESC, tx_index DESC",
+        ORDER BY
+            CASE
+                WHEN mined_height IS NULL AND COALESCE(expired_unmined, 0) = 0 THEN 2
+                WHEN mined_height IS NOT NULL THEN 1
+                ELSE 0
+            END DESC,
+            mined_height DESC,
+            tx_index DESC",
     )?;
 
     let rows = stmt.query_map([], |row| {
