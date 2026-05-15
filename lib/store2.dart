@@ -92,6 +92,24 @@ bool _hasPendingZcashActivity() {
   return aa.txs.items.any((tx) => tx.height <= 0 && !tx.expiredUnmined);
 }
 
+/// Phases where the wallet is actively doing block work and the home-screen
+/// sync bar should be visible. Excludes `idle` and `caught_up` (no work to
+/// show) and explicitly excludes pure `enhancing` since that runs after
+/// scan completes and is handled by the maintaining UX instead.
+bool _isActiveScanPhase(String phase) {
+  switch (phase) {
+    case 'connecting':
+    case 'updating_roots':
+    case 'refreshing_utxos':
+    case 'scanning':
+    case 'verifying':
+    case 'reconnecting':
+      return true;
+    default:
+      return false;
+  }
+}
+
 var syncStatus2 = SyncStatus2();
 
 class SyncStatus2 = _SyncStatus2 with _$SyncStatus2;
@@ -376,6 +394,24 @@ abstract class _SyncStatus2 with Store {
           blocksTotal = eventTotal;
         }
       } catch (_) {
+      }
+      // Flip `syncing = true` immediately on the first engine event that
+      // tells us we're behind the chain tip, so the home-screen sync bar
+      // can render right away (as an indeterminate striped bar until we
+      // have a concrete fraction). Without this, syncing stays false
+      // until the next 5 s poll in _syncInternal, which is why the bar
+      // used to appear ~5–20 % into a fresh restore.
+      final lh = latestHeight;
+      if (!syncing &&
+          eventPhase != null &&
+          _isActiveScanPhase(eventPhase) &&
+          lh != null &&
+          syncedHeight < lh - 1) {
+        syncing = true;
+        startSyncedHeight = syncedHeight;
+        eta.begin(lh);
+        eta.checkpoint(syncedHeight, DateTime.now());
+        logger.d('[Engine] syncing started (event-driven, phase=$eventPhase)');
       }
       if (eventType == 'connection_error') {
         connectionError = event.message as String?;

@@ -97,9 +97,12 @@ class SyncStatusState extends State<SyncStatusWidget>
     final syncedHeight = syncStatus2.syncedHeight;
     final text = visible ? getSyncText(syncedHeight) : '';
     // Prefer block-based progress (smooth across phase 1 and phase 2).
-    // Fall back to height-based ETA progress if the engine hasn't reported
-    // block totals yet.
-    final value = syncing
+    // Fall back to height-based ETA progress. If neither is ready yet
+    // (first few seconds of a fresh restore), keep `value` null so the
+    // LinearProgressIndicator renders an indeterminate animated bar.
+    // This is what makes the bar appear from t=0 instead of waiting for
+    // the first phase_changed event carrying `blocks_total`.
+    final double? value = syncing
         ? (syncStatus2.blocksProgress ??
             syncStatus2.eta.progress?.let((x) => x.toDouble() / 100.0))
         : null;
@@ -150,14 +153,20 @@ class SyncStatusState extends State<SyncStatusWidget>
                           ),
                         ],
                       ),
-                      if (syncing && value != null) ...[
+                      if (syncing) ...[
                         const SizedBox(height: 8),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(ZipherRadius.xxs),
                           child: SizedBox(
                             height: 2,
                             child: LinearProgressIndicator(
-                              value: value.clamp(0, 1),
+                              // null = indeterminate animated bar (the moving
+                              // stripe). Flutter swaps to a determinate fill
+                              // as soon as we have a concrete fraction. This
+                              // is what makes the bar visible during the
+                              // first few seconds before the engine has
+                              // emitted blocks_total.
+                              value: value?.clamp(0, 1),
                               backgroundColor:
                                   ZipherColors.cyan.withValues(alpha: 0.15),
                               valueColor: const AlwaysStoppedAnimation<Color>(
