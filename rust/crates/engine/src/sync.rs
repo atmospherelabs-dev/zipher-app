@@ -2552,31 +2552,58 @@ async fn fetch_prefetched_ranges(
             .cloned()
             .expect("server already validated reachable");
 
-        let (downloaded, fell_back_to_primary) =
-            match download_range(&mut client, &scan_range).await {
-                Ok(d) => (d, false),
-                Err(e) if server_url != primary_server_url => {
-                    // Alternate failed mid-download. Retry on primary; if
-                    // that fails too the error propagates and sync_forever
-                    // backs off and retries the whole pass.
-                    tracing::warn!(
-                        "[sync] batch {} from {} failed ({}), falling back to primary",
-                        batch_idx,
-                        server_url,
-                        e
-                    );
-                    emit_log(&format!(
-                        "multi-server: batch {} fallback to primary",
-                        batch_idx
-                    ));
-                    let mut primary = clients
-                        .get(&primary_server_url)
-                        .cloned()
-                        .expect("primary always present");
-                    (download_range(&mut primary, &scan_range).await?, true)
-                }
-                Err(e) => return Err(e),
+        // Wrap the download in a wall-clock deadline so a stream that
+        // emits a slow trickle (per-message idle timeout never fires)
+        // can't hold up the whole prefetch loop. Healthy batches finish
+        // in seconds; anything past BATCH_DOWNLOAD_DEADLINE is treated
+        // as a failure and falls back to primary.
+        let first =
+            match tokio::time::timeout(BATCH_DOWNLOAD_DEADLINE, download_range(&mut client, &scan_range))
+                .await
+            {
+                Ok(inner) => inner,
+                Err(_) => Err(anyhow::anyhow!(
+                    "download timed out after {}s",
+                    BATCH_DOWNLOAD_DEADLINE.as_secs()
+                )),
             };
+
+        let (downloaded, fell_back_to_primary) = match first {
+            Ok(d) => (d, false),
+            Err(e) if server_url != primary_server_url => {
+                // Alternate failed (or stalled past deadline). Retry on
+                // primary; if that fails too the error propagates and
+                // sync_forever backs off and retries the whole pass.
+                tracing::warn!(
+                    "[sync] batch {} from {} failed ({}), falling back to primary",
+                    batch_idx,
+                    server_url,
+                    e
+                );
+                emit_log(&format!(
+                    "multi-server: batch {} fallback to primary ({})",
+                    batch_idx, e
+                ));
+                let mut primary = clients
+                    .get(&primary_server_url)
+                    .cloned()
+                    .expect("primary always present");
+                let retried = match tokio::time::timeout(
+                    BATCH_DOWNLOAD_DEADLINE,
+                    download_range(&mut primary, &scan_range),
+                )
+                .await
+                {
+                    Ok(inner) => inner,
+                    Err(_) => Err(anyhow::anyhow!(
+                        "primary download timed out after {}s",
+                        BATCH_DOWNLOAD_DEADLINE.as_secs()
+                    )),
+                };
+                (retried?, true)
+            }
+            Err(e) => return Err(e),
+        };
 
         let send_result = Ok(PrefetchedRange {
             scan_range,
@@ -3247,6 +3274,16 @@ async fn download_chain_state(
 /// stream that accepts and then goes silent must surface as an error
 /// promptly so the outer retry path can pick a different server.
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Wall-clock deadline for a single batch download. The per-message
+/// idle timeout above catches "stream stopped emitting" but it can't
+/// catch "stream emits a slow trickle of messages forever" — each
+/// individual `stream.message().await` returns within 30 s so the idle
+/// timeout never fires, yet the batch takes minutes. This deadline
+/// bounds the total time we'll wait for one batch before surfacing the
+/// error to the outer fallback / retry path. A healthy 1000-block batch
+/// downloads in 1–15 s; 60 s is generous headroom for slow alternates.
+const BATCH_DOWNLOAD_DEADLINE: Duration = Duration::from_secs(60);
 
 /// Read the next message from a tonic server-streaming RPC, bounding
 /// the wait so a silent stream can't wedge the sync loop.

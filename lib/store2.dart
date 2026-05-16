@@ -474,6 +474,13 @@ abstract class _SyncStatus2 with Store {
   void resetForWalletSwitch() {
     _syncStarted = false;
     syncing = false;
+    // Wallet-switch / restore flows often set `paused = true` to halt
+    // the current wallet's sync before closing it. The previous version
+    // of this reset didn't clear `paused`, which meant `startAutoSync`
+    // → `sync()` short-circuited on the `if (paused) return;` guard, and
+    // the new wallet stayed at "phase: idle" until the user manually
+    // pulled-to-refresh (which clears `paused` itself).
+    paused = false;
     _needsInitialUpdate = true;
     connectionError = null;
     maintenanceError = null;
