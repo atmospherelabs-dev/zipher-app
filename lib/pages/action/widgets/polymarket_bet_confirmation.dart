@@ -156,21 +156,28 @@ class _PolymarketBetConfirmationState extends State<PolymarketBetConfirmation>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Icon(
-              _done ? Icons.check_circle : _failed ? Icons.error_outline : Icons.casino_rounded,
-              color: _done ? ZipherColors.cyan : _failed ? Colors.redAccent : const Color(0xFF6366F1),
-              size: 18,
-            ),
+            // Use a check/error icon for terminal states; otherwise show the
+            // Polymarket brand logo (white P on its purple accent) as the
+            // single venue badge — replaces the previous Icons.casino_rounded
+            // + "PM" text combo so there's just one consistent visual mark
+            // across every Polymarket affordance in the app.
+            if (_done)
+              Icon(Icons.check_circle, color: ZipherColors.cyan, size: 18)
+            else if (_failed)
+              Icon(Icons.error_outline, color: Colors.redAccent, size: 18)
+            else
+              Container(
+                width: 22,
+                height: 22,
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Image.asset('assets/venues/polymarket.png',
+                    width: 16, height: 16),
+              ),
             const Gap(8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-              decoration: BoxDecoration(
-                  color: const Color(0xFF6366F1).withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(3)),
-              child: const Text('PM',
-                  style: TextStyle(color: Color(0xFF6366F1), fontSize: 9, fontWeight: FontWeight.w700, fontFamily: 'JetBrains Mono')),
-            ),
-            const Gap(6),
             Expanded(
               child: Text(
                 _done ? 'Bet Placed' : _failed ? 'Bet Failed' : 'Polymarket Bet',

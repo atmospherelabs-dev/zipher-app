@@ -127,21 +127,25 @@ class _PolymarketSellConfirmationState extends State<PolymarketSellConfirmation>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Icon(
-              _done ? Icons.check_circle : _failed ? Icons.error_outline : Icons.sell_rounded,
-              color: _done ? ZipherColors.cyan : _failed ? Colors.redAccent : const Color(0xFF6366F1),
-              size: 18,
-            ),
+            // Polymarket brand logo as the single venue badge; terminal
+            // states swap in the check / error icon.
+            if (_done)
+              Icon(Icons.check_circle, color: ZipherColors.cyan, size: 18)
+            else if (_failed)
+              Icon(Icons.error_outline, color: Colors.redAccent, size: 18)
+            else
+              Container(
+                width: 22,
+                height: 22,
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6366F1),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Image.asset('assets/venues/polymarket.png',
+                    width: 16, height: 16),
+              ),
             const Gap(8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-              decoration: BoxDecoration(
-                  color: const Color(0xFF6366F1).withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(3)),
-              child: const Text('PM',
-                  style: TextStyle(color: Color(0xFF6366F1), fontSize: 9, fontWeight: FontWeight.w700, fontFamily: 'JetBrains Mono')),
-            ),
-            const Gap(6),
             Expanded(
               child: Text(
                 _done ? 'Sell complete' : _failed ? 'Sell failed' : 'Sell on Polymarket',
