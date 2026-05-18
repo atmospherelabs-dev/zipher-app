@@ -213,113 +213,6 @@ async fn research_handler(
 }
 
 // ---------------------------------------------------------------------------
-// Endpoint: GET /api/markets
-// ---------------------------------------------------------------------------
-
-#[derive(Deserialize)]
-struct MarketsQuery {
-    keyword: Option<String>,
-    limit: Option<u32>,
-}
-
-async fn markets_handler(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Query(query): Query<MarketsQuery>,
-) -> impl IntoResponse {
-    let price_zec = state.price_zatoshis as f64 / 1e8;
-
-    if verify_payment(&headers, &state, price_zec).await.is_err() {
-        let body = payment_required_body(
-            &state.pay_to,
-            &state.network,
-            state.price_zatoshis,
-            "/api/markets",
-        );
-        return (StatusCode::PAYMENT_REQUIRED, Json(body)).into_response();
-    }
-
-    let limit = query.limit.unwrap_or(30);
-
-    match zipher_engine::myriad::get_markets(query.keyword.as_deref(), limit).await {
-        Ok(markets) => {
-            let ranked = zipher_engine::myriad::rank_for_research(&markets);
-            Json(serde_json::json!({
-                "status": "ok",
-                "markets": ranked
-            }))
-            .into_response()
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Endpoint: GET /api/analyze?market_id=...&outcome=...&prob=...&confidence=...
-// ---------------------------------------------------------------------------
-
-#[derive(Deserialize)]
-struct AnalyzeQuery {
-    market_id: u64,
-    outcome: usize,
-    prob: f64,
-    confidence: f64,
-    bankroll: Option<f64>,
-    max_bet: Option<f64>,
-}
-
-async fn analyze_handler(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Query(query): Query<AnalyzeQuery>,
-) -> impl IntoResponse {
-    let price_zec = state.price_zatoshis as f64 / 1e8;
-
-    if verify_payment(&headers, &state, price_zec).await.is_err() {
-        let body = payment_required_body(
-            &state.pay_to,
-            &state.network,
-            state.price_zatoshis,
-            "/api/analyze",
-        );
-        return (StatusCode::PAYMENT_REQUIRED, Json(body)).into_response();
-    }
-
-    let market = match zipher_engine::myriad::get_market(query.market_id).await {
-        Ok(m) => m,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("Market not found: {:#}", e)})),
-            )
-                .into_response();
-        }
-    };
-
-    let bankroll = query.bankroll.unwrap_or(100.0);
-    let max_bet = query.max_bet.unwrap_or(10.0);
-
-    let signal = zipher_engine::myriad::analyze_opportunity(
-        &market,
-        query.outcome,
-        query.prob,
-        query.confidence,
-        bankroll,
-        max_bet,
-    );
-
-    Json(serde_json::json!({
-        "status": "ok",
-        "signal": signal
-    }))
-    .into_response()
-}
-
-// ---------------------------------------------------------------------------
 // Endpoint: GET /health
 // ---------------------------------------------------------------------------
 
@@ -372,8 +265,6 @@ pub async fn cmd_serve(config: &Config, port: u16, price: Option<u64>) {
     let app = Router::new()
         .route("/health", get(health_handler))
         .route("/api/research", get(research_handler))
-        .route("/api/markets", get(markets_handler))
-        .route("/api/analyze", get(analyze_handler))
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state);
 
@@ -390,8 +281,6 @@ pub async fn cmd_serve(config: &Config, port: u16, price: Option<u64>) {
     println!("Endpoints:");
     println!("  GET /health              — no payment required");
     println!("  GET /api/research?topic=  — web research via Firecrawl");
-    println!("  GET /api/markets          — prediction markets scan");
-    println!("  GET /api/analyze          — Kelly Criterion analysis");
     println!();
     println!("Agents pay with: PAYMENT-SIGNATURE header (x402 protocol)");
 

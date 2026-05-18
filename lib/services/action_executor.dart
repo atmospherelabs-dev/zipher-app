@@ -9,7 +9,6 @@ import 'action_history.dart';
 import 'chain_config.dart';
 import 'evm_rpc.dart';
 import 'funding_resolver.dart' show FundingResolver, toWei;
-import 'myriad_client.dart';
 import 'near_intents.dart';
 import 'polymarket_client.dart';
 import 'tx_builder.dart';
@@ -61,7 +60,7 @@ class ActionResult {
 /// - [EvmRpc] — JSON-RPC calls to BSC / Polygon
 /// - [TxBuilder] — EIP-1559 unsigned transaction encoding
 /// - [PolymarketClient] — CLOB auth + order posting
-/// - [MyriadClient] — Myriad prediction market quote API
+/// (Myriad client removed 2026-05; prediction-market bets go via Polymarket.)
 /// - [NearIntents] — cross-chain swap infrastructure
 class ActionExecutor {
   ActionExecutor._();
@@ -71,7 +70,6 @@ class ActionExecutor {
   final _polygon = EvmRpc.polygon;
   final _near = NearIntents.instance;
   final _polymarket = PolymarketClient.instance;
-  final _myriad = MyriadClient.instance;
   final _resolver = FundingResolver.instance;
 
   bool _executing = false;
@@ -471,157 +469,6 @@ class ActionExecutor {
   }
 
   // ═════════════════════════════════════════════════════════════════════════
-  // Myriad Bet (BSC)
-  // ═════════════════════════════════════════════════════════════════════════
-
-  Stream<ActionProgress> executeBet({
-    required int marketId,
-    required int outcome,
-    required double amountUsdt,
-    required double slippage,
-    required double maxPriceMove,
-  }) async* {
-    if (_executing) {
-      yield const ActionProgress(step: 0, totalSteps: 1, label: 'Error',
-          detail: 'Another action is already executing.', status: ActionStatus.failed);
-      return;
-    }
-    _executing = true;
-    const total = 7;
-
-    try {
-      // 1: Derive BSC address
-      yield const ActionProgress(step: 1, totalSteps: total, label: 'Deriving BSC address',
-          detail: 'Using your wallet seed to derive the EVM address...');
-      final seed = await _getSeed();
-      final bscAddress = await rust_engine.engineDeriveEvmAddress(seedPhrase: seed);
-
-      // 2: Fetch market details
-      yield ActionProgress(step: 2, totalSteps: total, label: 'Fetching market details',
-          detail: 'Getting market #$marketId token and live odds...');
-      Map<String, dynamic>? marketData;
-      try { marketData = await WalletService.instance.getMarketDetails(marketId); } catch (_) {}
-      final marketToken = marketData?['token'] as Map<String, dynamic>?;
-      final tokenAddress = (marketToken?['address'] as String? ?? usdtBsc).toLowerCase();
-      final tokenSymbol = marketToken?['symbol'] as String? ?? 'USDT';
-      final tokenDecimals = (marketToken?['decimals'] as num?)?.toInt() ?? 18;
-
-      final preQuote = await _myriad.getQuote(marketId, outcome, amountUsdt, slippage);
-      if (preQuote == null) {
-        yield const ActionProgress(step: 2, totalSteps: total, label: 'Quote failed',
-            detail: 'Could not get a quote from Myriad. The market may be closed.', status: ActionStatus.failed);
-        return;
-      }
-      final initialPrice = preQuote['price'] as double? ?? 0;
-
-      // 3-4: Fund collateral via unified resolver
-      yield ActionProgress(step: 3, totalSteps: total, label: 'Funding $tokenSymbol',
-          detail: 'Ensuring \$${amountUsdt.toStringAsFixed(2)} $tokenSymbol on BSC...');
-
-      yield* _resolver.ensureFunded(
-        chain: ChainConfig.bsc,
-        walletAddress: bscAddress,
-        seed: seed,
-        targetToken: tokenAddress,
-        targetDecimals: tokenDecimals,
-        amountNeeded: amountUsdt,
-        stepOffset: 4,
-        totalSteps: total,
-      );
-
-      // 5: Verify balance
-      yield ActionProgress(step: 5, totalSteps: total, label: 'Verifying $tokenSymbol balance',
-          detail: 'Checking $tokenSymbol arrived on BSC...');
-      final available = await _bsc.getErc20Balance(bscAddress, tokenAddress, decimals: tokenDecimals);
-      if (available < 0.50) {
-        yield ActionProgress(step: 5, totalSteps: total, label: 'Swap failed',
-            detail: 'Only \$${available.toStringAsFixed(2)} $tokenSymbol arrived. '
-                'Swap may have failed or is still settling.', status: ActionStatus.failed);
-        return;
-      }
-
-      final actualBet = available < amountUsdt ? available : amountUsdt;
-      final adjusted = actualBet < amountUsdt;
-
-      // Re-quote with actual amount and check price movement
-      final freshQuote = await _myriad.getQuote(marketId, outcome, actualBet, slippage);
-      if (freshQuote != null && initialPrice > 0) {
-        final currentPrice = freshQuote['price'] as double? ?? 0;
-        if (currentPrice > 0) {
-          final move = ((currentPrice - initialPrice) / initialPrice * 100).abs();
-          if (move > maxPriceMove) {
-            yield ActionProgress(step: 5, totalSteps: total, label: 'Price moved too much',
-                detail: 'Price changed ${move.toStringAsFixed(1)}% (limit: ${maxPriceMove.toStringAsFixed(1)}%). '
-                    'Was ${initialPrice.toStringAsFixed(4)}, now ${currentPrice.toStringAsFixed(4)}. '
-                    '$tokenSymbol remains on BSC.',
-                status: ActionStatus.failed);
-            return;
-          }
-        }
-      }
-
-      // 6: Approve collateral
-      final approveLabel = adjusted
-          ? 'Approving \$${actualBet.toStringAsFixed(2)} $tokenSymbol (adjusted for swap fees)'
-          : 'Approving $tokenSymbol';
-      yield ActionProgress(step: 6, totalSteps: total, label: approveLabel,
-          detail: 'Signing ERC-20 approval for Myriad contract on BSC...');
-      final approveAmount = toWei(actualBet * 1.05, decimals: tokenDecimals);
-      await _bsc.approveErc20(
-        seed: seed, ownerAddress: bscAddress, tokenAddress: tokenAddress,
-        spenderAddress: myriadContract, amount: approveAmount, chainId: 56,
-      );
-
-      // 7: Place bet
-      yield ActionProgress(step: 7, totalSteps: total, label: 'Placing bet',
-          detail: adjusted
-              ? 'Betting \$${actualBet.toStringAsFixed(2)} (swap delivered \$${available.toStringAsFixed(2)} of \$${amountUsdt.toStringAsFixed(2)} requested)...'
-              : 'Signing and broadcasting bet transaction on BSC...');
-      final quote = freshQuote ?? preQuote;
-      final calldataStr = quote['calldata'] as String? ?? '';
-      if (calldataStr.isEmpty) {
-        yield const ActionProgress(step: 7, totalSteps: total, label: 'Bet failed',
-            detail: 'No calldata in quote', status: ActionStatus.failed);
-        return;
-      }
-
-      final bscFees = await _bsc.suggestEip1559Fees(urgent: true);
-      final nonce = await _bsc.getNonce(bscAddress);
-      final txHex = TxBuilder.buildUnsignedEip1559(
-        chainId: 56, nonce: nonce,
-        maxPriorityFeePerGas: bscFees.maxPriorityFeePerGas,
-        maxFeePerGas: bscFees.maxFeePerGas,
-        gasLimit: ChainConfig.bsc.defaultGasLimit, to: myriadContract,
-        value: BigInt.zero, data: calldataStr.startsWith('0x') ? calldataStr : '0x$calldataStr',
-      );
-      final txHash = await _bsc.signBroadcastAndWait(seed: seed, unsignedTxHex: txHex);
-
-      yield ActionProgress(step: 7, totalSteps: total, label: 'Bet placed',
-          detail: 'Market #$marketId, \$${actualBet.toStringAsFixed(2)} USDT'
-              '${adjusted ? ' (adjusted from \$${amountUsdt.toStringAsFixed(2)})' : ''}, '
-              '${(quote['shares'] as double? ?? 0).toStringAsFixed(4)} shares. TX: $txHash',
-          status: ActionStatus.done);
-
-      await ActionHistory.instance.add(ActionRecord(
-        id: ActionHistory.newId(), type: 'bet', timestamp: DateTime.now(), success: true,
-        summary: 'Bet \$${actualBet.toStringAsFixed(2)} on market #$marketId',
-        details: {'marketId': marketId, 'outcome': outcome, 'amountUsdt': actualBet,
-          'requestedUsdt': amountUsdt, 'shares': quote['shares'], 'txHash': txHash, 'chain': 'bsc'},
-      ));
-    } catch (e) {
-      _log.e('[ActionExecutor] bet failed: $e');
-      yield ActionProgress(step: 0, totalSteps: total, label: 'Unexpected error',
-          detail: '$e', status: ActionStatus.failed);
-      await ActionHistory.instance.add(ActionRecord(
-        id: ActionHistory.newId(), type: 'bet', timestamp: DateTime.now(), success: false,
-        summary: 'Bet failed: $e', details: {'marketId': marketId, 'amountUsdt': amountUsdt},
-      ));
-    } finally {
-      _executing = false;
-    }
-  }
-
-  // ═════════════════════════════════════════════════════════════════════════
   // ZEC Swap
   // ═════════════════════════════════════════════════════════════════════════
 
@@ -819,47 +666,6 @@ class ActionExecutor {
         message: 'Swept ${amount.toStringAsFixed(6)} BNB → ZEC (shielded)\nTX: $depositTxHash');
     } catch (e) {
       return ActionResult(success: false, message: 'Sweep BNB failed: $e');
-    }
-  }
-
-  // ═════════════════════════════════════════════════════════════════════════
-  // Sell position (Myriad)
-  // ═════════════════════════════════════════════════════════════════════════
-
-  Future<ActionResult> executeSell({
-    required int marketId,
-    required int outcomeId,
-    required double shares,
-    StreamController<ActionProgress>? progress,
-  }) async {
-    try {
-      progress?.add(const ActionProgress(step: 1, totalSteps: 4, label: 'Getting sell quote...'));
-      final quote = await _myriad.getQuote(marketId, outcomeId, shares, 5.0);
-      if (quote == null) return const ActionResult(success: false, message: 'Failed to get sell quote from Myriad.');
-
-      progress?.add(const ActionProgress(step: 2, totalSteps: 4, label: 'Building transaction...'));
-      final seed = await _getSeed();
-      final bscAddress = await rust_engine.engineDeriveEvmAddress(seedPhrase: seed);
-      final bscFees = await _bsc.suggestEip1559Fees(urgent: true);
-      final nonce = await _bsc.getNonce(bscAddress);
-      final calldataStr = quote['calldata'] as String? ?? '';
-      final txHex = TxBuilder.buildUnsignedEip1559(
-        chainId: 56, nonce: nonce,
-        maxPriorityFeePerGas: bscFees.maxPriorityFeePerGas,
-        maxFeePerGas: bscFees.maxFeePerGas,
-        gasLimit: 500000, to: myriadContract,
-        value: BigInt.zero, data: calldataStr.startsWith('0x') ? calldataStr : '0x$calldataStr',
-      );
-
-      progress?.add(const ActionProgress(step: 3, totalSteps: 4, label: 'Signing & broadcasting...'));
-      final txHash = await _bsc.signBroadcastAndWait(seed: seed, unsignedTxHex: txHex);
-
-      progress?.add(const ActionProgress(step: 4, totalSteps: 4, label: 'Position sold', status: ActionStatus.done));
-      final usdReceived = (quote['value'] as num?)?.toDouble() ?? 0;
-      return ActionResult(success: true,
-        message: 'Sold ${shares.toStringAsFixed(2)} shares for ~\$${usdReceived.toStringAsFixed(2)} USDT\nTX: $txHash');
-    } catch (e) {
-      return ActionResult(success: false, message: 'Sell failed: $e');
     }
   }
 

@@ -1042,23 +1042,8 @@ class WalletService {
   }
 
   // -----------------------------------------------------------------------
-  // Prediction Markets (Myriad API — direct HTTP until engine FFI is ready)
+  // Prediction Markets (Polymarket only; Myriad HTTP removed 2026-05)
   // -----------------------------------------------------------------------
-
-  Future<List<Map<String, dynamic>>> searchMarkets(String? keyword) async {
-    final uri = Uri.parse(
-      'https://api-v2.myriadprotocol.com/markets'
-      '?network_id=56&limit=20&state=open'
-      '${keyword != null && keyword.isNotEmpty ? '&keyword=${Uri.encodeComponent(keyword)}' : ''}',
-    );
-    final response = await http.get(uri);
-    if (response.statusCode != 200) return [];
-
-    final body = json.decode(utf8.decode(response.bodyBytes));
-    final List<dynamic> data =
-        body is Map ? (body['data'] ?? []) : (body is List ? body : []);
-    return data.map((m) => m as Map<String, dynamic>).toList();
-  }
 
   /// Polymarket open positions for a Polygon `0x…` address (Data API via Rust engine).
   Future<List<Map<String, dynamic>>> getPolymarketPortfolio(
@@ -1095,38 +1080,6 @@ class WalletService {
       _log.e('[Polymarket] portfolio failed: $e\n$st');
       return [];
     }
-  }
-
-  /// Fetch the user's open prediction market positions.
-  Future<List<Map<String, dynamic>>> getPortfolio(String bscAddress) async {
-    final uri = Uri.parse(
-      'https://api-v2.myriadprotocol.com/users/$bscAddress/portfolio?network_id=56&min_shares=0&limit=100',
-    );
-    final response = await http.get(uri);
-    if (response.statusCode != 200) return [];
-
-    final body = json.decode(utf8.decode(response.bodyBytes));
-    final List<dynamic> data =
-        body is Map ? (body['data'] ?? []) : (body is List ? body : []);
-    return data.map((m) => m as Map<String, dynamic>).toList();
-  }
-
-  /// Fetch a single market's details including all outcomes.
-  Future<Map<String, dynamic>?> getMarketDetails(int marketId) async {
-    final uri = Uri.parse(
-      'https://api-v2.myriadprotocol.com/markets/$marketId?network_id=56',
-    );
-    final response = await http.get(uri);
-    if (response.statusCode != 200) return null;
-
-    final body = json.decode(utf8.decode(response.bodyBytes));
-    if (body is Map<String, dynamic>) {
-      // API may wrap in {"data": ...} or return directly
-      return (body.containsKey('data') && body['data'] is Map)
-          ? body['data'] as Map<String, dynamic>
-          : body;
-    }
-    return null;
   }
 
   // -------------------------------------------------------------------------

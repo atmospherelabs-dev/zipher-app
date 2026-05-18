@@ -262,26 +262,6 @@ Future<String> engineShieldFunds({required String seedPhrase}) =>
 Future<List<EngineTransactionRecord>> engineGetTransactions() =>
     RustLib.instance.api.crateApiEngineApiEngineGetTransactions();
 
-Future<List<MarketInfo>> engineGetMarkets(
-        {String? keyword, required int limit}) =>
-    RustLib.instance.api
-        .crateApiEngineApiEngineGetMarkets(keyword: keyword, limit: limit);
-
-Future<TradeSignalInfo?> engineAnalyzeOpportunity(
-        {required BigInt marketId,
-        required int outcomeIndex,
-        required double estimatedProb,
-        required double confidence,
-        required double bankroll,
-        required double maxBet}) =>
-    RustLib.instance.api.crateApiEngineApiEngineAnalyzeOpportunity(
-        marketId: marketId,
-        outcomeIndex: outcomeIndex,
-        estimatedProb: estimatedProb,
-        confidence: confidence,
-        bankroll: bankroll,
-        maxBet: maxBet);
-
 /// Derive the EVM (BSC/ETH) address from the wallet's BIP-39 seed phrase.
 /// Uses the standard BIP-44 path m/44'/60'/0'/0/0.
 Future<String> engineDeriveEvmAddress({required String seedPhrase}) =>
@@ -586,6 +566,12 @@ class EngineSyncProgress {
   final BigInt scanProgressDen;
   final BigInt recoveryProgressNum;
   final BigInt recoveryProgressDen;
+
+  /// Blocks scanned this session across every priority (ChainTip,
+  /// Historic, FoundNote, Verify). Together with `blocks_total` this is
+  /// the user-facing progress signal — it advances smoothly through
+  /// ChainTip pre-scan, when `synced_height` is still pinned at the
+  /// wallet birthday.
   final BigInt blocksScanned;
   final BigInt blocksTotal;
 
@@ -833,65 +819,6 @@ class EvmSwapQuoteResult {
           tokenTransferProxy == other.tokenTransferProxy;
 }
 
-class MarketInfo {
-  final BigInt id;
-  final String title;
-  final String? description;
-  final String? state;
-  final List<MarketOutcome> outcomes;
-
-  const MarketInfo({
-    required this.id,
-    required this.title,
-    this.description,
-    this.state,
-    required this.outcomes,
-  });
-
-  @override
-  int get hashCode =>
-      id.hashCode ^
-      title.hashCode ^
-      description.hashCode ^
-      state.hashCode ^
-      outcomes.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is MarketInfo &&
-          runtimeType == other.runtimeType &&
-          id == other.id &&
-          title == other.title &&
-          description == other.description &&
-          state == other.state &&
-          outcomes == other.outcomes;
-}
-
-class MarketOutcome {
-  final String title;
-  final double price;
-  final BigInt? outcomeId;
-
-  const MarketOutcome({
-    required this.title,
-    required this.price,
-    this.outcomeId,
-  });
-
-  @override
-  int get hashCode => title.hashCode ^ price.hashCode ^ outcomeId.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is MarketOutcome &&
-          runtimeType == other.runtimeType &&
-          title == other.title &&
-          price == other.price &&
-          outcomeId == other.outcomeId;
-}
-
 class PolymarketAuthResult {
   final String address;
   final String signature;
@@ -936,67 +863,4 @@ class ProposalResult {
           sendAmount == other.sendAmount &&
           fee == other.fee &&
           isExact == other.isExact;
-}
-
-class TradeSignalInfo {
-  final BigInt marketId;
-  final String marketTitle;
-  final int outcomeIndex;
-  final String outcomeTitle;
-  final double marketProb;
-  final double estimatedProb;
-  final double edge;
-  final double kellyFraction;
-  final double recommendedBetUsdt;
-  final double expectedValue;
-  final double confidence;
-  final String reason;
-
-  const TradeSignalInfo({
-    required this.marketId,
-    required this.marketTitle,
-    required this.outcomeIndex,
-    required this.outcomeTitle,
-    required this.marketProb,
-    required this.estimatedProb,
-    required this.edge,
-    required this.kellyFraction,
-    required this.recommendedBetUsdt,
-    required this.expectedValue,
-    required this.confidence,
-    required this.reason,
-  });
-
-  @override
-  int get hashCode =>
-      marketId.hashCode ^
-      marketTitle.hashCode ^
-      outcomeIndex.hashCode ^
-      outcomeTitle.hashCode ^
-      marketProb.hashCode ^
-      estimatedProb.hashCode ^
-      edge.hashCode ^
-      kellyFraction.hashCode ^
-      recommendedBetUsdt.hashCode ^
-      expectedValue.hashCode ^
-      confidence.hashCode ^
-      reason.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is TradeSignalInfo &&
-          runtimeType == other.runtimeType &&
-          marketId == other.marketId &&
-          marketTitle == other.marketTitle &&
-          outcomeIndex == other.outcomeIndex &&
-          outcomeTitle == other.outcomeTitle &&
-          marketProb == other.marketProb &&
-          estimatedProb == other.estimatedProb &&
-          edge == other.edge &&
-          kellyFraction == other.kellyFraction &&
-          recommendedBetUsdt == other.recommendedBetUsdt &&
-          expectedValue == other.expectedValue &&
-          confidence == other.confidence &&
-          reason == other.reason;
 }

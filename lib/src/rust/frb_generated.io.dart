@@ -39,9 +39,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool dco_decode_bool(dynamic raw);
 
   @protected
-  TradeSignalInfo dco_decode_box_autoadd_trade_signal_info(dynamic raw);
-
-  @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
 
   @protected
@@ -95,12 +92,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dynamic raw);
 
   @protected
-  List<MarketInfo> dco_decode_list_market_info(dynamic raw);
-
-  @protected
-  List<MarketOutcome> dco_decode_list_market_outcome(dynamic raw);
-
-  @protected
   List<PaymentRecipient> dco_decode_list_payment_recipient(dynamic raw);
 
   @protected
@@ -113,16 +104,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ValueTransferRecord> dco_decode_list_value_transfer_record(dynamic raw);
 
   @protected
-  MarketInfo dco_decode_market_info(dynamic raw);
-
-  @protected
-  MarketOutcome dco_decode_market_outcome(dynamic raw);
-
-  @protected
   String? dco_decode_opt_String(dynamic raw);
-
-  @protected
-  TradeSignalInfo? dco_decode_opt_box_autoadd_trade_signal_info(dynamic raw);
 
   @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
@@ -141,9 +123,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SyncStatusInfo dco_decode_sync_status_info(dynamic raw);
-
-  @protected
-  TradeSignalInfo dco_decode_trade_signal_info(dynamic raw);
 
   @protected
   TransactionRecord dco_decode_transaction_record(dynamic raw);
@@ -184,10 +163,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   bool sse_decode_bool(SseDeserializer deserializer);
-
-  @protected
-  TradeSignalInfo sse_decode_box_autoadd_trade_signal_info(
-      SseDeserializer deserializer);
 
   @protected
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
@@ -248,13 +223,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
-  List<MarketInfo> sse_decode_list_market_info(SseDeserializer deserializer);
-
-  @protected
-  List<MarketOutcome> sse_decode_list_market_outcome(
-      SseDeserializer deserializer);
-
-  @protected
   List<PaymentRecipient> sse_decode_list_payment_recipient(
       SseDeserializer deserializer);
 
@@ -270,17 +238,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
-  MarketInfo sse_decode_market_info(SseDeserializer deserializer);
-
-  @protected
-  MarketOutcome sse_decode_market_outcome(SseDeserializer deserializer);
-
-  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
-
-  @protected
-  TradeSignalInfo? sse_decode_opt_box_autoadd_trade_signal_info(
-      SseDeserializer deserializer);
 
   @protected
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
@@ -300,9 +258,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SyncStatusInfo sse_decode_sync_status_info(SseDeserializer deserializer);
-
-  @protected
-  TradeSignalInfo sse_decode_trade_signal_info(SseDeserializer deserializer);
 
   @protected
   TransactionRecord sse_decode_transaction_record(SseDeserializer deserializer);
@@ -346,10 +301,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_box_autoadd_trade_signal_info(
-      TradeSignalInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
@@ -412,14 +363,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<EngineTransactionRecord> self, SseSerializer serializer);
 
   @protected
-  void sse_encode_list_market_info(
-      List<MarketInfo> self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_list_market_outcome(
-      List<MarketOutcome> self, SseSerializer serializer);
-
-  @protected
   void sse_encode_list_payment_recipient(
       List<PaymentRecipient> self, SseSerializer serializer);
 
@@ -436,17 +379,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<ValueTransferRecord> self, SseSerializer serializer);
 
   @protected
-  void sse_encode_market_info(MarketInfo self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_market_outcome(MarketOutcome self, SseSerializer serializer);
-
-  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_opt_box_autoadd_trade_signal_info(
-      TradeSignalInfo? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
@@ -470,10 +403,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_sync_status_info(
       SyncStatusInfo self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_trade_signal_info(
-      TradeSignalInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_transaction_record(

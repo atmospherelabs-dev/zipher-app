@@ -50,9 +50,16 @@ class _MarketVenuePickerRowState extends State<MarketVenuePickerRow> {
           ),
           child: Row(
             children: [
-              ClipOval(
-                child: Image.asset('assets/chains/pol.png',
-                    width: 24, height: 24),
+              Container(
+                width: 24,
+                height: 24,
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: widget.polymarketAccent,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Image.asset('assets/venues/polymarket.png',
+                    width: 20, height: 20),
               ),
               const Gap(10),
               Expanded(

@@ -1,13 +1,8 @@
 // Prediction-market venue model + Polymarket quality (single source: Rust engine via FRB).
 //
-// Use this module when adding venues (Kalshi, etc.): keep fetch/normalize/copy here
-// and keep Action UI thin.
-//
-// Myriad (BSC) is hidden from the UI as of 2026-05 — liquidity was thin and the
-// AMM UX did not land with users. The enum value, the Dart client, and the Rust
-// engine module are still present for now so we don't break the build in one
-// sitting; they're scheduled for full deletion in a focused follow-up PR.
-// Anything user-facing should treat Polymarket as the only venue.
+// Polymarket is the only active venue as of 2026-05. The enum still has an
+// `unset` slot so call sites can express "no choice made yet" if a second
+// venue (Kalshi, etc.) ever lands. Myriad was removed.
 
 import 'dart:convert';
 
@@ -15,28 +10,22 @@ import '../src/rust/api/engine_api.dart' as rust_engine;
 
 /// Venue for discovery/search and for trading-side actions (bet / portfolio / sell).
 enum MarketVenue {
-  /// User has not chosen yet — show picker (or auto-pick Polymarket since
-  /// it's now the only venue).
+  /// User has not chosen yet. Today the UI auto-picks Polymarket since it's
+  /// the only venue, but the slot is preserved for future multi-venue UX.
   unset,
 
   /// Polymarket (Gamma + CLOB on Polygon, USDC).
-  polymarket,
-
-  /// Myriad on BSC (USDT). **Deprecated — hidden from UI.** Do not surface
-  /// this in any picker / suggestion / chat branch. Scheduled for removal.
-  myriad;
+  polymarket;
 
   bool get isChosen => this != MarketVenue.unset;
 
   String get label => switch (this) {
         MarketVenue.polymarket => 'Polymarket',
-        MarketVenue.myriad => 'Myriad',
         MarketVenue.unset => '',
       };
 
   String get chainCollateralHint => switch (this) {
         MarketVenue.polymarket => 'Polygon / USDC',
-        MarketVenue.myriad => 'BSC / USDT',
         MarketVenue.unset => '',
       };
 }

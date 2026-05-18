@@ -5,7 +5,6 @@ pub mod evm_pay;
 pub mod evm_swap;
 pub mod llm;
 pub mod mpp;
-pub mod myriad;
 pub mod ows;
 pub mod payment;
 pub mod pending;

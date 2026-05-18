@@ -476,7 +476,7 @@ async fn pay_cross_chain(
 
         // Also check we have native gas on the EVM chain
         let native_balance =
-            zipher_engine::myriad::get_bnb_balance(&evm_info.chain.rpc_url, &evm_address)
+            zipher_engine::evm::get_native_balance(&evm_info.chain.rpc_url, &evm_address)
                 .await
                 .unwrap_or(0);
 

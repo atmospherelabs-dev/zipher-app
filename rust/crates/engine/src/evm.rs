@@ -1,6 +1,6 @@
 //! Shared EVM helpers: RPC calls, RLP encoding, dynamic gas fees, receipt polling.
 //!
-//! Extracted and generalized from `myriad.rs`. The RLP encoder uses `&[u8]`
+//! Originally extracted from the now-removed `myriad.rs`. The RLP encoder uses `&[u8]`
 //! for the transaction `value` field to avoid integer overflow (Dart's `int`
 //! caused silent zero-value transactions that nodes accepted but never mined).
 

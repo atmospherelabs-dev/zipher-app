@@ -195,7 +195,7 @@ pub fn build_intent_prompt(user_input: &str) -> String {
 You classify user requests into JSON. Reply with ONLY a JSON object, nothing else.
 Types: balance, send, swap, shield, market_search, market_discover, bet, bet_polymarket, portfolio, sell, sweep, help, unknown.
 Amounts are USD unless "ZEC" is said. Only include "direction" for bets if the user specifies yes/no.
-Use "bet" for Myriad markets (numeric IDs). Use "bet_polymarket" when context is Polymarket — set "runner_index" to the row number shown.
+Use "bet_polymarket" for prediction-market bets — set "runner_index" to the row number shown. The numeric-id "bet" path has been removed (Myriad deprecated).
 If context about recent markets or actions is provided, use it to resolve references like "the first one" or "that market".<|im_end|>
 <|im_start|>user
 what's my balance<|im_end|>

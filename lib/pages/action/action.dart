@@ -23,9 +23,7 @@ import '../../src/rust/api/engine_api.dart' as rust_engine;
 import 'intent.dart';
 import 'llm_intent_parser.dart';
 import 'models.dart';
-import 'widgets/bet_confirmation.dart';
 import 'widgets/polymarket_bet_confirmation.dart';
-import 'widgets/sell_confirmation.dart';
 import 'widgets/polymarket_sell_confirmation.dart';
 import 'widgets/evm_swap_confirmation.dart';
 import 'widgets/sweep_confirmation.dart';
@@ -362,19 +360,11 @@ class _ActionPageState extends State<ActionPage> {
       final seed = await _getSeedForAction();
       final evmAddress = await rust_engine.engineDeriveEvmAddress(seedPhrase: seed);
 
-      if (venue == MarketVenue.polymarket) {
-        final positions = await WalletService.instance.getPolymarketPortfolio(evmAddress);
-        if (positions.isEmpty) {
-          _addSystemMessage('No open Polymarket positions for your Polygon address.', intentType: IntentType.portfolio);
-          return;
-        }
-        _addSystemMessage('', card: _portfolioCard(positions), intentType: IntentType.portfolio);
-        return;
-      }
-
-      final positions = await WalletService.instance.getPortfolio(evmAddress);
+      final positions = await WalletService.instance.getPolymarketPortfolio(evmAddress);
       if (positions.isEmpty) {
-        _addSystemMessage('No open positions found.', intentType: IntentType.portfolio);
+        _addSystemMessage(
+            'No open Polymarket positions for your Polygon address.',
+            intentType: IntentType.portfolio);
         return;
       }
       _addSystemMessage('', card: _portfolioCard(positions), intentType: IntentType.portfolio);
@@ -387,32 +377,19 @@ class _ActionPageState extends State<ActionPage> {
     if (_marketFlow.trading == MarketVenue.unset) {
       setState(() => _marketFlow.trading = MarketVenue.polymarket);
     }
-    final venue = _marketFlow.trading;
     setState(() => _marketFlow.resetTrading());
 
     try {
       final seed = await _getSeedForAction();
       final evmAddress = await rust_engine.engineDeriveEvmAddress(seedPhrase: seed);
 
-      if (venue == MarketVenue.polymarket) {
-        final positions = await WalletService.instance.getPolymarketPortfolio(evmAddress);
-        if (positions.isEmpty) {
-          _addSystemMessage('No open Polymarket positions to sell.');
-          return;
-        }
-        _addSystemMessage('Which position do you want to sell? Tap one:', card: _portfolioCard(positions, sellMode: true));
+      final positions = await WalletService.instance.getPolymarketPortfolio(evmAddress);
+      if (positions.isEmpty) {
+        _addSystemMessage('No open Polymarket positions to sell.');
         return;
       }
-
-      final positions = await WalletService.instance.getPortfolio(evmAddress);
-      if (positions.isEmpty) { _addSystemMessage('No open positions to sell.'); return; }
-      if (intent.marketId != null) {
-        final pos = positions.where((p) => (p['market_id'] ?? p['marketId'] ?? 0) == intent.marketId).firstOrNull;
-        if (pos == null) { _addSystemMessage('You don\'t have a position on market #${intent.marketId}.'); return; }
-        _showSellConfirmation(pos);
-      } else {
-        _addSystemMessage('Which position do you want to sell? Tap one:', card: _portfolioCard(positions, sellMode: true));
-      }
+      _addSystemMessage('Which position do you want to sell? Tap one:',
+          card: _portfolioCard(positions, sellMode: true));
     } catch (e) {
       _addSystemMessage('Failed to load positions: $e');
     }
@@ -437,23 +414,6 @@ class _ActionPageState extends State<ActionPage> {
       shares: shares,
       worstPrice: worstPrice,
       negRisk: negRisk,
-      onResult: (msg) { _addSystemMessage(msg); _fetchAggregatedBalance(); },
-    ));
-  }
-
-  void _showSellConfirmation(Map<String, dynamic> position) {
-    final marketId = position['market_id'] ?? position['marketId'] ?? 0;
-    final title = position['market_title'] ?? position['title'] ?? 'Market #$marketId';
-    final outcomeTitle = position['outcome_title'] ?? position['outcome'] ?? '?';
-    final shares = (position['shares'] as num?)?.toDouble() ?? 0;
-    final outcomeId = position['outcome_id'] ?? position['outcomeId'] ?? 0;
-
-    _addSystemMessage('', card: SellConfirmation(
-      marketId: (marketId as num).toInt(),
-      marketTitle: title.toString(),
-      outcomeTitle: outcomeTitle.toString(),
-      outcomeId: (outcomeId as num).toInt(),
-      shares: shares,
       onResult: (msg) { _addSystemMessage(msg); _fetchAggregatedBalance(); },
     ));
   }
@@ -707,56 +667,28 @@ class _ActionPageState extends State<ActionPage> {
 
     _addSystemMessage('Searching Polymarket...', card: _loadingCard());
     try {
-      List<Map<String, dynamic>> markets = [];
-      List<Map<String, dynamic>> polymarketRows = [];
-
-      if (_marketFlow.discovery == MarketVenue.polymarket) {
-        try {
-          polymarketRows = await WalletService.instance.polymarketDiscoveryRows(
-            keyword: intent.query,
-            limit: 20,
-          );
-          _log.i('[Markets] Polymarket discovery rows: ${polymarketRows.length}');
-        } catch (e) {
-          _log.e('[Markets] Polymarket search failed: $e');
-          setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
-          _addSystemMessage('Polymarket search failed.', card: _errorCard(message: '$e', onRetry: () => _handleMarketSearch(intent)));
-          return;
-        }
-      } else {
-        try {
-          markets = await WalletService.instance.searchMarkets(intent.query);
-          for (final m in markets) { m['_provider'] = 'myriad'; }
-          _log.i('[Markets] Myriad returned ${markets.length} results');
-        } catch (e) {
-          _log.e('[Markets] Myriad search failed: $e');
-          setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
-          _addSystemMessage('Myriad search failed.', card: _errorCard(message: '$e', onRetry: () => _handleMarketSearch(intent)));
-          return;
-        }
-      }
+      final polymarketRows = await WalletService.instance.polymarketDiscoveryRows(
+        keyword: intent.query,
+        limit: 20,
+      );
+      _log.i('[Markets] Polymarket discovery rows: ${polymarketRows.length}');
 
       setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
-      if (_marketFlow.discovery == MarketVenue.polymarket) {
-        if (polymarketRows.isEmpty) {
-          _addSystemMessage('No markets found on Polymarket${intent.query != null ? ' for "${intent.query}"' : ''}.');
-          return;
-        }
-        LlmIntentParser.instance.setPolymarketRows(polymarketRows);
-        LlmIntentParser.instance.setContext(LlmIntentParser.polymarketDiscoveryContext(polymarketRows));
-        _addSystemMessage(
-          'Tap a market to bet:',
-          card: _polymarketDiscoveryCard(polymarketRows),
-          intentType: IntentType.marketSearch,
-        );
+      if (polymarketRows.isEmpty) {
+        _addSystemMessage('No markets found on Polymarket${intent.query != null ? ' for "${intent.query}"' : ''}.');
         return;
       }
-      if (markets.isEmpty) { _addSystemMessage('No markets found on Polymarket${intent.query != null ? ' for "${intent.query}"' : ''}.'); return; }
-      LlmIntentParser.instance.setContext(LlmIntentParser.marketsContext(markets));
-      _addSystemMessage('Found ${markets.length} markets on Polymarket:', card: _marketListCard(markets), intentType: IntentType.marketSearch);
+      LlmIntentParser.instance.setPolymarketRows(polymarketRows);
+      LlmIntentParser.instance.setContext(LlmIntentParser.polymarketDiscoveryContext(polymarketRows));
+      _addSystemMessage(
+        'Tap a market to bet:',
+        card: _polymarketDiscoveryCard(polymarketRows),
+        intentType: IntentType.marketSearch,
+      );
     } catch (e) {
+      _log.e('[Markets] Polymarket search failed: $e');
       setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
-      _addSystemMessage('Market search failed.', card: _errorCard(message: '$e', onRetry: () => _handleMarketSearch(intent)));
+      _addSystemMessage('Polymarket search failed.', card: _errorCard(message: '$e', onRetry: () => _handleMarketSearch(intent)));
     }
   }
 
@@ -767,58 +699,22 @@ class _ActionPageState extends State<ActionPage> {
 
     _addSystemMessage('Looking for trending Polymarket markets...', card: _loadingCard());
     try {
-      List<Map<String, dynamic>> markets = [];
-      List<Map<String, dynamic>> polymarketRows = [];
-
-      if (_marketFlow.discovery == MarketVenue.polymarket) {
-        try {
-          polymarketRows = await WalletService.instance.polymarketDiscoveryRows(keyword: null, limit: 20);
-          _log.i('[Markets] Polymarket discover rows: ${polymarketRows.length}');
-        } catch (e) {
-          _log.e('[Markets] Polymarket discover failed: $e');
-          setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
-          _addSystemMessage('Polymarket fetch failed.', card: _errorCard(message: '$e', onRetry: _handleMarketDiscover));
-          return;
-        }
-      } else {
-        try {
-          final raw = await WalletService.instance.searchMarkets('');
-          for (final m in raw) { m['_provider'] = 'myriad'; }
-          markets = raw.where((m) {
-            if ((m['state'] as String? ?? '') != 'open') return false;
-            final outcomes = (m['outcomes'] as List<dynamic>?) ?? [];
-            if (outcomes.length < 2) return false;
-            final prices = outcomes.map((o) => ((o as Map)['price'] as num?)?.toDouble() ?? 0).toList();
-            if (prices.every((p) => p == 0) || prices.any((p) => p > 0.85)) return false;
-            return ((m['volume'] as num?)?.toDouble() ?? 0) > 100;
-          }).toList();
-          _log.i('[Markets] Myriad discover returned ${markets.length} results');
-        } catch (e) {
-          _log.e('[Markets] Myriad discover failed: $e');
-          setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
-          _addSystemMessage('Myriad fetch failed.', card: _errorCard(message: '$e', onRetry: _handleMarketDiscover));
-          return;
-        }
-      }
+      final polymarketRows =
+          await WalletService.instance.polymarketDiscoveryRows(keyword: null, limit: 20);
+      _log.i('[Markets] Polymarket discover rows: ${polymarketRows.length}');
 
       setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
-      if (_marketFlow.discovery == MarketVenue.polymarket) {
-        if (polymarketRows.isEmpty) {
-          _addSystemMessage('No active markets found on Polymarket right now.');
-          return;
-        }
-        LlmIntentParser.instance.setPolymarketRows(polymarketRows);
-        LlmIntentParser.instance.setContext(LlmIntentParser.polymarketDiscoveryContext(polymarketRows));
-        _addSystemMessage(
-          'Tap a market to bet:',
-          card: _polymarketDiscoveryCard(polymarketRows),
-          intentType: IntentType.marketDiscover,
-        );
+      if (polymarketRows.isEmpty) {
+        _addSystemMessage('No active markets found on Polymarket right now.');
         return;
       }
-      if (markets.isEmpty) { _addSystemMessage('No active markets found on Polymarket right now.'); return; }
-      LlmIntentParser.instance.setContext(LlmIntentParser.marketsContext(markets));
-      _addSystemMessage('Trending on Polymarket:', card: _marketListCard(markets), intentType: IntentType.marketDiscover);
+      LlmIntentParser.instance.setPolymarketRows(polymarketRows);
+      LlmIntentParser.instance.setContext(LlmIntentParser.polymarketDiscoveryContext(polymarketRows));
+      _addSystemMessage(
+        'Tap a market to bet:',
+        card: _polymarketDiscoveryCard(polymarketRows),
+        intentType: IntentType.marketDiscover,
+      );
     } catch (e) {
       setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
       _addSystemMessage('Could not fetch markets.', card: _errorCard(message: '$e', onRetry: _handleMarketDiscover));
@@ -1115,26 +1011,6 @@ class _ActionPageState extends State<ActionPage> {
   bool _isBinaryOutcome(String title) {
     final t = title.toLowerCase().trim();
     return t == 'yes' || t == 'no';
-  }
-
-  void _showBetConfirmation({required int marketId, required String marketTitle, required double amount,
-      required int outcomeId, required String outcomeTitle, String tokenSymbol = 'USDT'}) async {
-    String summaryText = 'Bet \$${amount.toStringAsFixed(2)} on "$outcomeTitle"';
-    try {
-      final market = await WalletService.instance.getMarketDetails(marketId);
-      if (market != null) {
-        final outcomes = (market['outcomes'] as List<dynamic>?) ?? [];
-        final llmSummary = await LlmService.instance.summarizeMarket(
-            title: marketTitle, outcomes: outcomes.map((o) => o as Map<String, dynamic>).toList());
-        if (llmSummary != null && llmSummary.isNotEmpty) summaryText = llmSummary;
-      }
-    } catch (_) {}
-
-    _addSystemMessage(summaryText, card: BetConfirmation(
-      marketId: marketId, marketTitle: marketTitle, amount: amount,
-      outcomeId: outcomeId, outcomeTitle: outcomeTitle, tokenSymbol: tokenSymbol,
-      onResult: _addSystemMessage, onBalanceChanged: _fetchAggregatedBalance,
-    ), intentType: IntentType.bet);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1479,18 +1355,10 @@ class _ActionPageState extends State<ActionPage> {
     final pnlColor = pnl >= 0 ? ZipherColors.cyan : Colors.redAccent;
 
     void onTap() {
-      if (isPm) {
-        _showPolymarketSellConfirmation(p);
-        return;
-      }
-      if (sellMode) {
-        _showSellConfirmation(p);
-        return;
-      }
-      _submitDirect(
-        ParsedIntent(type: IntentType.bet, raw: 'bet on market #$marketId', marketId: marketId as int?),
-        displayText: 'Bet on market #$marketId',
-      );
+      // Only Polymarket positions remain (Myriad removed). For sell mode the
+      // user tapped a position card to close it; otherwise this is a bet
+      // entry — we just open the same Polymarket sell confirmation.
+      _showPolymarketSellConfirmation(p);
     }
 
     return InkWell(
@@ -1527,40 +1395,31 @@ class _ActionPageState extends State<ActionPage> {
           border: Border.all(color: ZipherColors.borderSubtle)),
       child: Column(children: markets.map((m) {
         final outcomes = (m['outcomes'] as List<dynamic>?) ?? [];
-        // Polymarket is the only active venue as of 2026-05; the Myriad
-        // branch below is dead but parsable in case we re-enable it.
-        final provider = m['_provider'] as String? ?? 'polymarket';
-        final isPolymarket = provider == 'polymarket';
-        final idLabel = isPolymarket ? (m['id']?.toString().substring(0, 8) ?? '?') : '#${m['id']}';
+        final idLabel = m['id']?.toString().substring(0, 8) ?? '?';
 
         return InkWell(
-          onTap: () => isPolymarket
-              ? _submitDirect(ParsedIntent(type: IntentType.betPolymarket, raw: 'bet on polymarket ${m['id']}', polymarketId: m['id']?.toString()),
-                  displayText: 'Bet on ${m['title'] ?? m['question'] ?? 'market'}')
-              : _submitDirect(ParsedIntent(type: IntentType.bet, raw: 'bet on market #${m['id']}', marketId: int.tryParse('${m['id']}')),
-                  displayText: 'Bet on market #${m['id']}'),
+          onTap: () => _submitDirect(
+              ParsedIntent(
+                  type: IntentType.betPolymarket,
+                  raw: 'bet on polymarket ${m['id']}',
+                  polymarketId: m['id']?.toString()),
+              displayText: 'Bet on ${m['title'] ?? m['question'] ?? 'market'}'),
           borderRadius: BorderRadius.circular(ZipherRadius.md),
           child: Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
-                  // Venue logo — Polygon icon as the visual proxy for
-                  // Polymarket since Polymarket lives on Polygon. Swap
-                  // for a dedicated polymarket.png if/when we add one.
-                  if (isPolymarket)
-                    ClipOval(
-                      child: Image.asset('assets/chains/pol.png',
-                          width: 16, height: 16),
-                    )
-                  else
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                      decoration: BoxDecoration(
-                          color: ZipherColors.cardBgElevated,
-                          borderRadius: BorderRadius.circular(3)),
-                      child: Text('MY',
-                          style: TextStyle(color: ZipherColors.text40,
-                              fontSize: 9, fontWeight: FontWeight.w700, fontFamily: 'JetBrains Mono')),
+                  // Venue badge — Polymarket logo on its brand accent.
+                  Container(
+                    width: 18,
+                    height: 18,
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6366F1),
+                      borderRadius: BorderRadius.circular(4),
                     ),
+                    child: Image.asset('assets/venues/polymarket.png',
+                        width: 14, height: 14),
+                  ),
                   const Gap(6),
                   Text(idLabel, style: TextStyle(color: ZipherColors.text40, fontSize: 11, fontFamily: 'JetBrains Mono')),
                   const Gap(8),
@@ -1580,68 +1439,6 @@ class _ActionPageState extends State<ActionPage> {
                   }).toList()),
                 ],
               ])),
-        );
-      }).toList()),
-    );
-  }
-
-  // ignore: unused_element
-  Widget _directionPicker({required int marketId, required String marketTitle, required double amount,
-      required List<dynamic> outcomes, String tokenSymbol = 'USDT'}) {
-    final yesPrice = ((outcomes[0]['price'] as num?)?.toDouble() ?? 0) * 100;
-    final noPrice = ((outcomes[1]['price'] as num?)?.toDouble() ?? 0) * 100;
-    final yesId = (outcomes[0]['outcome_id'] as num?)?.toInt() ?? 0;
-    final noId = (outcomes[1]['outcome_id'] as num?)?.toInt() ?? 1;
-
-    Widget dirBtn(String label, Color color, int id, double pct) => Expanded(
-      child: Material(color: Colors.transparent, child: InkWell(
-        onTap: () => _showBetConfirmation(marketId: marketId, marketTitle: marketTitle, amount: amount,
-            outcomeId: id, outcomeTitle: label, tokenSymbol: tokenSymbol),
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(color: color.withValues(alpha: label == 'Yes' ? 0.1 : 0.08),
-              borderRadius: BorderRadius.circular(12), border: Border.all(color: color.withValues(alpha: label == 'Yes' ? 0.3 : 0.2))),
-          child: Column(children: [
-            Text(label, style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.w700)),
-            const Gap(4),
-            Text('${pct.toStringAsFixed(0)}%', style: TextStyle(color: ZipherColors.text40, fontSize: 12, fontFamily: 'JetBrains Mono')),
-          ]),
-        ),
-      )),
-    );
-
-    return Padding(padding: const EdgeInsets.only(top: 10), child: Row(children: [
-      dirBtn('Yes', ZipherColors.cyan, yesId, yesPrice), const Gap(12),
-      dirBtn('No', Colors.redAccent.withValues(alpha: 0.9), noId, noPrice),
-    ]));
-  }
-
-  // ignore: unused_element
-  Widget _outcomePicker({required int marketId, required String marketTitle, required double amount,
-      required List<dynamic> outcomes, String tokenSymbol = 'USDT'}) {
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      decoration: BoxDecoration(color: ZipherColors.cardBg, borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(color: ZipherColors.borderSubtle)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: outcomes.map((o) {
-        final oTitle = o['title']?.toString() ?? '?';
-        final price = (o['price'] as num?)?.toDouble() ?? 0;
-        final oId = (o['outcome_id'] as num?)?.toInt() ?? outcomes.indexOf(o);
-        final pctLabel = '${(price * 100).toStringAsFixed(0)}%';
-        return InkWell(
-          onTap: () => _showBetConfirmation(marketId: marketId, marketTitle: marketTitle, amount: amount,
-              outcomeId: oId, outcomeTitle: oTitle, tokenSymbol: tokenSymbol),
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          child: Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), child: Row(children: [
-            Container(width: 32, height: 32,
-                decoration: BoxDecoration(color: ZipherColors.purple.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
-                child: Center(child: Text(pctLabel,
-                    style: TextStyle(color: ZipherColors.purple, fontSize: 10, fontWeight: FontWeight.w700, fontFamily: 'JetBrains Mono')))),
-            const Gap(12),
-            Expanded(child: Text(oTitle, style: const TextStyle(color: ZipherColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w500))),
-            Icon(Icons.chevron_right, color: ZipherColors.text40, size: 18),
-          ])),
         );
       }).toList()),
     );

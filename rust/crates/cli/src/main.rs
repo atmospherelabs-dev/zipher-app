@@ -130,10 +130,6 @@ enum Commands {
     #[command(subcommand)]
     Session(SessionCmd),
 
-    /// Prediction market operations via Myriad (ZEC → USDT → bet)
-    #[command(subcommand)]
-    Market(MarketCmd),
-
     /// Polymarket discovery via Gamma API (read-only; no wallet)
     #[command(subcommand)]
     Polymarket(PolymarketCmd),
@@ -462,106 +458,6 @@ enum DaemonCmd {
 
     /// Unlock spending (daemon reads ZIPHER_SEED from its own environment)
     Unlock,
-}
-
-#[derive(Subcommand)]
-enum MarketCmd {
-    /// Search prediction markets on Myriad
-    List {
-        /// Search keyword
-        #[arg(long)]
-        keyword: Option<String>,
-
-        /// Max results
-        #[arg(long, default_value = "20")]
-        limit: u32,
-    },
-
-    /// Show market details with outcome prices
-    Show {
-        /// Market ID
-        id: u64,
-    },
-
-    /// Place a bet: ZEC → USDT → approve → buy shares
-    Bet {
-        /// Market ID
-        #[arg(long)]
-        id: u64,
-
-        /// Outcome index (0, 1, ...)
-        #[arg(long)]
-        outcome: u64,
-
-        /// Amount in USDT
-        #[arg(long)]
-        amount: f64,
-
-        /// OWS wallet name for signing
-        #[arg(long, env = "OWS_WALLET")]
-        ows_wallet: String,
-
-        /// Myriad slippage tolerance (0.0-1.0, default 0.01 = 1%)
-        #[arg(long, default_value = "0.01")]
-        slippage: f64,
-
-        /// Max acceptable price movement (%) between quote and execution (default 5%)
-        #[arg(long, default_value = "5.0")]
-        max_price_move: f64,
-    },
-
-    /// Show open positions
-    Positions {
-        /// OWS wallet name
-        #[arg(long, env = "OWS_WALLET")]
-        ows_wallet: String,
-    },
-
-    /// Sell all positions and sweep funds back to ZEC
-    Sweep {
-        /// OWS wallet name
-        #[arg(long, env = "OWS_WALLET")]
-        ows_wallet: String,
-
-        /// After selling, swap USDT back to shielded ZEC
-        #[arg(long, default_value = "true")]
-        to_zec: bool,
-    },
-
-    /// Autonomous agent: scan → research → analyze → bet (Kelly-sized)
-    Agent {
-        /// Maximum bet amount in USDT (hard risk cap)
-        #[arg(long, default_value = "5.0")]
-        max_bet: f64,
-
-        /// Minimum edge (%) to trigger a bet. e.g. 5 = need 5% edge over market
-        #[arg(long, default_value = "5.0")]
-        min_edge_pct: f64,
-
-        /// Available bankroll in USDT (for Kelly position sizing)
-        #[arg(long, default_value = "50.0")]
-        bankroll: f64,
-
-        /// Number of markets to scan
-        #[arg(long, default_value = "50")]
-        scan_limit: u32,
-
-        /// OWS wallet name for signing
-        #[arg(long, env = "OWS_WALLET")]
-        ows_wallet: String,
-
-        /// Dry run: scan, research, analyze but don't execute
-        #[arg(long)]
-        dry_run: bool,
-
-        /// Myriad slippage tolerance (0.0-1.0, default 0.01 = 1%)
-        #[arg(long, default_value = "0.01")]
-        slippage: f64,
-
-        /// Max acceptable price movement (%) between analysis and execution (default 5%)
-        #[arg(long, default_value = "5.0")]
-        max_price_move: f64,
-    },
 }
 
 #[derive(Subcommand)]
@@ -898,60 +794,6 @@ async fn main() {
             }
             SessionCmd::List => session::cmd_session_list(&cfg).await,
             SessionCmd::Close { session_id } => session::cmd_session_close(&cfg, session_id).await,
-        },
-        Commands::Market(sub) => match sub {
-            MarketCmd::List { keyword, limit } => {
-                market::cmd_market_list(&cfg, keyword, limit).await
-            }
-            MarketCmd::Show { id } => market::cmd_market_show(&cfg, id).await,
-            MarketCmd::Bet {
-                id,
-                outcome,
-                amount,
-                ows_wallet,
-                slippage,
-                max_price_move,
-            } => {
-                market::cmd_market_bet(
-                    &cfg,
-                    id,
-                    outcome,
-                    amount,
-                    ows_wallet,
-                    slippage,
-                    max_price_move,
-                )
-                .await
-            }
-            MarketCmd::Positions { ows_wallet } => {
-                market::cmd_market_positions(&cfg, ows_wallet).await
-            }
-            MarketCmd::Sweep { ows_wallet, to_zec } => {
-                market::cmd_market_sweep(&cfg, ows_wallet, to_zec).await
-            }
-            MarketCmd::Agent {
-                max_bet,
-                min_edge_pct,
-                bankroll,
-                scan_limit,
-                ows_wallet,
-                dry_run,
-                slippage,
-                max_price_move,
-            } => {
-                market::cmd_market_agent(
-                    &cfg,
-                    max_bet,
-                    min_edge_pct,
-                    bankroll,
-                    scan_limit,
-                    ows_wallet,
-                    dry_run,
-                    slippage,
-                    max_price_move,
-                )
-                .await
-            }
         },
         Commands::Polymarket(sub) => match sub {
             PolymarketCmd::List {
