@@ -282,8 +282,22 @@ class IntentParser {
   static bool _isBet(String s) =>
       s.contains('bet') || s.contains('wager') || s.contains('place a bet');
 
+  /// Implicit-swap shorthand: `<amount> <token> to <token>` (e.g. "1 zec to
+  /// usdt", "0.5 ETH to USDC"). The user typically lands on this phrasing
+  /// after the chat has already asked them "Please specify the destination
+  /// token", so they don't type the word "swap". We treat the bare
+  /// token-to-token pattern as a swap intent so the flow doesn't fall off
+  /// the rails into "I didn't understand that".
+  static final _implicitSwapPattern = RegExp(
+    r'^\s*\d+(?:[.,]\d+)?\s+[a-z][a-z0-9.]*\s+to\s+[a-z][a-z0-9.]*\s*$',
+    caseSensitive: false,
+  );
+
   static bool _isSwap(String s) =>
-      s.contains('swap') || s.contains('convert') || s.contains('exchange');
+      s.contains('swap') ||
+      s.contains('convert') ||
+      s.contains('exchange') ||
+      _implicitSwapPattern.hasMatch(s);
 
   static bool _isSend(String s) =>
       s.contains('send') || s.contains('transfer') || s.contains('pay');

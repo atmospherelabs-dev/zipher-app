@@ -353,7 +353,6 @@ class _ActionPageState extends State<ActionPage> {
     if (_marketFlow.trading == MarketVenue.unset) {
       setState(() => _marketFlow.trading = MarketVenue.polymarket);
     }
-    final venue = _marketFlow.trading;
     setState(() => _marketFlow.resetTrading());
 
     try {
@@ -1061,14 +1060,32 @@ class _ActionPageState extends State<ActionPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
+              // Polymarket brand badge. The `+` suffix on grouped events
+              // is rendered as a tiny dot to the right of the logo so the
+              // visual identity stays consistent across single and
+              // multi-runner rows.
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                width: 18,
+                height: 18,
+                padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
-                    color: const Color(0xFF6366F1).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(3)),
-                child: Text(kind == 'grouped' ? 'PM+' : 'PM',
-                    style: const TextStyle(color: Color(0xFF6366F1), fontSize: 9, fontWeight: FontWeight.w700, fontFamily: 'JetBrains Mono')),
+                  color: const Color(0xFF6366F1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Image.asset('assets/venues/polymarket.png',
+                    width: 14, height: 14),
               ),
+              if (kind == 'grouped') ...[
+                const Gap(2),
+                Container(
+                  width: 4,
+                  height: 4,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF6366F1),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ],
               const Gap(6),
               Expanded(
                   child: Text(title,
@@ -1181,8 +1198,10 @@ class _ActionPageState extends State<ActionPage> {
         ];
       case IntentType.marketDiscover:
       case IntentType.marketSearch:
+        // Polymarket is the only active venue, so "switch platform" no
+        // longer makes sense. Surface "refresh" and "my bets" instead.
         chips = [
-          SuggestionItem(Icons.refresh, 'Switch platform', 'find promising markets',
+          SuggestionItem(Icons.refresh, 'Refresh', 'find promising markets',
               intent: const ParsedIntent(type: IntentType.marketDiscover, raw: 'find promising markets')),
           SuggestionItem(Icons.pie_chart_outline, 'My bets', 'my bets',
               intent: const ParsedIntent(type: IntentType.portfolio, raw: 'my bets')),
@@ -1342,7 +1361,6 @@ class _ActionPageState extends State<ActionPage> {
   }
 
   Widget _positionRow(Map<String, dynamic> p, {bool sellMode = false}) {
-    final isPm = p['_provider'] == 'polymarket';
     final marketId = p['market_id'] ?? p['marketId'] ?? 0;
     final title = p['market_title'] ?? p['title'] ?? 'Market #$marketId';
     final shares = (p['shares'] as num?)?.toDouble() ?? 0;
@@ -1388,6 +1406,7 @@ class _ActionPageState extends State<ActionPage> {
     );
   }
 
+  // ignore: unused_element
   Widget _marketListCard(List<Map<String, dynamic>> markets) {
     return Container(
       margin: const EdgeInsets.only(top: 8),

@@ -198,11 +198,27 @@ class _SweepConfirmationState extends State<SweepConfirmation> {
                   child: ElevatedButton(
                     onPressed: _hasSelected ? _startSweep : null,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: ZipherColors.cyan, foregroundColor: Colors.white,
+                      backgroundColor: ZipherColors.cyan,
+                      foregroundColor: Colors.white,
                       disabledBackgroundColor: ZipherColors.text10,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ZipherRadius.sm)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(ZipherRadius.sm)),
+                      // Tighter padding + smaller text keeps the
+                      // "Sweep N → ZEC" label on a single line at typical
+                      // phone widths instead of wrapping under the arrow.
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                      textStyle: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w600),
                     ),
-                    child: Text(_selected.length == widget.tokens.length ? 'Sweep All → ZEC' : 'Sweep ${_selected.length} → ZEC'),
+                    child: Text(
+                      _hasSelected
+                          ? (_selected.length == widget.tokens.length
+                              ? 'Sweep All → ZEC'
+                              : 'Sweep ${_selected.length} → ZEC')
+                          : 'Select tokens',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
               ],
