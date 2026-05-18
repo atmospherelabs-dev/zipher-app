@@ -285,7 +285,7 @@ class LlmIntentParser {
             }
           }
 
-          _log.w('[LLM] Polymarket rows stored but no match found for "$raw". Falling through to Myriad.');
+          _log.w('[LLM] Polymarket rows stored but no match found for "$raw". Returning bet intent without a market id; user will be re-prompted.');
         }
 
         return ParsedIntent(

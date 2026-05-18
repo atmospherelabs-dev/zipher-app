@@ -97,7 +97,9 @@ class _PaymentURIState extends State<PaymentURIPage> {
                 hint: 'Recommended for privacy',
                 address: shielded,
                 truncated: _truncate(shielded),
-                icon: Icons.lock_rounded,
+                leading: Icon(Icons.lock_rounded,
+                    size: 18,
+                    color: ZipherColors.purple.withValues(alpha: 0.85)),
                 accentColor: ZipherColors.purple,
                 primary: true,
                 onCopy: () => _copy(shielded),
@@ -113,7 +115,8 @@ class _PaymentURIState extends State<PaymentURIPage> {
                   hint: 'Not private — visible on the blockchain',
                   address: transparent,
                   truncated: _truncate(transparent),
-                  icon: Icons.visibility_outlined,
+                  leading: Icon(Icons.visibility_outlined,
+                      size: 18, color: ZipherColors.text40),
                   accentColor: Colors.white,
                   primary: false,
                   onCopy: () => _copy(transparent),
@@ -146,7 +149,10 @@ class _PaymentURIState extends State<PaymentURIPage> {
                       hint: 'Ethereum, BNB Chain, and other EVM networks',
                       address: chain.evm,
                       truncated: _truncate(chain.evm),
-                      icon: Icons.hexagon_outlined,
+                      leading: ClipOval(
+                        child: Image.asset('assets/chains/eth.png',
+                            width: 22, height: 22),
+                      ),
                       accentColor: ZipherColors.cyan,
                       primary: false,
                       onCopy: () => _copy(chain.evm),
@@ -158,7 +164,10 @@ class _PaymentURIState extends State<PaymentURIPage> {
                       hint: 'Solana blockchain',
                       address: chain.solana,
                       truncated: _truncate(chain.solana),
-                      icon: Icons.blur_on_rounded,
+                      leading: ClipOval(
+                        child: Image.asset('assets/chains/sol.png',
+                            width: 22, height: 22),
+                      ),
                       accentColor: const Color(0xFF9945FF),
                       primary: false,
                       onCopy: () => _copy(chain.solana),
@@ -170,7 +179,10 @@ class _PaymentURIState extends State<PaymentURIPage> {
                       hint: 'Native SegWit (bech32)',
                       address: chain.bitcoin,
                       truncated: _truncate(chain.bitcoin),
-                      icon: Icons.currency_bitcoin_rounded,
+                      leading: ClipOval(
+                        child: Image.asset('assets/chains/btc.png',
+                            width: 22, height: 22),
+                      ),
                       accentColor: const Color(0xFFF7931A),
                       primary: false,
                       onCopy: () => _copy(chain.bitcoin),
@@ -291,7 +303,10 @@ class _AddressCard extends StatelessWidget {
   final String hint;
   final String address;
   final String truncated;
-  final IconData icon;
+  /// Leading visual for the card header. Can be a Material `Icon` (used
+  /// for ZEC's shielded / transparent semantic icons) or an `Image.asset`
+  /// (used for chain-brand logos on the multi-chain rows).
+  final Widget leading;
   final Color accentColor;
   final bool primary;
   final VoidCallback onCopy;
@@ -303,7 +318,7 @@ class _AddressCard extends StatelessWidget {
     required this.hint,
     required this.address,
     required this.truncated,
-    required this.icon,
+    required this.leading,
     required this.accentColor,
     required this.primary,
     required this.onCopy,
@@ -332,11 +347,7 @@ class _AddressCard extends StatelessWidget {
           // Header row
           Row(
             children: [
-              Icon(icon,
-                  size: 18,
-                  color: primary
-                      ? accentColor.withValues(alpha: 0.85)
-                      : ZipherColors.text40),
+              SizedBox(width: 22, height: 22, child: Center(child: leading)),
               const Gap(8),
               Expanded(
                 child: Text(

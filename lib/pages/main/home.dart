@@ -1623,16 +1623,7 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                                               color: ZipherColors.text90,
                                             ),
                                           ),
-                                          if (isActive)
-                                            Text(
-                                              'Active',
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w500,
-                                                color: ZipherColors.green
-                                                    .withValues(alpha: 0.5),
-                                              ),
-                                            ),
+                                          if (isActive) _accountStatusLine(),
                                         ],
                                       ),
                               ),
@@ -1711,6 +1702,50 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
 
   String _liveBalance() {
     return amountToString2(aa.poolBalances.total);
+  }
+
+  /// Subtitle for the active account row in the picker. Shows "Syncing X%"
+  /// with a small spinner while the engine is scanning, otherwise falls back
+  /// to the green "Active" label. Reads `syncStatus2.blocksProgress` (which
+  /// is what drives the home-screen bar) so the two stay in lockstep.
+  Widget _accountStatusLine() {
+    final syncing = syncStatus2.syncing;
+    if (!syncing) {
+      return Text(
+        'Active',
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w500,
+          color: ZipherColors.green.withValues(alpha: 0.5),
+        ),
+      );
+    }
+    final progress = syncStatus2.blocksProgress;
+    final percentText = progress != null
+        ? 'Syncing ${(progress * 100).round()}%'
+        : 'Syncing…';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 10,
+          height: 10,
+          child: CircularProgressIndicator(
+            strokeWidth: 1.2,
+            color: ZipherColors.cyan.withValues(alpha: 0.8),
+          ),
+        ),
+        const Gap(6),
+        Text(
+          percentText,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+            color: ZipherColors.cyan.withValues(alpha: 0.7),
+          ),
+        ),
+      ],
+    );
   }
 
   void _switchToAccount(FlatAccount fa) async {

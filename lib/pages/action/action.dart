@@ -25,7 +25,6 @@ import 'llm_intent_parser.dart';
 import 'models.dart';
 import 'widgets/bet_confirmation.dart';
 import 'widgets/polymarket_bet_confirmation.dart';
-import 'widgets/market_venue_picker.dart';
 import 'widgets/sell_confirmation.dart';
 import 'widgets/polymarket_sell_confirmation.dart';
 import 'widgets/evm_swap_confirmation.dart';
@@ -351,14 +350,10 @@ class _ActionPageState extends State<ActionPage> {
   }
 
   Future<void> _handlePortfolio() async {
+    // Polymarket is currently the only active venue, so we auto-select it
+    // instead of prompting the user with a one-option picker.
     if (_marketFlow.trading == MarketVenue.unset) {
-      _addSystemMessage('Which platform are your positions on?', card: MarketVenuePickerRow(
-        onPick: (v) {
-          setState(() => _marketFlow.trading = v);
-          _handlePortfolio();
-        },
-      ));
-      return;
+      setState(() => _marketFlow.trading = MarketVenue.polymarket);
     }
     final venue = _marketFlow.trading;
     setState(() => _marketFlow.resetTrading());
@@ -390,13 +385,7 @@ class _ActionPageState extends State<ActionPage> {
 
   Future<void> _handleSell(ParsedIntent intent) async {
     if (_marketFlow.trading == MarketVenue.unset) {
-      _addSystemMessage('Which platform is this position on?', card: MarketVenuePickerRow(
-        onPick: (v) {
-          setState(() => _marketFlow.trading = v);
-          _handleSell(intent);
-        },
-      ));
-      return;
+      setState(() => _marketFlow.trading = MarketVenue.polymarket);
     }
     final venue = _marketFlow.trading;
     setState(() => _marketFlow.resetTrading());
@@ -713,17 +702,10 @@ class _ActionPageState extends State<ActionPage> {
 
   Future<void> _handleMarketSearch(ParsedIntent intent) async {
     if (_marketFlow.discovery == MarketVenue.unset) {
-      _addSystemMessage('Where do you want to search?', card: MarketVenuePickerRow(
-        onPick: (v) {
-          setState(() => _marketFlow.discovery = v);
-          _handleMarketSearch(intent);
-        },
-      ));
-      return;
+      setState(() => _marketFlow.discovery = MarketVenue.polymarket);
     }
 
-    final platformLabel = _marketFlow.discovery == MarketVenue.polymarket ? 'Polymarket' : 'Myriad';
-    _addSystemMessage('Searching $platformLabel...', card: _loadingCard());
+    _addSystemMessage('Searching Polymarket...', card: _loadingCard());
     try {
       List<Map<String, dynamic>> markets = [];
       List<Map<String, dynamic>> polymarketRows = [];
@@ -757,7 +739,7 @@ class _ActionPageState extends State<ActionPage> {
       setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
       if (_marketFlow.discovery == MarketVenue.polymarket) {
         if (polymarketRows.isEmpty) {
-          _addSystemMessage('No markets found on $platformLabel${intent.query != null ? ' for "${intent.query}"' : ''}.');
+          _addSystemMessage('No markets found on Polymarket${intent.query != null ? ' for "${intent.query}"' : ''}.');
           return;
         }
         LlmIntentParser.instance.setPolymarketRows(polymarketRows);
@@ -769,9 +751,9 @@ class _ActionPageState extends State<ActionPage> {
         );
         return;
       }
-      if (markets.isEmpty) { _addSystemMessage('No markets found on $platformLabel${intent.query != null ? ' for "${intent.query}"' : ''}.'); return; }
+      if (markets.isEmpty) { _addSystemMessage('No markets found on Polymarket${intent.query != null ? ' for "${intent.query}"' : ''}.'); return; }
       LlmIntentParser.instance.setContext(LlmIntentParser.marketsContext(markets));
-      _addSystemMessage('Found ${markets.length} markets on $platformLabel:', card: _marketListCard(markets), intentType: IntentType.marketSearch);
+      _addSystemMessage('Found ${markets.length} markets on Polymarket:', card: _marketListCard(markets), intentType: IntentType.marketSearch);
     } catch (e) {
       setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
       _addSystemMessage('Market search failed.', card: _errorCard(message: '$e', onRetry: () => _handleMarketSearch(intent)));
@@ -780,17 +762,10 @@ class _ActionPageState extends State<ActionPage> {
 
   Future<void> _handleMarketDiscover() async {
     if (_marketFlow.discovery == MarketVenue.unset) {
-      _addSystemMessage('Which platform?', card: MarketVenuePickerRow(
-        onPick: (v) {
-          setState(() => _marketFlow.discovery = v);
-          _handleMarketDiscover();
-        },
-      ));
-      return;
+      setState(() => _marketFlow.discovery = MarketVenue.polymarket);
     }
 
-    final platformLabel = _marketFlow.discovery == MarketVenue.polymarket ? 'Polymarket' : 'Myriad';
-    _addSystemMessage('Looking for trending $platformLabel markets...', card: _loadingCard());
+    _addSystemMessage('Looking for trending Polymarket markets...', card: _loadingCard());
     try {
       List<Map<String, dynamic>> markets = [];
       List<Map<String, dynamic>> polymarketRows = [];
@@ -829,7 +804,7 @@ class _ActionPageState extends State<ActionPage> {
       setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
       if (_marketFlow.discovery == MarketVenue.polymarket) {
         if (polymarketRows.isEmpty) {
-          _addSystemMessage('No active markets found on $platformLabel right now.');
+          _addSystemMessage('No active markets found on Polymarket right now.');
           return;
         }
         LlmIntentParser.instance.setPolymarketRows(polymarketRows);
@@ -841,9 +816,9 @@ class _ActionPageState extends State<ActionPage> {
         );
         return;
       }
-      if (markets.isEmpty) { _addSystemMessage('No active markets found on $platformLabel right now.'); return; }
+      if (markets.isEmpty) { _addSystemMessage('No active markets found on Polymarket right now.'); return; }
       LlmIntentParser.instance.setContext(LlmIntentParser.marketsContext(markets));
-      _addSystemMessage('Trending on $platformLabel:', card: _marketListCard(markets), intentType: IntentType.marketDiscover);
+      _addSystemMessage('Trending on Polymarket:', card: _marketListCard(markets), intentType: IntentType.marketDiscover);
     } catch (e) {
       setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
       _addSystemMessage('Could not fetch markets.', card: _errorCard(message: '$e', onRetry: _handleMarketDiscover));
@@ -851,67 +826,16 @@ class _ActionPageState extends State<ActionPage> {
   }
 
   Future<void> _handleBet(ParsedIntent intent) async {
-    if (intent.marketId == null) {
-      if (_marketFlow.trading == MarketVenue.unset) {
-        _addSystemMessage('Which prediction market?', card: MarketVenuePickerRow(
-          onPick: (v) {
-            setState(() => _marketFlow.trading = v);
-            _handleBet(intent);
-          },
-        ));
-        return;
-      }
-      if (_marketFlow.trading == MarketVenue.polymarket) {
-        setState(() => _marketFlow.resetTrading());
-        _addSystemMessage(
-          'Polymarket uses a hex condition id (0x…), not a numeric market #.\n\n'
-          'Try find markets with Polymarket selected, then tap a row, or:\n'
-          'bet \$5 yes on polymarket 0x…',
-        );
-        return;
-      }
-      setState(() => _marketFlow.resetTrading());
-      _addSystemMessage('Please specify a Myriad market ID.\n\nExample: bet \$5 yes on market #27498');
-      return;
-    }
-
+    // Numeric market ids were the Myriad (BSC / USDT) flow; that venue is
+    // hidden as of 2026-05. Polymarket is now the only active venue and
+    // uses hex condition ids (0x…). Redirect users with a clear message
+    // instead of touching the deprecated Myriad backend.
     setState(() => _marketFlow.resetTrading());
-
-    if (intent.amount == null || intent.amount! <= 0) {
-      _pendingAmountIntent = intent;
-      _addSystemMessage('How much do you want to bet on market #${intent.marketId}?\n\nJust type an amount (e.g. \$5).');
-      return;
-    }
-
-    _addSystemMessage('Fetching market #${intent.marketId} details...', card: _loadingCard());
-    final market = await WalletService.instance.getMarketDetails(intent.marketId!);
-    setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
-    if (market == null) { _addSystemMessage('Could not fetch market #${intent.marketId}. It may not exist.'); return; }
-
-    final outcomes = (market['outcomes'] as List<dynamic>?) ?? [];
-    if (outcomes.isEmpty) { _addSystemMessage('Market #${intent.marketId} has no outcomes listed.'); return; }
-
-    final title = market['title'] ?? market['question'] ?? 'Market #${intent.marketId}';
-    final tokenInfo = market['token'] as Map<String, dynamic>?;
-    final tokenSymbol = tokenInfo?['symbol'] as String? ?? 'USDT';
-    final isBinary = outcomes.length == 2 && _isBinaryOutcome(outcomes[0]['title']?.toString() ?? '') && _isBinaryOutcome(outcomes[1]['title']?.toString() ?? '');
-
-    if (isBinary) {
-      if (intent.direction != null) {
-        final outcomeIdx = intent.direction == 'no' ? 1 : 0;
-        final o = outcomes[outcomeIdx];
-        _showBetConfirmation(marketId: intent.marketId!, marketTitle: title, amount: intent.amount!,
-            outcomeId: (o['outcome_id'] as num?)?.toInt() ?? outcomeIdx,
-            outcomeTitle: o['title']?.toString() ?? (outcomeIdx == 0 ? 'Yes' : 'No'), tokenSymbol: tokenSymbol);
-      } else {
-        _addSystemMessage('$title\n\nWhich direction?', card: _directionPicker(
-            marketId: intent.marketId!, marketTitle: title, amount: intent.amount!, outcomes: outcomes, tokenSymbol: tokenSymbol));
-      }
-    } else {
-      _addSystemMessage('$title\n\nPick an outcome:', card: _outcomePicker(
-          marketId: intent.marketId!, marketTitle: title, amount: intent.amount!, outcomes: outcomes, tokenSymbol: tokenSymbol),
-          intentType: IntentType.bet);
-    }
+    _addSystemMessage(
+      'Bets now go through Polymarket (Polygon / USDC). It uses hex condition ids (0x…).\n\n'
+      'Try `find markets`, tap a row to bet, or:\n'
+      'bet \$5 yes on polymarket 0x…',
+    );
   }
 
   Future<void> _handleBetPolymarket(ParsedIntent intent) async {
@@ -928,20 +852,7 @@ class _ActionPageState extends State<ActionPage> {
 
     final hasPolyId = intent.polymarketId != null && intent.polymarketId!.isNotEmpty;
     if (!hasPolyId) {
-      if (_marketFlow.trading == MarketVenue.unset) {
-        _addSystemMessage('Which prediction market?', card: MarketVenuePickerRow(
-          onPick: (v) {
-            setState(() => _marketFlow.trading = v);
-            _handleBetPolymarket(intent);
-          },
-        ));
-        return;
-      }
-      if (_marketFlow.trading == MarketVenue.myriad) {
-        setState(() => _marketFlow.resetTrading());
-        _addSystemMessage('For Myriad, use a numeric market id.\n\nExample: bet \$5 yes on market #27498');
-        return;
-      }
+      // Polymarket-only flow; no venue prompt needed.
       setState(() => _marketFlow.resetTrading());
       _addSystemMessage(
         'Specify a Polymarket condition id (0x…), or tap a market from search.\n\nExample: bet \$5 yes on polymarket 0x…',
@@ -1616,7 +1527,9 @@ class _ActionPageState extends State<ActionPage> {
           border: Border.all(color: ZipherColors.borderSubtle)),
       child: Column(children: markets.map((m) {
         final outcomes = (m['outcomes'] as List<dynamic>?) ?? [];
-        final provider = m['_provider'] as String? ?? 'myriad';
+        // Polymarket is the only active venue as of 2026-05; the Myriad
+        // branch below is dead but parsable in case we re-enable it.
+        final provider = m['_provider'] as String? ?? 'polymarket';
         final isPolymarket = provider == 'polymarket';
         final idLabel = isPolymarket ? (m['id']?.toString().substring(0, 8) ?? '?') : '#${m['id']}';
 
@@ -1630,15 +1543,24 @@ class _ActionPageState extends State<ActionPage> {
           child: Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                    decoration: BoxDecoration(
-                        color: isPolymarket ? const Color(0xFF6366F1).withValues(alpha: 0.15) : ZipherColors.cardBgElevated,
-                        borderRadius: BorderRadius.circular(3)),
-                    child: Text(isPolymarket ? 'PM' : 'MY',
-                        style: TextStyle(color: isPolymarket ? const Color(0xFF6366F1) : ZipherColors.text40,
-                            fontSize: 9, fontWeight: FontWeight.w700, fontFamily: 'JetBrains Mono')),
-                  ),
+                  // Venue logo — Polygon icon as the visual proxy for
+                  // Polymarket since Polymarket lives on Polygon. Swap
+                  // for a dedicated polymarket.png if/when we add one.
+                  if (isPolymarket)
+                    ClipOval(
+                      child: Image.asset('assets/chains/pol.png',
+                          width: 16, height: 16),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                          color: ZipherColors.cardBgElevated,
+                          borderRadius: BorderRadius.circular(3)),
+                      child: Text('MY',
+                          style: TextStyle(color: ZipherColors.text40,
+                              fontSize: 9, fontWeight: FontWeight.w700, fontFamily: 'JetBrains Mono')),
+                    ),
                   const Gap(6),
                   Text(idLabel, style: TextStyle(color: ZipherColors.text40, fontSize: 11, fontFamily: 'JetBrains Mono')),
                   const Gap(8),
@@ -1663,6 +1585,7 @@ class _ActionPageState extends State<ActionPage> {
     );
   }
 
+  // ignore: unused_element
   Widget _directionPicker({required int marketId, required String marketTitle, required double amount,
       required List<dynamic> outcomes, String tokenSymbol = 'USDT'}) {
     final yesPrice = ((outcomes[0]['price'] as num?)?.toDouble() ?? 0) * 100;
@@ -1694,6 +1617,7 @@ class _ActionPageState extends State<ActionPage> {
     ]));
   }
 
+  // ignore: unused_element
   Widget _outcomePicker({required int marketId, required String marketTitle, required double amount,
       required List<dynamic> outcomes, String tokenSymbol = 'USDT'}) {
     return Container(
@@ -1729,10 +1653,11 @@ class _ActionPageState extends State<ActionPage> {
       ('swap \$20 to USDT', 'Cross-chain swap (NEAR Intents)'),
       ('swap 1 POL to USDC.e on polygon', 'Same-chain EVM swap (ParaSwap)'),
       ('markets bitcoin', 'Search prediction markets'),
-      ('find promising markets', 'Discover opportunities'), ('bet \$5 yes on market #123', 'Myriad bet (BSC / USDT)'),
+      ('find promising markets', 'Discover opportunities'),
       ('bet \$5 yes on polymarket 0x…', 'Polymarket bet (Polygon / USDC)'),
-      ('my bets', 'View open positions'), ('sell market #123', 'Close a position'),
-      ('sweep', 'Convert BSC tokens back to ZEC'),
+      ('my bets', 'View open positions'),
+      ('sell market 0x…', 'Close a position'),
+      ('sweep', 'Convert EVM tokens back to ZEC'),
     ];
     return Container(
       margin: const EdgeInsets.only(top: 8), padding: const EdgeInsets.all(14),
@@ -1744,7 +1669,7 @@ class _ActionPageState extends State<ActionPage> {
           Expanded(child: Text(c.$2, style: TextStyle(color: ZipherColors.text40, fontSize: 12))),
         ]))),
         const Gap(10),
-        Text('Bets, portfolio, and sell ask Myriad vs Polymarket first — different chains and flows.',
+        Text('Prediction-market actions run on Polymarket (Polygon / USDC). ZEC is bridged automatically.',
             style: TextStyle(color: ZipherColors.text20, fontSize: 11)),
         const Gap(4),
         Text('Amounts default to USD. All irreversible actions require confirmation.',
