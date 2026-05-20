@@ -32,7 +32,6 @@ import 'pages/more/more.dart';
 import 'pages/more/sweep.dart';
 import 'pages/more/debug_log.dart';
 import 'pages/action/action.dart';
-import 'pages/agent/agent_wallet.dart';
 import 'pages/cipherpay/invoice_pay.dart';
 import 'pages/cipherpay/invoice_status.dart';
 import 'src/rust/api/engine_api.dart' as rust_engine;
@@ -275,10 +274,6 @@ final router = GoRouter(
                   GoRoute(
                     path: 'debug_log',
                     builder: (context, state) => const DebugLogPage(),
-                  ),
-                  GoRoute(
-                    path: 'agent',
-                    builder: (context, state) => const AgentWalletPage(),
                   ),
                   GoRoute(
                       path: 'about',
