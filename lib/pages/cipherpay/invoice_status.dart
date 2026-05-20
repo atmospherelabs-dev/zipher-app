@@ -229,11 +229,11 @@ class _PhaseDisplay extends StatelessWidget {
         spin = true;
         break;
       case 'detected':
-        icon = Icons.visibility_outlined;
-        color = ZipherColors.cyan;
-        title = 'Payment detected';
+        icon = Icons.check_circle_rounded;
+        color = ZipherColors.green;
+        title = 'Payment accepted';
         subtitle =
-            'CipherPay sees your transaction. We\'re waiting for the first confirmation.';
+            'CipherPay sees your transaction. The merchant can accept the checkout while Zcash confirms it.';
         spin = true;
         break;
       case 'confirmed':

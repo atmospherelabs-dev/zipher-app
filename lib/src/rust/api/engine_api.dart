@@ -7,8 +7,8 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'wallet.dart';
 
-// These functions are ignored because they are not marked as `pub`: `to_network`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`
+// These functions are ignored because they are not marked as `pub`: `packages_from_map`, `packages_to_map`, `to_network`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Create a new wallet. Returns the 24-word seed phrase.
 Future<String> engineCreateWallet(
@@ -240,6 +240,105 @@ Future<ProposalResult> engineProposeSend(
     RustLib.instance.api.crateApiEngineApiEngineProposeSend(
         address: address, amount: amount, memo: memo, isMax: isMax);
 
+/// Create a proved PCZT from the pending proposal.
+///
+/// This consumes the same pending proposal created by [`engine_propose_send`],
+/// but stops before signing so a hardware signer or FROST ceremony can add
+/// spend authorization signatures.
+Future<Uint8List> engineCreatePczt() =>
+    RustLib.instance.api.crateApiEngineApiEngineCreatePczt();
+
+/// Create a proved PCZT for transparent -> shielded funds.
+Future<Uint8List> engineCreateShieldPczt() =>
+    RustLib.instance.api.crateApiEngineApiEngineCreateShieldPczt();
+
+/// Store a fully signed PCZT back into the wallet DB and return the txid.
+Future<String> engineStoreSignedPczt({required List<int> signedPcztBytes}) =>
+    RustLib.instance.api.crateApiEngineApiEngineStoreSignedPczt(
+        signedPcztBytes: signedPcztBytes);
+
+Future<EngineFrostDkgRound1Result> engineFrostDkgInit(
+        {required int participantId,
+        required int maxSigners,
+        required int minSigners}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostDkgInit(
+        participantId: participantId,
+        maxSigners: maxSigners,
+        minSigners: minSigners);
+
+Future<EngineFrostDkgRound2Result> engineFrostDkgRound2(
+        {required String secretPackage,
+        required List<EngineFrostParticipantPackage> round1Packages}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostDkgRound2(
+        secretPackage: secretPackage, round1Packages: round1Packages);
+
+Future<EngineFrostDkgCompleteResult> engineFrostDkgRound3(
+        {required String secretPackage,
+        required List<EngineFrostParticipantPackage> round1Packages,
+        required List<EngineFrostParticipantPackage> round2Packages}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostDkgRound3(
+        secretPackage: secretPackage,
+        round1Packages: round1Packages,
+        round2Packages: round2Packages);
+
+Future<EngineFrostSigningRound1Result> engineFrostSignRound1(
+        {required String keyPackage}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineFrostSignRound1(keyPackage: keyPackage);
+
+Future<String> engineFrostCreateSigningPackage(
+        {required String messageHex,
+        required List<EngineFrostParticipantPackage> commitments}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostCreateSigningPackage(
+        messageHex: messageHex, commitments: commitments);
+
+Future<EngineFrostRandomizerResult> engineFrostCreateRandomizer(
+        {required String publicKeyPackage}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostCreateRandomizer(
+        publicKeyPackage: publicKeyPackage);
+
+Future<String> engineFrostSignRound2(
+        {required String signingPackage,
+        required String signingNonces,
+        required String keyPackage,
+        required String randomizerPointHex}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostSignRound2(
+        signingPackage: signingPackage,
+        signingNonces: signingNonces,
+        keyPackage: keyPackage,
+        randomizerPointHex: randomizerPointHex);
+
+Future<EngineFrostAggregateResult> engineFrostAggregate(
+        {required String signingPackage,
+        required List<EngineFrostParticipantPackage> signatureShares,
+        required String publicKeyPackage,
+        required String randomizerHex}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostAggregate(
+        signingPackage: signingPackage,
+        signatureShares: signatureShares,
+        publicKeyPackage: publicKeyPackage,
+        randomizerHex: randomizerHex);
+
+Future<EngineFrostPcztSigningRequest> engineFrostPcztSigningRequest(
+        {required List<int> pcztBytes}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineFrostPcztSigningRequest(pcztBytes: pcztBytes);
+
+Future<Uint8List> engineFrostPcztApplySignatures(
+        {required List<int> pcztBytes,
+        required List<EngineFrostActionSignature> orchardSignatures}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostPcztApplySignatures(
+        pcztBytes: pcztBytes, orchardSignatures: orchardSignatures);
+
+Future<String> engineFrostDeriveUfvk({required String groupPublicKeyHex}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostDeriveUfvk(
+        groupPublicKeyHex: groupPublicKeyHex);
+
+Future<String> engineFrostKeyRefresh(
+        {required String keyPackage, required int newSignerCount}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostKeyRefresh(
+        keyPackage: keyPackage, newSignerCount: newSignerCount);
+
 /// Step 2: Confirm and broadcast the previously proposed transaction.
 Future<String> engineConfirmSend({required String seedPhrase}) =>
     RustLib.instance.api
@@ -435,6 +534,240 @@ Future<EvmSwapExecuteResult> engineEvmSwapExecute(
 Future<EngineInvoice> engineCheckInvoice({required String idOrMemo}) =>
     RustLib.instance.api
         .crateApiEngineApiEngineCheckInvoice(idOrMemo: idOrMemo);
+
+class EngineFrostActionSignature {
+  final int actionIndex;
+  final String signatureHex;
+
+  const EngineFrostActionSignature({
+    required this.actionIndex,
+    required this.signatureHex,
+  });
+
+  @override
+  int get hashCode => actionIndex.hashCode ^ signatureHex.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostActionSignature &&
+          runtimeType == other.runtimeType &&
+          actionIndex == other.actionIndex &&
+          signatureHex == other.signatureHex;
+}
+
+class EngineFrostAggregateResult {
+  final String signatureHex;
+
+  const EngineFrostAggregateResult({
+    required this.signatureHex,
+  });
+
+  @override
+  int get hashCode => signatureHex.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostAggregateResult &&
+          runtimeType == other.runtimeType &&
+          signatureHex == other.signatureHex;
+}
+
+class EngineFrostDkgCompleteResult {
+  final int participantId;
+  final String keyPackage;
+  final String publicKeyPackage;
+  final String groupPublicKeyHex;
+
+  const EngineFrostDkgCompleteResult({
+    required this.participantId,
+    required this.keyPackage,
+    required this.publicKeyPackage,
+    required this.groupPublicKeyHex,
+  });
+
+  @override
+  int get hashCode =>
+      participantId.hashCode ^
+      keyPackage.hashCode ^
+      publicKeyPackage.hashCode ^
+      groupPublicKeyHex.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostDkgCompleteResult &&
+          runtimeType == other.runtimeType &&
+          participantId == other.participantId &&
+          keyPackage == other.keyPackage &&
+          publicKeyPackage == other.publicKeyPackage &&
+          groupPublicKeyHex == other.groupPublicKeyHex;
+}
+
+class EngineFrostDkgRound1Result {
+  final int participantId;
+  final String secretPackage;
+  final String round1Package;
+
+  const EngineFrostDkgRound1Result({
+    required this.participantId,
+    required this.secretPackage,
+    required this.round1Package,
+  });
+
+  @override
+  int get hashCode =>
+      participantId.hashCode ^ secretPackage.hashCode ^ round1Package.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostDkgRound1Result &&
+          runtimeType == other.runtimeType &&
+          participantId == other.participantId &&
+          secretPackage == other.secretPackage &&
+          round1Package == other.round1Package;
+}
+
+class EngineFrostDkgRound2Result {
+  final String secretPackage;
+  final List<EngineFrostParticipantPackage> round2Packages;
+
+  const EngineFrostDkgRound2Result({
+    required this.secretPackage,
+    required this.round2Packages,
+  });
+
+  @override
+  int get hashCode => secretPackage.hashCode ^ round2Packages.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostDkgRound2Result &&
+          runtimeType == other.runtimeType &&
+          secretPackage == other.secretPackage &&
+          round2Packages == other.round2Packages;
+}
+
+class EngineFrostParticipantPackage {
+  final int participantId;
+  final String package;
+
+  const EngineFrostParticipantPackage({
+    required this.participantId,
+    required this.package,
+  });
+
+  @override
+  int get hashCode => participantId.hashCode ^ package.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostParticipantPackage &&
+          runtimeType == other.runtimeType &&
+          participantId == other.participantId &&
+          package == other.package;
+}
+
+class EngineFrostPcztActionRequest {
+  final int actionIndex;
+  final String sighashHex;
+  final String randomizerHex;
+  final String randomizerPointHex;
+
+  const EngineFrostPcztActionRequest({
+    required this.actionIndex,
+    required this.sighashHex,
+    required this.randomizerHex,
+    required this.randomizerPointHex,
+  });
+
+  @override
+  int get hashCode =>
+      actionIndex.hashCode ^
+      sighashHex.hashCode ^
+      randomizerHex.hashCode ^
+      randomizerPointHex.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostPcztActionRequest &&
+          runtimeType == other.runtimeType &&
+          actionIndex == other.actionIndex &&
+          sighashHex == other.sighashHex &&
+          randomizerHex == other.randomizerHex &&
+          randomizerPointHex == other.randomizerPointHex;
+}
+
+class EngineFrostPcztSigningRequest {
+  final List<EngineFrostPcztActionRequest> orchardActions;
+
+  const EngineFrostPcztSigningRequest({
+    required this.orchardActions,
+  });
+
+  @override
+  int get hashCode => orchardActions.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostPcztSigningRequest &&
+          runtimeType == other.runtimeType &&
+          orchardActions == other.orchardActions;
+}
+
+class EngineFrostRandomizerResult {
+  final String randomizerHex;
+  final String randomizerPointHex;
+
+  const EngineFrostRandomizerResult({
+    required this.randomizerHex,
+    required this.randomizerPointHex,
+  });
+
+  @override
+  int get hashCode => randomizerHex.hashCode ^ randomizerPointHex.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostRandomizerResult &&
+          runtimeType == other.runtimeType &&
+          randomizerHex == other.randomizerHex &&
+          randomizerPointHex == other.randomizerPointHex;
+}
+
+class EngineFrostSigningRound1Result {
+  final int participantId;
+  final String signingNonces;
+  final String signingCommitments;
+
+  const EngineFrostSigningRound1Result({
+    required this.participantId,
+    required this.signingNonces,
+    required this.signingCommitments,
+  });
+
+  @override
+  int get hashCode =>
+      participantId.hashCode ^
+      signingNonces.hashCode ^
+      signingCommitments.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostSigningRound1Result &&
+          runtimeType == other.runtimeType &&
+          participantId == other.participantId &&
+          signingNonces == other.signingNonces &&
+          signingCommitments == other.signingCommitments;
+}
 
 /// A CipherPay invoice as the customer sees it.
 ///

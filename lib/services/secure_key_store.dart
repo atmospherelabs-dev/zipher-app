@@ -15,8 +15,7 @@ class SecureKeyStore {
     ),
   );
 
-  static String _seedKey(int coin, int accountId) =>
-      'seed_${coin}_$accountId';
+  static String _seedKey(int coin, int accountId) => 'seed_${coin}_$accountId';
 
   static String _indexKey(int coin, int accountId) =>
       'seed_index_${coin}_$accountId';
@@ -80,8 +79,7 @@ class SecureKeyStore {
 
   static String _walletSeedKey(String walletId) => 'seed_wallet_$walletId';
 
-  static Future<void> storeSeedForWallet(
-      String walletId, String seed) async {
+  static Future<void> storeSeedForWallet(String walletId, String seed) async {
     await _storage.write(key: _walletSeedKey(walletId), value: seed);
   }
 
@@ -106,6 +104,29 @@ class SecureKeyStore {
       _logger.e('Keystore probe failed for wallet $walletId: $e');
       return false;
     }
+  }
+
+  // ── FROST key-share storage (no seed phrase exists for threshold wallets) ──
+
+  static String _frostKeyPackageKey(String walletId) =>
+      'frost_key_package_$walletId';
+
+  static Future<void> storeFrostKeyPackage(
+      String walletId, String keyPackage) async {
+    await _storage.write(key: _frostKeyPackageKey(walletId), value: keyPackage);
+  }
+
+  static Future<String?> getFrostKeyPackage(String walletId) async {
+    try {
+      return await _storage.read(key: _frostKeyPackageKey(walletId));
+    } on PlatformException catch (e) {
+      _logger.e('Keystore read failed for FROST wallet $walletId: $e');
+      return null;
+    }
+  }
+
+  static Future<void> deleteFrostKeyPackage(String walletId) async {
+    await _storage.delete(key: _frostKeyPackageKey(walletId));
   }
 
   // ── DB encryption key ──

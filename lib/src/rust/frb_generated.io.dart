@@ -48,6 +48,46 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ChainType dco_decode_chain_type(dynamic raw);
 
   @protected
+  EngineFrostActionSignature dco_decode_engine_frost_action_signature(
+      dynamic raw);
+
+  @protected
+  EngineFrostAggregateResult dco_decode_engine_frost_aggregate_result(
+      dynamic raw);
+
+  @protected
+  EngineFrostDkgCompleteResult dco_decode_engine_frost_dkg_complete_result(
+      dynamic raw);
+
+  @protected
+  EngineFrostDkgRound1Result dco_decode_engine_frost_dkg_round_1_result(
+      dynamic raw);
+
+  @protected
+  EngineFrostDkgRound2Result dco_decode_engine_frost_dkg_round_2_result(
+      dynamic raw);
+
+  @protected
+  EngineFrostParticipantPackage dco_decode_engine_frost_participant_package(
+      dynamic raw);
+
+  @protected
+  EngineFrostPcztActionRequest dco_decode_engine_frost_pczt_action_request(
+      dynamic raw);
+
+  @protected
+  EngineFrostPcztSigningRequest dco_decode_engine_frost_pczt_signing_request(
+      dynamic raw);
+
+  @protected
+  EngineFrostRandomizerResult dco_decode_engine_frost_randomizer_result(
+      dynamic raw);
+
+  @protected
+  EngineFrostSigningRound1Result dco_decode_engine_frost_signing_round_1_result(
+      dynamic raw);
+
+  @protected
   EngineInvoice dco_decode_engine_invoice(dynamic raw);
 
   @protected
@@ -94,11 +134,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<AddressInfo> dco_decode_list_address_info(dynamic raw);
 
   @protected
+  List<EngineFrostActionSignature>
+      dco_decode_list_engine_frost_action_signature(dynamic raw);
+
+  @protected
+  List<EngineFrostParticipantPackage>
+      dco_decode_list_engine_frost_participant_package(dynamic raw);
+
+  @protected
+  List<EngineFrostPcztActionRequest>
+      dco_decode_list_engine_frost_pczt_action_request(dynamic raw);
+
+  @protected
   List<EngineTransactionRecord> dco_decode_list_engine_transaction_record(
       dynamic raw);
 
   @protected
   List<PaymentRecipient> dco_decode_list_payment_recipient(dynamic raw);
+
+  @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
 
   @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
@@ -135,6 +190,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TransactionRecord dco_decode_transaction_record(dynamic raw);
+
+  @protected
+  int dco_decode_u_16(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -181,6 +239,46 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ChainType sse_decode_chain_type(SseDeserializer deserializer);
+
+  @protected
+  EngineFrostActionSignature sse_decode_engine_frost_action_signature(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineFrostAggregateResult sse_decode_engine_frost_aggregate_result(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineFrostDkgCompleteResult sse_decode_engine_frost_dkg_complete_result(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineFrostDkgRound1Result sse_decode_engine_frost_dkg_round_1_result(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineFrostDkgRound2Result sse_decode_engine_frost_dkg_round_2_result(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineFrostParticipantPackage sse_decode_engine_frost_participant_package(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineFrostPcztActionRequest sse_decode_engine_frost_pczt_action_request(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineFrostPcztSigningRequest sse_decode_engine_frost_pczt_signing_request(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineFrostRandomizerResult sse_decode_engine_frost_randomizer_result(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineFrostSigningRound1Result sse_decode_engine_frost_signing_round_1_result(
+      SseDeserializer deserializer);
 
   @protected
   EngineInvoice sse_decode_engine_invoice(SseDeserializer deserializer);
@@ -234,12 +332,30 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<AddressInfo> sse_decode_list_address_info(SseDeserializer deserializer);
 
   @protected
+  List<EngineFrostActionSignature>
+      sse_decode_list_engine_frost_action_signature(
+          SseDeserializer deserializer);
+
+  @protected
+  List<EngineFrostParticipantPackage>
+      sse_decode_list_engine_frost_participant_package(
+          SseDeserializer deserializer);
+
+  @protected
+  List<EngineFrostPcztActionRequest>
+      sse_decode_list_engine_frost_pczt_action_request(
+          SseDeserializer deserializer);
+
+  @protected
   List<EngineTransactionRecord> sse_decode_list_engine_transaction_record(
       SseDeserializer deserializer);
 
   @protected
   List<PaymentRecipient> sse_decode_list_payment_recipient(
       SseDeserializer deserializer);
+
+  @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
 
   @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
@@ -279,6 +395,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TransactionRecord sse_decode_transaction_record(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_u_16(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -328,6 +447,46 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_chain_type(ChainType self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_action_signature(
+      EngineFrostActionSignature self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_aggregate_result(
+      EngineFrostAggregateResult self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_dkg_complete_result(
+      EngineFrostDkgCompleteResult self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_dkg_round_1_result(
+      EngineFrostDkgRound1Result self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_dkg_round_2_result(
+      EngineFrostDkgRound2Result self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_participant_package(
+      EngineFrostParticipantPackage self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_pczt_action_request(
+      EngineFrostPcztActionRequest self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_pczt_signing_request(
+      EngineFrostPcztSigningRequest self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_randomizer_result(
+      EngineFrostRandomizerResult self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_signing_round_1_result(
+      EngineFrostSigningRound1Result self, SseSerializer serializer);
 
   @protected
   void sse_encode_engine_invoice(EngineInvoice self, SseSerializer serializer);
@@ -383,12 +542,27 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<AddressInfo> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_engine_frost_action_signature(
+      List<EngineFrostActionSignature> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_engine_frost_participant_package(
+      List<EngineFrostParticipantPackage> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_engine_frost_pczt_action_request(
+      List<EngineFrostPcztActionRequest> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_engine_transaction_record(
       List<EngineTransactionRecord> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_payment_recipient(
       List<PaymentRecipient> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_prim_u_8_strict(
@@ -434,6 +608,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_transaction_record(
       TransactionRecord self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

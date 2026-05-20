@@ -1,0 +1,715 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:gap/gap.dart';
+import 'package:go_router/go_router.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+
+import '../../services/frost_service.dart';
+import '../../zipher_theme.dart';
+
+enum FrostSetupUseCase { personalRecovery, sharedBusiness, agentWallet }
+
+class FrostCreatePage extends StatefulWidget {
+  const FrostCreatePage({super.key});
+
+  @override
+  State<FrostCreatePage> createState() => _FrostCreatePageState();
+}
+
+class _FrostCreatePageState extends State<FrostCreatePage> {
+  FrostSetupUseCase _useCase = FrostSetupUseCase.personalRecovery;
+  int _threshold = 2;
+  int _participants = 3;
+  FrostInvite? _invite;
+  bool _thresholdLocked = false;
+
+  String get _label {
+    switch (_useCase) {
+      case FrostSetupUseCase.personalRecovery:
+        return 'Personal recovery wallet';
+      case FrostSetupUseCase.sharedBusiness:
+        return 'Shared business wallet';
+      case FrostSetupUseCase.agentWallet:
+        return 'Agent approval wallet';
+    }
+  }
+
+  void _createInvite() {
+    setState(() {
+      _invite = FrostService.instance.createInvite(
+        label: _label,
+        threshold: _threshold,
+        participants: _participants,
+      );
+    });
+  }
+
+  Future<void> _copyInvite() async {
+    final invite = _invite;
+    if (invite == null) return;
+    await Clipboard.setData(ClipboardData(text: invite.encode()));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content:
+            Text('Invite copied', style: TextStyle(color: ZipherColors.text90)),
+        backgroundColor: ZipherColors.surface,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final invite = _invite;
+    return Scaffold(
+      backgroundColor: ZipherColors.bg,
+      appBar: AppBar(
+        backgroundColor: ZipherColors.bg,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
+          onPressed: () => GoRouter.of(context).pop(),
+        ),
+        title: Text(
+          'Create shared wallet',
+          style: TextStyle(
+            color: ZipherColors.text90,
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
+          children: [
+            _Hero(),
+            const Gap(24),
+            _SectionTitle('1. Choose setup'),
+            const Gap(10),
+            _UseCasePicker(
+              selected: _useCase,
+              onChanged: (v) => setState(() {
+                _useCase = v;
+                _invite = null;
+                _thresholdLocked = false;
+              }),
+            ),
+            const Gap(22),
+            _SectionTitle('2. Choose threshold'),
+            const Gap(10),
+            _ThresholdCard(
+              threshold: _threshold,
+              participants: _participants,
+              locked: _thresholdLocked,
+              onChanged: (t, n) => setState(() {
+                _threshold = t;
+                _participants = n;
+                _invite = null;
+              }),
+            ),
+            const Gap(22),
+            _SectionTitle('3. Invite co-signers'),
+            const Gap(10),
+            if (invite == null)
+              _PrimaryButton(
+                label: 'Create invite',
+                icon: Icons.qr_code_2_rounded,
+                onTap: _createInvite,
+              )
+            else
+              _InviteCard(invite: invite, onCopy: _copyInvite),
+            const Gap(22),
+            _SectionTitle('4. Review roster'),
+            const Gap(10),
+            _RosterCard(
+              participants: [
+                const _ParticipantRow('You', 'Creator', true),
+                for (var i = 2; i <= _participants; i++)
+                  _ParticipantRow('Waiting for signer $i', 'Pending', false),
+              ],
+            ),
+            const Gap(22),
+            _SectionTitle('5. Lock threshold'),
+            const Gap(10),
+            _LockCard(
+              threshold: _threshold,
+              participants: _participants,
+              locked: _thresholdLocked,
+              enabled: invite != null,
+              onLock: () => setState(() => _thresholdLocked = true),
+            ),
+            const Gap(22),
+            _SectionTitle('6. Ceremony'),
+            const Gap(10),
+            _ProgressCard(
+              locked: _thresholdLocked,
+              steps: const [
+                'Participants',
+                'Create shares',
+                'Backup',
+                'Birthday',
+                'Ready',
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Hero extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.group_rounded, size: 22, color: ZipherColors.cyan),
+        const Gap(18),
+        Text(
+          'Shared wallet',
+          style: TextStyle(
+            color: ZipherColors.text90,
+            fontSize: 34,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.8,
+          ),
+        ),
+        const Gap(8),
+        Text(
+          'Create a wallet where spending requires multiple approvals. No single device ever holds the full spending key.',
+          style: TextStyle(
+            color: ZipherColors.text60,
+            fontSize: 14,
+            height: 1.45,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _UseCasePicker extends StatelessWidget {
+  final FrostSetupUseCase selected;
+  final ValueChanged<FrostSetupUseCase> onChanged;
+
+  const _UseCasePicker({required this.selected, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _ChoiceTile(
+          title: 'Personal recovery',
+          subtitle: 'Your phone, a backup share, and a recovery device.',
+          selected: selected == FrostSetupUseCase.personalRecovery,
+          onTap: () => onChanged(FrostSetupUseCase.personalRecovery),
+        ),
+        const Gap(8),
+        _ChoiceTile(
+          title: 'Shared business',
+          subtitle: 'A treasury that requires multiple people to approve.',
+          selected: selected == FrostSetupUseCase.sharedBusiness,
+          onTap: () => onChanged(FrostSetupUseCase.sharedBusiness),
+        ),
+        const Gap(8),
+        _ChoiceTile(
+          title: 'Agent wallet',
+          subtitle: 'Agent can propose, but your phone must co-sign.',
+          selected: selected == FrostSetupUseCase.agentWallet,
+          onTap: () => onChanged(FrostSetupUseCase.agentWallet),
+        ),
+      ],
+    );
+  }
+}
+
+class _ThresholdCard extends StatelessWidget {
+  final int threshold;
+  final int participants;
+  final bool locked;
+  final void Function(int threshold, int participants) onChanged;
+
+  const _ThresholdCard({
+    required this.threshold,
+    required this.participants,
+    required this.locked,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      child: Row(
+        children: [
+          Expanded(
+            child: _ThresholdChip(
+              label: '2 of 3',
+              selected: threshold == 2 && participants == 3,
+              locked: locked,
+              onTap: () => onChanged(2, 3),
+            ),
+          ),
+          const Gap(8),
+          Expanded(
+            child: _ThresholdChip(
+              label: '2 of 2',
+              selected: threshold == 2 && participants == 2,
+              locked: locked,
+              onTap: () => onChanged(2, 2),
+            ),
+          ),
+          const Gap(8),
+          Expanded(
+            child: _ThresholdChip(
+              label: '3 of 5',
+              selected: threshold == 3 && participants == 5,
+              locked: locked,
+              onTap: () => onChanged(3, 5),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InviteCard extends StatelessWidget {
+  final FrostInvite invite;
+  final VoidCallback onCopy;
+
+  const _InviteCard({required this.invite, required this.onCopy});
+
+  @override
+  Widget build(BuildContext context) {
+    final encoded = invite.encode();
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(ZipherRadius.md),
+            ),
+            child: QrImage(
+              data: encoded,
+              version: QrVersions.auto,
+              size: 210,
+            ),
+          ),
+          const Gap(14),
+          Text(
+            invite.label,
+            style: TextStyle(
+              color: ZipherColors.text90,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const Gap(4),
+          Text(
+            '${invite.threshold} of ${invite.participants} • ${invite.relay}',
+            style: TextStyle(color: ZipherColors.text40, fontSize: 12),
+            overflow: TextOverflow.ellipsis,
+          ),
+          const Gap(12),
+          _SecondaryButton(
+            label: 'Copy invite',
+            icon: Icons.copy_rounded,
+            onTap: onCopy,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RosterCard extends StatelessWidget {
+  final List<_ParticipantRow> participants;
+  const _RosterCard({required this.participants});
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      child: Column(
+        children: [
+          for (var i = 0; i < participants.length; i++) ...[
+            participants[i],
+            if (i != participants.length - 1)
+              Divider(height: 22, color: ZipherColors.borderSubtle),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ParticipantRow extends StatelessWidget {
+  final String name;
+  final String role;
+  final bool active;
+
+  const _ParticipantRow(this.name, this.role, this.active);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          active ? Icons.account_circle_rounded : Icons.hourglass_empty_rounded,
+          size: 18,
+          color: active ? ZipherColors.cyan : ZipherColors.text20,
+        ),
+        const Gap(10),
+        Expanded(
+          child: Text(
+            name,
+            style: TextStyle(color: ZipherColors.text90, fontSize: 14),
+          ),
+        ),
+        Text(
+          role,
+          style: TextStyle(color: ZipherColors.text40, fontSize: 12),
+        ),
+      ],
+    );
+  }
+}
+
+class _LockCard extends StatelessWidget {
+  final int threshold;
+  final int participants;
+  final bool locked;
+  final bool enabled;
+  final VoidCallback onLock;
+
+  const _LockCard({
+    required this.threshold,
+    required this.participants,
+    required this.locked,
+    required this.enabled,
+    required this.onLock,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            locked
+                ? 'Threshold locked: $threshold of $participants'
+                : 'Review participants before locking. After this, DKG starts and the roster cannot change.',
+            style: TextStyle(
+              color: locked ? ZipherColors.green : ZipherColors.text60,
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+          const Gap(12),
+          _PrimaryButton(
+            label: locked ? 'Locked' : 'Lock threshold',
+            icon: locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+            onTap: enabled && !locked ? onLock : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProgressCard extends StatelessWidget {
+  final bool locked;
+  final List<String> steps;
+
+  const _ProgressCard({required this.locked, required this.steps});
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      child: Column(
+        children: [
+          for (var i = 0; i < steps.length; i++)
+            Padding(
+              padding: EdgeInsets.only(bottom: i == steps.length - 1 ? 0 : 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: locked && i == 0
+                          ? ZipherColors.cyan.withValues(alpha: 0.12)
+                          : ZipherColors.cardBgElevated,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      locked && i == 0
+                          ? Icons.play_arrow_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      size: 14,
+                      color: locked && i == 0
+                          ? ZipherColors.cyan
+                          : ZipherColors.text20,
+                    ),
+                  ),
+                  const Gap(10),
+                  Text(
+                    steps[i],
+                    style: TextStyle(
+                      color: locked && i == 0
+                          ? ZipherColors.text90
+                          : ZipherColors.text40,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChoiceTile extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ChoiceTile({
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: _Card(
+        selected: selected,
+        child: Row(
+          children: [
+            Icon(
+              selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+              color: selected ? ZipherColors.cyan : ZipherColors.text20,
+              size: 20,
+            ),
+            const Gap(12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: ZipherColors.text90,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Gap(3),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: ZipherColors.text40,
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ThresholdChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final bool locked;
+  final VoidCallback onTap;
+
+  const _ThresholdChip({
+    required this.label,
+    required this.selected,
+    required this.locked,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: locked ? null : onTap,
+      child: Container(
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected
+              ? ZipherColors.cyan.withValues(alpha: 0.12)
+              : ZipherColors.cardBgElevated,
+          borderRadius: BorderRadius.circular(ZipherRadius.full),
+          border: Border.all(
+            color: selected
+                ? ZipherColors.cyan.withValues(alpha: 0.25)
+                : ZipherColors.borderSubtle,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? ZipherColors.cyan : ZipherColors.text60,
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PrimaryButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  const _PrimaryButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 52,
+        decoration: BoxDecoration(
+          color: onTap == null
+              ? ZipherColors.cardBgElevated
+              : ZipherColors.cyan.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(ZipherRadius.md),
+          border: Border.all(
+            color: onTap == null
+                ? ZipherColors.borderSubtle
+                : ZipherColors.cyan.withValues(alpha: 0.28),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon,
+                size: 18,
+                color: onTap == null ? ZipherColors.text20 : ZipherColors.cyan),
+            const Gap(8),
+            Text(
+              label,
+              style: TextStyle(
+                color: onTap == null ? ZipherColors.text20 : ZipherColors.cyan,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SecondaryButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _SecondaryButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 44,
+        decoration: BoxDecoration(
+          color: ZipherColors.cardBgElevated,
+          borderRadius: BorderRadius.circular(ZipherRadius.md),
+          border: Border.all(color: ZipherColors.borderSubtle),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 16, color: ZipherColors.text60),
+            const Gap(8),
+            Text(
+              label,
+              style: TextStyle(
+                color: ZipherColors.text90,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String text;
+  const _SectionTitle(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: TextStyle(
+        color: ZipherColors.text60,
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.3,
+      ),
+    );
+  }
+}
+
+class _Card extends StatelessWidget {
+  final Widget child;
+  final bool selected;
+
+  const _Card({required this.child, this.selected = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: selected
+            ? ZipherColors.cyan.withValues(alpha: 0.06)
+            : ZipherColors.cardBg,
+        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+        border: Border.all(
+          color: selected
+              ? ZipherColors.cyan.withValues(alpha: 0.18)
+              : ZipherColors.borderSubtle,
+        ),
+      ),
+      child: child,
+    );
+  }
+}

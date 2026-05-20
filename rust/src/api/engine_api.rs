@@ -1,6 +1,7 @@
 //! FFI bindings for the Zipher wallet engine built on zcash_client_backend.
 
 use anyhow::Result;
+use std::collections::BTreeMap;
 use zcash_protocol::consensus::Network;
 
 use super::wallet::{AddressInfo, AddressValidation, ChainType, WalletBalance};
@@ -526,6 +527,281 @@ pub struct ProposalResult {
     pub send_amount: u64,
     pub fee: u64,
     pub is_exact: bool,
+}
+
+/// Create a proved PCZT from the pending proposal.
+///
+/// This consumes the same pending proposal created by [`engine_propose_send`],
+/// but stops before signing so a hardware signer or FROST ceremony can add
+/// spend authorization signatures.
+pub async fn engine_create_pczt() -> Result<Vec<u8>> {
+    engine::send::create_pczt().await
+}
+
+/// Create a proved PCZT for transparent -> shielded funds.
+pub async fn engine_create_shield_pczt() -> Result<Vec<u8>> {
+    engine::send::create_shield_pczt().await
+}
+
+/// Store a fully signed PCZT back into the wallet DB and return the txid.
+pub async fn engine_store_signed_pczt(signed_pczt_bytes: Vec<u8>) -> Result<String> {
+    engine::send::store_signed_pczt(&signed_pczt_bytes).await
+}
+
+// ---------------------------------------------------------------------------
+// FROST threshold signing
+// ---------------------------------------------------------------------------
+
+pub struct EngineFrostDkgRound1Result {
+    pub participant_id: u16,
+    pub secret_package: String,
+    pub round1_package: String,
+}
+
+impl From<zipher_engine::frost::FrostDkgRound1Result> for EngineFrostDkgRound1Result {
+    fn from(v: zipher_engine::frost::FrostDkgRound1Result) -> Self {
+        Self {
+            participant_id: v.participant_id,
+            secret_package: v.secret_package,
+            round1_package: v.round1_package,
+        }
+    }
+}
+
+pub struct EngineFrostParticipantPackage {
+    pub participant_id: u16,
+    pub package: String,
+}
+
+fn packages_to_map(packages: Vec<EngineFrostParticipantPackage>) -> BTreeMap<u16, String> {
+    packages
+        .into_iter()
+        .map(|p| (p.participant_id, p.package))
+        .collect()
+}
+
+fn packages_from_map(map: BTreeMap<u16, String>) -> Vec<EngineFrostParticipantPackage> {
+    map.into_iter()
+        .map(|(participant_id, package)| EngineFrostParticipantPackage {
+            participant_id,
+            package,
+        })
+        .collect()
+}
+
+pub struct EngineFrostDkgRound2Result {
+    pub secret_package: String,
+    pub round2_packages: Vec<EngineFrostParticipantPackage>,
+}
+
+impl From<zipher_engine::frost::FrostDkgRound2Result> for EngineFrostDkgRound2Result {
+    fn from(v: zipher_engine::frost::FrostDkgRound2Result) -> Self {
+        Self {
+            secret_package: v.secret_package,
+            round2_packages: packages_from_map(v.round2_packages),
+        }
+    }
+}
+
+pub struct EngineFrostDkgCompleteResult {
+    pub participant_id: u16,
+    pub key_package: String,
+    pub public_key_package: String,
+    pub group_public_key_hex: String,
+}
+
+impl From<zipher_engine::frost::FrostDkgCompleteResult> for EngineFrostDkgCompleteResult {
+    fn from(v: zipher_engine::frost::FrostDkgCompleteResult) -> Self {
+        Self {
+            participant_id: v.participant_id,
+            key_package: v.key_package,
+            public_key_package: v.public_key_package,
+            group_public_key_hex: v.group_public_key_hex,
+        }
+    }
+}
+
+pub struct EngineFrostSigningRound1Result {
+    pub participant_id: u16,
+    pub signing_nonces: String,
+    pub signing_commitments: String,
+}
+
+impl From<zipher_engine::frost::FrostSigningRound1Result> for EngineFrostSigningRound1Result {
+    fn from(v: zipher_engine::frost::FrostSigningRound1Result) -> Self {
+        Self {
+            participant_id: v.participant_id,
+            signing_nonces: v.signing_nonces,
+            signing_commitments: v.signing_commitments,
+        }
+    }
+}
+
+pub struct EngineFrostRandomizerResult {
+    pub randomizer_hex: String,
+    pub randomizer_point_hex: String,
+}
+
+impl From<zipher_engine::frost::FrostRandomizerResult> for EngineFrostRandomizerResult {
+    fn from(v: zipher_engine::frost::FrostRandomizerResult) -> Self {
+        Self {
+            randomizer_hex: v.randomizer_hex,
+            randomizer_point_hex: v.randomizer_point_hex,
+        }
+    }
+}
+
+pub struct EngineFrostAggregateResult {
+    pub signature_hex: String,
+}
+
+impl From<zipher_engine::frost::FrostAggregateResult> for EngineFrostAggregateResult {
+    fn from(v: zipher_engine::frost::FrostAggregateResult) -> Self {
+        Self {
+            signature_hex: v.signature_hex,
+        }
+    }
+}
+
+pub struct EngineFrostPcztActionRequest {
+    pub action_index: u32,
+    pub sighash_hex: String,
+    pub randomizer_hex: String,
+    pub randomizer_point_hex: String,
+}
+
+pub struct EngineFrostPcztSigningRequest {
+    pub orchard_actions: Vec<EngineFrostPcztActionRequest>,
+}
+
+impl From<zipher_engine::frost::FrostPcztSigningRequest> for EngineFrostPcztSigningRequest {
+    fn from(v: zipher_engine::frost::FrostPcztSigningRequest) -> Self {
+        Self {
+            orchard_actions: v
+                .orchard_actions
+                .into_iter()
+                .map(|a| EngineFrostPcztActionRequest {
+                    action_index: a.action_index as u32,
+                    sighash_hex: a.sighash_hex,
+                    randomizer_hex: a.randomizer_hex,
+                    randomizer_point_hex: a.randomizer_point_hex,
+                })
+                .collect(),
+        }
+    }
+}
+
+pub struct EngineFrostActionSignature {
+    pub action_index: u32,
+    pub signature_hex: String,
+}
+
+pub fn engine_frost_dkg_init(
+    participant_id: u16,
+    max_signers: u16,
+    min_signers: u16,
+) -> Result<EngineFrostDkgRound1Result> {
+    Ok(zipher_engine::frost::frost_dkg_init(
+        participant_id,
+        max_signers,
+        min_signers,
+    )?
+    .into())
+}
+
+pub fn engine_frost_dkg_round2(
+    secret_package: String,
+    round1_packages: Vec<EngineFrostParticipantPackage>,
+) -> Result<EngineFrostDkgRound2Result> {
+    Ok(zipher_engine::frost::frost_dkg_round2(
+        secret_package,
+        packages_to_map(round1_packages),
+    )?
+    .into())
+}
+
+pub fn engine_frost_dkg_round3(
+    secret_package: String,
+    round1_packages: Vec<EngineFrostParticipantPackage>,
+    round2_packages: Vec<EngineFrostParticipantPackage>,
+) -> Result<EngineFrostDkgCompleteResult> {
+    Ok(zipher_engine::frost::frost_dkg_round3(
+        secret_package,
+        packages_to_map(round1_packages),
+        packages_to_map(round2_packages),
+    )?
+    .into())
+}
+
+pub fn engine_frost_sign_round1(key_package: String) -> Result<EngineFrostSigningRound1Result> {
+    Ok(zipher_engine::frost::frost_sign_round1(key_package)?.into())
+}
+
+pub fn engine_frost_create_signing_package(
+    message_hex: String,
+    commitments: Vec<EngineFrostParticipantPackage>,
+) -> Result<String> {
+    zipher_engine::frost::frost_create_signing_package(message_hex, packages_to_map(commitments))
+}
+
+pub fn engine_frost_create_randomizer(
+    public_key_package: String,
+) -> Result<EngineFrostRandomizerResult> {
+    Ok(zipher_engine::frost::frost_create_randomizer(public_key_package)?.into())
+}
+
+pub fn engine_frost_sign_round2(
+    signing_package: String,
+    signing_nonces: String,
+    key_package: String,
+    randomizer_point_hex: String,
+) -> Result<String> {
+    zipher_engine::frost::frost_sign_round2(
+        signing_package,
+        signing_nonces,
+        key_package,
+        randomizer_point_hex,
+    )
+}
+
+pub fn engine_frost_aggregate(
+    signing_package: String,
+    signature_shares: Vec<EngineFrostParticipantPackage>,
+    public_key_package: String,
+    randomizer_hex: String,
+) -> Result<EngineFrostAggregateResult> {
+    Ok(zipher_engine::frost::frost_aggregate(
+        signing_package,
+        packages_to_map(signature_shares),
+        public_key_package,
+        randomizer_hex,
+    )?
+    .into())
+}
+
+pub fn engine_frost_pczt_signing_request(
+    pczt_bytes: Vec<u8>,
+) -> Result<EngineFrostPcztSigningRequest> {
+    Ok(zipher_engine::frost::frost_pczt_signing_request(pczt_bytes)?.into())
+}
+
+pub fn engine_frost_pczt_apply_signatures(
+    pczt_bytes: Vec<u8>,
+    orchard_signatures: Vec<EngineFrostActionSignature>,
+) -> Result<Vec<u8>> {
+    let signatures = orchard_signatures
+        .into_iter()
+        .map(|s| (s.action_index as usize, s.signature_hex))
+        .collect();
+    zipher_engine::frost::frost_pczt_apply_signatures(pczt_bytes, signatures)
+}
+
+pub fn engine_frost_derive_ufvk(group_public_key_hex: String) -> Result<String> {
+    zipher_engine::frost::frost_derive_ufvk(group_public_key_hex)
+}
+
+pub fn engine_frost_key_refresh(key_package: String, new_signer_count: u16) -> Result<String> {
+    zipher_engine::frost::frost_key_refresh(key_package, new_signer_count)
 }
 
 /// Step 2: Confirm and broadcast the previously proposed transaction.

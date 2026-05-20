@@ -1,0 +1,21 @@
+[Unit]
+Description=ZF FROST relay server for Zipher threshold wallets
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=frostd
+Group=frostd
+WorkingDirectory=/var/lib/frostd
+ExecStart=/usr/local/bin/frostd --no-tls-very-insecure --listen 127.0.0.1:2744
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/frostd
+
+[Install]
+WantedBy=multi-user.target

@@ -724,6 +724,98 @@ fn propose_and_create_shielding(
     .map_err(|e| anyhow::anyhow!("Create shielding tx failed: {:?}", e))
 }
 
+/// Create a proved PCZT for transparent -> shielded funds.
+///
+/// This is the FROST/hardware-friendly shielding path: it builds the SDK
+/// shielding proposal and then runs the same Creator + Prover PCZT roles used
+/// by normal sends, without reading any seed material.
+pub async fn create_shield_pczt() -> Result<Vec<u8>> {
+    let engine_guard = ENGINE.lock().await;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
+
+    let db_data_path = engine.db_data_path.clone();
+    let params = engine.params;
+    let db_cipher_key = engine.db_cipher_key.clone();
+    drop(engine_guard);
+
+    let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
+    check_pczt_lock(&db_data_path)?;
+
+    let account_id = db_data
+        .get_account_ids()
+        .map_err(|e| anyhow::anyhow!("get_account_ids: {:?}", e))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No accounts in wallet"))?;
+
+    let receivers = db_data
+        .get_transparent_receivers(account_id, true, true)
+        .map_err(|e| anyhow::anyhow!("get_transparent_receivers: {:?}", e))?;
+    let from_addrs: Vec<zcash_transparent::address::TransparentAddress> =
+        receivers.into_keys().collect();
+
+    if from_addrs.is_empty() {
+        return Err(anyhow::anyhow!("No transparent receivers found"));
+    }
+
+    let change_strategy = zcash_client_backend::fees::zip317::SingleOutputChangeStrategy::new(
+        StandardFeeRule::Zip317,
+        None,
+        ShieldedProtocol::Orchard,
+        zcash_client_backend::fees::DustOutputPolicy::default(),
+    );
+    let greedy =
+        zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelector::new();
+
+    let proposal = propose_shielding::<_, _, _, _, std::convert::Infallible>(
+        &mut db_data,
+        &params,
+        &greedy,
+        &change_strategy,
+        Zatoshis::from_u64(100_000).unwrap(),
+        &from_addrs,
+        account_id,
+        ConfirmationsPolicy::MIN,
+    )
+    .map_err(|e| anyhow::anyhow!("Shielding proposal failed: {:?}", e))?;
+
+    let pczt = create_pczt_from_proposal::<
+        _,
+        _,
+        std::convert::Infallible,
+        _,
+        std::convert::Infallible,
+        _,
+    >(
+        &mut db_data,
+        &params,
+        account_id,
+        OvkPolicy::Sender,
+        &proposal,
+    )
+    .map_err(|e| anyhow::anyhow!("Shield PCZT creation failed: {:?}", e))?;
+
+    let tx_prover = load_prover_from_path(&db_data_path)?;
+    let mut prover = pczt::roles::prover::Prover::new(pczt);
+    if prover.requires_sapling_proofs() {
+        prover = prover
+            .create_sapling_proofs(&tx_prover, &tx_prover)
+            .map_err(|e| anyhow::anyhow!("Sapling proving failed: {:?}", e))?;
+    }
+    if prover.requires_orchard_proof() {
+        let orchard_pk = orchard::circuit::ProvingKey::build();
+        prover = prover
+            .create_orchard_proof(&orchard_pk)
+            .map_err(|e| anyhow::anyhow!("Orchard proving failed: {:?}", e))?;
+    }
+    let proved_pczt = prover.finish();
+    let bytes = proved_pczt.serialize();
+    set_pczt_lock(&db_data_path);
+    Ok(bytes)
+}
+
 fn load_prover_from_path(db_data_path: &Path) -> Result<LocalTxProver> {
     let wallet_dir = db_data_path
         .parent()

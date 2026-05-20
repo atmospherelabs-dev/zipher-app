@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
@@ -15,6 +16,7 @@ import '../src/rust/api/engine_api.dart' as rust_engine;
 import '../src/rust/frb_generated.dart';
 import 'wallet_registry.dart';
 import 'secure_key_store.dart';
+import 'frost_service.dart';
 import 'market_venue.dart' show polymarketGammaMarketPassesQuality;
 
 final _log = createLogger();
@@ -888,8 +890,33 @@ class WalletService {
 
   /// Step 2: Confirm and broadcast the previously proposed transaction.
   Future<String> confirmSend() async {
+    if (await isActiveFrostWallet()) {
+      throw Exception(
+        'This is a shared wallet. Use the FROST approval flow so co-signers can review and approve the transaction.',
+      );
+    }
     final seed = await _getSeedForSend();
     return rust_engine.engineConfirmSend(seedPhrase: seed);
+  }
+
+  Future<bool> isActiveFrostWallet() async {
+    final id = _activeWalletId;
+    if (id == null) return false;
+    final key = _networkSeedKey(id);
+    return FrostService.instance.loadMetadata(key).then((m) => m != null);
+  }
+
+  /// Converts the pending send proposal into a proved PCZT and returns the
+  /// FROST signing request. This path does not read seed material.
+  Future<FrostPcztSigningBundle> prepareFrostSendForApproval() async {
+    if (!await isActiveFrostWallet()) {
+      throw Exception('Active wallet is not a FROST shared wallet');
+    }
+    return FrostService.instance.createPcztSigningRequest();
+  }
+
+  Future<String> storeFrostSignedPczt(Uint8List signedPczt) {
+    return FrostService.instance.storeSignedPczt(signedPczt);
   }
 
   Future<String> send(List<rust_wallet.PaymentRecipient> recipients) async {
@@ -921,10 +948,24 @@ class WalletService {
   Future<String> shieldFunds() async {
     _checkBusy();
     if (useNewEngine) {
+      if (await isActiveFrostWallet()) {
+        throw Exception(
+          'This is a shared wallet. Use the FROST shield approval flow so co-signers can review and approve shielding.',
+        );
+      }
       final seed = await _getSeedForSend();
       return rust_engine.engineShieldFunds(seedPhrase: seed);
     }
     return rust_wallet.shieldFunds();
+  }
+
+  /// Converts the pending transparent -> shielded flow into a proved PCZT for
+  /// threshold approval. This path does not read seed material.
+  Future<FrostPcztSigningBundle> prepareFrostShieldForApproval() async {
+    if (!await isActiveFrostWallet()) {
+      throw Exception('Active wallet is not a FROST shared wallet');
+    }
+    return FrostService.instance.createShieldPcztSigningRequest();
   }
 
   Future<String> _getSeedForSend() async {

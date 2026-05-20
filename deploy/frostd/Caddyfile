@@ -1,0 +1,13 @@
+frost.atmospherelabs.dev {
+  # Privacy: do not write access logs for FROST coordination sessions.
+  log {
+    output discard
+  }
+
+  # frostd clients authenticate and E2E-encrypt payloads themselves. Caddy only
+  # terminates TLS and proxies to localhost.
+  reverse_proxy 127.0.0.1:2744 {
+    header_up -X-Forwarded-For
+    header_up -X-Real-IP
+  }
+}

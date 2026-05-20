@@ -35,6 +35,10 @@ import 'pages/more/debug_log.dart';
 import 'pages/action/action.dart';
 import 'pages/cipherpay/invoice_pay.dart';
 import 'pages/cipherpay/invoice_status.dart';
+import 'pages/frost/frost_create.dart';
+import 'pages/frost/frost_join.dart';
+import 'pages/frost/frost_approve.dart';
+import 'pages/frost/frost_recovery.dart';
 import 'services/cipherpay_client.dart';
 import 'pages/tx.dart';
 import 'pages/scan.dart';
@@ -378,6 +382,25 @@ final router = GoRouter(
       path: '/invoice/status',
       builder: (context, state) =>
           InvoiceStatusPage(args: state.extra as InvoiceStatusArgs),
+    ),
+    GoRoute(
+      path: '/wallet/create/frost',
+      builder: (context, state) => const FrostCreatePage(),
+    ),
+    GoRoute(
+      path: '/wallet/join',
+      builder: (context, state) => const FrostJoinPage(),
+    ),
+    GoRoute(
+      path: '/frost/approve',
+      builder: (context, state) =>
+          FrostApprovePage(args: state.extra as FrostApprovalArgs),
+    ),
+    GoRoute(
+      path: '/frost/recovery',
+      builder: (context, state) => FrostRecoveryPage(
+        walletId: state.uri.queryParameters['walletId'] ?? '',
+      ),
     ),
   ],
 );

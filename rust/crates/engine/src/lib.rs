@@ -3,6 +3,7 @@ pub mod cipherpay;
 pub mod evm;
 pub mod evm_pay;
 pub mod evm_swap;
+pub mod frost;
 pub mod llm;
 pub mod mpp;
 pub mod ows;

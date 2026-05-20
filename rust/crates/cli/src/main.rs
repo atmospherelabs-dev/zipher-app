@@ -6,6 +6,7 @@ use zcash_protocol::consensus::Network;
 mod benchmark;
 mod daemon;
 mod evm_swap;
+mod frost;
 mod helpers;
 mod market;
 mod payment;
@@ -133,6 +134,10 @@ enum Commands {
     /// Polymarket discovery via Gamma API (read-only; no wallet)
     #[command(subcommand)]
     Polymarket(PolymarketCmd),
+
+    /// FROST threshold wallet utilities
+    #[command(subcommand)]
+    Frost(FrostCmd),
 
     /// Start a paid HTTP API server (x402 pay-per-call)
     Serve {
@@ -567,6 +572,12 @@ enum X402Cmd {
     },
 }
 
+#[derive(Subcommand)]
+enum FrostCmd {
+    /// Run a local 2-of-3 DKG + signing + aggregate self-test
+    SelfTest,
+}
+
 // ---------------------------------------------------------------------------
 // JSON output helpers
 // ---------------------------------------------------------------------------
@@ -840,6 +851,9 @@ async fn main() {
             } => {
                 market::cmd_polymarket_full_bet(&cfg, token_id, amount, price, side, neg_risk).await
             }
+        },
+        Commands::Frost(sub) => match sub {
+            FrostCmd::SelfTest => frost::cmd_frost_self_test(&cfg).await,
         },
         Commands::Serve {
             port,
