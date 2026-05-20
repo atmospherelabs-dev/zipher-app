@@ -5,6 +5,7 @@ import 'package:gap/gap.dart';
 
 import '../../../zipher_theme.dart';
 import '../../../services/action_executor.dart';
+import '../../utils.dart';
 import '../models.dart';
 
 class SweepConfirmation extends StatefulWidget {
@@ -46,6 +47,16 @@ class _SweepConfirmationState extends State<SweepConfirmation> {
   Future<void> _startSweep() async {
     final toSweep = widget.tokens.where((t) => _selected.contains(t.symbol)).toList();
     if (toSweep.isEmpty) return;
+
+    final summary = toSweep.length == 1
+        ? 'Sweep ${toSweep.first.symbol} back to shielded ZEC'
+        : 'Sweep ${toSweep.length} EVM tokens back to shielded ZEC';
+    final authed = await requireSigningAuthorization(
+      context,
+      actionSummary: summary,
+    );
+    if (!authed) return;
+    if (!mounted) return;
 
     setState(() { _executing = true; });
 

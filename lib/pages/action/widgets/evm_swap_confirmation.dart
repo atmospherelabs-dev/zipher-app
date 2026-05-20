@@ -8,6 +8,7 @@ import '../../../services/secure_key_store.dart';
 import '../../../services/wallet_service.dart';
 import '../../../src/rust/api/engine_api.dart' as rust_engine;
 import '../../../coin/coins.dart' show isTestnet;
+import '../../utils.dart';
 
 class EvmSwapConfirmation extends StatefulWidget {
   final String fromToken;
@@ -106,6 +107,13 @@ class _EvmSwapConfirmationState extends State<EvmSwapConfirmation> {
 
   Future<void> _executeSwap() async {
     if (_executing) return;
+    final authed = await requireSigningAuthorization(
+      context,
+      actionSummary:
+          'Swap ${widget.amount} ${widget.fromToken} → ${widget.toToken} on ${widget.chain.name}',
+    );
+    if (!authed) return;
+    if (!mounted) return;
     setState(() {
       _executing = true;
       _confirmed = true;

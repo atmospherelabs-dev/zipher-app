@@ -178,9 +178,14 @@ class WalletService {
     _walletOpen = true;
     _activeWalletId = profile.id;
     await registry.setActive(profile.id);
-    // Store seed for both networks so the wallet is available after toggling.
-    await SecureKeyStore.storeSeedForWallet(profile.id, seed);
-    await SecureKeyStore.storeSeedForWallet('${profile.id}_testnet', seed);
+    // Store seed ONLY for the network the user is creating on. The
+    // previous version also copied to `${profile.id}_testnet`, which
+    // meant a mainnet seed was silently reused on testnet — risky given
+    // testnet workflows (faucets, screenshots, debug logs) have weaker
+    // hygiene. When the user toggles to the other network, they'll get
+    // an explicit prompt to create or restore a separate wallet.
+    // Audit finding H4 (2026-05-18).
+    await SecureKeyStore.storeSeedForWallet(_networkSeedKey(profile.id), seed);
     await _applyFileProtection(dir);
     if (!useNewEngine) await rust_wallet.startSaveTask();
     _log.i('[WS] createNewWallet complete');
@@ -223,10 +228,10 @@ class WalletService {
     _walletOpen = true;
     _activeWalletId = profile.id;
     await registry.setActive(profile.id);
-    // Store seed for both networks so the wallet is available after toggling.
-    await SecureKeyStore.storeSeedForWallet(profile.id, seedPhrase);
+    // Store seed ONLY for the network the user is restoring on. See the
+    // mirror comment in createNewWallet for rationale.
     await SecureKeyStore.storeSeedForWallet(
-        '${profile.id}_testnet', seedPhrase);
+        _networkSeedKey(profile.id), seedPhrase);
     await _applyFileProtection(dir);
     if (!useNewEngine) await rust_wallet.startSaveTask();
     _log.i('[WS] restoreWallet complete');
@@ -368,8 +373,13 @@ class WalletService {
     await _deleteDirectory(mainDir);
     await _deleteDirectory(testDir);
 
-    // Remove seed from secure storage
+    // Remove seed from secure storage. We have to delete BOTH the mainnet
+    // key (`walletId`) AND the testnet key (`${walletId}_testnet`); they
+    // are stored separately, and the previous version only cleared the
+    // mainnet entry which left testnet seed material behind after a
+    // user deleted the wallet. Audit finding H5 (2026-05-18).
     await SecureKeyStore.deleteSeedForWallet(walletId);
+    await SecureKeyStore.deleteSeedForWallet('${walletId}_testnet');
 
     // Remove from registry
     await WalletRegistry.instance.delete(walletId);
@@ -590,6 +600,34 @@ class WalletService {
   /// so the two seeds are never confused.
   String _networkSeedKey(String walletId) =>
       isTestnet ? '${walletId}_testnet' : walletId;
+
+  /// One-time migration check: scan all registered wallets and detect any
+  /// where the mainnet and testnet seed slots contain identical seeds.
+  /// Older versions of [createNewWallet] / [restoreWallet] copied the
+  /// seed to both slots; the fix above stops doing that for new wallets
+  /// but doesn't retroactively clean up existing installs. Returns a
+  /// list of wallet IDs that share seeds across networks. Callers can
+  /// surface this in onboarding / settings to prompt rotation.
+  /// Audit finding H4 (2026-05-18).
+  Future<List<String>> walletsWithSharedMainnetTestnetSeed() async {
+    final shared = <String>[];
+    final wallets = await WalletRegistry.instance.getAll();
+    for (final w in wallets) {
+      try {
+        final mainnet = await SecureKeyStore.getSeedForWallet(w.id);
+        final testnet =
+            await SecureKeyStore.getSeedForWallet('${w.id}_testnet');
+        if (mainnet != null && testnet != null && mainnet == testnet) {
+          shared.add(w.id);
+          _log.w('[WS] wallet ${w.id} has identical mainnet+testnet seed '
+              '(pre-2026-05 install). Consider rotating the testnet seed.');
+        }
+      } catch (_) {
+        // Best-effort scan; ignore lookup failures.
+      }
+    }
+    return shared;
+  }
 
   /// Whether a seed exists in SecureKeyStore for [walletId] on the current network.
   Future<bool> hasSeedForCurrentNetwork(String walletId) =>

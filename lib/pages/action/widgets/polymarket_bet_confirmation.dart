@@ -6,6 +6,7 @@ import 'package:gap/gap.dart';
 
 import '../../../zipher_theme.dart';
 import '../../../services/action_executor.dart';
+import '../../utils.dart';
 
 class PolymarketBetConfirmation extends StatefulWidget {
   final String conditionId;
@@ -91,7 +92,14 @@ class _PolymarketBetConfirmationState extends State<PolymarketBetConfirmation>
     super.dispose();
   }
 
-  void _startExecution() {
+  Future<void> _startExecution() async {
+    final authed = await requireSigningAuthorization(
+      context,
+      actionSummary:
+          'Confirm Polymarket bet of \$${widget.amount.toStringAsFixed(2)} on "${widget.outcomeTitle}"',
+    );
+    if (!authed) return;
+    if (!mounted) return;
     setState(() {
       _executing = true;
       _done = false;

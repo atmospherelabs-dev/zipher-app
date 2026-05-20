@@ -31,6 +31,13 @@ extension AppSettingsExtension on AppSettings {
       customSendSettings = CustomSendSettings()..defaults();
     if (!hasBackgroundSync()) backgroundSync = 1;
     if (!hasLanguage()) language = 'en';
+    // Default both auth gates to ON for new wallets. Users can opt out in
+    // Settings, but the safer default is to require biometric/PIN before
+    // sending or opening. `hasProtectSend()` returns true only if the
+    // protobuf field was explicitly set, so the defaults() pass touches
+    // them once on first run and never overrides a user choice.
+    if (!hasProtectSend()) protectSend = true;
+    if (!hasProtectOpen()) protectOpen = true;
   }
 
   static AppSettings load(SharedPreferences prefs) {

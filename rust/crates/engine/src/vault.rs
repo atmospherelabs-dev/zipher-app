@@ -153,6 +153,24 @@ fn decrypt_seed(data: &[u8], passphrase: &str) -> Result<Vec<u8>> {
     Ok(plaintext)
 }
 
+// ---------------------------------------------------------------------------
+// Generic blob encryption/decryption — same construction as the seed vault,
+// reused for sessions.enc and other small at-rest payment-credential files.
+// ---------------------------------------------------------------------------
+
+/// Encrypt arbitrary bytes with AES-256-GCM using a scrypt-derived key.
+/// Output format is `[salt(16) || nonce(12) || ciphertext+tag]`, the same
+/// envelope as [`encrypt_seed`]. Suitable for sessions / audit / similar
+/// at-rest secrets that live next to the seed vault. Audit M1 (2026-05-18).
+pub fn encrypt_blob(plaintext: &[u8], passphrase: &str) -> Result<Vec<u8>> {
+    encrypt_seed(plaintext, passphrase)
+}
+
+/// Inverse of [`encrypt_blob`].
+pub fn decrypt_blob(data: &[u8], passphrase: &str) -> Result<Vec<u8>> {
+    decrypt_seed(data, passphrase)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -20,6 +20,7 @@ import '../../services/evm_rpc.dart';
 import '../../services/llm_service.dart';
 import '../../services/secure_key_store.dart';
 import '../../src/rust/api/engine_api.dart' as rust_engine;
+import '../utils.dart';
 import 'intent.dart';
 import 'llm_intent_parser.dart';
 import 'models.dart';
@@ -649,6 +650,14 @@ class _ActionPageState extends State<ActionPage> {
       title: 'Confirm Shielding',
       details: [_detailRow('Action', 'Move transparent ZEC to shielded pool'), _detailRow('Privacy', 'Your funds become fully private')],
       onConfirm: () async {
+        final authed = await requireSigningAuthorization(
+          context,
+          actionSummary: 'Shield transparent ZEC into the shielded pool',
+        );
+        if (!authed) {
+          _addSystemMessage('Shielding cancelled.');
+          return;
+        }
         _addSystemMessage('Shielding in progress...');
         try {
           await WalletService.instance.shieldFunds();

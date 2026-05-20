@@ -81,18 +81,101 @@ fn sessions_path(data_dir: &str) -> PathBuf {
     Path::new(data_dir).join("sessions.json")
 }
 
+fn sessions_enc_path(data_dir: &str) -> PathBuf {
+    Path::new(data_dir).join("sessions.enc")
+}
+
+/// Passphrase used for at-rest session encryption. Sessions hold CipherPay
+/// bearer tokens — they are payment credentials and must be encrypted on
+/// disk. Reuses the vault's `ZIPHER_VAULT_PASS` env (so operators don't
+/// have to manage a second secret) and falls back to the OWS passphrase
+/// if set. Returns `None` if neither is set — callers then keep the
+/// legacy plaintext path with a loud warning. Audit finding M1 (2026-05-18).
+fn session_encryption_passphrase() -> Option<String> {
+    if let Ok(p) = std::env::var("ZIPHER_VAULT_PASS") {
+        if !p.is_empty() {
+            return Some(p);
+        }
+    }
+    if let Ok(p) = std::env::var("OWS_PASSPHRASE") {
+        if !p.is_empty() {
+            return Some(p);
+        }
+    }
+    None
+}
+
 pub fn load_sessions(data_dir: &str) -> SessionStore {
-    let path = sessions_path(data_dir);
-    match std::fs::read_to_string(&path) {
-        Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
+    let enc_path = sessions_enc_path(data_dir);
+    let plain_path = sessions_path(data_dir);
+
+    // Prefer the encrypted file when present.
+    if enc_path.exists() {
+        if let Some(pass) = session_encryption_passphrase() {
+            match std::fs::read(&enc_path) {
+                Ok(bytes) => match crate::vault::decrypt_blob(&bytes, &pass) {
+                    Ok(plain) => match serde_json::from_slice::<SessionStore>(&plain) {
+                        Ok(store) => return store,
+                        Err(e) => tracing::warn!(
+                            "session store: corrupt JSON in encrypted sessions: {}",
+                            e
+                        ),
+                    },
+                    Err(e) => tracing::warn!(
+                        "session store: failed to decrypt sessions.enc ({}); \
+                         is ZIPHER_VAULT_PASS / OWS_PASSPHRASE the same as when it was written?",
+                        e
+                    ),
+                },
+                Err(e) => tracing::warn!("session store: cannot read sessions.enc: {}", e),
+            }
+        } else {
+            tracing::warn!(
+                "session store: sessions.enc exists but no ZIPHER_VAULT_PASS / OWS_PASSPHRASE \
+                 in env. Cannot decrypt. Treating as empty."
+            );
+        }
+        return SessionStore::new();
+    }
+
+    // Legacy plaintext path — migrate on next save.
+    match std::fs::read_to_string(&plain_path) {
+        Ok(contents) => {
+            tracing::warn!(
+                "session store: reading legacy plaintext sessions.json. \
+                 It will be re-saved encrypted on the next save if a passphrase is available."
+            );
+            serde_json::from_str(&contents).unwrap_or_default()
+        }
         Err(_) => SessionStore::new(),
     }
 }
 
 pub fn save_sessions(data_dir: &str, store: &SessionStore) -> Result<()> {
-    let path = sessions_path(data_dir);
-    let json = serde_json::to_string_pretty(store)?;
-    std::fs::write(path, json)?;
+    let enc_path = sessions_enc_path(data_dir);
+    let plain_path = sessions_path(data_dir);
+
+    let json = serde_json::to_vec(store)?;
+
+    if let Some(pass) = session_encryption_passphrase() {
+        let encrypted = crate::vault::encrypt_blob(&json, &pass)?;
+        std::fs::write(&enc_path, &encrypted)?;
+        // Once we've successfully written the encrypted file, remove the
+        // legacy plaintext so the secret doesn't linger on disk.
+        if plain_path.exists() {
+            let _ = std::fs::remove_file(&plain_path);
+        }
+    } else {
+        // No passphrase — fall back to plaintext but warn loudly. This
+        // happens in dev/demo setups; production deployments MUST set
+        // a vault passphrase.
+        tracing::warn!(
+            "session store: ZIPHER_VAULT_PASS / OWS_PASSPHRASE not set. \
+             Writing sessions.json in PLAINTEXT. Bearer tokens are payment credentials — \
+             set a vault passphrase for at-rest encryption."
+        );
+        std::fs::write(plain_path, json)?;
+    }
     Ok(())
 }
 

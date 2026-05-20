@@ -143,6 +143,22 @@ enum Commands {
         /// Price per API call in zatoshis (default: 10000 = 0.0001 ZEC)
         #[arg(long)]
         price: Option<u64>,
+
+        /// Bind address. Defaults to 127.0.0.1 so the server is only
+        /// reachable from localhost. Pass `0.0.0.0` to expose externally
+        /// — only do this on a host you trust and behind a real reverse
+        /// proxy with TLS.
+        #[arg(long, default_value = "127.0.0.1")]
+        listen: String,
+
+        /// Run without CipherPay payment verification. Without this flag
+        /// the server will refuse to start unless `CIPHERPAY_API_KEY` is
+        /// set. This avoids the previous default of silently accepting
+        /// any payment signature — a real revenue / safety bypass for
+        /// anyone running `serve` without realizing what mode they were
+        /// in. Audit finding H9 (2026-05-18).
+        #[arg(long)]
+        demo_accept_unverified: bool,
     },
 
     /// Sweep remaining funds from an EVM chain back to shielded ZEC
@@ -825,8 +841,13 @@ async fn main() {
                 market::cmd_polymarket_full_bet(&cfg, token_id, amount, price, side, neg_risk).await
             }
         },
-        Commands::Serve { port, price } => {
-            serve::cmd_serve(&cfg, port, price).await;
+        Commands::Serve {
+            port,
+            price,
+            listen,
+            demo_accept_unverified,
+        } => {
+            serve::cmd_serve(&cfg, port, price, listen, demo_accept_unverified).await;
             Ok(())
         }
         Commands::Sweep {

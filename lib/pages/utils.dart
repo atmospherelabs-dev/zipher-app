@@ -299,6 +299,27 @@ Future<bool> authBarrier(BuildContext context,
   }
 }
 
+/// Single auth gate for any flow that signs or moves funds. Honors the
+/// user's `protectSend` setting (default: ON for new wallets, see
+/// `AppSettingsExtension.defaults`). Pass an `actionSummary` so the
+/// system biometric prompt can show what the user is authorizing.
+///
+/// Returns `true` if the user authenticated (or if `protectSend` is off
+/// and the action is allowed to proceed without auth). Returns `false`
+/// if the user cancelled.
+///
+/// Audit finding H1 (2026-05-18). Every Action Wallet confirmation that
+/// reads seed material or calls a signing FRB function MUST gate behind
+/// this helper. Examples: Polymarket bet/sell, EVM swap, sweep, shield,
+/// CipherPay payments, classic Zcash send.
+Future<bool> requireSigningAuthorization(
+  BuildContext context, {
+  required String actionSummary,
+}) async {
+  if (!appSettings.protectSend) return true;
+  return await authenticate(context, actionSummary);
+}
+
 Future<bool> authenticate(BuildContext context, String reason) async {
   final localAuth = LocalAuthentication();
   try {

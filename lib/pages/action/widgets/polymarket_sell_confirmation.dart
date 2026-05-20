@@ -6,6 +6,7 @@ import 'package:gap/gap.dart';
 
 import '../../../zipher_theme.dart';
 import '../../../services/action_executor.dart';
+import '../../utils.dart';
 
 /// Confirm and execute a Polymarket CLOB sell (FOK) for an open position.
 class PolymarketSellConfirmation extends StatefulWidget {
@@ -52,7 +53,14 @@ class _PolymarketSellConfirmationState extends State<PolymarketSellConfirmation>
     super.dispose();
   }
 
-  void _startExecution() {
+  Future<void> _startExecution() async {
+    final authed = await requireSigningAuthorization(
+      context,
+      actionSummary:
+          'Sell ${widget.shares.toStringAsFixed(2)} "${widget.outcomeTitle}" shares on Polymarket',
+    );
+    if (!authed) return;
+    if (!mounted) return;
     setState(() {
       _executing = true;
       _done = false;

@@ -229,7 +229,13 @@ async fn health_handler() -> Json<serde_json::Value> {
 // Public entry point
 // ---------------------------------------------------------------------------
 
-pub async fn cmd_serve(config: &Config, port: u16, price: Option<u64>) {
+pub async fn cmd_serve(
+    config: &Config,
+    port: u16,
+    price: Option<u64>,
+    listen: String,
+    demo_accept_unverified: bool,
+) {
     let price_zatoshis = price.unwrap_or(DEFAULT_PRICE_ZATOSHIS);
 
     let network_str = if config.network == Network::TestNetwork {
@@ -247,12 +253,29 @@ pub async fn cmd_serve(config: &Config, port: u16, price: Option<u64>) {
     };
 
     let cipherpay_key = std::env::var("CIPHERPAY_API_KEY").ok();
-    if cipherpay_key.is_none() {
-        eprintln!(
-            "Warning: CIPHERPAY_API_KEY not set. Payment verification will be skipped (demo mode)."
-        );
-        eprintln!("         In demo mode, any PAYMENT-SIGNATURE header is accepted.");
+    if cipherpay_key.is_none() && !demo_accept_unverified {
+        eprintln!("Error: CIPHERPAY_API_KEY is not set and --demo-accept-unverified was not passed.");
+        eprintln!();
+        eprintln!("By default the server refuses to start without payment verification, because");
+        eprintln!("any client sending a syntactically valid PAYMENT-SIGNATURE header would be served");
+        eprintln!("for free. To run in unverified demo mode anyway (e.g. local testing), pass:");
+        eprintln!();
+        eprintln!("    zipher-cli serve --demo-accept-unverified");
+        eprintln!();
+        std::process::exit(1);
     }
+    if cipherpay_key.is_none() && demo_accept_unverified {
+        eprintln!("⚠  Demo mode: CIPHERPAY_API_KEY not set and --demo-accept-unverified was passed.");
+        eprintln!("   Any PAYMENT-SIGNATURE header will be accepted. Do not expose externally.");
+    }
+
+    // Default CORS policy is restrictive — anyone needing wide-open CORS
+    // for a real deployment can edit this knob deliberately. Was
+    // `CorsLayer::permissive()` (audit finding H9).
+    let cors = tower_http::cors::CorsLayer::new()
+        .allow_origin(tower_http::cors::AllowOrigin::list(Vec::<
+            axum::http::HeaderValue,
+        >::new()));
 
     let state = Arc::new(AppState {
         pay_to: pay_to.clone(),
@@ -265,12 +288,17 @@ pub async fn cmd_serve(config: &Config, port: u16, price: Option<u64>) {
     let app = Router::new()
         .route("/health", get(health_handler))
         .route("/api/research", get(research_handler))
-        .layer(tower_http::cors::CorsLayer::permissive())
+        .layer(cors)
         .with_state(state);
 
     let price_zec = price_zatoshis as f64 / 1e8;
     println!("Zipher Agent API");
-    println!("  Listening:  http://0.0.0.0:{}", port);
+    println!("  Listening:  http://{}:{}", listen, port);
+    if listen == "127.0.0.1" {
+        println!("              (localhost only — pass --listen 0.0.0.0 to expose)");
+    } else if listen == "0.0.0.0" {
+        println!("              (exposed externally — use TLS + a reverse proxy)");
+    }
     println!("  Protocol:   x402 (pay-per-call with shielded ZEC)");
     println!(
         "  Price:      {} ZEC per call ({} zatoshis)",
@@ -284,7 +312,7 @@ pub async fn cmd_serve(config: &Config, port: u16, price: Option<u64>) {
     println!();
     println!("Agents pay with: PAYMENT-SIGNATURE header (x402 protocol)");
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
+    let listener = tokio::net::TcpListener::bind(format!("{}:{}", listen, port))
         .await
         .expect("Failed to bind port");
 

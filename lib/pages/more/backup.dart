@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -13,6 +14,44 @@ import '../../services/wallet_registry.dart';
 import '../../services/secure_key_store.dart';
 import '../../zipher_theme.dart';
 import '../../generated/intl/messages.dart';
+
+/// How long sensitive material stays in the clipboard after a Copy action.
+/// Other apps (and clipboard managers) can read the system clipboard, so
+/// secrets shouldn't linger there. 60s is enough for a normal "switch to
+/// a password manager and paste" flow without being permanent.
+const _kClipboardAutoClearDuration = Duration(seconds: 60);
+
+/// Copy a sensitive value to the clipboard and auto-clear it after
+/// [_kClipboardAutoClearDuration]. Snackbar is explicit about the
+/// auto-clear so users know what to expect. Audit finding H2 (2026-05-18).
+void _copyWithAutoClear(BuildContext context, String value,
+    {String label = 'Copied'}) {
+  Clipboard.setData(ClipboardData(text: value));
+  final seconds = _kClipboardAutoClearDuration.inSeconds;
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label copied — clipboard auto-clears in ${seconds}s'),
+        duration: const Duration(seconds: 2),
+        backgroundColor: ZipherColors.surface,
+      ),
+    );
+  }
+  // Schedule clear. If the user copies something else in the meantime,
+  // we still overwrite back to empty after the timer fires; clipboard
+  // managers may still have the value, but the live system clipboard
+  // is cleared. Defense-in-depth, not a guarantee.
+  Timer(_kClipboardAutoClearDuration, () async {
+    try {
+      final current = await Clipboard.getData(Clipboard.kTextPlain);
+      if (current?.text == value) {
+        await Clipboard.setData(const ClipboardData(text: ''));
+      }
+    } catch (_) {
+      // Best-effort; nothing actionable on failure.
+    }
+  });
+}
 
 class BackupPage extends StatefulWidget {
   @override
@@ -480,7 +519,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                   // Viewing keys
                   _sectionHeader(
                     'Viewing Keys',
-                    'Read-only access \u2014 safe to share for auditing',
+                    'Read-only — anyone with this can see every transaction',
                     Icons.visibility_rounded,
                   ),
                   const Gap(12),
@@ -489,10 +528,11 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     _KeyCard(
                       label: 'Unified Viewing Key',
                       description:
-                          'Can view all transactions across all pools. Cannot spend funds.',
+                          'Reveals every past and future transaction across all pools — including amounts, memos, and counterparties. Anyone you share this with can audit your entire wallet history. They cannot spend funds.',
                       value: backup.uvk!,
                       icon: Icons.visibility_rounded,
-                      alwaysVisible: true,
+                      // Sensitive: hidden by default, behind reveal toggle.
+                      // Was alwaysVisible: true (audit finding H2).
                       onShowQR: () => _showQR(context, backup.uvk!,
                           '${s.unifiedViewingKey} of ${backup.name}'),
                     ),
@@ -502,10 +542,10 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     _KeyCard(
                       label: 'Full Viewing Key',
                       description:
-                          'Can view shielded (Sapling) transactions only. Cannot spend.',
+                          'Reveals every shielded (Sapling) transaction — amounts and memos. Anyone you share this with can audit your Sapling wallet history. They cannot spend.',
                       value: backup.fvk!,
                       icon: Icons.visibility_outlined,
-                      alwaysVisible: true,
+                      // Sensitive: hidden by default, behind reveal toggle.
                       onShowQR: () => _showQR(context, backup.fvk!,
                           '${s.viewingKey} of ${backup.name}'),
                     ),
@@ -1005,16 +1045,7 @@ class _KeyCard extends StatelessWidget {
                 _actionButton(
                   Icons.copy_rounded,
                   'Copy',
-                  () {
-                    Clipboard.setData(ClipboardData(text: value));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Copied to clipboard'),
-                        duration: const Duration(seconds: 1),
-                        backgroundColor: ZipherColors.surface,
-                      ),
-                    );
-                  },
+                  () => _copyWithAutoClear(context, value),
                 ),
                 const Gap(8),
                 _actionButton(Icons.qr_code_rounded, 'QR', onShowQR),
@@ -1160,14 +1191,8 @@ class _SeedCard extends StatelessWidget {
                 () {
                   final clean = seedPhrase.replaceAll(
                       RegExp(r'\s*\[\d+\]\s*$'), '');
-                  Clipboard.setData(ClipboardData(text: clean));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Seed phrase copied'),
-                      duration: const Duration(seconds: 1),
-                      backgroundColor: ZipherColors.surface,
-                    ),
-                  );
+                  _copyWithAutoClear(context, clean,
+                      label: 'Seed phrase');
                 },
               ),
               const Gap(8),
