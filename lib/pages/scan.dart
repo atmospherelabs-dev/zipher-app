@@ -174,11 +174,20 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
         final form = formKey.currentState!;
         if (form.validate()) {
           scanned = true;
-          if (widget.onCode(text)) GoRouter.of(context).pop();
+          _handleCode(text);
           return;
         }
       }
     }
+  }
+
+  void _handleCode(String text) {
+    if (widget.closeBeforeOnCode) {
+      GoRouter.of(context).pop();
+      WidgetsBinding.instance.addPostFrameCallback((_) => widget.onCode(text));
+      return;
+    }
+    if (widget.onCode(text)) GoRouter.of(context).pop();
   }
 
   _open() async {
@@ -195,7 +204,7 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
 
   _ok() {
     if (formKey.currentState!.validate()) {
-      if (widget.onCode(controller.text)) GoRouter.of(context).pop();
+      _handleCode(controller.text);
     }
   }
 }
@@ -265,5 +274,11 @@ class ScanQRContext {
   final bool Function(String) onCode;
   final String? Function(String? code)? validator;
   final bool multi;
-  ScanQRContext(this.onCode, {this.validator, this.multi = false});
+  final bool closeBeforeOnCode;
+  ScanQRContext(
+    this.onCode, {
+    this.validator,
+    this.multi = false,
+    this.closeBeforeOnCode = false,
+  });
 }

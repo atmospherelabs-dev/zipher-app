@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../generated/intl/messages.dart';
+import '../../router.dart' show InvoicePayArgs;
+import '../../services/cipherpay_client.dart';
 import '../../services/wallet_service.dart';
 import '../../store2.dart';
 import '../../zipher_theme.dart';
@@ -315,10 +317,28 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
               ),
               GestureDetector(
                 onTap: () async {
-                  final text = await scanQRCode(context,
-                      validator:
-                          composeOr([addressValidator, paymentURIValidator]));
+                  final text = await scanQRCode(
+                    context,
+                    validator: (code) {
+                      if (CipherPayClient.extractInvoiceRef(code ?? '') !=
+                          null) {
+                        return null;
+                      }
+                      return composeOr(
+                        [addressValidator, paymentURIValidator],
+                      )(code);
+                    },
+                  );
                   if (text.isEmpty) return;
+                  final invoiceRef = CipherPayClient.extractInvoiceRef(text);
+                  if (invoiceRef != null) {
+                    if (!context.mounted) return;
+                    GoRouter.of(context).push(
+                      '/invoice/pay',
+                      extra: InvoicePayArgs(invoiceRef: invoiceRef),
+                    );
+                    return;
+                  }
                   final parsed = SendContext.fromPaymentURI(text);
                   if (parsed != null) {
                     _didUpdateSendContext(parsed);

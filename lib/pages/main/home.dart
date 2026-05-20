@@ -387,7 +387,7 @@ class _HomeState extends State<HomePageInner> {
                                       );
                                     }
                                     return true;
-                                  }),
+                                  }, closeBeforeOnCode: true),
                                 );
                               },
                               child: Container(
