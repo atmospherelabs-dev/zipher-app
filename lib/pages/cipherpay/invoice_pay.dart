@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../services/cipherpay_client.dart';
 import '../../services/wallet_service.dart';
-import '../../src/rust/api/engine_api.dart' as rust_engine;
 import '../../zipher_theme.dart';
 import '../utils.dart';
 
@@ -24,7 +23,7 @@ class InvoicePayPage extends StatefulWidget {
 
   /// Already-fetched invoice (optional). Lets the caller skip a duplicate
   /// network round-trip when the invoice was opened from a polled context.
-  final rust_engine.EngineInvoice? prefetched;
+  final CipherPayInvoice? prefetched;
 
   const InvoicePayPage({
     super.key,
@@ -37,7 +36,7 @@ class InvoicePayPage extends StatefulWidget {
 }
 
 class _InvoicePayPageState extends State<InvoicePayPage> {
-  rust_engine.EngineInvoice? _invoice;
+  CipherPayInvoice? _invoice;
   Object? _error;
   bool _paying = false;
   Timer? _expiryTicker;
@@ -123,7 +122,8 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
     setState(() => _paying = true);
 
     try {
-      final amountZat = (invoice.priceZec * 100000000).round();
+      final amountZat =
+          invoice.priceZatoshis ?? (invoice.priceZec * 100000000).round();
       await WalletService.instance.proposeSend(
         invoice.paymentAddress,
         amountZat,
@@ -139,6 +139,9 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
           memoCode: invoice.memoCode,
           txid: txid,
           productName: invoice.productName,
+          merchantName: invoice.merchantName,
+          amount: invoice.amount,
+          currency: invoice.currency,
           priceEur: invoice.priceEur,
           priceZec: invoice.priceZec,
         ),
@@ -155,8 +158,7 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg,
-            style:
-                TextStyle(color: ZipherColors.text90, fontSize: 13)),
+            style: TextStyle(color: ZipherColors.text90, fontSize: 13)),
         backgroundColor: ZipherColors.surface,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
@@ -233,7 +235,7 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
 }
 
 class _InvoiceBody extends StatelessWidget {
-  final rust_engine.EngineInvoice invoice;
+  final CipherPayInvoice invoice;
   final bool expired;
   final bool alreadyPaid;
   final Duration? untilExpiry;
@@ -302,29 +304,21 @@ class _InvoiceBody extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  final rust_engine.EngineInvoice invoice;
+  final CipherPayInvoice invoice;
   const _Header({required this.invoice});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(
+        SizedBox(
           width: 44,
           height: 44,
-          decoration: BoxDecoration(
-            gradient: ZipherColors.primaryGradient,
-            shape: BoxShape.circle,
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            'CP',
-            style: TextStyle(
-              color: ZipherColors.bg,
-              fontWeight: FontWeight.w700,
-              fontSize: 14,
-              letterSpacing: 0.5,
-            ),
+          child: Image.asset(
+            'assets/cipherpay_logo_mark.png',
+            width: 30,
+            height: 38,
+            fit: BoxFit.contain,
           ),
         ),
         const Gap(ZipherSpacing.smMd),
@@ -333,9 +327,11 @@ class _Header extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                invoice.productName?.isNotEmpty == true
-                    ? invoice.productName!
-                    : 'CipherPay invoice',
+                invoice.merchantName?.isNotEmpty == true
+                    ? invoice.merchantName!
+                    : invoice.productName?.isNotEmpty == true
+                        ? invoice.productName!
+                        : 'CipherPay invoice',
                 style: TextStyle(
                   color: ZipherColors.text90,
                   fontSize: 17,
@@ -346,7 +342,10 @@ class _Header extends StatelessWidget {
               ),
               const Gap(2),
               Text(
-                'Verified by cipherpay.app',
+                invoice.productName?.isNotEmpty == true &&
+                        invoice.merchantName?.isNotEmpty == true
+                    ? invoice.productName!
+                    : 'Verified by CipherPay',
                 style: TextStyle(
                   color: ZipherColors.text40,
                   fontSize: 12,
@@ -361,7 +360,7 @@ class _Header extends StatelessWidget {
 }
 
 class _AmountCard extends StatelessWidget {
-  final rust_engine.EngineInvoice invoice;
+  final CipherPayInvoice invoice;
   const _AmountCard({required this.invoice});
 
   @override
@@ -379,7 +378,7 @@ class _AmountCard extends StatelessWidget {
       child: Column(
         children: [
           Text(
-            '${invoice.priceEur.toStringAsFixed(2)} EUR',
+            '${_formatFiat(invoice.amount)} ${invoice.currency}',
             style: TextStyle(
               color: ZipherColors.text90,
               fontSize: 32,
@@ -406,10 +405,15 @@ class _AmountCard extends StatelessWidget {
     if (v >= 1) return v.toStringAsFixed(4);
     return v.toStringAsFixed(8);
   }
+
+  static String _formatFiat(double v) {
+    if (v == v.roundToDouble()) return v.toStringAsFixed(0);
+    return v.toStringAsFixed(2);
+  }
 }
 
 class _MetaCard extends StatelessWidget {
-  final rust_engine.EngineInvoice invoice;
+  final CipherPayInvoice invoice;
   final bool expired;
   final Duration? untilExpiry;
   final bool alreadyPaid;
@@ -590,7 +594,8 @@ class _PayButton extends StatelessWidget {
       child: Container(
         height: 56,
         decoration: BoxDecoration(
-          gradient: ZipherColors.primaryGradient,
+          color: ZipherColors.cyan.withValues(alpha: 0.14),
+          border: Border.all(color: ZipherColors.cyan.withValues(alpha: 0.28)),
           borderRadius: BorderRadius.circular(ZipherRadius.md),
           boxShadow: [
             BoxShadow(
@@ -608,14 +613,13 @@ class _PayButton extends StatelessWidget {
                 height: 22,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  valueColor:
-                      AlwaysStoppedAnimation<Color>(ZipherColors.bg),
+                  valueColor: AlwaysStoppedAnimation<Color>(ZipherColors.cyan),
                 ),
               )
             : Text(
                 'Pay ${priceZec.toStringAsFixed(priceZec >= 1 ? 4 : 6)} ZEC',
                 style: TextStyle(
-                  color: ZipherColors.bg,
+                  color: ZipherColors.cyan,
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                 ),
@@ -705,8 +709,7 @@ class _ErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_off_rounded,
-                size: 32, color: ZipherColors.text40),
+            Icon(Icons.cloud_off_rounded, size: 32, color: ZipherColors.text40),
             const Gap(ZipherSpacing.md),
             Text(message,
                 textAlign: TextAlign.center,
@@ -718,8 +721,7 @@ class _ErrorState extends StatelessWidget {
             const Gap(ZipherSpacing.lg),
             TextButton(
               onPressed: onRetry,
-              child: Text('Retry',
-                  style: TextStyle(color: ZipherColors.cyan)),
+              child: Text('Retry', style: TextStyle(color: ZipherColors.cyan)),
             ),
           ],
         ),
@@ -734,6 +736,9 @@ class InvoiceStatusArgs {
   final String memoCode;
   final String txid;
   final String? productName;
+  final String? merchantName;
+  final double amount;
+  final String currency;
   final double priceEur;
   final double priceZec;
 
@@ -742,6 +747,9 @@ class InvoiceStatusArgs {
     required this.memoCode,
     required this.txid,
     required this.productName,
+    required this.merchantName,
+    required this.amount,
+    required this.currency,
     required this.priceEur,
     required this.priceZec,
   });

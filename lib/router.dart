@@ -35,7 +35,7 @@ import 'pages/more/debug_log.dart';
 import 'pages/action/action.dart';
 import 'pages/cipherpay/invoice_pay.dart';
 import 'pages/cipherpay/invoice_status.dart';
-import 'src/rust/api/engine_api.dart' as rust_engine;
+import 'services/cipherpay_client.dart';
 import 'pages/tx.dart';
 import 'pages/scan.dart';
 import 'pages/showqr.dart';
@@ -179,31 +179,31 @@ final router = GoRouter(
         StatefulShellBranch(
           routes: [
             GoRoute(
-                path: '/swap',
-                builder: (context, state) => ValueListenableBuilder<bool>(
-                  valueListenable: testnetNotifier,
-                  builder: (_, isTest, __) =>
-                      isTest ? FaucetPage() : NearSwapPage(),
+              path: '/swap',
+              builder: (context, state) => ValueListenableBuilder<bool>(
+                valueListenable: testnetNotifier,
+                builder: (_, isTest, __) =>
+                    isTest ? FaucetPage() : NearSwapPage(),
+              ),
+              routes: [
+                GoRoute(
+                  path: 'status',
+                  builder: (context, state) {
+                    final extra = state.extra;
+                    if (extra is String) {
+                      return SwapStatusPage(depositAddress: extra);
+                    }
+                    final map = extra as Map<String, dynamic>;
+                    return SwapStatusPage(
+                      depositAddress: map['depositAddress'] as String,
+                      fromCurrency: map['fromCurrency'] as String?,
+                      fromAmount: map['fromAmount'] as String?,
+                      toCurrency: map['toCurrency'] as String?,
+                      toAmount: map['toAmount'] as String?,
+                    );
+                  },
                 ),
-                routes: [
-                  GoRoute(
-                    path: 'status',
-                    builder: (context, state) {
-                      final extra = state.extra;
-                      if (extra is String) {
-                        return SwapStatusPage(depositAddress: extra);
-                      }
-                      final map = extra as Map<String, dynamic>;
-                      return SwapStatusPage(
-                        depositAddress: map['depositAddress'] as String,
-                        fromCurrency: map['fromCurrency'] as String?,
-                        fromAmount: map['fromAmount'] as String?,
-                        toCurrency: map['toCurrency'] as String?,
-                        toAmount: map['toAmount'] as String?,
-                      );
-                    },
-                  ),
-                ],
+              ],
             ),
           ],
         ),
@@ -325,11 +325,14 @@ final router = GoRouter(
         ),
       ],
     ),
-    GoRoute(path: '/disclaimer', builder: (context, state) {
-      final mode = (state.extra as String?) ?? 'restore';
-      return DisclaimerPage(mode: mode);
-    }),
-    GoRoute(path: '/restore', builder: (context, state) => RestoreAccountPage()),
+    GoRoute(
+        path: '/disclaimer',
+        builder: (context, state) {
+          final mode = (state.extra as String?) ?? 'restore';
+          return DisclaimerPage(mode: mode);
+        }),
+    GoRoute(
+        path: '/restore', builder: (context, state) => RestoreAccountPage()),
     GoRoute(
       path: '/splash',
       builder: (context, state) => SplashPage(),
@@ -383,7 +386,7 @@ final router = GoRouter(
 /// invoice (e.g. from the QR scan handler) and skip a second network call.
 class InvoicePayArgs {
   final String invoiceRef;
-  final rust_engine.EngineInvoice? prefetched;
+  final CipherPayInvoice? prefetched;
   const InvoicePayArgs({required this.invoiceRef, this.prefetched});
 }
 
@@ -421,100 +424,110 @@ class _ScaffoldBar extends State<ScaffoldBar> {
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
               child: Container(
-            decoration: BoxDecoration(
-              color: ZipherColors.bg.withValues(alpha: 0.80),
-              border: Border(
-                top: BorderSide(
-                  color: ZipherColors.borderSubtle,
-                  width: 0.5,
+                decoration: BoxDecoration(
+                  color: ZipherColors.bg.withValues(alpha: 0.80),
+                  border: Border(
+                    top: BorderSide(
+                      color: ZipherColors.borderSubtle,
+                      width: 0.5,
+                    ),
+                  ),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: List.generate(3, (i) {
+                        final isActive = widget.shell.currentIndex == i;
+                        final icons = [
+                          Icons.home_outlined,
+                          isTestnet
+                              ? Icons.water_drop_outlined
+                              : Icons.swap_horiz_outlined,
+                          Icons.more_horiz_rounded,
+                        ];
+                        final activeIcons = [
+                          Icons.home_rounded,
+                          isTestnet
+                              ? Icons.water_drop_rounded
+                              : Icons.swap_horiz_rounded,
+                          Icons.more_horiz_rounded,
+                        ];
+                        final labels = [
+                          'Home',
+                          isTestnet ? 'Faucet' : 'Swap',
+                          'More'
+                        ];
+                        return Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {
+                              // Detect account or network change since last tap
+                              if (aa.coin != _knownCoin || aa.id != _knownId) {
+                                _knownCoin = aa.coin;
+                                _knownId = aa.id;
+                                _staleTabs.addAll([0, 1, 2]);
+                              }
+                              if (isTestnet != _knownTestnet) {
+                                _knownTestnet = isTestnet;
+                                _staleTabs.addAll([0, 1, 2]);
+                              }
+                              final isCurrentTab =
+                                  i == widget.shell.currentIndex;
+                              final isStale = _staleTabs.remove(i);
+                              widget.shell.goBranch(
+                                i,
+                                initialLocation: isCurrentTab || isStale,
+                              );
+                            },
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: isActive
+                                        ? ZipherColors.cyan
+                                            .withValues(alpha: 0.10)
+                                        : Colors.transparent,
+                                    borderRadius:
+                                        BorderRadius.circular(ZipherRadius.md),
+                                  ),
+                                  child: Icon(
+                                    isActive ? activeIcons[i] : icons[i],
+                                    size: 24,
+                                    color: isActive
+                                        ? ZipherColors.cyan
+                                        : ZipherColors.text20,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  labels[i],
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: isActive
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
+                                    color: isActive
+                                        ? ZipherColors.cyan
+                                        : ZipherColors.text20,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                  ),
                 ),
               ),
             ),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: List.generate(3, (i) {
-                    final isActive = widget.shell.currentIndex == i;
-                    final icons = [
-                      Icons.home_outlined,
-                      isTestnet ? Icons.water_drop_outlined : Icons.swap_horiz_outlined,
-                      Icons.more_horiz_rounded,
-                    ];
-                    final activeIcons = [
-                      Icons.home_rounded,
-                      isTestnet ? Icons.water_drop_rounded : Icons.swap_horiz_rounded,
-                      Icons.more_horiz_rounded,
-                    ];
-                    final labels = ['Home', isTestnet ? 'Faucet' : 'Swap', 'More'];
-                    return Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () {
-                          // Detect account or network change since last tap
-                          if (aa.coin != _knownCoin || aa.id != _knownId) {
-                            _knownCoin = aa.coin;
-                            _knownId = aa.id;
-                            _staleTabs.addAll([0, 1, 2]);
-                          }
-                          if (isTestnet != _knownTestnet) {
-                            _knownTestnet = isTestnet;
-                            _staleTabs.addAll([0, 1, 2]);
-                          }
-                          final isCurrentTab = i == widget.shell.currentIndex;
-                          final isStale = _staleTabs.remove(i);
-                          widget.shell.goBranch(
-                            i,
-                            initialLocation: isCurrentTab || isStale,
-                          );
-                        },
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: isActive
-                                    ? ZipherColors.cyan
-                                        .withValues(alpha: 0.10)
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(ZipherRadius.md),
-                              ),
-                              child: Icon(
-                                isActive ? activeIcons[i] : icons[i],
-                                size: 24,
-                                color: isActive
-                                    ? ZipherColors.cyan
-                                    : ZipherColors.text20,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              labels[i],
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: isActive
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                                color: isActive
-                                    ? ZipherColors.cyan
-                                    : ZipherColors.text20,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-              ),
-            ),
-          ),
-          ),
           ),
           body: ShowCaseWidget(builder: (context) => widget.shell),
         ));

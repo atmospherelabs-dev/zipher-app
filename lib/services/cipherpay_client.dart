@@ -1,7 +1,81 @@
 import 'dart:async';
 import 'dart:convert';
 
-import '../src/rust/api/engine_api.dart' as rust_engine;
+import 'package:http/http.dart' as http;
+
+class CipherPayInvoice {
+  final String id;
+  final String status;
+  final double amount;
+  final String currency;
+  final double priceZec;
+  final double priceEur;
+  final int? priceZatoshis;
+  final String paymentAddress;
+  final String memoCode;
+  final double? receivedZec;
+  final String? detectedTxid;
+  final String expiresAt;
+  final String createdAt;
+  final String? productName;
+  final String? merchantName;
+  final String? merchantOrigin;
+
+  const CipherPayInvoice({
+    required this.id,
+    required this.status,
+    required this.amount,
+    required this.currency,
+    required this.priceZec,
+    required this.priceEur,
+    required this.priceZatoshis,
+    required this.paymentAddress,
+    required this.memoCode,
+    required this.receivedZec,
+    required this.detectedTxid,
+    required this.expiresAt,
+    required this.createdAt,
+    required this.productName,
+    required this.merchantName,
+    required this.merchantOrigin,
+  });
+
+  factory CipherPayInvoice.fromJson(Map<String, dynamic> json) {
+    return CipherPayInvoice(
+      id: (json['id'] as String?) ?? '',
+      status: (json['status'] as String?) ?? 'pending',
+      amount: _asDouble(json['amount']),
+      currency: ((json['currency'] as String?) ?? 'EUR').toUpperCase(),
+      priceZec: _asDouble(json['price_zec']),
+      priceEur: _asDouble(json['price_eur']),
+      priceZatoshis: _asInt(json['price_zatoshis']),
+      paymentAddress: (json['payment_address'] as String?) ?? '',
+      memoCode: (json['memo_code'] as String?) ?? '',
+      receivedZec: _asNullableDouble(json['received_zec']),
+      detectedTxid: json['detected_txid'] as String?,
+      expiresAt: (json['expires_at'] as String?) ?? '',
+      createdAt: (json['created_at'] as String?) ?? '',
+      productName: json['product_name'] as String?,
+      merchantName: json['merchant_name'] as String?,
+      merchantOrigin: json['merchant_origin'] as String?,
+    );
+  }
+
+  static double _asDouble(Object? value) => _asNullableDouble(value) ?? 0;
+
+  static double? _asNullableDouble(Object? value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
+  static int? _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+}
 
 /// Customer-side helper around CipherPay invoices.
 ///
@@ -123,8 +197,18 @@ class CipherPayClient {
   ///
   /// Throws on network failure / non-2xx — caller is responsible for
   /// presenting a clean error message.
-  static Future<rust_engine.EngineInvoice> getInvoice(String idOrMemo) {
-    return rust_engine.engineCheckInvoice(idOrMemo: idOrMemo);
+  static Future<CipherPayInvoice> getInvoice(String idOrMemo) async {
+    final uri = Uri.https(
+      'api.cipherpay.app',
+      '/api/invoices/${Uri.encodeComponent(idOrMemo)}',
+    );
+    final resp = await http.get(uri);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception(
+          'Invoice check failed (${resp.statusCode}): ${resp.body}');
+    }
+    final json = jsonDecode(resp.body) as Map<String, dynamic>;
+    return CipherPayInvoice.fromJson(json);
   }
 
   /// Poll an invoice every [interval] until [status] is reached or [timeout]
@@ -132,14 +216,14 @@ class CipherPayClient {
   ///
   /// Use this only after the user has explicitly broadcast a payment for the
   /// invoice — never as background discovery.
-  static Stream<rust_engine.EngineInvoice> pollInvoice(
+  static Stream<CipherPayInvoice> pollInvoice(
     String idOrMemo, {
     Set<String> terminalStatuses = const {'confirmed', 'expired', 'cancelled'},
     Duration interval = const Duration(seconds: 5),
-    Duration timeout = const Duration(minutes: 3),
+    Duration? timeout = const Duration(minutes: 30),
   }) async* {
-    final deadline = DateTime.now().add(timeout);
-    while (DateTime.now().isBefore(deadline)) {
+    final deadline = timeout == null ? null : DateTime.now().add(timeout);
+    while (deadline == null || DateTime.now().isBefore(deadline)) {
       try {
         final invoice = await getInvoice(idOrMemo);
         yield invoice;

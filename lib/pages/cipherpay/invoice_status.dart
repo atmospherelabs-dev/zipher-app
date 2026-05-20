@@ -6,7 +6,6 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../services/cipherpay_client.dart';
-import '../../src/rust/api/engine_api.dart' as rust_engine;
 import '../../zipher_theme.dart';
 import 'invoice_pay.dart' show InvoiceStatusArgs;
 
@@ -27,8 +26,8 @@ class InvoiceStatusPage extends StatefulWidget {
 }
 
 class _InvoiceStatusPageState extends State<InvoiceStatusPage> {
-  StreamSubscription<rust_engine.EngineInvoice>? _sub;
-  rust_engine.EngineInvoice? _latest;
+  StreamSubscription<CipherPayInvoice>? _sub;
+  CipherPayInvoice? _latest;
   bool _timedOut = false;
 
   @override
@@ -49,7 +48,7 @@ class _InvoiceStatusPageState extends State<InvoiceStatusPage> {
     _sub = CipherPayClient.pollInvoice(
       widget.args.invoiceId,
       interval: const Duration(seconds: 5),
-      timeout: const Duration(minutes: 3),
+      timeout: null,
     ).listen(
       (inv) {
         if (!mounted) return;
@@ -150,9 +149,11 @@ class _Header extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            args.productName?.isNotEmpty == true
-                ? args.productName!
-                : 'CipherPay invoice',
+            args.merchantName?.isNotEmpty == true
+                ? args.merchantName!
+                : args.productName?.isNotEmpty == true
+                    ? args.productName!
+                    : 'CipherPay invoice',
             style: TextStyle(
                 color: ZipherColors.text90,
                 fontSize: 15,
@@ -161,12 +162,28 @@ class _Header extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           const Gap(ZipherSpacing.xs),
+          if (args.productName?.isNotEmpty == true &&
+              args.merchantName?.isNotEmpty == true) ...[
+            const Gap(ZipherSpacing.xs),
+            Text(
+              args.productName!,
+              style: TextStyle(
+                color: ZipherColors.text40,
+                fontSize: 13,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          const Gap(ZipherSpacing.xs),
           Row(
             children: [
               Text(
-                '${args.priceEur.toStringAsFixed(2)} EUR',
+                '${_formatFiat(args.amount)} ${args.currency}',
                 style: TextStyle(
-                    color: ZipherColors.text90, fontSize: 22, fontWeight: FontWeight.w700),
+                    color: ZipherColors.text90,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700),
               ),
               const Gap(ZipherSpacing.sm),
               Text(
@@ -182,6 +199,11 @@ class _Header extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static String _formatFiat(double v) {
+    if (v == v.roundToDouble()) return v.toStringAsFixed(0);
+    return v.toStringAsFixed(2);
   }
 }
 
@@ -411,18 +433,21 @@ class _DoneButton extends StatelessWidget {
       child: Container(
         height: 56,
         decoration: BoxDecoration(
-          gradient: primary ? ZipherColors.primaryGradient : null,
-          color: primary ? null : ZipherColors.cardBgElevated,
+          color: primary
+              ? ZipherColors.cyan.withValues(alpha: 0.14)
+              : ZipherColors.cardBgElevated,
           borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: primary
-              ? null
-              : Border.all(color: ZipherColors.borderSubtle),
+          border: Border.all(
+            color: primary
+                ? ZipherColors.cyan.withValues(alpha: 0.28)
+                : ZipherColors.borderSubtle,
+          ),
         ),
         alignment: Alignment.center,
         child: Text(
           primary ? 'Done' : 'Back to wallet',
           style: TextStyle(
-            color: primary ? ZipherColors.bg : ZipherColors.text90,
+            color: primary ? ZipherColors.cyan : ZipherColors.text90,
             fontSize: 15,
             fontWeight: FontWeight.w700,
           ),
