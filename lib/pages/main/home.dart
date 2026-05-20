@@ -14,6 +14,8 @@ import '../../accounts.dart';
 import '../../coin/coins.dart';
 import '../../zipher_theme.dart';
 import '../../services/near_intents.dart';
+import '../../router.dart' show InvoicePayArgs;
+import '../../services/cipherpay_client.dart';
 import '../accounts/send.dart';
 import '../accounts/split.dart';
 import '../scan.dart';
@@ -346,7 +348,23 @@ class _HomeState extends State<HomePageInner> {
                                 GoRouter.of(context).push(
                                   '/scan',
                                   extra: ScanQRContext((code) {
-                                    // Check for multi-output ZIP-321 URI (e.g. CipherPay invoice)
+                                    // CipherPay invoice (checkout URL, memo
+                                    // code, or zcash: URI with CP-XXXX memo)
+                                    // takes priority — show the rich invoice
+                                    // pay screen instead of a bare Send.
+                                    final invoiceRef =
+                                        CipherPayClient.extractInvoiceRef(
+                                            code);
+                                    if (invoiceRef != null) {
+                                      GoRouter.of(context).push(
+                                        '/invoice/pay',
+                                        extra: InvoicePayArgs(
+                                            invoiceRef: invoiceRef),
+                                      );
+                                      return true;
+                                    }
+                                    // Multi-output ZIP-321 (e.g. fee-split
+                                    // invoice from a non-CipherPay merchant).
                                     final multiPayments = parseZip321Uri(code);
                                     if (multiPayments != null &&
                                         multiPayments.length > 1) {

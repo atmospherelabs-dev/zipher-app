@@ -1,4 +1,4 @@
-package me.hanh.ywallet
+package dev.atmospherelabs.zipher
 
 import android.os.Bundle
 import android.view.WindowManager

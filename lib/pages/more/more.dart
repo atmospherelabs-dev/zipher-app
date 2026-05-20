@@ -103,6 +103,20 @@ class _MorePageState extends State<MorePage> {
               ]),
               const Gap(20),
 
+              // ── Agent Wallet ──
+              _sectionLabel('Agent Wallet'),
+              const Gap(8),
+              _card([
+                _SettingsItem(
+                  icon: Icons.smart_toy_outlined,
+                  label: 'Agent Wallet',
+                  subtitle: 'Spending policy for your AI agent',
+                  badge: 'NEW',
+                  onTap: () => _nav('/more/agent'),
+                ),
+              ]),
+              const Gap(20),
+
               // ── Security & Tools ──
               _sectionLabel('Security & Tools'),
               const Gap(8),

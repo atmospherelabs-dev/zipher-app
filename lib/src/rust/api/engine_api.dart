@@ -426,6 +426,101 @@ Future<EvmSwapExecuteResult> engineEvmSwapExecute(
         amountRaw: amountRaw,
         slippageBps: slippageBps);
 
+/// Fetch a CipherPay invoice by UUID or memo code (e.g. `CP-A7F3B2C1`).
+///
+/// SAFETY/PRIVACY: the customer's IP is exposed to `api.cipherpay.app` for the
+/// duration of this call. Callers should only invoke this in response to an
+/// explicit user action (scanning a QR, tapping a checkout link, manually
+/// pasting an invoice id). Never poll silently in the background.
+Future<EngineInvoice> engineCheckInvoice({required String idOrMemo}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineCheckInvoice(idOrMemo: idOrMemo);
+
+/// A CipherPay invoice as the customer sees it.
+///
+/// Returned by [`engine_check_invoice`]. Read-only — does not touch the seed
+/// and only requires a single anonymous GET to `api.cipherpay.app`.
+class EngineInvoice {
+  /// CipherPay invoice UUID.
+  final String id;
+
+  /// `"pending" | "detected" | "confirmed" | "expired" | "cancelled"`.
+  final String status;
+
+  /// Amount priced in ZEC at invoice creation time.
+  final double priceZec;
+
+  /// Same amount priced in EUR (CipherPay backs invoices with EUR rates).
+  final double priceEur;
+
+  /// Shielded ZEC address the buyer must pay.
+  final String paymentAddress;
+
+  /// Memo code in the form `CP-XXXXXXXX`. Buyer's tx must carry this memo
+  /// to be auto-detected by CipherPay.
+  final String memoCode;
+
+  /// ZEC actually received (set once the tx is detected).
+  final double? receivedZec;
+
+  /// Mainnet txid that paid the invoice, once detected.
+  final String? detectedTxid;
+
+  /// ISO-8601 expiry timestamp.
+  final String expiresAt;
+
+  /// ISO-8601 creation timestamp.
+  final String createdAt;
+
+  /// Merchant-supplied product name. May be empty for ad-hoc invoices.
+  final String? productName;
+
+  const EngineInvoice({
+    required this.id,
+    required this.status,
+    required this.priceZec,
+    required this.priceEur,
+    required this.paymentAddress,
+    required this.memoCode,
+    this.receivedZec,
+    this.detectedTxid,
+    required this.expiresAt,
+    required this.createdAt,
+    this.productName,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      status.hashCode ^
+      priceZec.hashCode ^
+      priceEur.hashCode ^
+      paymentAddress.hashCode ^
+      memoCode.hashCode ^
+      receivedZec.hashCode ^
+      detectedTxid.hashCode ^
+      expiresAt.hashCode ^
+      createdAt.hashCode ^
+      productName.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineInvoice &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          status == other.status &&
+          priceZec == other.priceZec &&
+          priceEur == other.priceEur &&
+          paymentAddress == other.paymentAddress &&
+          memoCode == other.memoCode &&
+          receivedZec == other.receivedZec &&
+          detectedTxid == other.detectedTxid &&
+          expiresAt == other.expiresAt &&
+          createdAt == other.createdAt &&
+          productName == other.productName;
+}
+
 /// Info about the recommended LLM model.
 class EngineLlmModelInfo {
   final String filename;

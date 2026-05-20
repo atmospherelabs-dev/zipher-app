@@ -58,31 +58,21 @@ The MCP server exposes the full agent toolkit over stdio, compatible with Claude
 | **Payments** | `pay_x402`, `pay_url` |
 | **Swaps** | `swap_tokens`, `swap_quote`, `swap_execute`, `swap_status` |
 | **Sessions** | `session_open`, `session_request`, `session_list`, `session_close` |
-| **Market Agent** | `market_scan`, `market_research`, `market_analyze`, `market_quote` |
+| **Market Agent** | `market_research` (web research for prediction markets, generic) |
 
 The server holds the seed in memory — tools never accept seed as an argument. Policy engine enforces spending limits on every transaction.
 
-## Prediction Market Agent
+## Prediction Markets — Polymarket
 
-The agent follows a structured pipeline, whether invoked from CLI or orchestrated by an LLM via MCP:
+Polymarket (Polygon, CLOB, USDC) is the active prediction-market venue. Discovery, position lookup, and bet/sell flows run end-to-end in the mobile app's Action Wallet, and via `zipher-cli polymarket` / the MCP `market_research` tool.
 
-```
-  Scan           Research         Analyze          Execute
-  ─────          ────────         ───────          ───────
-  Fetch markets  Search news      Kelly Criterion  ZEC → USDT swap
-  Rank by        via Firecrawl    Fractional Kelly BNB gas funding
-  uncertainty    Build context    Edge detection   ERC-20 approve
-  Filter open    for LLM          EV calculation   Place bet via Myriad
-```
+- **Discovery** — Gamma API event listing with quality filters (volume, spread, distinct outcome prices).
+- **Research** — `market_research` (Firecrawl) for news context; supplies the LLM with a probability-estimate grounding.
+- **Funding** — automatic cross-chain bridge from ZEC → USDC on Polygon via NEAR Intents, then on-chain USDC → USDC.e via ParaSwap. ZEC stays shielded until the exact moment of bridging.
+- **Trade** — CLOB order placement (EIP-712 signature) for limit/market BUY, ERC-1155 `setApprovalForAll` for sells.
+- **Risk** — spending policy enforces per-tx caps and daily limits before any signing.
 
-**Agent roles in the MCP flow:**
-
-- **News Agent** (`market_research`) — fetches web data via Firecrawl search API. When `FIRECRAWL_API_KEY` is set, pulls real news and analysis. Falls back to market data when unavailable.
-- **Analysis Agent** (`market_analyze`) — takes the LLM's probability estimate and confidence, applies fractional Kelly Criterion (quarter to half Kelly), calculates edge, expected value, and recommended bet size. Hard risk cap via `max_bet_usdt`.
-- **Trading Agent** (`market_scan`, `market_quote`, `swap_execute`) — handles market discovery, quote fetching, cross-chain swaps (ZEC → USDT via NEAR Intents), and EVM transaction construction for Myriad on BNB Chain.
-- **Risk Agent** (`wallet_status`, policy engine, audit log) — spending policy enforces per-tx limits, daily caps, and rate limiting. Every transaction is logged. The LLM can check balance and policy before committing.
-
-**CLI agent mode** runs the full pipeline autonomously with heuristic probability estimation. **MCP mode** lets the LLM read the research and form its own probability estimate — a stronger approach because the LLM brings world knowledge.
+Earlier builds also targeted Myriad on BSC. That venue was removed in 2026-05 due to thin liquidity and weak AMM UX — the Rust module, FRB surface, CLI subcommand, and MCP tools were deleted in commit `e62c30b`.
 
 ## CipherPay — Private Payment Infrastructure
 
@@ -130,7 +120,9 @@ rust/crates/
 │   ├── wallet.rs        # Wallet lifecycle, key derivation, open/close
 │   ├── sync.rs          # lightwalletd sync (Sapling + Orchard)
 │   ├── send.rs          # Transaction construction, PCZT creation
-│   ├── myriad.rs        # Myriad API, Kelly Criterion, EVM tx building
+│   ├── polymarket.rs    # Polymarket CLOB, EIP-712 signing, quality filters
+│   ├── evm.rs           # Shared EVM helpers (RPC, RLP, EIP-1559 fees)
+│   ├── evm_swap.rs      # ParaSwap aggregator client (quote/approve/build/sign)
 │   ├── research.rs      # Firecrawl web search, news agent
 │   ├── swap.rs          # NEAR Intents cross-chain swaps
 │   ├── evm_pay.rs       # Multi-chain EVM x402 detection, cross-chain funding
@@ -153,10 +145,10 @@ rust/crates/
 │   ├── session.rs       # CipherPay session commands
 │   ├── policy.rs        # Policy + audit commands
 │   ├── daemon.rs        # Background sync daemon with IPC
-│   ├── market.rs        # Prediction market commands + OWS signing
+│   ├── market.rs        # Polymarket commands (discovery + trade) + OWS signing
 │   └── serve.rs         # Pay-per-call HTTP API with x402 gating
 │
-└── mcp-server/          # MCP server binary (22 tools)
+└── mcp-server/          # MCP server binary (29 tools)
     └── main.rs          # Tool definitions, server setup
 
 rust/src/                # Flutter Rust Bridge (mobile app FFI)
@@ -170,7 +162,8 @@ The engine crate is the single source of truth for wallet logic. Every consumer 
 - [librustzcash](https://github.com/zcash/librustzcash) — Zcash protocol libraries and light client SDK
 - [rmcp](https://github.com/anthropics/rmcp) — Model Context Protocol server SDK
 - [NEAR Intents](https://near.org/intents) — cross-chain swap infrastructure
-- [Myriad Markets](https://myriad.markets) — prediction markets on BNB Chain
+- [Polymarket](https://polymarket.com) — prediction markets on Polygon (CLOB + Gamma APIs)
+- [ParaSwap](https://paraswap.io) — DEX aggregator for same-chain EVM swaps (USDC.e bridging)
 - [Firecrawl](https://firecrawl.dev) — web search and scraping API
 - [CipherPay](https://cipherpay.app) — Zcash payment infrastructure ([`@cipherpay/x402`](https://www.npmjs.com/package/@cipherpay/x402) middleware, [`@cipherpay/mcp`](https://www.npmjs.com/package/@cipherpay/mcp) server)
 - [Flutter](https://flutter.dev) — mobile UI (iOS & Android)

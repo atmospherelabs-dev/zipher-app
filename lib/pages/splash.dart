@@ -17,6 +17,7 @@ import 'accounts/send.dart';
 import 'utils.dart';
 import '../appsettings.dart';
 import '../coin/coins.dart';
+import '../services/cipherpay_client.dart';
 import '../generated/intl/messages.dart';
 import '../init.dart';
 import '../services/wallet_service.dart';
@@ -404,6 +405,25 @@ bool setActiveAccountOf(int coin) {
 }
 
 void handleUri(Uri uri) async {
+  final raw = uri.toString();
+
+  // CipherPay deep links: https://cipherpay.app/pay/<uuid>
+  final invoiceRef = CipherPayClient.extractInvoiceRef(raw);
+  if (invoiceRef != null) {
+    final context = rootNavigatorKey.currentContext;
+    if (context == null) return;
+    if (aa.id == 0) return;
+    if (appSettings.protectSend) {
+      final authed = await authBarrier(context, dismissable: true);
+      if (!authed) return;
+    }
+    GoRouter.of(context).push(
+      '/invoice/pay',
+      extra: InvoicePayArgs(invoiceRef: invoiceRef),
+    );
+    return;
+  }
+
   final scheme = uri.scheme;
   final coinDef = coins.where((c) => c.currency == scheme).firstOrNull;
   if (coinDef == null) return;

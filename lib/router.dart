@@ -32,6 +32,10 @@ import 'pages/more/more.dart';
 import 'pages/more/sweep.dart';
 import 'pages/more/debug_log.dart';
 import 'pages/action/action.dart';
+import 'pages/agent/agent_wallet.dart';
+import 'pages/cipherpay/invoice_pay.dart';
+import 'pages/cipherpay/invoice_status.dart';
+import 'src/rust/api/engine_api.dart' as rust_engine;
 import 'pages/tx.dart';
 import 'pages/scan.dart';
 import 'pages/showqr.dart';
@@ -273,6 +277,10 @@ final router = GoRouter(
                     builder: (context, state) => const DebugLogPage(),
                   ),
                   GoRoute(
+                    path: 'agent',
+                    builder: (context, state) => const AgentWalletPage(),
+                  ),
+                  GoRoute(
                       path: 'about',
                       builder: (context, state) =>
                           AboutPage(state.extra as String)),
@@ -357,8 +365,31 @@ final router = GoRouter(
           title: state.uri.queryParameters['title']!,
           text: state.extra as String),
     ),
+    GoRoute(
+      path: '/invoice/pay',
+      builder: (context, state) {
+        final ref = state.extra as InvoicePayArgs;
+        return InvoicePayPage(
+          invoiceRef: ref.invoiceRef,
+          prefetched: ref.prefetched,
+        );
+      },
+    ),
+    GoRoute(
+      path: '/invoice/status',
+      builder: (context, state) =>
+          InvoiceStatusPage(args: state.extra as InvoiceStatusArgs),
+    ),
   ],
 );
+
+/// Args passed to `/invoice/pay` so we can optionally hand off a prefetched
+/// invoice (e.g. from the QR scan handler) and skip a second network call.
+class InvoicePayArgs {
+  final String invoiceRef;
+  final rust_engine.EngineInvoice? prefetched;
+  const InvoicePayArgs({required this.invoiceRef, this.prefetched});
+}
 
 class ScaffoldBar extends StatefulWidget {
   final StatefulNavigationShell shell;

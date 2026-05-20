@@ -881,3 +881,60 @@ pub async fn engine_evm_swap_execute(
         dest_amount_expected: result.dest_amount_expected,
     })
 }
+
+// ---------------------------------------------------------------------------
+// CipherPay invoices (customer-side; merchant create stays off mobile FFI)
+// ---------------------------------------------------------------------------
+
+/// A CipherPay invoice as the customer sees it.
+///
+/// Returned by [`engine_check_invoice`]. Read-only — does not touch the seed
+/// and only requires a single anonymous GET to `api.cipherpay.app`.
+pub struct EngineInvoice {
+    /// CipherPay invoice UUID.
+    pub id: String,
+    /// `"pending" | "detected" | "confirmed" | "expired" | "cancelled"`.
+    pub status: String,
+    /// Amount priced in ZEC at invoice creation time.
+    pub price_zec: f64,
+    /// Same amount priced in EUR (CipherPay backs invoices with EUR rates).
+    pub price_eur: f64,
+    /// Shielded ZEC address the buyer must pay.
+    pub payment_address: String,
+    /// Memo code in the form `CP-XXXXXXXX`. Buyer's tx must carry this memo
+    /// to be auto-detected by CipherPay.
+    pub memo_code: String,
+    /// ZEC actually received (set once the tx is detected).
+    pub received_zec: Option<f64>,
+    /// Mainnet txid that paid the invoice, once detected.
+    pub detected_txid: Option<String>,
+    /// ISO-8601 expiry timestamp.
+    pub expires_at: String,
+    /// ISO-8601 creation timestamp.
+    pub created_at: String,
+    /// Merchant-supplied product name. May be empty for ad-hoc invoices.
+    pub product_name: Option<String>,
+}
+
+/// Fetch a CipherPay invoice by UUID or memo code (e.g. `CP-A7F3B2C1`).
+///
+/// SAFETY/PRIVACY: the customer's IP is exposed to `api.cipherpay.app` for the
+/// duration of this call. Callers should only invoke this in response to an
+/// explicit user action (scanning a QR, tapping a checkout link, manually
+/// pasting an invoice id). Never poll silently in the background.
+pub async fn engine_check_invoice(id_or_memo: String) -> Result<EngineInvoice> {
+    let invoice = zipher_engine::cipherpay::check_invoice(&id_or_memo).await?;
+    Ok(EngineInvoice {
+        id: invoice.id,
+        status: invoice.status,
+        price_zec: invoice.price_zec,
+        price_eur: invoice.price_eur,
+        payment_address: invoice.payment_address,
+        memo_code: invoice.memo_code,
+        received_zec: invoice.received_zec,
+        detected_txid: invoice.detected_txid,
+        expires_at: invoice.expires_at,
+        created_at: invoice.created_at,
+        product_name: invoice.product_name,
+    })
+}
