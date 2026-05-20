@@ -56,29 +56,29 @@ class _SplashState extends State<SplashPage> {
           logger.i('[Splash] server=${wallet.serverUrl}');
 
           if (!await registry.isMigrated()) {
-            print('[Splash] running legacy migration...');
+            logger.d('running legacy migration');
             await _migrateLegacyWallet(wallet, registry);
-            print('[Splash] migration done');
+            logger.d('migration done');
           }
 
           final wallets = await registry.getAll();
-          print('[Splash] ${wallets.length} wallet(s) in registry');
+          logger.d('${wallets.length} wallet(s) in registry');
           final applinkUri = await _registerURLHandler();
           final quickAction = await _registerQuickActions();
 
           if (wallets.isNotEmpty) {
             var activeId = await registry.getActiveId();
-            print('[Splash] activeId=$activeId');
+            logger.d('activeId=$activeId');
 
             if (activeId == null ||
                 !wallets.any((w) => w.id == activeId)) {
               activeId = wallets.first.id;
-              print('[Splash] recovery: using first wallet $activeId');
+              logger.d('recovery: using first wallet');
               await registry.setActive(activeId);
             }
 
             final exists = await wallet.walletExists(walletId: activeId);
-            print('[Splash] wallet exists on disk: $exists');
+            logger.d('wallet exists on disk: $exists');
             if (!exists) {
               String? fallbackId;
               for (final w in wallets) {
@@ -89,11 +89,11 @@ class _SplashState extends State<SplashPage> {
               }
               if (fallbackId != null) {
                 activeId = fallbackId;
-                print('[Splash] fallback to wallet $activeId');
+                logger.d('fallback to available wallet');
                 await registry.setActive(activeId);
               } else {
                 await minDisplayTime;
-                print('[Splash] no wallets on disk, going to /welcome');
+                logger.d('no wallets on disk, going to /welcome');
                 appStore.initialized = true;
                 GoRouter.of(context).go('/welcome');
                 return;
@@ -101,9 +101,9 @@ class _SplashState extends State<SplashPage> {
             }
 
             _setProgress(0.5, 'Opening wallet...');
-            print('[Splash] opening wallet $activeId...');
+            logger.d('opening wallet...');
             await wallet.openWalletById(activeId);
-            print('[Splash] wallet opened');
+            logger.d('wallet opened');
 
             _setProgress(0.7, 'Loading wallet data...');
             try {
@@ -126,7 +126,6 @@ class _SplashState extends State<SplashPage> {
 
               // Load full state (balance, txs, address) from wallet
               await aa.update(null);
-              print('[Splash] loaded: balance=${aa.poolBalances.confirmed} txs=${aa.txs.items.length} birthday=$birthday');
 
               // Initialize sync state from wallet's birthday
               if (birthday > 0) {
@@ -134,7 +133,7 @@ class _SplashState extends State<SplashPage> {
               }
             } catch (e) {
               logger.e('Failed to load wallet data: $e');
-              print('[Splash] ERROR loading wallet data: $e');
+              rethrow;
             }
 
             initSyncListener();
@@ -154,12 +153,12 @@ class _SplashState extends State<SplashPage> {
             } else if (quickAction != null) {
               handleQuickAction(context, quickAction);
             } else {
-              print('[Splash] navigating to /account');
+              logger.d('navigating to /account');
               GoRouter.of(context).go('/account');
             }
           } else {
             await minDisplayTime;
-            print('[Splash] no wallets, going to /welcome');
+            logger.d('no wallets, going to /welcome');
             appStore.initialized = true;
             GoRouter.of(context).go('/welcome');
           }
@@ -215,7 +214,6 @@ class _SplashState extends State<SplashPage> {
   }
 
   void _setProgress(double progress, String message) {
-    print("$progress $message");
     progressKey.currentState?.setValue(progress, message);
   }
 
@@ -384,7 +382,10 @@ Future<void> _migrateLegacyWallet(
       // Verify new key reads back correctly.
       final verification =
           await SecureKeyStore.getSeedForWallet(profile.id);
-      if (verification != legacySeed) {
+      if (verification == legacySeed) {
+        await SecureKeyStore.deleteSeed(0, 1);
+        logger.d('legacy seed key migrated and deleted');
+      } else {
         logger.e('Migration verification failed -- legacy key preserved');
       }
     }

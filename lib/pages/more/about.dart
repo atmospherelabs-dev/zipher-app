@@ -8,7 +8,7 @@ import '../../services/wallet_service.dart';
 import '../../services/wallet_registry.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
-import '../../services/secure_key_store.dart';
+
 import '../../zipher_theme.dart';
 import '../../src/version.dart';
 import '../../appsettings.dart';
@@ -411,19 +411,14 @@ class _DisclaimerState extends State<DisclaimerPage> {
       setState(() => _creating = true);
       try {
         final ws = WalletService.instance;
-        print('[Disclaimer] creating wallet, server=${ws.serverUrl}');
+        logger.d('creating wallet');
 
         if (ws.isWalletOpen) {
-          print('[Disclaimer] pausing sync and closing existing wallet...');
           syncStatus2.paused = true;
           await ws.closeWallet();
-          print('[Disclaimer] closed');
         }
 
-        print('[Disclaimer] calling createNewWallet...');
         final seed = await ws.createNewWallet('Main Wallet');
-        print('[Disclaimer] wallet created');
-        await SecureKeyStore.storeSeed(activeCoin.coin, 1, seed, 0);
 
         final balance = await ws.getBalanceOrZero();
         final addrs = await ws.getAddresses();

@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:showcaseview/showcaseview.dart';
 
 import 'pages/accounts/swap/history.dart';
@@ -75,7 +76,7 @@ class _UnfocusOnNavigation extends NavigatorObserver {
 final router = GoRouter(
   navigatorKey: rootNavigatorKey,
   initialLocation: '/splash',
-  debugLogDiagnostics: true,
+  debugLogDiagnostics: kDebugMode,
   observers: [_UnfocusOnNavigation()],
   routes: [
     GoRoute(path: '/', redirect: (context, state) => '/account'),
