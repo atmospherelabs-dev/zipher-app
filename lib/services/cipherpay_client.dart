@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import '../src/rust/api/engine_api.dart' as rust_engine;
 
@@ -12,6 +13,7 @@ class CipherPayClient {
 
   /// Matches the canonical memo code shape `CP-XXXXXXXX` (8 base32-ish chars).
   static final RegExp _memoCodeRegex = RegExp(r'\bCP-[A-Z0-9]{6,12}\b');
+  static final RegExp _memoCodeExactRegex = RegExp(r'^CP-[A-Z0-9]{6,12}$');
 
   /// Matches a v4 UUID anywhere in a string.
   static final RegExp _uuidRegex = RegExp(
@@ -24,8 +26,9 @@ class CipherPayClient {
   ///  1. `https://cipherpay.app/pay/<uuid>` (checkout link)
   ///  2. `cipherpay:<uuid>` or `cipherpay:CP-XXXXXXXX` (deep link, future)
   ///  3. A bare `CP-XXXXXXXX` memo code
-  ///  4. A `zcash:` URI whose memo decodes to `CP-XXXXXXXX`
-  ///  5. A bare UUID v4
+  ///  4. A base64url-encoded `CP-XXXXXXXX` memo code
+  ///  5. A `zcash:` URI whose memo decodes to `CP-XXXXXXXX`
+  ///  6. A bare UUID v4
   ///
   /// Returns `null` when nothing matches.
   static String? extractInvoiceRef(String input) {
@@ -52,6 +55,16 @@ class CipherPayClient {
     // Bare memo code.
     final bareMemo = _memoCodeRegex.firstMatch(trimmed)?.group(0);
     if (bareMemo != null) return bareMemo;
+
+    // Some CipherPay QR codes encode only the memo as base64url (ZIP-321
+    // memo format) instead of wrapping it in a full zcash: URI. Decode before
+    // falling through to generic Send, otherwise the app opens an empty Send
+    // form with the encoded memo and no recipient address.
+    final decodedMemo = _decodeBase64Url(trimmed);
+    if (decodedMemo != null) {
+      final decoded = decodedMemo.trim();
+      if (_memoCodeExactRegex.hasMatch(decoded)) return decoded;
+    }
 
     // zcash:<address>?...&memo=<base64url-encoded CP-...>
     if (trimmed.startsWith('zcash:') || trimmed.startsWith('zcash-test:')) {
@@ -100,7 +113,7 @@ class CipherPayClient {
           .data
           ?.contentAsBytes();
       if (bytes == null) return null;
-      return String.fromCharCodes(bytes);
+      return utf8.decode(bytes);
     } catch (_) {
       return null;
     }
