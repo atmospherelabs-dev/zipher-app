@@ -244,7 +244,40 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                     ),
                     const Gap(24),
 
-                    // Header row: Show/Hide + word count toggle
+                    // ── 1 · Wallet birthday ──────────────────────────────────
+                    // Surfaced first so it isn't missed at the bottom of a
+                    // long seed-phrase grid. Setting this turns a 30-minute
+                    // restore into a 30-second one for recent wallets.
+                    _sectionStep(number: '1', label: 'Wallet birthday'),
+                    const Gap(10),
+                    _buildBirthdaySection(),
+                    const Gap(10),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 1),
+                          child: Icon(Icons.info_outline_rounded,
+                              size: 14, color: ZipherColors.text20),
+                        ),
+                        const Gap(8),
+                        Expanded(
+                          child: Text(
+                            _birthdayInfoText,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: ZipherColors.text40,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Gap(24),
+
+                    // ── 2 · Seed phrase ──────────────────────────────────────
+                    _sectionStep(number: '2', label: 'Seed phrase'),
+                    const Gap(10),
                     Row(
                       children: [
                         GestureDetector(
@@ -276,10 +309,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                       ],
                     ),
                     const Gap(12),
-
-                    // Word grid
                     _buildWordGrid(showWords),
-
                     if (_error != null) ...[
                       const Gap(10),
                       Text(
@@ -290,36 +320,6 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                         ),
                       ),
                     ],
-
-                    const Gap(20),
-
-                    // Birthday section (unchanged year/month picker)
-                    _buildBirthdaySection(),
-
-                    const Gap(16),
-
-                    // Info text
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 1),
-                          child: Icon(Icons.info_outline_rounded,
-                              size: 14, color: ZipherColors.text20),
-                        ),
-                        const Gap(8),
-                        Expanded(
-                          child: Text(
-                            _birthdayInfoText,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: ZipherColors.text40,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
                     const Gap(24),
                   ],
                 ),
@@ -577,6 +577,47 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
           }).toList(),
         ),
       ),
+    );
+  }
+
+  // ── Step header ──────────────────────────────────────────────────────
+  // Compact "1 · Wallet birthday" / "2 · Seed phrase" header so the two
+  // import inputs read as a numbered checklist instead of a scroll soup.
+  Widget _sectionStep({required String number, required String label}) {
+    return Row(
+      children: [
+        Container(
+          width: 20,
+          height: 20,
+          decoration: BoxDecoration(
+            color: ZipherColors.cyan.withValues(alpha: 0.10),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: ZipherColors.cyan.withValues(alpha: 0.25),
+              width: 0.5,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            number,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: ZipherColors.cyan.withValues(alpha: 0.85),
+            ),
+          ),
+        ),
+        const Gap(10),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: ZipherColors.text90,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ],
     );
   }
 
