@@ -14,9 +14,11 @@ import 'utils.dart';
 class ScanQRCodePage extends StatefulWidget {
   final bool Function(String code) onCode;
   final String? Function(String? code)? validator;
+  final bool closeBeforeOnCode;
   ScanQRCodePage(ScanQRContext context)
       : onCode = context.onCode,
-        validator = context.validator;
+        validator = context.validator,
+        closeBeforeOnCode = context.closeBeforeOnCode;
   @override
   State<StatefulWidget> createState() => _ScanQRCodeState();
 }
