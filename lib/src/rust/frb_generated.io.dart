@@ -84,6 +84,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dynamic raw);
 
   @protected
+  EngineFrostRelayIdentity dco_decode_engine_frost_relay_identity(dynamic raw);
+
+  @protected
+  EngineFrostRelayLoginProof dco_decode_engine_frost_relay_login_proof(
+      dynamic raw);
+
+  @protected
   EngineFrostSigningRound1Result dco_decode_engine_frost_signing_round_1_result(
       dynamic raw);
 
@@ -277,6 +284,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EngineFrostRandomizerResult sse_decode_engine_frost_randomizer_result(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineFrostRelayIdentity sse_decode_engine_frost_relay_identity(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineFrostRelayLoginProof sse_decode_engine_frost_relay_login_proof(
       SseDeserializer deserializer);
 
   @protected
@@ -490,6 +505,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_engine_frost_randomizer_result(
       EngineFrostRandomizerResult self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_relay_identity(
+      EngineFrostRelayIdentity self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_relay_login_proof(
+      EngineFrostRelayLoginProof self, SseSerializer serializer);
 
   @protected
   void sse_encode_engine_frost_signing_round_1_result(

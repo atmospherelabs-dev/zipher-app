@@ -7,6 +7,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../services/frost_service.dart';
 import '../../services/wallet_service.dart';
 import '../../zipher_theme.dart';
+import '../scan.dart';
 
 enum FrostSetupUseCase { personalRecovery, sharedBusiness, agentWallet }
 
@@ -22,9 +23,17 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
   int _threshold = 2;
   int _participants = 3;
   FrostInvite? _invite;
+  FrostCoordinatorPending? _pendingCoordinator;
+  final _joinResponseController = TextEditingController();
   bool _thresholdLocked = false;
   bool _creating = false;
   String? _createdAddress;
+
+  @override
+  void dispose() {
+    _joinResponseController.dispose();
+    super.dispose();
+  }
 
   String get _label {
     switch (_useCase) {
@@ -37,7 +46,79 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
     }
   }
 
-  void _createInvite() {
+  Future<void> _createInvite() async {
+    setState(() => _creating = true);
+    try {
+      final pending = await FrostService.instance.beginRelayCoordinator(
+        label: _label,
+      );
+      if (!mounted) return;
+      setState(() {
+        _pendingCoordinator = pending;
+        _invite = pending.invite;
+        _creating = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _creating = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not create invite: $e',
+              style: TextStyle(color: ZipherColors.text90)),
+          backgroundColor: ZipherColors.surface,
+        ),
+      );
+    }
+  }
+
+  Future<void> _scanJoinResponse() async {
+    final code = await scanQRCode(context);
+    if (code.isNotEmpty) {
+      _joinResponseController.text = code;
+    }
+  }
+
+  Future<void> _acceptJoinResponse() async {
+    if (_creating || !_thresholdLocked) return;
+    setState(() => _creating = true);
+    try {
+      int birthday = 0;
+      try {
+        birthday = await WalletService.instance.getLatestBlockHeight();
+      } catch (_) {}
+      final response = FrostJoinResponse.decode(_joinResponseController.text);
+      final result = await FrostService.instance.coordinatorAcceptJoin(
+        response: response,
+        walletName: _label,
+        birthday: birthday,
+        chainType: WalletService.instance.isTestnetChain,
+        importUfvk: (ufvk, birthday) => WalletService.instance
+            .importFrostUfvkWallet(_label, ufvk, birthday),
+      );
+      if (!mounted) return;
+      setState(() {
+        _createdAddress = result.address;
+        _creating = false;
+      });
+      if (result.backupKeyPackage != null) {
+        await Clipboard.setData(
+          ClipboardData(text: result.backupKeyPackage!),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _creating = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not complete FROST setup: $e',
+              style: TextStyle(color: ZipherColors.text90)),
+          backgroundColor: ZipherColors.surface,
+        ),
+      );
+    }
+  }
+
+  void _createLocalFallbackInvite() {
     setState(() {
       _invite = FrostService.instance.createInvite(
         label: _label,
@@ -145,15 +226,44 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
             const Gap(10),
             if (invite == null)
               _PrimaryButton(
-                label: 'Create invite',
+                label: _creating ? 'Creating...' : 'Create relay invite',
                 icon: Icons.qr_code_2_rounded,
-                onTap: _createInvite,
+                onTap: _creating ? null : _createInvite,
               )
             else
               _InviteCard(invite: invite, onCopy: _copyInvite),
             const Gap(22),
             _SectionTitle('4. Review roster'),
             const Gap(10),
+            if (_pendingCoordinator != null && _createdAddress == null) ...[
+              _Field(
+                label: 'Join response',
+                controller: _joinResponseController,
+                hint: 'zipher:frost-join:v1:...',
+                maxLines: 3,
+              ),
+              const Gap(10),
+              Row(
+                children: [
+                  Expanded(
+                    child: _SecondaryButton(
+                      label: 'Scan response',
+                      icon: Icons.qr_code_scanner_rounded,
+                      onTap: _scanJoinResponse,
+                    ),
+                  ),
+                  const Gap(10),
+                  Expanded(
+                    child: _SecondaryButton(
+                      label: 'Paste fallback',
+                      icon: Icons.edit_rounded,
+                      onTap: _createLocalFallbackInvite,
+                    ),
+                  ),
+                ],
+              ),
+              const Gap(10),
+            ],
             _RosterCard(
               participants: [
                 const _ParticipantRow('You', 'Creator', true),
@@ -178,7 +288,9 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
               locked: _thresholdLocked,
               creating: _creating,
               createdAddress: _createdAddress,
-              onComplete: _completeLocalSetup,
+              onComplete: _pendingCoordinator != null
+                  ? _acceptJoinResponse
+                  : _completeLocalSetup,
               steps: const [
                 'Participants',
                 'Create shares',
@@ -660,6 +772,55 @@ class _ThresholdChip extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _Field extends StatelessWidget {
+  final String label;
+  final TextEditingController controller;
+  final String hint;
+  final int maxLines;
+
+  const _Field({
+    required this.label,
+    required this.controller,
+    required this.hint,
+    this.maxLines = 1,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: TextStyle(color: ZipherColors.text40, fontSize: 13)),
+        const Gap(8),
+        TextField(
+          controller: controller,
+          maxLines: maxLines,
+          style: TextStyle(color: ZipherColors.text90, fontSize: 13),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(color: ZipherColors.text20),
+            filled: true,
+            fillColor: ZipherColors.cardBg,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(ZipherRadius.md),
+              borderSide: BorderSide(color: ZipherColors.borderSubtle),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(ZipherRadius.md),
+              borderSide: BorderSide(color: ZipherColors.borderSubtle),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(ZipherRadius.md),
+              borderSide:
+                  BorderSide(color: ZipherColors.cyan.withValues(alpha: 0.35)),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

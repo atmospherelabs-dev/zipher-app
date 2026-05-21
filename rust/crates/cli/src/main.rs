@@ -576,6 +576,12 @@ enum X402Cmd {
 enum FrostCmd {
     /// Run a local 2-of-3 DKG + signing + aggregate self-test
     SelfTest,
+    /// Smoke-test frostd challenge/login/session over HTTPS
+    RelaySmoke {
+        /// Relay URL
+        #[arg(long, default_value = "https://frost.atmospherelabs.dev")]
+        relay: String,
+    },
     /// Create a local FROST Orchard viewing wallet from simulated DKG
     WalletCreate {
         /// Wallet birthday height
@@ -884,6 +890,7 @@ async fn main() {
         },
         Commands::Frost(sub) => match sub {
             FrostCmd::SelfTest => frost::cmd_frost_self_test(&cfg).await,
+            FrostCmd::RelaySmoke { relay } => frost::cmd_frost_relay_smoke(&cfg, relay).await,
             FrostCmd::WalletCreate { birthday } => {
                 frost::cmd_frost_wallet_create(&cfg, birthday).await
             }

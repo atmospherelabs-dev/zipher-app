@@ -129,6 +129,24 @@ class SecureKeyStore {
     await _storage.delete(key: _frostKeyPackageKey(walletId));
   }
 
+  static String _frostRelayPrivateKeyKey(String walletId) =>
+      'frost_relay_private_key_$walletId';
+
+  static Future<void> storeFrostRelayPrivateKey(
+      String walletId, String privateKeyHex) async {
+    await _storage.write(
+        key: _frostRelayPrivateKeyKey(walletId), value: privateKeyHex);
+  }
+
+  static Future<String?> getFrostRelayPrivateKey(String walletId) async {
+    try {
+      return await _storage.read(key: _frostRelayPrivateKeyKey(walletId));
+    } on PlatformException catch (e) {
+      _logger.e('Keystore read failed for FROST relay key $walletId: $e');
+      return null;
+    }
+  }
+
   // ── DB encryption key ──
 
   static const _dbKeyPrefix = 'db_cipher_key_';

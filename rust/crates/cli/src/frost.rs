@@ -64,6 +64,144 @@ pub async fn cmd_frost_self_test(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+#[derive(Serialize)]
+struct FrostRelaySmokeResult {
+    relay: String,
+    coordinator_pubkey: String,
+    participant_pubkey: String,
+    session_id: String,
+    received_message_hex: String,
+}
+
+pub async fn cmd_frost_relay_smoke(cfg: &Config, relay: String) -> Result<()> {
+    let id1 = zipher_engine::frost::frost_relay_generate_identity()?;
+    let id2 = zipher_engine::frost::frost_relay_generate_identity()?;
+
+    let client = reqwest::Client::new();
+    async fn login(
+        client: &reqwest::Client,
+        relay: &str,
+        id: &zipher_engine::frost::FrostRelayIdentity,
+    ) -> Result<String> {
+        let challenge: serde_json::Value = client
+            .post(format!("{relay}/challenge"))
+            .json(&serde_json::json!({}))
+            .send()
+            .await?
+            .json()
+            .await?;
+        let challenge = challenge["challenge"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing challenge"))?
+            .to_string();
+        let proof = zipher_engine::frost::frost_relay_sign_challenge(
+            id.private_key_hex.clone(),
+            id.public_key_hex.clone(),
+            challenge.clone(),
+        )?;
+        let resp = client
+            .post(format!("{relay}/login"))
+            .json(&serde_json::json!({
+                "challenge": challenge,
+                "pubkey": proof.pubkey_hex,
+                "signature": proof.signature_hex,
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        let body = resp.text().await?;
+        if !status.is_success() {
+            return Err(anyhow::anyhow!("relay login failed ({status}): {body}"));
+        }
+        let login: serde_json::Value = serde_json::from_str(&body)?;
+        Ok(login["access_token"]
+            .as_str()
+            .or_else(|| login["accessToken"].as_str())
+            .ok_or_else(|| anyhow::anyhow!("missing access_token in relay response: {body}"))?
+            .to_string())
+    }
+
+    let token1 = login(&client, &relay, &id1).await?;
+    let token2 = login(&client, &relay, &id2).await?;
+    let session: serde_json::Value = client
+        .post(format!("{relay}/create_new_session"))
+        .bearer_auth(&token1)
+        .json(&serde_json::json!({
+            "pubkeys": [id2.public_key_hex],
+            "message_count": 1,
+        }))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let session_id = session["session_id"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("missing session_id"))?
+        .to_string();
+
+    let msg = "68656c6c6f"; // hello
+    let encrypted = zipher_engine::frost::frost_relay_encrypt(
+        id1.private_key_hex.clone(),
+        id2.public_key_hex.clone(),
+        msg.to_string(),
+    )?;
+    client
+        .post(format!("{relay}/send"))
+        .bearer_auth(&token1)
+        .json(&serde_json::json!({
+            "session_id": session_id,
+            "recipients": [id2.public_key_hex],
+            "msg": encrypted,
+        }))
+        .send()
+        .await?
+        .error_for_status()?;
+    let received: serde_json::Value = client
+        .post(format!("{relay}/receive"))
+        .bearer_auth(&token2)
+        .json(&serde_json::json!({
+            "session_id": session_id,
+            "as_coordinator": false,
+        }))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let first = received["msgs"]
+        .as_array()
+        .and_then(|a| a.first())
+        .ok_or_else(|| anyhow::anyhow!("no relay message received"))?;
+    let sender = first["sender"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("missing sender"))?;
+    let encrypted = first["msg"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("missing msg"))?;
+    let decrypted = zipher_engine::frost::frost_relay_decrypt(
+        id2.private_key_hex.clone(),
+        sender.to_string(),
+        encrypted.to_string(),
+    )?;
+
+    print_ok(
+        FrostRelaySmokeResult {
+            relay,
+            coordinator_pubkey: id1.public_key_hex,
+            participant_pubkey: id2.public_key_hex,
+            session_id,
+            received_message_hex: decrypted,
+        },
+        cfg.human,
+        |r| {
+            println!("FROST relay smoke test OK");
+            println!("relay: {}", r.relay);
+            println!("session: {}", r.session_id);
+            println!("message: {}", r.received_message_hex);
+        },
+    );
+    Ok(())
+}
+
 fn local_2_of_3_dkg() -> Result<(
     zipher_engine::frost::FrostDkgCompleteResult,
     zipher_engine::frost::FrostDkgCompleteResult,

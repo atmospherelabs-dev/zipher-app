@@ -43,6 +43,9 @@ reqwest = { version = "0.13", features = ["json"] }
 reddsa = { version = "0.5", features = ["frost", "serde"] }
 frost-rerandomized = "0.6"
 frost-core = { version = "0.6", features = ["serde"] }
+xeddsa = "1.0.2"
+snow = "0.9.6"
+uuid = "1"
 
 # EVM signing (OWS signer — no tonic/prost, just crypto)
 ows-signer = { path = "../../../ows-core/ows/crates/ows-signer", version = "=1.0.0" }

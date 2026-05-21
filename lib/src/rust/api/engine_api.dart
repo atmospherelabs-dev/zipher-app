@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'wallet.dart';
 
 // These functions are ignored because they are not marked as `pub`: `packages_from_map`, `packages_to_map`, `to_network`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Create a new wallet. Returns the 24-word seed phrase.
 Future<String> engineCreateWallet(
@@ -343,6 +343,36 @@ Future<EngineFrostWalletView> engineFrostCreateViewFromGroupKey(
         {required String groupPublicKeyHex, required ChainType chainType}) =>
     RustLib.instance.api.crateApiEngineApiEngineFrostCreateViewFromGroupKey(
         groupPublicKeyHex: groupPublicKeyHex, chainType: chainType);
+
+Future<EngineFrostRelayIdentity> engineFrostRelayGenerateIdentity() =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostRelayGenerateIdentity();
+
+Future<EngineFrostRelayLoginProof> engineFrostRelaySignChallenge(
+        {required String privateKeyHex,
+        required String publicKeyHex,
+        required String challenge}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostRelaySignChallenge(
+        privateKeyHex: privateKeyHex,
+        publicKeyHex: publicKeyHex,
+        challenge: challenge);
+
+Future<String> engineFrostRelayEncrypt(
+        {required String senderPrivateKeyHex,
+        required String recipientPublicKeyHex,
+        required String messageHex}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostRelayEncrypt(
+        senderPrivateKeyHex: senderPrivateKeyHex,
+        recipientPublicKeyHex: recipientPublicKeyHex,
+        messageHex: messageHex);
+
+Future<String> engineFrostRelayDecrypt(
+        {required String recipientPrivateKeyHex,
+        required String senderPublicKeyHex,
+        required String encryptedHex}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostRelayDecrypt(
+        recipientPrivateKeyHex: recipientPrivateKeyHex,
+        senderPublicKeyHex: senderPublicKeyHex,
+        encryptedHex: encryptedHex);
 
 /// Step 2: Confirm and broadcast the previously proposed transaction.
 Future<String> engineConfirmSend({required String seedPhrase}) =>
@@ -745,6 +775,48 @@ class EngineFrostRandomizerResult {
           runtimeType == other.runtimeType &&
           randomizerHex == other.randomizerHex &&
           randomizerPointHex == other.randomizerPointHex;
+}
+
+class EngineFrostRelayIdentity {
+  final String privateKeyHex;
+  final String publicKeyHex;
+
+  const EngineFrostRelayIdentity({
+    required this.privateKeyHex,
+    required this.publicKeyHex,
+  });
+
+  @override
+  int get hashCode => privateKeyHex.hashCode ^ publicKeyHex.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostRelayIdentity &&
+          runtimeType == other.runtimeType &&
+          privateKeyHex == other.privateKeyHex &&
+          publicKeyHex == other.publicKeyHex;
+}
+
+class EngineFrostRelayLoginProof {
+  final String pubkeyHex;
+  final String signatureHex;
+
+  const EngineFrostRelayLoginProof({
+    required this.pubkeyHex,
+    required this.signatureHex,
+  });
+
+  @override
+  int get hashCode => pubkeyHex.hashCode ^ signatureHex.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostRelayLoginProof &&
+          runtimeType == other.runtimeType &&
+          pubkeyHex == other.pubkeyHex &&
+          signatureHex == other.signatureHex;
 }
 
 class EngineFrostSigningRound1Result {

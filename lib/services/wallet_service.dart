@@ -111,6 +111,8 @@ class WalletService {
   rust_wallet.ChainType get _chainType =>
       isTestnet ? rust_wallet.ChainType.testnet : rust_wallet.ChainType.mainnet;
 
+  rust_wallet.ChainType get isTestnetChain => _chainType;
+
   /// Check if a wallet file exists on disk for a specific wallet ID.
   Future<bool> walletExists({String? walletId}) async {
     final dir = await walletDir(walletId: walletId);
@@ -272,6 +274,15 @@ class WalletService {
     await registry.setActive(profile.id);
     await _applyFileProtection(dir);
     if (!useNewEngine) await rust_wallet.startSaveTask();
+  }
+
+  Future<String> importFrostUfvkWallet(
+      String name, String ufvk, int birthday) async {
+    await restoreWalletFromUfvk(name, ufvk, birthday);
+    final id = _activeWalletId;
+    if (id == null)
+      throw Exception('FROST wallet import did not set active wallet');
+    return _networkSeedKey(id);
   }
 
   /// Create a real Orchard-only FROST wallet locally and import its UFVK as a
@@ -961,6 +972,12 @@ class WalletService {
     if (id == null) return false;
     final key = _networkSeedKey(id);
     return FrostService.instance.loadMetadata(key).then((m) => m != null);
+  }
+
+  String activeFrostWalletKey() {
+    final id = _activeWalletId;
+    if (id == null) throw Exception('No active wallet');
+    return _networkSeedKey(id);
   }
 
   /// Converts the pending send proposal into a proved PCZT and returns the

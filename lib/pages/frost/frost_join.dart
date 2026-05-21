@@ -3,6 +3,7 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../services/frost_service.dart';
+import '../../services/wallet_service.dart';
 import '../../zipher_theme.dart';
 import '../scan.dart';
 
@@ -17,8 +18,9 @@ class _FrostJoinPageState extends State<FrostJoinPage> {
   final _inviteController = TextEditingController();
   final _labelController = TextEditingController(text: 'My device');
   FrostInvite? _invite;
-  String? _round1Package;
+  FrostJoinResponse? _joinResponse;
   String? _secretHandle;
+  String? _joinedAddress;
   Object? _error;
   bool _busy = false;
 
@@ -35,8 +37,9 @@ class _FrostJoinPageState extends State<FrostJoinPage> {
       setState(() {
         _invite = invite;
         _error = null;
-        _round1Package = null;
+        _joinResponse = null;
         _secretHandle = null;
+        _joinedAddress = null;
       });
     } catch (e) {
       setState(() {
@@ -59,17 +62,41 @@ class _FrostJoinPageState extends State<FrostJoinPage> {
     if (invite == null || _busy) return;
     setState(() => _busy = true);
     try {
-      // Participant ID assignment will ultimately come from the relay roster.
-      // Until the relay is authoritative, use signer #2 for the first joiner.
-      final res = await FrostService.instance.dkgRound1(
-        participantId: 2,
-        threshold: invite.threshold,
-        participants: invite.participants,
+      final pending = await FrostService.instance.beginRelayJoin(
+        invite: invite,
+        participantLabel: _labelController.text.trim().isEmpty
+            ? 'My device'
+            : _labelController.text.trim(),
       );
       if (!mounted) return;
       setState(() {
-        _secretHandle = res.secretPackage;
-        _round1Package = res.round1Package;
+        _secretHandle = pending.participant2.secretPackage;
+        _joinResponse = pending.response;
+        _busy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _busy = false;
+      });
+    }
+  }
+
+  Future<void> _complete() async {
+    if (_busy || _joinResponse == null) return;
+    setState(() => _busy = true);
+    try {
+      final result = await FrostService.instance.joinerCompleteFromRelay(
+        walletName: _invite?.label ?? 'Shared wallet',
+        chainType: WalletService.instance.isTestnetChain,
+        importUfvk: (ufvk, birthday) => WalletService.instance
+            .importFrostUfvkWallet(
+                _invite?.label ?? 'Shared wallet', ufvk, birthday),
+      );
+      if (!mounted) return;
+      setState(() {
+        _joinedAddress = result.address;
         _busy = false;
       });
     } catch (e) {
@@ -181,7 +208,7 @@ class _FrostJoinPageState extends State<FrostJoinPage> {
                 primary: true,
               ),
             ],
-            if (_round1Package != null) ...[
+            if (_joinResponse != null) ...[
               const Gap(18),
               _Card(
                 child: Column(
@@ -202,7 +229,7 @@ class _FrostJoinPageState extends State<FrostJoinPage> {
                     ),
                     const Gap(10),
                     SelectableText(
-                      _round1Package!,
+                      _joinResponse!.encode(),
                       style: TextStyle(
                         color: ZipherColors.text40,
                         fontSize: 11,
@@ -217,6 +244,44 @@ class _FrostJoinPageState extends State<FrostJoinPage> {
                             TextStyle(color: ZipherColors.text20, fontSize: 11),
                       ),
                     ],
+                  ],
+                ),
+              ),
+              const Gap(12),
+              _Button(
+                label:
+                    _busy ? 'Waiting...' : 'Complete after coordinator accepts',
+                icon: Icons.sync_rounded,
+                onTap: _busy ? null : _complete,
+                primary: true,
+              ),
+            ],
+            if (_joinedAddress != null) ...[
+              const Gap(18),
+              _Card(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Joined shared wallet',
+                        style: TextStyle(
+                            color: ZipherColors.green,
+                            fontWeight: FontWeight.w700)),
+                    const Gap(8),
+                    SelectableText(
+                      _joinedAddress!,
+                      style: TextStyle(
+                        color: ZipherColors.text60,
+                        fontSize: 11,
+                        fontFamily: 'JetBrainsMono',
+                      ),
+                    ),
+                    const Gap(12),
+                    _Button(
+                      label: 'Open wallet',
+                      icon: Icons.arrow_forward_rounded,
+                      onTap: () => GoRouter.of(context).go('/account'),
+                      primary: true,
+                    ),
                   ],
                 ),
               ),

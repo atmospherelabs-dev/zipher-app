@@ -19,6 +19,7 @@ use frost_rerandomized::RandomizedParams;
 use rand::{rngs::OsRng, RngCore};
 use reddsa::frost::redpallas::PallasBlake2b512;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use xeddsa::{xed25519, Sign as _, Verify as _};
 use zcash_keys::keys::{UnifiedAddressRequest, UnifiedFullViewingKey};
 use zcash_primitives::transaction::{
     sighash::SignableInput, sighash_v5::v5_signature_hash, txid::TxIdDigester,
@@ -120,6 +121,18 @@ pub struct FrostPcztActionRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrostPcztSigningRequest {
     pub orchard_actions: Vec<FrostPcztActionRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrostRelayIdentity {
+    pub private_key_hex: String,
+    pub public_key_hex: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrostRelayLoginProof {
+    pub pubkey_hex: String,
+    pub signature_hex: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -797,6 +810,99 @@ pub fn frost_key_refresh(_key_package: String, _new_signer_count: u16) -> Result
          the full repair/refresh transcript. A KeyPackage alone is not enough \
          to safely rotate shares without changing wallet spend authority."
     ))
+}
+
+pub fn frost_relay_generate_identity() -> Result<FrostRelayIdentity> {
+    let builder = snow::Builder::new(
+        "Noise_K_25519_ChaChaPoly_BLAKE2s"
+            .parse()
+            .expect("valid Noise pattern"),
+    );
+    let keypair = builder.generate_keypair()?;
+    Ok(FrostRelayIdentity {
+        private_key_hex: hex::encode(keypair.private),
+        public_key_hex: hex::encode(keypair.public),
+    })
+}
+
+pub fn frost_relay_sign_challenge(
+    private_key_hex: String,
+    public_key_hex: String,
+    challenge: String,
+) -> Result<FrostRelayLoginProof> {
+    let priv_bytes = hex::decode(private_key_hex)
+        .map_err(|e| anyhow!("Invalid relay private key hex: {e}"))?;
+    let priv_arr: [u8; 32] = priv_bytes
+        .try_into()
+        .map_err(|_| anyhow!("Relay private key must be 32 bytes"))?;
+    let private = xed25519::PrivateKey::from(&priv_arr);
+    let challenge_uuid =
+        uuid::Uuid::parse_str(&challenge).map_err(|e| anyhow!("Invalid challenge UUID: {e}"))?;
+    let challenge_bytes = challenge_uuid.as_bytes();
+    let sig: [u8; 64] = private.sign(challenge_bytes, &mut OsRng);
+    let pub_bytes = hex::decode(&public_key_hex)
+        .map_err(|e| anyhow!("Invalid relay public key hex: {e}"))?;
+    let pub_arr: [u8; 32] = pub_bytes
+        .try_into()
+        .map_err(|_| anyhow!("Relay public key must be 32 bytes"))?;
+    let public = xed25519::PublicKey(pub_arr);
+    public
+        .verify(challenge_bytes, &sig)
+        .map_err(|_| anyhow!("Generated relay signature did not verify locally"))?;
+    Ok(FrostRelayLoginProof {
+        pubkey_hex: public_key_hex,
+        signature_hex: hex::encode(sig),
+    })
+}
+
+pub fn frost_relay_encrypt(
+    sender_private_key_hex: String,
+    recipient_public_key_hex: String,
+    message_hex: String,
+) -> Result<String> {
+    let sender_private = hex::decode(sender_private_key_hex)
+        .map_err(|e| anyhow!("Invalid relay private key hex: {e}"))?;
+    let recipient_public = hex::decode(recipient_public_key_hex)
+        .map_err(|e| anyhow!("Invalid recipient public key hex: {e}"))?;
+    let message = hex::decode(message_hex).map_err(|e| anyhow!("Invalid message hex: {e}"))?;
+    let builder = snow::Builder::new(
+        "Noise_K_25519_ChaChaPoly_BLAKE2s"
+            .parse()
+            .expect("valid Noise pattern"),
+    );
+    let mut noise = builder
+        .local_private_key(&sender_private)
+        .remote_public_key(&recipient_public)
+        .build_initiator()?;
+    let mut out = vec![0u8; message.len() + 1024];
+    let n = noise.write_message(&message, &mut out)?;
+    out.truncate(n);
+    Ok(hex::encode(out))
+}
+
+pub fn frost_relay_decrypt(
+    recipient_private_key_hex: String,
+    sender_public_key_hex: String,
+    encrypted_hex: String,
+) -> Result<String> {
+    let recipient_private = hex::decode(recipient_private_key_hex)
+        .map_err(|e| anyhow!("Invalid relay private key hex: {e}"))?;
+    let sender_public =
+        hex::decode(sender_public_key_hex).map_err(|e| anyhow!("Invalid sender public key hex: {e}"))?;
+    let encrypted = hex::decode(encrypted_hex).map_err(|e| anyhow!("Invalid encrypted hex: {e}"))?;
+    let builder = snow::Builder::new(
+        "Noise_K_25519_ChaChaPoly_BLAKE2s"
+            .parse()
+            .expect("valid Noise pattern"),
+    );
+    let mut noise = builder
+        .local_private_key(&recipient_private)
+        .remote_public_key(&sender_public)
+        .build_responder()?;
+    let mut out = vec![0u8; encrypted.len() + 1024];
+    let n = noise.read_message(&encrypted, &mut out)?;
+    out.truncate(n);
+    Ok(hex::encode(out))
 }
 
 #[cfg(test)]

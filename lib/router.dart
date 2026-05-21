@@ -39,6 +39,7 @@ import 'pages/frost/frost_create.dart';
 import 'pages/frost/frost_join.dart';
 import 'pages/frost/frost_approve.dart';
 import 'pages/frost/frost_recovery.dart';
+import 'pages/frost/frost_sign_coordinator.dart';
 import 'services/cipherpay_client.dart';
 import 'pages/tx.dart';
 import 'pages/scan.dart';
@@ -401,6 +402,11 @@ final router = GoRouter(
       builder: (context, state) => FrostRecoveryPage(
         walletId: state.uri.queryParameters['walletId'] ?? '',
       ),
+    ),
+    GoRoute(
+      path: '/frost/sign',
+      builder: (context, state) => FrostSignCoordinatorPage(
+          args: state.extra as FrostSignCoordinatorArgs),
     ),
   ],
 );

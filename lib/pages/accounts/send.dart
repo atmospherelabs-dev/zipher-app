@@ -7,6 +7,7 @@ import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../generated/intl/messages.dart';
 import '../../router.dart' show InvoicePayArgs;
+import '../../pages/frost/frost_sign_coordinator.dart';
 import '../../services/cipherpay_client.dart';
 import '../../services/wallet_service.dart';
 import '../../store2.dart';
@@ -559,7 +560,18 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
 
   Future<void> _executeConfirmedSend() async {
     if (mounted) {
-      GoRouter.of(context).go('/account/submit_tx');
+      if (await WalletService.instance.isActiveFrostWallet()) {
+        GoRouter.of(context).push(
+          '/frost/sign',
+          extra: FrostSignCoordinatorArgs(
+            destination: _addressController.text.trim(),
+            zatoshis: _amountZat,
+            memoPreview: _memoText.isNotEmpty ? _memoText : null,
+          ),
+        );
+      } else {
+        GoRouter.of(context).go('/account/submit_tx');
+      }
     }
   }
 

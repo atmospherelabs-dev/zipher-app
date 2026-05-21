@@ -1381,6 +1381,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_more"
+version = "0.99.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6edb4b64a43d977b8e99788fe3a04d483834fba1215a7e02caa415b626497f7f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4234,11 +4245,14 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "snow",
  "thiserror 2.0.18",
  "tokio",
  "tonic 0.14.5",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+ "xeddsa",
  "zcash_address",
  "zcash_client_backend",
  "zcash_client_sqlite",
@@ -4855,6 +4869,22 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+
+[[package]]
+name = "snow"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "850948bee068e713b8ab860fe1adc4d109676ab4c3b621fd8147f06b261f2f85"
+dependencies = [
+ "aes-gcm",
+ "blake2",
+ "chacha20poly1305",
+ "curve25519-dalek",
+ "rand_core 0.6.4",
+ "rustc_version",
+ "sha2 0.10.9",
+ "subtle",
+]
 
 [[package]]
 name = "socket2"
@@ -6255,10 +6285,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "x25519-dalek"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7e468321c81fb07fa7f4c636c3972b9100f0346e5b6a9f2bd0603a52f7ed277"
+dependencies = [
+ "curve25519-dalek",
+ "rand_core 0.6.4",
+ "serde",
+ "zeroize",
+]
+
+[[package]]
 name = "xdg"
 version = "2.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "213b7324336b53d2414b2db8537e56544d981803139155afa84f76eeebb7a546"
+
+[[package]]
+name = "xeddsa"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2460c9a9c9d1331ff6801e87badb517faa6b6758e5fb585eb27daf7622c6d5ad"
+dependencies = [
+ "curve25519-dalek",
+ "derive_more",
+ "ed25519",
+ "ed25519-dalek",
+ "rand 0.8.5",
+ "sha2 0.10.9",
+ "x25519-dalek",
+ "zeroize",
+]
 
 [[package]]
 name = "yoke"
@@ -6772,12 +6830,15 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "snow",
  "tempfile",
  "tokenizers 0.21.4",
  "tokio",
  "toml",
  "tonic 0.14.5",
  "tracing",
+ "uuid",
+ "xeddsa",
  "zcash_address",
  "zcash_client_backend",
  "zcash_client_sqlite",

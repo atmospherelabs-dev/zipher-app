@@ -670,6 +670,34 @@ pub struct EngineFrostWalletView {
     pub orchard_fvk_hex: String,
 }
 
+pub struct EngineFrostRelayIdentity {
+    pub private_key_hex: String,
+    pub public_key_hex: String,
+}
+
+impl From<zipher_engine::frost::FrostRelayIdentity> for EngineFrostRelayIdentity {
+    fn from(v: zipher_engine::frost::FrostRelayIdentity) -> Self {
+        Self {
+            private_key_hex: v.private_key_hex,
+            public_key_hex: v.public_key_hex,
+        }
+    }
+}
+
+pub struct EngineFrostRelayLoginProof {
+    pub pubkey_hex: String,
+    pub signature_hex: String,
+}
+
+impl From<zipher_engine::frost::FrostRelayLoginProof> for EngineFrostRelayLoginProof {
+    fn from(v: zipher_engine::frost::FrostRelayLoginProof) -> Self {
+        Self {
+            pubkey_hex: v.pubkey_hex,
+            signature_hex: v.signature_hex,
+        }
+    }
+}
+
 impl From<zipher_engine::frost::FrostWalletView> for EngineFrostWalletView {
     fn from(v: zipher_engine::frost::FrostWalletView) -> Self {
         Self {
@@ -831,6 +859,47 @@ pub fn engine_frost_create_view_from_group_key(
         to_network(chain_type),
     )?
     .into())
+}
+
+pub fn engine_frost_relay_generate_identity() -> Result<EngineFrostRelayIdentity> {
+    Ok(zipher_engine::frost::frost_relay_generate_identity()?.into())
+}
+
+pub fn engine_frost_relay_sign_challenge(
+    private_key_hex: String,
+    public_key_hex: String,
+    challenge: String,
+) -> Result<EngineFrostRelayLoginProof> {
+    Ok(zipher_engine::frost::frost_relay_sign_challenge(
+        private_key_hex,
+        public_key_hex,
+        challenge,
+    )?
+    .into())
+}
+
+pub fn engine_frost_relay_encrypt(
+    sender_private_key_hex: String,
+    recipient_public_key_hex: String,
+    message_hex: String,
+) -> Result<String> {
+    zipher_engine::frost::frost_relay_encrypt(
+        sender_private_key_hex,
+        recipient_public_key_hex,
+        message_hex,
+    )
+}
+
+pub fn engine_frost_relay_decrypt(
+    recipient_private_key_hex: String,
+    sender_public_key_hex: String,
+    encrypted_hex: String,
+) -> Result<String> {
+    zipher_engine::frost::frost_relay_decrypt(
+        recipient_private_key_hex,
+        sender_public_key_hex,
+        encrypted_hex,
+    )
 }
 
 /// Step 2: Confirm and broadcast the previously proposed transaction.

@@ -29,6 +29,9 @@ zcash_client_backend = { version = "0.21", features = ["lightwalletd-tonic", "tr
 zip32 = "0.2"
 zcash_keys = { version = "0.12", features = ["orchard", "sapling", "unstable-frost"] }
 bip0039 = { version = "0.14", features = ["rand"] }
+xeddsa = "1.0.2"
+snow = "0.9.6"
+uuid = "1"
 
 zcash_client_sqlite = { version = "0.19", features = ["orchard", "transparent-inputs"] }
 secrecy = "0.8"
