@@ -663,6 +663,24 @@ impl From<zipher_engine::frost::FrostAggregateResult> for EngineFrostAggregateRe
     }
 }
 
+pub struct EngineFrostWalletView {
+    pub ufvk: String,
+    pub address: String,
+    pub group_public_key_hex: String,
+    pub orchard_fvk_hex: String,
+}
+
+impl From<zipher_engine::frost::FrostWalletView> for EngineFrostWalletView {
+    fn from(v: zipher_engine::frost::FrostWalletView) -> Self {
+        Self {
+            ufvk: v.ufvk,
+            address: v.address,
+            group_public_key_hex: v.group_public_key_hex,
+            orchard_fvk_hex: v.orchard_fvk_hex,
+        }
+    }
+}
+
 pub struct EngineFrostPcztActionRequest {
     pub action_index: u32,
     pub sighash_hex: String,
@@ -802,6 +820,17 @@ pub fn engine_frost_derive_ufvk(group_public_key_hex: String) -> Result<String> 
 
 pub fn engine_frost_key_refresh(key_package: String, new_signer_count: u16) -> Result<String> {
     zipher_engine::frost::frost_key_refresh(key_package, new_signer_count)
+}
+
+pub fn engine_frost_create_view_from_group_key(
+    group_public_key_hex: String,
+    chain_type: ChainType,
+) -> Result<EngineFrostWalletView> {
+    Ok(zipher_engine::frost::frost_create_view_from_group_key(
+        group_public_key_hex,
+        to_network(chain_type),
+    )?
+    .into())
 }
 
 /// Step 2: Confirm and broadcast the previously proposed transaction.

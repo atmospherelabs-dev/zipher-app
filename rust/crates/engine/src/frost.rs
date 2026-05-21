@@ -19,6 +19,7 @@ use frost_rerandomized::RandomizedParams;
 use rand::{rngs::OsRng, RngCore};
 use reddsa::frost::redpallas::PallasBlake2b512;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use zcash_keys::keys::{UnifiedAddressRequest, UnifiedFullViewingKey};
 use zcash_primitives::transaction::{
     sighash::SignableInput, sighash_v5::v5_signature_hash, txid::TxIdDigester,
 };
@@ -95,6 +96,14 @@ pub struct FrostRandomizerResult {
 pub struct FrostAggregateResult {
     /// Final RedPallas-compatible signature bytes as hex.
     pub signature_hex: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrostWalletView {
+    pub ufvk: String,
+    pub address: String,
+    pub group_public_key_hex: String,
+    pub orchard_fvk_hex: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,6 +202,68 @@ fn scalar_from_hex(hex_value: &str) -> Result<Scalar<FrostSuite>> {
 fn element_to_hex(e: &FrostElement) -> String {
     let bytes = <FrostSuite as Ciphersuite>::Group::serialize(e);
     hex::encode(bytes.as_ref() as &[u8])
+}
+
+fn normalize_key_package(key: FrostKeyPackage) -> Result<FrostKeyPackage> {
+    let group_hex = verifying_key_to_hex(key.group_public());
+    let needs_negation = hex::decode(&group_hex)
+        .map_err(|e| anyhow!("invalid group key hex: {e}"))?
+        .last()
+        .map(|b| b & 0x80 != 0)
+        .unwrap_or(false);
+    if !needs_negation {
+        return Ok(key);
+    }
+
+    let secret = scalar_from_hex(&signing_share_to_hex(key.secret_share()))?;
+    let neg_secret = <<FrostSuite as Ciphersuite>::Group as Group>::Field::zero() - secret;
+    let secret_share = SigningShare::<FrostSuite>::deserialize(
+        <<FrostSuite as Ciphersuite>::Group as Group>::Field::serialize(&neg_secret),
+    )
+    .map_err(|e| anyhow!("failed to normalize secret share: {:?}", e))?;
+    let public = VerifyingShare::<FrostSuite>::from(secret_share);
+    let group_element = element_from_hex(&group_hex)?;
+    let neg_group = <FrostSuite as Ciphersuite>::Group::identity() - group_element;
+    let group_public = VerifyingKey::<FrostSuite>::deserialize(
+        <FrostSuite as Ciphersuite>::Group::serialize(&neg_group),
+    )
+    .map_err(|e| anyhow!("failed to normalize group public key: {:?}", e))?;
+    Ok(FrostKeyPackage::new(
+        *key.identifier(),
+        secret_share,
+        public,
+        group_public,
+    ))
+}
+
+fn normalize_public_key_package(public: FrostPublicKeyPackage) -> Result<FrostPublicKeyPackage> {
+    let group_hex = verifying_key_to_hex(public.group_public());
+    let needs_negation = hex::decode(&group_hex)
+        .map_err(|e| anyhow!("invalid group key hex: {e}"))?
+        .last()
+        .map(|b| b & 0x80 != 0)
+        .unwrap_or(false);
+    if !needs_negation {
+        return Ok(public);
+    }
+
+    let mut signer_pubkeys = HashMap::new();
+    for (id, share) in public.signer_pubkeys() {
+        let element = element_from_hex(&verifying_share_to_hex(share))?;
+        let neg = <FrostSuite as Ciphersuite>::Group::identity() - element;
+        let normalized = VerifyingShare::<FrostSuite>::deserialize(
+            <FrostSuite as Ciphersuite>::Group::serialize(&neg),
+        )
+        .map_err(|e| anyhow!("failed to normalize verifying share: {:?}", e))?;
+        signer_pubkeys.insert(*id, normalized);
+    }
+    let group_element = element_from_hex(&group_hex)?;
+    let neg_group = <FrostSuite as Ciphersuite>::Group::identity() - group_element;
+    let group_public = VerifyingKey::<FrostSuite>::deserialize(
+        <FrostSuite as Ciphersuite>::Group::serialize(&neg_group),
+    )
+    .map_err(|e| anyhow!("failed to normalize group public key: {:?}", e))?;
+    Ok(FrostPublicKeyPackage::new(signer_pubkeys, group_public))
 }
 
 fn element_from_hex(hex_value: &str) -> Result<FrostElement> {
@@ -449,6 +520,8 @@ pub fn frost_dkg_round3(
 
     let (key_package, public_key_package) = dkg::part3::<FrostSuite>(&secret, &r1, &r2)
         .map_err(|e| anyhow!("FROST DKG round 3 failed: {:?}", e))?;
+    let key_package = normalize_key_package(key_package)?;
+    let public_key_package = normalize_public_key_package(public_key_package)?;
     let group_public_key_hex = verifying_key_to_hex(public_key_package.group_public());
 
     Ok(FrostDkgCompleteResult {
@@ -673,12 +746,49 @@ pub fn frost_pczt_apply_signatures(
     Ok(signed_pczt.serialize())
 }
 
-pub fn frost_derive_ufvk(_group_public_key_hex: String) -> Result<String> {
-    Err(anyhow!(
-        "FROST UFVK derivation requires constructing the full Zcash viewing key \
-         material around the threshold spend authorization key; this is wired \
-         in the wallet layer, not available from ak alone"
-    ))
+pub fn frost_create_view_from_group_key(
+    group_public_key_hex: String,
+    network: zcash_protocol::consensus::Network,
+) -> Result<FrostWalletView> {
+    let ak = hex::decode(&group_public_key_hex)
+        .map_err(|e| anyhow!("Invalid group public key hex: {e}"))?;
+    if ak.len() != 32 {
+        return Err(anyhow!("Group public key must be 32 bytes"));
+    }
+    if ak[31] & 0x80 != 0 {
+        return Err(anyhow!(
+            "FROST group key is not normalized for Orchard ak encoding"
+        ));
+    }
+
+    let mut fvk_bytes = [0u8; 96];
+    fvk_bytes[0..32].copy_from_slice(&ak);
+    for _ in 0..1024 {
+        OsRng.fill_bytes(&mut fvk_bytes[32..64]); // nk
+        OsRng.fill_bytes(&mut fvk_bytes[64..96]); // rivk
+        if let Some(orchard_fvk) = orchard::keys::FullViewingKey::from_bytes(&fvk_bytes) {
+            let ufvk = UnifiedFullViewingKey::from_orchard_fvk(orchard_fvk.clone())
+                .map_err(|e| anyhow!("Construct UFVK: {:?}", e))?;
+            let (ua, _) = ufvk
+                .default_address(UnifiedAddressRequest::ORCHARD)
+                .map_err(|e| anyhow!("FROST address derivation failed: {:?}", e))?;
+            return Ok(FrostWalletView {
+                ufvk: ufvk.encode(&network),
+                address: ua.encode(&network),
+                group_public_key_hex,
+                orchard_fvk_hex: hex::encode(fvk_bytes),
+            });
+        }
+    }
+    Err(anyhow!("Failed to generate valid Orchard FVK viewing material"))
+}
+
+pub fn frost_derive_ufvk(group_public_key_hex: String) -> Result<String> {
+    Ok(frost_create_view_from_group_key(
+        group_public_key_hex,
+        zcash_protocol::consensus::Network::MainNetwork,
+    )?
+    .ufvk)
 }
 
 pub fn frost_key_refresh(_key_package: String, _new_signer_count: u16) -> Result<String> {

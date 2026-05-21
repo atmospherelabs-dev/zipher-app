@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../services/frost_service.dart';
+import '../../services/wallet_service.dart';
 import '../../zipher_theme.dart';
 
 enum FrostSetupUseCase { personalRecovery, sharedBusiness, agentWallet }
@@ -22,6 +23,8 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
   int _participants = 3;
   FrostInvite? _invite;
   bool _thresholdLocked = false;
+  bool _creating = false;
+  String? _createdAddress;
 
   String get _label {
     switch (_useCase) {
@@ -56,6 +59,36 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
         backgroundColor: ZipherColors.surface,
       ),
     );
+  }
+
+  Future<void> _completeLocalSetup() async {
+    if (_creating || !_thresholdLocked) return;
+    setState(() => _creating = true);
+    try {
+      int birthday = 0;
+      try {
+        birthday = await WalletService.instance.getLatestBlockHeight();
+      } catch (_) {}
+      final address = await WalletService.instance.createFrostWallet(
+        _label,
+        birthday,
+      );
+      if (!mounted) return;
+      setState(() {
+        _createdAddress = address;
+        _creating = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _creating = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('FROST setup failed: $e',
+              style: TextStyle(color: ZipherColors.text90)),
+          backgroundColor: ZipherColors.surface,
+        ),
+      );
+    }
   }
 
   @override
@@ -143,6 +176,9 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
             const Gap(10),
             _ProgressCard(
               locked: _thresholdLocked,
+              creating: _creating,
+              createdAddress: _createdAddress,
+              onComplete: _completeLocalSetup,
               steps: const [
                 'Participants',
                 'Create shares',
@@ -151,6 +187,14 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
                 'Ready',
               ],
             ),
+            if (_createdAddress != null) ...[
+              const Gap(16),
+              _PrimaryButton(
+                label: 'Open wallet',
+                icon: Icons.arrow_forward_rounded,
+                onTap: () => GoRouter.of(context).go('/account'),
+              ),
+            ],
           ],
         ),
       ),
@@ -423,9 +467,18 @@ class _LockCard extends StatelessWidget {
 
 class _ProgressCard extends StatelessWidget {
   final bool locked;
+  final bool creating;
+  final String? createdAddress;
+  final VoidCallback onComplete;
   final List<String> steps;
 
-  const _ProgressCard({required this.locked, required this.steps});
+  const _ProgressCard({
+    required this.locked,
+    required this.creating,
+    required this.createdAddress,
+    required this.onComplete,
+    required this.steps,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -470,6 +523,39 @@ class _ProgressCard extends StatelessWidget {
                 ],
               ),
             ),
+          const Gap(14),
+          if (createdAddress == null)
+            _PrimaryButton(
+              label: creating ? 'Creating wallet...' : 'Complete setup',
+              icon: Icons.auto_awesome_rounded,
+              onTap: locked && !creating ? onComplete : null,
+            )
+          else ...[
+            Divider(color: ZipherColors.borderSubtle),
+            const Gap(10),
+            Text(
+              'FROST wallet created',
+              style: TextStyle(
+                color: ZipherColors.green,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const Gap(6),
+            SelectableText(
+              createdAddress!,
+              style: TextStyle(
+                color: ZipherColors.text60,
+                fontSize: 11,
+                fontFamily: 'JetBrainsMono',
+              ),
+            ),
+            const Gap(8),
+            Text(
+              'This device stores one FROST share. Spending requires another co-signer share.',
+              style: TextStyle(color: ZipherColors.text40, fontSize: 12),
+            ),
+          ],
         ],
       ),
     );

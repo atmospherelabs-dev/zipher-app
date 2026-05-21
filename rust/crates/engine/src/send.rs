@@ -488,6 +488,14 @@ pub async fn create_pczt() -> Result<Vec<u8>> {
 /// This is the SDK's intended workflow:
 ///   create_pczt_from_proposal → sign externally → extract_and_store
 pub async fn store_signed_pczt(signed_pczt_bytes: &[u8]) -> Result<String> {
+    store_signed_pczt_inner(signed_pczt_bytes, false).await
+}
+
+pub async fn store_and_broadcast_signed_pczt(signed_pczt_bytes: &[u8]) -> Result<String> {
+    store_signed_pczt_inner(signed_pczt_bytes, true).await
+}
+
+async fn store_signed_pczt_inner(signed_pczt_bytes: &[u8], broadcast: bool) -> Result<String> {
     let signed_pczt = pczt::Pczt::parse(signed_pczt_bytes)
         .map_err(|e| anyhow::anyhow!("Failed to parse signed PCZT: {:?}", e))?;
 
@@ -498,6 +506,7 @@ pub async fn store_signed_pczt(signed_pczt_bytes: &[u8]) -> Result<String> {
 
     let db_data_path = engine.db_data_path.clone();
     let params = engine.params;
+    let server_url = engine.server_url.clone();
     let db_cipher_key = engine.db_cipher_key.clone();
     drop(engine_guard);
 
@@ -520,6 +529,39 @@ pub async fn store_signed_pczt(signed_pczt_bytes: &[u8]) -> Result<String> {
     std::fs::remove_file(lock_dir.join("pending_pczt.lock")).ok();
 
     info!("Transaction stored: {}", txid);
+    if broadcast {
+        let tx = db_data
+            .get_transaction(txid)
+            .map_err(|e| anyhow::anyhow!("{:?}", e))?
+            .ok_or_else(|| anyhow::anyhow!("Transaction not found after PCZT store"))?;
+        let mut tx_bytes = Vec::new();
+        tx.write(&mut tx_bytes)
+            .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
+
+        let raw_tx = tx_bytes.clone();
+        let mut lwd = connect_lwd(&server_url).await?;
+        let resp = lwd
+            .send_transaction(RawTransaction {
+                data: tx_bytes,
+                height: 0,
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("Broadcast failed: {:?}", e))?
+            .into_inner();
+        if resp.error_code != 0 {
+            return Err(anyhow::anyhow!(
+                "Broadcast rejected: {} (code {})",
+                resp.error_message,
+                resp.error_code
+            ));
+        }
+        if let Err(e) =
+            super::pending::record_broadcast(&db_data_path, &db_cipher_key, txid, &raw_tx)
+        {
+            debug!("Failed to record pending PCZT transaction {}: {:?}", txid, e);
+        }
+        super::sync::emit_transaction_event(txid.to_string(), "pending");
+    }
     Ok(txid.to_string())
 }
 

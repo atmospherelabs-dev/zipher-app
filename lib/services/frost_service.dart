@@ -162,6 +162,20 @@ class FrostPcztSigningBundle {
   const FrostPcztSigningBundle({required this.pczt, required this.request});
 }
 
+class FrostLocalDkgResult {
+  final rust_engine.EngineFrostDkgCompleteResult participant1;
+  final rust_engine.EngineFrostDkgCompleteResult participant2;
+  final rust_engine.EngineFrostDkgCompleteResult participant3;
+  final rust_engine.EngineFrostWalletView view;
+
+  const FrostLocalDkgResult({
+    required this.participant1,
+    required this.participant2,
+    required this.participant3,
+    required this.view,
+  });
+}
+
 class FrostRelayClient {
   final Uri baseUrl;
   String? accessToken;
@@ -356,6 +370,106 @@ class FrostService {
       secretPackage: secretPackage,
       round1Packages: round1Packages.map((p) => p.toRust()).toList(),
       round2Packages: round2Packages.map((p) => p.toRust()).toList(),
+    );
+  }
+
+  Future<FrostLocalDkgResult> createLocal2Of3View({
+    required rust_engine.ChainType chainType,
+  }) async {
+    final p1 = await dkgRound1(participantId: 1, threshold: 2, participants: 3);
+    final p2 = await dkgRound1(participantId: 2, threshold: 2, participants: 3);
+    final p3 = await dkgRound1(participantId: 3, threshold: 2, participants: 3);
+
+    final r2_1 = await dkgRound2(
+      secretPackage: p1.secretPackage,
+      round1Packages: [
+        FrostParticipantPackage(participantId: 2, package: p2.round1Package),
+        FrostParticipantPackage(participantId: 3, package: p3.round1Package),
+      ],
+    );
+    final r2_2 = await dkgRound2(
+      secretPackage: p2.secretPackage,
+      round1Packages: [
+        FrostParticipantPackage(participantId: 1, package: p1.round1Package),
+        FrostParticipantPackage(participantId: 3, package: p3.round1Package),
+      ],
+    );
+    final r2_3 = await dkgRound2(
+      secretPackage: p3.secretPackage,
+      round1Packages: [
+        FrostParticipantPackage(participantId: 1, package: p1.round1Package),
+        FrostParticipantPackage(participantId: 2, package: p2.round1Package),
+      ],
+    );
+
+    String packageFor(List<rust_engine.EngineFrostParticipantPackage> packages,
+        int participantId) {
+      return packages
+          .firstWhere((p) => p.participantId == participantId)
+          .package;
+    }
+
+    final c1 = await dkgRound3(
+      secretPackage: r2_1.secretPackage,
+      round1Packages: [
+        FrostParticipantPackage(participantId: 2, package: p2.round1Package),
+        FrostParticipantPackage(participantId: 3, package: p3.round1Package),
+      ],
+      round2Packages: [
+        FrostParticipantPackage(
+          participantId: 2,
+          package: packageFor(r2_2.round2Packages, 1),
+        ),
+        FrostParticipantPackage(
+          participantId: 3,
+          package: packageFor(r2_3.round2Packages, 1),
+        ),
+      ],
+    );
+    final c2 = await dkgRound3(
+      secretPackage: r2_2.secretPackage,
+      round1Packages: [
+        FrostParticipantPackage(participantId: 1, package: p1.round1Package),
+        FrostParticipantPackage(participantId: 3, package: p3.round1Package),
+      ],
+      round2Packages: [
+        FrostParticipantPackage(
+          participantId: 1,
+          package: packageFor(r2_1.round2Packages, 2),
+        ),
+        FrostParticipantPackage(
+          participantId: 3,
+          package: packageFor(r2_3.round2Packages, 2),
+        ),
+      ],
+    );
+    final c3 = await dkgRound3(
+      secretPackage: r2_3.secretPackage,
+      round1Packages: [
+        FrostParticipantPackage(participantId: 1, package: p1.round1Package),
+        FrostParticipantPackage(participantId: 2, package: p2.round1Package),
+      ],
+      round2Packages: [
+        FrostParticipantPackage(
+          participantId: 1,
+          package: packageFor(r2_1.round2Packages, 3),
+        ),
+        FrostParticipantPackage(
+          participantId: 2,
+          package: packageFor(r2_2.round2Packages, 3),
+        ),
+      ],
+    );
+
+    final view = await rust_engine.engineFrostCreateViewFromGroupKey(
+      groupPublicKeyHex: c1.groupPublicKeyHex,
+      chainType: chainType,
+    );
+    return FrostLocalDkgResult(
+      participant1: c1,
+      participant2: c2,
+      participant3: c3,
+      view: view,
     );
   }
 

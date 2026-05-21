@@ -576,6 +576,36 @@ enum X402Cmd {
 enum FrostCmd {
     /// Run a local 2-of-3 DKG + signing + aggregate self-test
     SelfTest,
+    /// Create a local FROST Orchard viewing wallet from simulated DKG
+    WalletCreate {
+        /// Wallet birthday height
+        #[arg(long)]
+        birthday: u32,
+    },
+    /// Spend from a FROST watch-only wallet using two local key packages
+    Spend {
+        /// Destination Zcash address
+        #[arg(long)]
+        to: String,
+        /// Amount in zatoshis
+        #[arg(long)]
+        amount: u64,
+        /// First signer key package
+        #[arg(long)]
+        key1: String,
+        /// Second signer key package
+        #[arg(long)]
+        key2: String,
+        /// FROST public key package from wallet-create
+        #[arg(long)]
+        public_key_package: String,
+        /// Optional memo
+        #[arg(long)]
+        memo: Option<String>,
+        /// Broadcast after signing
+        #[arg(long)]
+        broadcast: bool,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -854,6 +884,30 @@ async fn main() {
         },
         Commands::Frost(sub) => match sub {
             FrostCmd::SelfTest => frost::cmd_frost_self_test(&cfg).await,
+            FrostCmd::WalletCreate { birthday } => {
+                frost::cmd_frost_wallet_create(&cfg, birthday).await
+            }
+            FrostCmd::Spend {
+                to,
+                amount,
+                key1,
+                key2,
+                public_key_package,
+                memo,
+                broadcast,
+            } => {
+                frost::cmd_frost_spend(
+                    &cfg,
+                    to,
+                    amount,
+                    key1,
+                    key2,
+                    public_key_package,
+                    memo,
+                    broadcast,
+                )
+                .await
+            }
         },
         Commands::Serve {
             port,

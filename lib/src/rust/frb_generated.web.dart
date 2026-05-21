@@ -90,6 +90,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dynamic raw);
 
   @protected
+  EngineFrostWalletView dco_decode_engine_frost_wallet_view(dynamic raw);
+
+  @protected
   EngineInvoice dco_decode_engine_invoice(dynamic raw);
 
   @protected
@@ -280,6 +283,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EngineFrostSigningRound1Result sse_decode_engine_frost_signing_round_1_result(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineFrostWalletView sse_decode_engine_frost_wallet_view(
       SseDeserializer deserializer);
 
   @protected
@@ -489,6 +496,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_engine_frost_signing_round_1_result(
       EngineFrostSigningRound1Result self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_frost_wallet_view(
+      EngineFrostWalletView self, SseSerializer serializer);
 
   @protected
   void sse_encode_engine_invoice(EngineInvoice self, SseSerializer serializer);

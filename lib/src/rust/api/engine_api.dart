@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'wallet.dart';
 
 // These functions are ignored because they are not marked as `pub`: `packages_from_map`, `packages_to_map`, `to_network`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Create a new wallet. Returns the 24-word seed phrase.
 Future<String> engineCreateWallet(
@@ -338,6 +338,11 @@ Future<String> engineFrostKeyRefresh(
         {required String keyPackage, required int newSignerCount}) =>
     RustLib.instance.api.crateApiEngineApiEngineFrostKeyRefresh(
         keyPackage: keyPackage, newSignerCount: newSignerCount);
+
+Future<EngineFrostWalletView> engineFrostCreateViewFromGroupKey(
+        {required String groupPublicKeyHex, required ChainType chainType}) =>
+    RustLib.instance.api.crateApiEngineApiEngineFrostCreateViewFromGroupKey(
+        groupPublicKeyHex: groupPublicKeyHex, chainType: chainType);
 
 /// Step 2: Confirm and broadcast the previously proposed transaction.
 Future<String> engineConfirmSend({required String seedPhrase}) =>
@@ -767,6 +772,37 @@ class EngineFrostSigningRound1Result {
           participantId == other.participantId &&
           signingNonces == other.signingNonces &&
           signingCommitments == other.signingCommitments;
+}
+
+class EngineFrostWalletView {
+  final String ufvk;
+  final String address;
+  final String groupPublicKeyHex;
+  final String orchardFvkHex;
+
+  const EngineFrostWalletView({
+    required this.ufvk,
+    required this.address,
+    required this.groupPublicKeyHex,
+    required this.orchardFvkHex,
+  });
+
+  @override
+  int get hashCode =>
+      ufvk.hashCode ^
+      address.hashCode ^
+      groupPublicKeyHex.hashCode ^
+      orchardFvkHex.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineFrostWalletView &&
+          runtimeType == other.runtimeType &&
+          ufvk == other.ufvk &&
+          address == other.address &&
+          groupPublicKeyHex == other.groupPublicKeyHex &&
+          orchardFvkHex == other.orchardFvkHex;
 }
 
 /// A CipherPay invoice as the customer sees it.

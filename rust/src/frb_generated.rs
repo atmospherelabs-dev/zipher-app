@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.11.1";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1073639330;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -2004556254;
 
 // Section: executor
 
@@ -1057,6 +1057,46 @@ fn wire__crate__api__engine_api__engine_frost_create_signing_package_impl(
                             crate::api::engine_api::engine_frost_create_signing_package(
                                 api_message_hex,
                                 api_commitments,
+                            )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__engine_api__engine_frost_create_view_from_group_key_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "engine_frost_create_view_from_group_key",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_group_public_key_hex = <String>::sse_decode(&mut deserializer);
+            let api_chain_type = <crate::api::wallet::ChainType>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::engine_api::engine_frost_create_view_from_group_key(
+                                api_group_public_key_hex,
+                                api_chain_type,
                             )?;
                         Ok(output_ok)
                     })(),
@@ -4681,6 +4721,22 @@ impl SseDecode for crate::api::engine_api::EngineFrostSigningRound1Result {
     }
 }
 
+impl SseDecode for crate::api::engine_api::EngineFrostWalletView {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_ufvk = <String>::sse_decode(deserializer);
+        let mut var_address = <String>::sse_decode(deserializer);
+        let mut var_groupPublicKeyHex = <String>::sse_decode(deserializer);
+        let mut var_orchardFvkHex = <String>::sse_decode(deserializer);
+        return crate::api::engine_api::EngineFrostWalletView {
+            ufvk: var_ufvk,
+            address: var_address,
+            group_public_key_hex: var_groupPublicKeyHex,
+            orchard_fvk_hex: var_orchardFvkHex,
+        };
+    }
+}
+
 impl SseDecode for crate::api::engine_api::EngineInvoice {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -5396,170 +5452,176 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        26 => wire__crate__api__engine_api__engine_frost_derive_ufvk_impl(
+        26 => wire__crate__api__engine_api__engine_frost_create_view_from_group_key_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        27 => wire__crate__api__engine_api__engine_frost_dkg_init_impl(
+        27 => wire__crate__api__engine_api__engine_frost_derive_ufvk_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        28 => wire__crate__api__engine_api__engine_frost_dkg_round2_impl(
+        28 => wire__crate__api__engine_api__engine_frost_dkg_init_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        29 => wire__crate__api__engine_api__engine_frost_dkg_round3_impl(
+        29 => wire__crate__api__engine_api__engine_frost_dkg_round2_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        30 => wire__crate__api__engine_api__engine_frost_key_refresh_impl(
+        30 => wire__crate__api__engine_api__engine_frost_dkg_round3_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        31 => wire__crate__api__engine_api__engine_frost_pczt_apply_signatures_impl(
+        31 => wire__crate__api__engine_api__engine_frost_key_refresh_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        32 => wire__crate__api__engine_api__engine_frost_pczt_signing_request_impl(
+        32 => wire__crate__api__engine_api__engine_frost_pczt_apply_signatures_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        33 => wire__crate__api__engine_api__engine_frost_sign_round1_impl(
+        33 => wire__crate__api__engine_api__engine_frost_pczt_signing_request_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        34 => wire__crate__api__engine_api__engine_frost_sign_round2_impl(
+        34 => wire__crate__api__engine_api__engine_frost_sign_round1_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        35 => wire__crate__api__engine_api__engine_get_addresses_impl(
+        35 => wire__crate__api__engine_api__engine_frost_sign_round2_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        36 => wire__crate__api__engine_api__engine_get_birthday_impl(
+        36 => wire__crate__api__engine_api__engine_get_addresses_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        37 => wire__crate__api__engine_api__engine_get_erc20_balance_impl(
+        37 => wire__crate__api__engine_api__engine_get_birthday_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        38 => wire__crate__api__engine_api__engine_get_latest_block_height_impl(
+        38 => wire__crate__api__engine_api__engine_get_erc20_balance_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        39 => wire__crate__api__engine_api__engine_get_max_sendable_impl(
+        39 => wire__crate__api__engine_api__engine_get_latest_block_height_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        40 => wire__crate__api__engine_api__engine_get_native_balance_impl(
+        40 => wire__crate__api__engine_api__engine_get_max_sendable_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        41 => {
+        41 => wire__crate__api__engine_api__engine_get_native_balance_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        42 => {
             wire__crate__api__engine_api__engine_get_nonce_impl(port, ptr, rust_vec_len, data_len)
         }
-        42 => wire__crate__api__engine_api__engine_get_sync_progress_impl(
+        43 => wire__crate__api__engine_api__engine_get_sync_progress_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        43 => wire__crate__api__engine_api__engine_get_transactions_impl(
+        44 => wire__crate__api__engine_api__engine_get_transactions_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        44 => wire__crate__api__engine_api__engine_get_transparent_addresses_impl(
+        45 => wire__crate__api__engine_api__engine_get_transparent_addresses_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        45 => wire__crate__api__engine_api__engine_get_wallet_balance_impl(
+        46 => wire__crate__api__engine_api__engine_get_wallet_balance_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        46 => wire__crate__api__engine_api__engine_get_wallet_synced_height_impl(
+        47 => wire__crate__api__engine_api__engine_get_wallet_synced_height_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        47 => wire__crate__api__engine_api__engine_has_spending_key_impl(
+        48 => wire__crate__api__engine_api__engine_has_spending_key_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        48 => wire__crate__api__engine_api__engine_llm_build_intent_prompt_impl(
+        49 => wire__crate__api__engine_api__engine_llm_build_intent_prompt_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        49 => {
+        50 => {
             wire__crate__api__engine_api__engine_llm_infer_impl(port, ptr, rust_vec_len, data_len)
         }
-        50 => wire__crate__api__engine_api__engine_llm_is_loaded_impl(
+        51 => wire__crate__api__engine_api__engine_llm_is_loaded_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        51 => wire__crate__api__engine_api__engine_llm_load_impl(port, ptr, rust_vec_len, data_len),
-        52 => wire__crate__api__engine_api__engine_llm_recommended_model_impl(
+        52 => wire__crate__api__engine_api__engine_llm_load_impl(port, ptr, rust_vec_len, data_len),
+        53 => wire__crate__api__engine_api__engine_llm_recommended_model_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        53 => {
+        54 => {
             wire__crate__api__engine_api__engine_llm_unload_impl(port, ptr, rust_vec_len, data_len)
         }
-        54 => {
+        55 => {
             wire__crate__api__engine_api__engine_open_wallet_impl(port, ptr, rust_vec_len, data_len)
         }
-        55 => wire__crate__api__engine_api__engine_polymarket_discover_impl(
+        56 => wire__crate__api__engine_api__engine_polymarket_discover_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        56 => {
+        57 => {
             wire__crate__api__engine_api__engine_polymarket_gamma_market_passes_quality_filter_impl(
                 port,
                 ptr,
@@ -5567,180 +5629,180 @@ fn pde_ffi_dispatcher_primary_impl(
                 data_len,
             )
         }
-        57 => wire__crate__api__engine_api__engine_polymarket_get_positions_impl(
+        58 => wire__crate__api__engine_api__engine_polymarket_get_positions_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        58 => wire__crate__api__engine_api__engine_polymarket_sign_auth_impl(
+        59 => wire__crate__api__engine_api__engine_polymarket_sign_auth_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        59 => wire__crate__api__engine_api__engine_polymarket_sign_order_impl(
+        60 => wire__crate__api__engine_api__engine_polymarket_sign_order_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        60 => wire__crate__api__engine_api__engine_propose_send_impl(
+        61 => wire__crate__api__engine_api__engine_propose_send_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        61 => wire__crate__api__engine_api__engine_register_inactive_wallet_impl(
+        62 => wire__crate__api__engine_api__engine_register_inactive_wallet_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        62 => wire__crate__api__engine_api__engine_rescan_from_birthday_impl(
+        63 => wire__crate__api__engine_api__engine_rescan_from_birthday_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        63 => wire__crate__api__engine_api__engine_restore_from_seed_impl(
+        64 => wire__crate__api__engine_api__engine_restore_from_seed_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        64 => wire__crate__api__engine_api__engine_restore_from_ufvk_impl(
+        65 => wire__crate__api__engine_api__engine_restore_from_ufvk_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        65 => wire__crate__api__engine_api__engine_send_payment_impl(
+        66 => wire__crate__api__engine_api__engine_send_payment_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        66 => {
+        67 => {
             wire__crate__api__engine_api__engine_set_server_impl(port, ptr, rust_vec_len, data_len)
         }
-        67 => wire__crate__api__engine_api__engine_shield_funds_impl(
+        68 => wire__crate__api__engine_api__engine_shield_funds_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        68 => wire__crate__api__engine_api__engine_sign_and_broadcast_evm_tx_impl(
+        69 => wire__crate__api__engine_api__engine_sign_and_broadcast_evm_tx_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        69 => {
+        70 => {
             wire__crate__api__engine_api__engine_sign_evm_tx_impl(port, ptr, rust_vec_len, data_len)
         }
-        70 => {
+        71 => {
             wire__crate__api__engine_api__engine_start_sync_impl(port, ptr, rust_vec_len, data_len)
         }
-        71 => {
+        72 => {
             wire__crate__api__engine_api__engine_stop_sync_impl(port, ptr, rust_vec_len, data_len)
         }
-        72 => wire__crate__api__engine_api__engine_store_signed_pczt_impl(
+        73 => wire__crate__api__engine_api__engine_store_signed_pczt_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        73 => wire__crate__api__engine_api__engine_suggest_eip1559_fees_impl(
+        74 => wire__crate__api__engine_api__engine_suggest_eip1559_fees_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        74 => {
+        75 => {
             wire__crate__api__engine_api__engine_sync_events_impl(port, ptr, rust_vec_len, data_len)
         }
-        75 => wire__crate__api__engine_api__engine_unregister_inactive_wallet_impl(
+        76 => wire__crate__api__engine_api__engine_unregister_inactive_wallet_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        76 => wire__crate__api__engine_api__engine_validate_address_impl(
+        77 => wire__crate__api__engine_api__engine_validate_address_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        77 => wire__crate__api__engine_api__engine_validate_seed_impl(
+        78 => wire__crate__api__engine_api__engine_validate_seed_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        78 => wire__crate__api__engine_api__engine_wait_for_receipt_impl(
+        79 => wire__crate__api__engine_api__engine_wait_for_receipt_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        79 => wire__crate__api__wallet__export_ufvk_impl(port, ptr, rust_vec_len, data_len),
-        80 => wire__crate__api__wallet__generate_diversified_address_impl(
+        80 => wire__crate__api__wallet__export_ufvk_impl(port, ptr, rust_vec_len, data_len),
+        81 => wire__crate__api__wallet__generate_diversified_address_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        81 => wire__crate__api__wallet__get_account_balance_impl(port, ptr, rust_vec_len, data_len),
-        82 => wire__crate__api__wallet__get_account_count_impl(port, ptr, rust_vec_len, data_len),
-        83 => wire__crate__api__wallet__get_addresses_impl(port, ptr, rust_vec_len, data_len),
-        84 => wire__crate__api__wallet__get_birthday_impl(port, ptr, rust_vec_len, data_len),
-        85 => wire__crate__api__wallet__get_latest_block_height_impl(
+        82 => wire__crate__api__wallet__get_account_balance_impl(port, ptr, rust_vec_len, data_len),
+        83 => wire__crate__api__wallet__get_account_count_impl(port, ptr, rust_vec_len, data_len),
+        84 => wire__crate__api__wallet__get_addresses_impl(port, ptr, rust_vec_len, data_len),
+        85 => wire__crate__api__wallet__get_birthday_impl(port, ptr, rust_vec_len, data_len),
+        86 => wire__crate__api__wallet__get_latest_block_height_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        86 => wire__crate__api__wallet__get_messages_impl(port, ptr, rust_vec_len, data_len),
-        87 => wire__crate__api__wallet__get_seed_phrase_impl(port, ptr, rust_vec_len, data_len),
-        88 => wire__crate__api__wallet__get_server_info_impl(port, ptr, rust_vec_len, data_len),
-        89 => wire__crate__api__wallet__get_sync_status_impl(port, ptr, rust_vec_len, data_len),
-        90 => wire__crate__api__wallet__get_transactions_impl(port, ptr, rust_vec_len, data_len),
-        91 => wire__crate__api__wallet__get_transparent_addresses_impl(
+        87 => wire__crate__api__wallet__get_messages_impl(port, ptr, rust_vec_len, data_len),
+        88 => wire__crate__api__wallet__get_seed_phrase_impl(port, ptr, rust_vec_len, data_len),
+        89 => wire__crate__api__wallet__get_server_info_impl(port, ptr, rust_vec_len, data_len),
+        90 => wire__crate__api__wallet__get_sync_status_impl(port, ptr, rust_vec_len, data_len),
+        91 => wire__crate__api__wallet__get_transactions_impl(port, ptr, rust_vec_len, data_len),
+        92 => wire__crate__api__wallet__get_transparent_addresses_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        92 => wire__crate__api__wallet__get_value_transfers_impl(port, ptr, rust_vec_len, data_len),
-        93 => wire__crate__api__wallet__get_wallet_balance_impl(port, ptr, rust_vec_len, data_len),
-        94 => wire__crate__api__wallet__get_wallet_synced_height_impl(
+        93 => wire__crate__api__wallet__get_value_transfers_impl(port, ptr, rust_vec_len, data_len),
+        94 => wire__crate__api__wallet__get_wallet_balance_impl(port, ptr, rust_vec_len, data_len),
+        95 => wire__crate__api__wallet__get_wallet_synced_height_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        95 => wire__crate__api__wallet__has_spending_key_impl(port, ptr, rust_vec_len, data_len),
-        96 => wire__crate__api__wallet__init_app_impl(port, ptr, rust_vec_len, data_len),
-        97 => wire__crate__api__wallet__open_wallet_impl(port, ptr, rust_vec_len, data_len),
-        98 => wire__crate__api__wallet__parse_payment_uri_impl(port, ptr, rust_vec_len, data_len),
-        99 => wire__crate__api__wallet__pause_sync_impl(port, ptr, rust_vec_len, data_len),
-        100 => wire__crate__api__wallet__rescan_wallet_impl(port, ptr, rust_vec_len, data_len),
-        101 => wire__crate__api__wallet__restore_from_seed_impl(port, ptr, rust_vec_len, data_len),
-        102 => wire__crate__api__wallet__restore_from_ufvk_impl(port, ptr, rust_vec_len, data_len),
-        103 => wire__crate__api__wallet__resume_sync_impl(port, ptr, rust_vec_len, data_len),
-        104 => wire__crate__api__wallet__send_from_account_impl(port, ptr, rust_vec_len, data_len),
-        105 => wire__crate__api__wallet__send_payment_impl(port, ptr, rust_vec_len, data_len),
-        106 => wire__crate__api__wallet__set_server_impl(port, ptr, rust_vec_len, data_len),
-        107 => wire__crate__api__wallet__shield_account_impl(port, ptr, rust_vec_len, data_len),
-        108 => wire__crate__api__wallet__shield_funds_impl(port, ptr, rust_vec_len, data_len),
-        109 => wire__crate__api__wallet__start_save_task_impl(port, ptr, rust_vec_len, data_len),
-        110 => wire__crate__api__wallet__start_sync_impl(port, ptr, rust_vec_len, data_len),
-        111 => wire__crate__api__wallet__stop_sync_impl(port, ptr, rust_vec_len, data_len),
-        112 => wire__crate__api__wallet__sync_wallet_impl(port, ptr, rust_vec_len, data_len),
-        113 => wire__crate__api__wallet__validate_address_impl(port, ptr, rust_vec_len, data_len),
-        114 => wire__crate__api__wallet__validate_seed_impl(port, ptr, rust_vec_len, data_len),
-        115 => {
+        96 => wire__crate__api__wallet__has_spending_key_impl(port, ptr, rust_vec_len, data_len),
+        97 => wire__crate__api__wallet__init_app_impl(port, ptr, rust_vec_len, data_len),
+        98 => wire__crate__api__wallet__open_wallet_impl(port, ptr, rust_vec_len, data_len),
+        99 => wire__crate__api__wallet__parse_payment_uri_impl(port, ptr, rust_vec_len, data_len),
+        100 => wire__crate__api__wallet__pause_sync_impl(port, ptr, rust_vec_len, data_len),
+        101 => wire__crate__api__wallet__rescan_wallet_impl(port, ptr, rust_vec_len, data_len),
+        102 => wire__crate__api__wallet__restore_from_seed_impl(port, ptr, rust_vec_len, data_len),
+        103 => wire__crate__api__wallet__restore_from_ufvk_impl(port, ptr, rust_vec_len, data_len),
+        104 => wire__crate__api__wallet__resume_sync_impl(port, ptr, rust_vec_len, data_len),
+        105 => wire__crate__api__wallet__send_from_account_impl(port, ptr, rust_vec_len, data_len),
+        106 => wire__crate__api__wallet__send_payment_impl(port, ptr, rust_vec_len, data_len),
+        107 => wire__crate__api__wallet__set_server_impl(port, ptr, rust_vec_len, data_len),
+        108 => wire__crate__api__wallet__shield_account_impl(port, ptr, rust_vec_len, data_len),
+        109 => wire__crate__api__wallet__shield_funds_impl(port, ptr, rust_vec_len, data_len),
+        110 => wire__crate__api__wallet__start_save_task_impl(port, ptr, rust_vec_len, data_len),
+        111 => wire__crate__api__wallet__start_sync_impl(port, ptr, rust_vec_len, data_len),
+        112 => wire__crate__api__wallet__stop_sync_impl(port, ptr, rust_vec_len, data_len),
+        113 => wire__crate__api__wallet__sync_wallet_impl(port, ptr, rust_vec_len, data_len),
+        114 => wire__crate__api__wallet__validate_address_impl(port, ptr, rust_vec_len, data_len),
+        115 => wire__crate__api__wallet__validate_seed_impl(port, ptr, rust_vec_len, data_len),
+        116 => {
             wire__crate__api__wallet__wallet_balance_default_impl(port, ptr, rust_vec_len, data_len)
         }
         _ => unreachable!(),
@@ -6028,6 +6090,29 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::engine_api::EngineFrostSignin
     for crate::api::engine_api::EngineFrostSigningRound1Result
 {
     fn into_into_dart(self) -> crate::api::engine_api::EngineFrostSigningRound1Result {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::engine_api::EngineFrostWalletView {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.ufvk.into_into_dart().into_dart(),
+            self.address.into_into_dart().into_dart(),
+            self.group_public_key_hex.into_into_dart().into_dart(),
+            self.orchard_fvk_hex.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::engine_api::EngineFrostWalletView
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::engine_api::EngineFrostWalletView>
+    for crate::api::engine_api::EngineFrostWalletView
+{
+    fn into_into_dart(self) -> crate::api::engine_api::EngineFrostWalletView {
         self
     }
 }
@@ -6638,6 +6723,16 @@ impl SseEncode for crate::api::engine_api::EngineFrostSigningRound1Result {
         <u16>::sse_encode(self.participant_id, serializer);
         <String>::sse_encode(self.signing_nonces, serializer);
         <String>::sse_encode(self.signing_commitments, serializer);
+    }
+}
+
+impl SseEncode for crate::api::engine_api::EngineFrostWalletView {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.ufvk, serializer);
+        <String>::sse_encode(self.address, serializer);
+        <String>::sse_encode(self.group_public_key_hex, serializer);
+        <String>::sse_encode(self.orchard_fvk_hex, serializer);
     }
 }
 

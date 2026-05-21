@@ -96,8 +96,7 @@ class _MorePageState extends State<MorePage> {
                     final content =
                         await rootBundle.loadString('assets/about.md');
                     if (!mounted) return;
-                    GoRouter.of(context)
-                        .push('/more/about', extra: content);
+                    GoRouter.of(context).push('/more/about', extra: content);
                   },
                 ),
               ]),
@@ -124,6 +123,14 @@ class _MorePageState extends State<MorePage> {
                   label: s.appData,
                   subtitle: 'Backup & restore app data',
                   onTap: () => _navSecured('/more/batch_backup'),
+                ),
+                _SettingsItem(
+                  icon: Icons.group_rounded,
+                  label: 'Shared Wallet',
+                  subtitle: 'Create or join a FROST wallet',
+                  badge: 'NEW',
+                  onTap: () =>
+                      GoRouter.of(context).push('/wallet/create/frost'),
                 ),
               ]),
               const Gap(20),
@@ -299,7 +306,6 @@ class _MorePageState extends State<MorePage> {
   }
 }
 
-
 // ═══════════════════════════════════════════════════════════
 // SETTINGS ITEM WIDGET
 // ═══════════════════════════════════════════════════════════
@@ -396,7 +402,9 @@ class _TestnetToggleState extends State<_TestnetToggle> {
       final activeId = ws.activeWalletId;
 
       // 1. Always stop sync and close the current wallet first
-      try { await ws.stopSync(); } catch (_) {}
+      try {
+        await ws.stopSync();
+      } catch (_) {}
       if (ws.isWalletOpen) {
         await ws.closeWallet();
       }
@@ -425,12 +433,15 @@ class _TestnetToggleState extends State<_TestnetToggle> {
         await aa.updateAddress();
         // Balance may not be available yet on a freshly created wallet;
         // sync will update it once blocks are scanned.
-        try { await aa.updateBalance(); } catch (_) {}
+        try {
+          await aa.updateBalance();
+        } catch (_) {}
         aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
         await aa.save(prefs);
         if (mounted) {
           GoRouter.of(context).go('/account');
-          Future.delayed(const Duration(milliseconds: 500), () => startAutoSync());
+          Future.delayed(
+              const Duration(milliseconds: 500), () => startAutoSync());
         }
       } else {
         if (mounted) GoRouter.of(context).go('/welcome');
@@ -536,8 +547,7 @@ class _SettingsItem extends StatelessWidget {
                 ),
               ),
               Icon(Icons.chevron_right_rounded,
-                  size: 18,
-                  color: ZipherColors.text10),
+                  size: 18, color: ZipherColors.text10),
             ],
           ),
         ),

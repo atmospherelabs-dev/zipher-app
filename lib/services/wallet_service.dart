@@ -274,6 +274,63 @@ class WalletService {
     if (!useNewEngine) await rust_wallet.startSaveTask();
   }
 
+  /// Create a real Orchard-only FROST wallet locally and import its UFVK as a
+  /// watch-only account. The phone stores only participant #1's FROST share;
+  /// spending requires at least one co-signer share through the approval flow.
+  Future<String> createFrostWallet(String name, int birthday) async {
+    _checkBusy();
+    final registry = WalletRegistry.instance;
+    final profile = await registry.create(name, watchOnly: true);
+    final dir = await walletDir(walletId: profile.id);
+    final dkg = await FrostService.instance.createLocal2Of3View(
+      chainType: _chainType,
+    );
+
+    if (useNewEngine) {
+      final dbKey = await _getDbCipherKey();
+      await rust_engine.engineRestoreFromUfvk(
+        dataDir: dir,
+        serverUrl: serverUrl,
+        chainType: _chainType,
+        ufvk: dkg.view.ufvk,
+        birthday: birthday,
+        dbCipherKey: dbKey,
+      );
+    } else {
+      await rust_wallet.restoreFromUfvk(
+        dataDir: dir,
+        serverUrl: serverUrl,
+        chainType: _chainType,
+        ufvk: dkg.view.ufvk,
+        birthday: birthday,
+      );
+    }
+
+    _walletOpen = true;
+    _activeWalletId = profile.id;
+    await registry.setActive(profile.id);
+    await _applyFileProtection(dir);
+
+    final key = _networkSeedKey(profile.id);
+    await FrostService.instance.storeWalletShare(
+      walletId: key,
+      keyPackage: dkg.participant1.keyPackage,
+      metadata: FrostWalletMetadata(
+        walletId: key,
+        label: name,
+        relay: FrostService.defaultRelay,
+        threshold: 2,
+        participants: 3,
+        participantId: dkg.participant1.participantId,
+        publicKeyPackage: dkg.participant1.publicKeyPackage,
+        groupPublicKeyHex: dkg.participant1.groupPublicKeyHex,
+        participantLabels: const ['This device', 'Co-signer 2', 'Backup'],
+      ),
+    );
+    if (!useNewEngine) await rust_wallet.startSaveTask();
+    return dkg.view.address;
+  }
+
   /// Open an existing wallet by profile ID.
   Future<void> openWalletById(String walletId) async {
     _checkBusy();
