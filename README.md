@@ -30,17 +30,17 @@ This isn't a privacy wrapper on top of a transparent chain. It's the real thing 
 Headless, local-first Zcash light wallet for AI agents. No full node. No cloud custody. Keys never leave the machine.
 
 ```
-zipher-cli wallet create
+zipher-cli wallet init
 zipher-cli --human balance
-zipher-cli --human market agent --dry-run --ows-wallet default
+zipher-cli --human polymarket list --keyword bitcoin
 ```
 
 - **Light client** — syncs in minutes, runs on a $5 VPS or Raspberry Pi
 - **Two-step send** — propose (no seed) then confirm (seed required), safe for agent workflows
 - **Cross-chain swaps** — ZEC to any asset via NEAR Intents (BTC, ETH, SOL, USDT, BNB, 140+ tokens)
-- **Prediction markets** — autonomous scan-research-analyze-execute pipeline with Kelly Criterion bet sizing
+- **Prediction markets** — Polymarket discovery, position lookup, and alpha trade tooling
 - **x402/MPP payments** — `pay_url` auto-detects x402 or MPP paywalls, pays, retries with credential
-- **OWS signing** — PCZT transactions signed via OWS, EVM transactions for BSC, all from one seed
+- **OWS vault** — `wallet init` stores the mnemonic in the encrypted OWS vault; CLI/MCP decrypt it when needed
 - **Spending policy** — per-tx limits, daily caps, allowlist, rate limiting, approval thresholds
 - **Audit log** — every spend recorded with timestamps, context IDs, and error tracking
 - **Daemon mode** — background sync with IPC socket, kill switch to zeroize seed in memory
@@ -64,7 +64,7 @@ The server holds the seed in memory — tools never accept seed as an argument. 
 
 ## Prediction Markets — Polymarket
 
-Polymarket (Polygon, CLOB, USDC) is the active prediction-market venue. Discovery, position lookup, and bet/sell flows run end-to-end in the mobile app's Action Wallet, and via `zipher-cli polymarket` / the MCP `market_research` tool.
+Polymarket (Polygon, CLOB, USDC) is the active prediction-market venue. Discovery, position lookup, and alpha bet/sell tooling run in the mobile app's Action Wallet and via `zipher-cli polymarket`.
 
 - **Discovery** — Gamma API event listing with quality filters (volume, spread, distinct outcome prices).
 - **Research** — `market_research` (Firecrawl) for news context; supplies the LLM with a probability-estimate grounding.

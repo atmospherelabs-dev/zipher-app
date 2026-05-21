@@ -42,27 +42,19 @@ Binaries are in `rust/target/release/`.
 One wallet, all chains. OWS derives Zcash (ZIP-32), EVM (BIP-44), Solana, and Bitcoin keys from a single BIP-39 mnemonic:
 
 ```bash
-# Create the wallet via OWS — one seed for all chains
-ows wallet create default --show-mnemonic
-# → Save the 24 words securely. This is the only copy.
-
-# Zipher CLI reads the seed from OWS automatically.
-# No need to copy it or set ZIPHER_SEED.
+# Create or reuse the default OWS mnemonic wallet and initialize Zipher.
+zipher-cli wallet init
 zipher-cli sync start
 zipher-cli --human balance
 ```
 
-Zipher resolves the seed in this order:
-1. Zipher vault (`~/.zipher/mainnet/vault.enc`) — if `zipher-cli wallet create` was used
-2. **OWS vault** (`~/.ows/wallets/`) — if `ows wallet create` was used (recommended)
-3. `ZIPHER_SEED` env var — for the MCP server or headless mode
-4. Interactive prompt
+Zipher CLI and MCP read the seed from the encrypted OWS vault selected by
+`OWS_WALLET` / `OWS_PASSPHRASE`. There is no `ZIPHER_SEED` flow.
 
 ### Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ZIPHER_SEED` | For MCP server | 24-word seed phrase (held in memory, never logged) |
 | `ZIPHER_DATA_DIR` | No | Wallet data directory (default: `~/.zipher/mainnet`) |
 | `ZIPHER_SERVER` | No | Custom lightwalletd URL (default: `lightwalletd.mainnet.cipherscan.app:443`) |
 | `ZIPHER_TESTNET` | No | Set to `1` for testnet |
@@ -83,7 +75,8 @@ Add to your Claude Desktop or Cursor MCP config (`mcp-config.example.json` in re
     "zipher": {
       "command": "/path/to/zipher-mcp-server",
       "env": {
-        "ZIPHER_SEED": "your 24-word seed phrase",
+        "OWS_WALLET": "default",
+        "OWS_PASSPHRASE": "",
         "FIRECRAWL_API_KEY": "fc-..."
       }
     }

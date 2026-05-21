@@ -1,4 +1,3 @@
-use std::io::{self, BufRead, Write as _};
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -97,12 +96,8 @@ async fn download_and_verify(
 }
 
 // ---------------------------------------------------------------------------
-// Seed reading: OWS vault -> Zipher vault (legacy) -> ZIPHER_SEED env -> stdin
+// Seed reading: OWS vault only
 // ---------------------------------------------------------------------------
-
-pub fn vault_passphrase() -> String {
-    std::env::var("ZIPHER_VAULT_PASS").unwrap_or_default()
-}
 
 fn read_seed_from_ows() -> Option<SecretString> {
     let ows_wallet = std::env::var("OWS_WALLET").unwrap_or_else(|_| "default".to_string());
@@ -117,50 +112,15 @@ fn read_seed_from_ows() -> Option<SecretString> {
     }
 }
 
-pub fn read_seed_from_vault(data_dir: &str) -> Option<SecretString> {
-    if !zipher_engine::vault::Vault::exists(data_dir) {
-        return None;
-    }
-    let passphrase = vault_passphrase();
-    match zipher_engine::wallet::decrypt_vault(data_dir, &passphrase) {
-        Ok(seed) => Some(seed),
-        Err(e) => {
-            eprintln!("Vault exists but decryption failed: {}", e);
-            None
-        }
-    }
-}
-
-pub fn read_seed(data_dir: &str) -> Result<SecretString> {
-    // 1. OWS vault (primary — multi-chain ready)
+pub fn read_seed(_data_dir: &str) -> Result<SecretString> {
     if let Some(seed) = read_seed_from_ows() {
         return Ok(seed);
     }
 
-    // 2. Zipher vault (legacy)
-    if let Some(seed) = read_seed_from_vault(data_dir) {
-        return Ok(seed);
-    }
-
-    // 3. Explicit env var (deprecated)
-    if let Ok(seed) = std::env::var("ZIPHER_SEED") {
-        if !seed.is_empty() {
-            return Ok(SecretString::new(seed));
-        }
-    }
-
-    // 4. Interactive prompt
-    eprint!("Enter seed phrase: ");
-    io::stderr().flush()?;
-    let mut line = String::new();
-    io::stdin().lock().read_line(&mut line)?;
-    let trimmed = line.trim().to_string();
-    if trimmed.is_empty() {
-        return Err(anyhow::anyhow!(
-            "No seed available. Run `zipher wallet init` or set ZIPHER_SEED."
-        ));
-    }
-    Ok(SecretString::new(trimmed))
+    Err(anyhow::anyhow!(
+        "No OWS mnemonic wallet available. Run `zipher-cli wallet init`, \
+         or set OWS_WALLET / OWS_PASSPHRASE to an existing OWS mnemonic wallet."
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +173,7 @@ pub async fn auto_open(cfg: &Config) -> Result<()> {
     let db_path = PathBuf::from(&cfg.data_dir).join("zipher-data.sqlite");
     if !db_path.exists() {
         return Err(anyhow::anyhow!(
-            "No wallet found in {}. Run `zipher-cli wallet create` or `wallet restore` first.",
+            "No wallet found in {}. Run `zipher-cli wallet init` first.",
             cfg.data_dir
         ));
     }

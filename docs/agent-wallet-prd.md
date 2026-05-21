@@ -232,11 +232,7 @@ Inspired by ZalletClaw's preflight/confirm/execute pattern:
 
 ```
 WALLET LIFECYCLE
-  zipher-cli wallet create [--name NAME] [--data-dir PATH]
-  zipher-cli wallet restore --seed-stdin --birthday HEIGHT [--data-dir PATH]
-  zipher-cli wallet open [--data-dir PATH]
-  zipher-cli wallet close
-  zipher-cli wallet backup
+  zipher-cli wallet init [--data-dir PATH]
   zipher-cli wallet delete --confirm
 
 SYNC
@@ -277,10 +273,8 @@ AUDIT
 
 **`propose` never requires the seed.** It returns a summary — amount, fee, destination, proposal ID — for review. This is the "preflight" step. No key material is touched.
 
-**`confirm` requires the seed.** The seed is read from:
-1. Environment variable `ZIPHER_SEED` (preferred for daemon mode)
-2. Standard input pipe (for interactive or scripted use)
-3. Never from CLI arguments (would leak into shell history, `/proc`, `ps` output)
+**`confirm` requires the seed.** The seed is decrypted from the OWS vault selected by
+`OWS_WALLET` / `OWS_PASSPHRASE`. It is never passed as a CLI argument or tool argument.
 
 **JSON output by default.** All commands emit structured JSON for machine consumption. Add `--human` for readable format. This ensures agents, scripts, and MCP wrappers can parse output deterministically.
 
@@ -309,7 +303,7 @@ The MCP server exposes the engine as tool calls for MCP-compatible agent framewo
 | `sync_status` | Current sync state (height, progress, errors) | No |
 | `validate_address` | Check if an address is valid and its pool type | No |
 
-**The MCP server never accepts seed phrases as tool arguments.** The seed is configured once at daemon startup (from `ZIPHER_SEED` env var) and held in mlocked, zeroized memory. The agent/LLM never sees the key material. `confirm_send` uses the seed from daemon memory — the MCP caller only provides the `proposal_id`.
+**The MCP server never accepts seed phrases as tool arguments.** The seed is decrypted from the OWS vault and held in process memory. The agent/LLM never sees the key material. `confirm_send` uses the seed from server memory — the MCP caller only provides the proposal/context data.
 
 **Error handling:** Every MCP response includes a deterministic `error_code` and a human-readable `message`. LLMs hallucinate success when tools fail silently or return opaque errors. Explicit codes let the agent retry, wait, or escalate to the human operator.
 
@@ -533,7 +527,7 @@ ENTRYPOINT ["zipher-cli"]
 CMD ["daemon", "start", "--mcp", "--port", "9067"]
 ```
 
-**Non-Docker:** `zipher-cli wallet create` auto-downloads params on first use, verifies SHA-256 checksums, and caches them in `~/.zipher/params/`. Subsequent launches skip the download.
+**Non-Docker:** `zipher-cli wallet init` auto-downloads params on first use, verifies SHA-256 checksums, and initializes the Zcash DB from the OWS vault. Subsequent launches skip the download.
 
 ### Data persistence
 
@@ -546,7 +540,7 @@ Wallet data (SQLite databases, policy config, audit log) lives in `ZIPHER_DATA_D
 | Phase | Name | Scope | Deliverable | Depends on |
 |-------|------|-------|-------------|------------|
 | **0** | Workspace | Cargo workspace restructure: extract engine crate, split FFI from engine | `crates/engine/` compiles independently. Flutter app still builds. No user-facing changes. | Nothing |
-| **1** | CLI | `zipher-cli` binary: wallet lifecycle, sync, balance, address, transactions, two-step send | `zipher-cli wallet create && zipher-cli sync start && zipher-cli balance` works end-to-end from a terminal | Phase 0 |
+| **1** | CLI | `zipher-cli` binary: wallet lifecycle, sync, balance, address, transactions, two-step send | `zipher-cli wallet init && zipher-cli sync start && zipher-cli balance` works end-to-end from a terminal | Phase 0 |
 | **2** | Security | Spending policy, audit log, daemon mode, kill switch, mlocked seed, note locking | `zipher-cli daemon start` runs background sync with policy enforcement. `zipher-cli audit` shows spend history. | Phase 1 |
 | **3** | Transports | MCP server + OpenClaw skill (equal priority) | Agents call `propose_send` via MCP tool call or OpenClaw skill. Deterministic error codes. | Phase 2 |
 | **4** | Integration | CipherPay end-to-end loop, x402 payment flow | Agent encounters x402 -> pays via Zipher MCP -> CipherPay confirms -> API returns data | Phase 3 + CipherPay x402 |

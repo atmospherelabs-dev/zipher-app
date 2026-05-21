@@ -33,17 +33,32 @@ curl -L -o ~/.zipher/sapling-spend.params https://download.z.cash/downloads/sapl
 curl -L -o ~/.zipher/sapling-output.params https://download.z.cash/downloads/sapling-output.params
 ```
 
-## 3. Create a wallet
+## 3. Initialize a wallet
 
 ```bash
 # Testnet (recommended for first run)
-zipher-cli --testnet wallet create
+zipher-cli --testnet wallet init
 
 # Mainnet
-zipher-cli wallet create
+zipher-cli wallet init
 ```
 
-**Save the seed phrase.** It's the only way to recover funds.
+`wallet init` creates or reuses an encrypted OWS mnemonic wallet. By default it uses:
+
+```bash
+OWS_WALLET=default
+OWS_PASSPHRASE=
+```
+
+To use a named vault wallet:
+
+```bash
+export OWS_WALLET=my-agent-wallet
+export OWS_PASSPHRASE='optional passphrase'
+zipher-cli wallet init
+```
+
+The Zcash wallet DB lives in `~/.zipher/<network>`. The seed lives in the OWS vault.
 
 ## 4. Sync
 
@@ -70,11 +85,11 @@ zipher-cli --testnet send propose \
   --amount 100000 \
   --context-id "my-payment"
 
-# Step 2: Sign & broadcast (immediately after propose)
-ZIPHER_SEED="your seed phrase here" zipher-cli --testnet send confirm
+# Step 2: Sign & broadcast with the OWS vault
+zipher-cli --testnet send confirm
 ```
 
-The seed is read from `ZIPHER_SEED` env var or stdin. It is never written to disk.
+The seed is decrypted from the OWS vault selected by `OWS_WALLET` / `OWS_PASSPHRASE`.
 
 > **Tip:** Run propose and confirm back-to-back. Proposals expire after ~50 blocks (~60 min).
 
@@ -84,7 +99,7 @@ When an API returns HTTP 402 with an x402 payment body:
 
 ```bash
 # One-step: parse the 402 body, pay, get the PAYMENT-SIGNATURE header
-ZIPHER_SEED="your seed phrase here" zipher-cli x402 pay \
+zipher-cli x402 pay \
   --body '{"x402Version":2,"accepts":[{"scheme":"exact","network":"zcash:mainnet","asset":"ZEC","amount":"100000","payTo":"u1...","maxTimeoutSeconds":120}]}' \
   --context-id "api-access"
 ```
@@ -98,7 +113,7 @@ Or two-step (review before paying):
 zipher-cli x402 propose --body '<402 JSON>'
 
 # Step 2: Confirm (same as regular send confirm)
-ZIPHER_SEED="..." zipher-cli send confirm
+zipher-cli send confirm
 ```
 
 ## 7. Spending policy
@@ -145,7 +160,8 @@ Add to your MCP client config:
     "zipher": {
       "command": "/path/to/zipher-mcp-server",
       "env": {
-        "ZIPHER_SEED": "your seed phrase here",
+        "OWS_WALLET": "default",
+        "OWS_PASSPHRASE": "",
         "ZIPHER_TESTNET": "1"
       }
     }
@@ -153,7 +169,7 @@ Add to your MCP client config:
 }
 ```
 
-**Tools exposed:** `wallet_status`, `get_balance`, `propose_send`, `confirm_send`, `shield_funds`, `get_transactions`, `sync_status`, `validate_address`, `pay_x402`
+The MCP server decrypts the seed from the OWS vault. Tools exposed include `wallet_status`, `get_balance`, `propose_send`, `confirm_send`, `shield_funds`, `get_transactions`, `sync_status`, `validate_address`, `pay_x402`, swaps, sessions, and CipherPay helpers.
 
 ### OpenClaw
 

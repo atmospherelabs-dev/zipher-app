@@ -3,7 +3,8 @@
     "zipher": {
       "command": "zipher-mcp-server",
       "env": {
-        "ZIPHER_SEED": "your 24-word seed phrase here",
+        "OWS_WALLET": "default",
+        "OWS_PASSPHRASE": "",
         "ZIPHER_DATA_DIR": "/path/to/.zipher/mainnet",
         "FIRECRAWL_API_KEY": "fc-..."
       }

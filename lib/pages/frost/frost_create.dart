@@ -22,6 +22,9 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
   FrostSetupUseCase _useCase = FrostSetupUseCase.personalRecovery;
   int _threshold = 2;
   int _participants = 3;
+  bool _advancedRelay = false;
+  final _relayController =
+      TextEditingController(text: FrostService.defaultRelay);
   FrostInvite? _invite;
   FrostCoordinatorPending? _pendingCoordinator;
   final _joinResponseController = TextEditingController();
@@ -32,7 +35,59 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
   @override
   void dispose() {
     _joinResponseController.dispose();
+    _relayController.dispose();
     super.dispose();
+  }
+
+  void _applyUseCaseDefaults(FrostSetupUseCase useCase) {
+    _useCase = useCase;
+    _invite = null;
+    _thresholdLocked = false;
+    _pendingCoordinator = null;
+    _createdAddress = null;
+    switch (useCase) {
+      case FrostSetupUseCase.personalRecovery:
+      case FrostSetupUseCase.agentWallet:
+        _threshold = 2;
+        _participants = 3;
+        break;
+      case FrostSetupUseCase.sharedBusiness:
+        _threshold = 2;
+        _participants = 3;
+        break;
+    }
+  }
+
+  String get _relayUrl => _relayController.text.trim().isEmpty
+      ? FrostService.defaultRelay
+      : _relayController.text.trim();
+
+  bool get _relayLooksSafe =>
+      _relayUrl.startsWith('https://') ||
+      _relayUrl.startsWith('http://127.0.0.1') ||
+      _relayUrl.startsWith('http://localhost');
+
+  List<_ParticipantRow> get _participantRows {
+    switch (_useCase) {
+      case FrostSetupUseCase.personalRecovery:
+        return const [
+          _ParticipantRow('This phone', 'Creator', true),
+          _ParticipantRow('Recovery device', 'Co-signer', false),
+          _ParticipantRow('Backup share', 'Backup', false),
+        ];
+      case FrostSetupUseCase.agentWallet:
+        return const [
+          _ParticipantRow('This phone', 'Approval', true),
+          _ParticipantRow('Agent', 'Co-signer', false),
+          _ParticipantRow('Backup share', 'Backup', false),
+        ];
+      case FrostSetupUseCase.sharedBusiness:
+        return [
+          const _ParticipantRow('You', 'Creator', true),
+          for (var i = 2; i <= _participants; i++)
+            _ParticipantRow('Signer $i', 'Pending', false),
+        ];
+    }
   }
 
   String get _label {
@@ -51,6 +106,7 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
     try {
       final pending = await FrostService.instance.beginRelayCoordinator(
         label: _label,
+        relay: _relayUrl,
       );
       if (!mounted) return;
       setState(() {
@@ -116,16 +172,6 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
         ),
       );
     }
-  }
-
-  void _createLocalFallbackInvite() {
-    setState(() {
-      _invite = FrostService.instance.createInvite(
-        label: _label,
-        threshold: _threshold,
-        participants: _participants,
-      );
-    });
   }
 
   Future<void> _copyInvite() async {
@@ -202,11 +248,7 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
             const Gap(10),
             _UseCasePicker(
               selected: _useCase,
-              onChanged: (v) => setState(() {
-                _useCase = v;
-                _invite = null;
-                _thresholdLocked = false;
-              }),
+              onChanged: (v) => setState(() => _applyUseCaseDefaults(v)),
             ),
             const Gap(22),
             _SectionTitle('2. Choose threshold'),
@@ -215,6 +257,7 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
               threshold: _threshold,
               participants: _participants,
               locked: _thresholdLocked,
+              useCase: _useCase,
               onChanged: (t, n) => setState(() {
                 _threshold = t;
                 _participants = n;
@@ -222,22 +265,41 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
               }),
             ),
             const Gap(22),
-            _SectionTitle('3. Invite co-signers'),
+            _SectionTitle(_useCase == FrostSetupUseCase.agentWallet
+                ? '3. Pair agent'
+                : '3. Invite co-signers'),
+            const Gap(10),
+            _AdvancedRelayCard(
+              expanded: _advancedRelay,
+              controller: _relayController,
+              relayLooksSafe: _relayLooksSafe,
+              onToggle: () => setState(() => _advancedRelay = !_advancedRelay),
+              onChanged: (_) => setState(() {
+                _invite = null;
+                _pendingCoordinator = null;
+                _thresholdLocked = false;
+              }),
+            ),
             const Gap(10),
             if (invite == null)
               _PrimaryButton(
                 label: _creating ? 'Creating...' : 'Create relay invite',
                 icon: Icons.qr_code_2_rounded,
-                onTap: _creating ? null : _createInvite,
+                onTap: _creating || !_relayLooksSafe ? null : _createInvite,
               )
             else
               _InviteCard(invite: invite, onCopy: _copyInvite),
             const Gap(22),
-            _SectionTitle('4. Review roster'),
+            _SectionTitle('4. Accept co-signer response'),
             const Gap(10),
             if (_pendingCoordinator != null && _createdAddress == null) ...[
+              _ExplainerCard(
+                text:
+                    'Ask the co-signer to scan your invite. They will show a join response. Scan or paste that response here before locking the threshold.',
+              ),
+              const Gap(10),
               _Field(
-                label: 'Join response',
+                label: 'Co-signer response',
                 controller: _joinResponseController,
                 hint: 'zipher:frost-join:v1:...',
                 maxLines: 3,
@@ -255,9 +317,10 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
                   const Gap(10),
                   Expanded(
                     child: _SecondaryButton(
-                      label: 'Paste fallback',
-                      icon: Icons.edit_rounded,
-                      onTap: _createLocalFallbackInvite,
+                      label: 'Clear',
+                      icon: Icons.close_rounded,
+                      onTap: () =>
+                          setState(() => _joinResponseController.clear()),
                     ),
                   ),
                 ],
@@ -265,11 +328,7 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
               const Gap(10),
             ],
             _RosterCard(
-              participants: [
-                const _ParticipantRow('You', 'Creator', true),
-                for (var i = 2; i <= _participants; i++)
-                  _ParticipantRow('Waiting for signer $i', 'Pending', false),
-              ],
+              participants: _participantRows,
             ),
             const Gap(22),
             _SectionTitle('5. Lock threshold'),
@@ -384,44 +443,189 @@ class _ThresholdCard extends StatelessWidget {
   final int threshold;
   final int participants;
   final bool locked;
+  final FrostSetupUseCase useCase;
   final void Function(int threshold, int participants) onChanged;
 
   const _ThresholdCard({
     required this.threshold,
     required this.participants,
     required this.locked,
+    required this.useCase,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isAgent = useCase == FrostSetupUseCase.agentWallet;
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            isAgent
+                ? 'Recommended: 2 of 3. Agent can propose, but cannot spend without phone approval.'
+                : 'Recommended: 2 of 3. You can change this before locking.',
+            style: TextStyle(
+                color: ZipherColors.text40, fontSize: 12, height: 1.35),
+          ),
+          const Gap(12),
+          Row(
+            children: [
+              Expanded(
+                child: _ThresholdChip(
+                  label: '2 of 3',
+                  selected: threshold == 2 && participants == 3,
+                  locked: locked,
+                  onTap: () => onChanged(2, 3),
+                ),
+              ),
+              const Gap(8),
+              Expanded(
+                child: _ThresholdChip(
+                  label: '2 of 2',
+                  selected: threshold == 2 && participants == 2,
+                  locked: locked || isAgent,
+                  onTap: () => onChanged(2, 2),
+                ),
+              ),
+              const Gap(8),
+              Expanded(
+                child: _ThresholdChip(
+                  label: '3 of 5',
+                  selected: threshold == 3 && participants == 5,
+                  locked: locked || isAgent,
+                  onTap: () => onChanged(3, 5),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdvancedRelayCard extends StatelessWidget {
+  final bool expanded;
+  final TextEditingController controller;
+  final bool relayLooksSafe;
+  final VoidCallback onToggle;
+  final ValueChanged<String> onChanged;
+
+  const _AdvancedRelayCard({
+    required this.expanded,
+    required this.controller,
+    required this.relayLooksSafe,
+    required this.onToggle,
     required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     return _Card(
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: _ThresholdChip(
-              label: '2 of 3',
-              selected: threshold == 2 && participants == 3,
-              locked: locked,
-              onTap: () => onChanged(2, 3),
+          GestureDetector(
+            onTap: onToggle,
+            child: Row(
+              children: [
+                Icon(Icons.router_rounded,
+                    size: 18, color: ZipherColors.text60),
+                const Gap(8),
+                Expanded(
+                  child: Text(
+                    'Relay',
+                    style: TextStyle(
+                      color: ZipherColors.text90,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                Text(
+                  expanded ? 'Hide' : 'Advanced',
+                  style: TextStyle(color: ZipherColors.cyan, fontSize: 12),
+                ),
+              ],
             ),
           ),
-          const Gap(8),
-          Expanded(
-            child: _ThresholdChip(
-              label: '2 of 2',
-              selected: threshold == 2 && participants == 2,
-              locked: locked,
-              onTap: () => onChanged(2, 2),
+          const Gap(6),
+          Text(
+            controller.text.trim().isEmpty
+                ? FrostService.defaultRelay
+                : controller.text.trim(),
+            style: TextStyle(
+              color: ZipherColors.text40,
+              fontSize: 11,
+              fontFamily: 'JetBrainsMono',
             ),
+            overflow: TextOverflow.ellipsis,
           ),
-          const Gap(8),
+          if (expanded) ...[
+            const Gap(12),
+            TextField(
+              controller: controller,
+              onChanged: onChanged,
+              style: TextStyle(color: ZipherColors.text90, fontSize: 13),
+              decoration: InputDecoration(
+                hintText: FrostService.defaultRelay,
+                hintStyle: TextStyle(color: ZipherColors.text20),
+                filled: true,
+                fillColor: ZipherColors.cardBgElevated,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(ZipherRadius.md),
+                  borderSide: BorderSide(color: ZipherColors.borderSubtle),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(ZipherRadius.md),
+                  borderSide: BorderSide(color: ZipherColors.borderSubtle),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(ZipherRadius.md),
+                  borderSide: BorderSide(
+                      color: ZipherColors.cyan.withValues(alpha: 0.35)),
+                ),
+              ),
+            ),
+            const Gap(8),
+            Text(
+              relayLooksSafe
+                  ? 'Use the default relay unless you run your own.'
+                  : 'Use HTTPS for remote relays. HTTP is only allowed for localhost development.',
+              style: TextStyle(
+                color: relayLooksSafe ? ZipherColors.text40 : ZipherColors.red,
+                fontSize: 11,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ExplainerCard extends StatelessWidget {
+  final String text;
+  const _ExplainerCard({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, size: 18, color: ZipherColors.cyan),
+          const Gap(10),
           Expanded(
-            child: _ThresholdChip(
-              label: '3 of 5',
-              selected: threshold == 3 && participants == 5,
-              locked: locked,
-              onTap: () => onChanged(3, 5),
+            child: Text(
+              text,
+              style: TextStyle(
+                color: ZipherColors.text60,
+                fontSize: 12,
+                height: 1.4,
+              ),
             ),
           ),
         ],

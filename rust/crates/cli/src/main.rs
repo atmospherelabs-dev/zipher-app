@@ -328,16 +328,6 @@ enum WalletCmd {
     /// Prints seed phrase once, then MCP config JSON for Claude/Cursor.
     Init,
 
-    /// Create a new wallet (legacy — uses Zipher vault, prefer `init`)
-    Create,
-
-    /// Restore wallet from seed phrase (read from OWS vault, Zipher vault, or stdin)
-    Restore {
-        /// Birthday height for faster sync
-        #[arg(long)]
-        birthday: u32,
-    },
-
     /// Delete wallet data from disk
     Delete {
         /// Required flag to confirm deletion
@@ -477,7 +467,7 @@ enum DaemonCmd {
     /// Zeroize seed material in memory (wallet becomes read-only, sync continues)
     Lock,
 
-    /// Unlock spending (daemon reads ZIPHER_SEED from its own environment)
+    /// Unlock spending (daemon decrypts seed from the OWS vault)
     Unlock,
 }
 
@@ -735,8 +725,6 @@ async fn main() {
         }
         Commands::Wallet(sub) => match sub {
             WalletCmd::Init => wallet::cmd_wallet_init(&cfg).await,
-            WalletCmd::Create => wallet::cmd_wallet_create(&cfg).await,
-            WalletCmd::Restore { birthday } => wallet::cmd_wallet_restore(&cfg, birthday).await,
             WalletCmd::Delete { confirm } => wallet::cmd_wallet_delete(&cfg, confirm).await,
         },
         Commands::Sync(sub) => match sub {

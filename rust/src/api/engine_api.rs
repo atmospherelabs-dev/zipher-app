@@ -747,23 +747,17 @@ pub fn engine_frost_dkg_init(
     max_signers: u16,
     min_signers: u16,
 ) -> Result<EngineFrostDkgRound1Result> {
-    Ok(zipher_engine::frost::frost_dkg_init(
-        participant_id,
-        max_signers,
-        min_signers,
-    )?
-    .into())
+    Ok(zipher_engine::frost::frost_dkg_init(participant_id, max_signers, min_signers)?.into())
 }
 
 pub fn engine_frost_dkg_round2(
     secret_package: String,
     round1_packages: Vec<EngineFrostParticipantPackage>,
 ) -> Result<EngineFrostDkgRound2Result> {
-    Ok(zipher_engine::frost::frost_dkg_round2(
-        secret_package,
-        packages_to_map(round1_packages),
-    )?
-    .into())
+    Ok(
+        zipher_engine::frost::frost_dkg_round2(secret_package, packages_to_map(round1_packages))?
+            .into(),
+    )
 }
 
 pub fn engine_frost_dkg_round3(

@@ -201,10 +201,14 @@ async fn handle_ipc_command(
         }
 
         "unlock" => {
-            let seed_value = std::env::var("ZIPHER_SEED").unwrap_or_default();
-            if seed_value.is_empty() {
-                return r#"{"ok":false,"error":"SEED_REQUIRED: set ZIPHER_SEED env var on the daemon process before unlocking"}"#.to_string();
-            }
+            let seed_value = match crate::helpers::read_seed(data_dir) {
+                Ok(seed) => secrecy::ExposeSecret::expose_secret(&seed).to_string(),
+                Err(e) => {
+                    return format!(
+                        r#"{{"ok":false,"error":"SEED_REQUIRED: {e}"}}"#
+                    );
+                }
+            };
             let mut seed_guard = state.seed.write().await;
             *seed_guard = Some(seed_value);
             state.locked.store(false, Ordering::SeqCst);
@@ -329,7 +333,7 @@ pub async fn cmd_unlock(cfg: &Config) -> Result<()> {
     let resp = send_daemon_command(&cfg.data_dir, "unlock").await?;
     if cfg.human {
         println!("Daemon: {}", resp);
-        println!("Seed read from ZIPHER_SEED env var on the daemon process.");
+        println!("Seed read from OWS vault on the daemon process.");
     } else {
         println!("{}", resp);
     }

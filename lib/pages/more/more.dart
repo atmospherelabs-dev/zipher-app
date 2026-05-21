@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
@@ -12,8 +10,6 @@ import '../../zipher_theme.dart';
 import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 import '../../src/version.dart';
-import '../settings.dart';
-import '../../settings.pb.dart';
 import '../utils.dart';
 import '../../store2.dart';
 

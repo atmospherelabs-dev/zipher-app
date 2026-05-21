@@ -17,27 +17,20 @@ use zcash_protocol::consensus::Network;
 
 #[derive(Clone)]
 enum SeedSource {
-    ZipherVault { data_dir: String, passphrase: String },
     OwsVault { wallet_name: String, passphrase: String },
-    EnvVar(SecretString),
     None,
 }
 
 impl SeedSource {
     fn label(&self) -> &'static str {
         match self {
-            SeedSource::ZipherVault { .. } => "zipher-vault",
             SeedSource::OwsVault { .. } => "ows-vault",
-            SeedSource::EnvVar(_) => "env-var",
             SeedSource::None => "none",
         }
     }
 
     fn decrypt(&self) -> Option<SecretString> {
         match self {
-            SeedSource::ZipherVault { data_dir, passphrase } => {
-                zipher_engine::wallet::decrypt_vault(data_dir, passphrase).ok()
-            }
             SeedSource::OwsVault { wallet_name, passphrase } => {
                 let exported = ows_lib::export_wallet(wallet_name, Some(passphrase), None).ok()?;
                 if exported.contains(' ') && !exported.starts_with('{') {
@@ -46,7 +39,6 @@ impl SeedSource {
                     None
                 }
             }
-            SeedSource::EnvVar(s) => Some(s.clone()),
             SeedSource::None => None,
         }
     }
@@ -1445,7 +1437,7 @@ async fn main() -> Result<()> {
 
     std::fs::create_dir_all(&data_dir)?;
 
-    // Seed resolution priority: OWS vault → Zipher vault (legacy) → ZIPHER_SEED env (deprecated)
+    // Seed resolution priority: OWS vault only.
     let (seed, seed_source) = resolve_seed(&data_dir);
 
     tracing::info!("Seed source: {}", seed_source.label());
@@ -1483,14 +1475,8 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Resolve the seed phrase from the best available source.
-///
-/// Priority:
-/// 1. OWS encrypted vault (`~/.ows/wallets/`) — default for new installs
-/// 2. Zipher vault (`~/.zipher/<net>/vault.enc`) — legacy, still supported
-/// 3. `ZIPHER_SEED` env var — deprecated, cleared after read
-fn resolve_seed(data_dir: &str) -> (Option<SecretString>, SeedSource) {
-    // 1. OWS vault (primary — multi-chain ready)
+/// Resolve the seed phrase from the OWS encrypted vault (`~/.ows/wallets/`).
+fn resolve_seed(_data_dir: &str) -> (Option<SecretString>, SeedSource) {
     let ows_wallet = std::env::var("OWS_WALLET").unwrap_or_else(|_| "default".to_string());
     let ows_passphrase = std::env::var("OWS_PASSPHRASE").unwrap_or_default();
     if let Ok(exported) = ows_lib::export_wallet(&ows_wallet, Some(&ows_passphrase), None) {
@@ -1504,38 +1490,9 @@ fn resolve_seed(data_dir: &str) -> (Option<SecretString>, SeedSource) {
         }
     }
 
-    // 2. Zipher vault (legacy fallback)
-    if zipher_engine::vault::Vault::exists(data_dir) {
-        let passphrase = std::env::var("ZIPHER_VAULT_PASS").unwrap_or_default();
-        match zipher_engine::wallet::decrypt_vault(data_dir, &passphrase) {
-            Ok(seed) => {
-                tracing::info!("Seed loaded from zipher vault (legacy)");
-                let source = SeedSource::ZipherVault {
-                    data_dir: data_dir.to_string(),
-                    passphrase,
-                };
-                return (Some(seed), source);
-            }
-            Err(e) => {
-                tracing::warn!("Zipher vault exists but decryption failed: {}", e);
-            }
-        }
-    }
-
-    // 3. ZIPHER_SEED env var (deprecated)
-    if let Ok(seed_val) = std::env::var("ZIPHER_SEED") {
-        if !seed_val.is_empty() {
-            tracing::warn!(
-                "Using ZIPHER_SEED env var (DEPRECATED). \
-                 Migrate to `zipher wallet init` for encrypted vault storage."
-            );
-            let secret = SecretString::new(seed_val);
-            let source = SeedSource::EnvVar(secret.clone());
-            ows_signer::process_hardening::clear_env_var("ZIPHER_SEED");
-            return (Some(secret), source);
-        }
-    }
-
-    tracing::warn!("No seed available. Signing tools will fail. Run `zipher wallet init` to create a vault.");
+    tracing::warn!(
+        "No OWS mnemonic wallet available. Signing tools will fail. \
+         Run `zipher-cli wallet init`, or set OWS_WALLET / OWS_PASSPHRASE."
+    );
     (None, SeedSource::None)
 }

@@ -247,7 +247,7 @@ pub async fn cmd_serve(
     let pay_to = match zipher_engine::query::get_addresses().await {
         Ok(addrs) if !addrs.is_empty() => addrs[0].address.clone(),
         _ => {
-            eprintln!("Error: No wallet address available. Create a wallet first: zipher-cli wallet create");
+            eprintln!("Error: No wallet address available. Create a wallet first: zipher-cli wallet init");
             std::process::exit(1);
         }
     };
