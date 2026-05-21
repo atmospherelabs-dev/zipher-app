@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
 import '../src/rust/api/engine_api.dart' as rust_engine;
+import '../src/rust/api/wallet.dart' as rust_wallet;
 import 'secure_key_store.dart';
 
 String _hexEncode(List<int> bytes) =>
@@ -673,7 +674,7 @@ class FrostService {
   }
 
   Future<FrostLocalDkgResult> createLocal2Of3View({
-    required rust_engine.ChainType chainType,
+    required rust_wallet.ChainType chainType,
   }) async {
     final p1 = await dkgRound1(participantId: 1, threshold: 2, participants: 3);
     final p2 = await dkgRound1(participantId: 2, threshold: 2, participants: 3);
@@ -776,7 +777,7 @@ class FrostService {
     required FrostJoinResponse response,
     required String walletName,
     required int birthday,
-    required rust_engine.ChainType chainType,
+    required rust_wallet.ChainType chainType,
     required Future<String> Function(String ufvk, int birthday) importUfvk,
   }) async {
     final pending = _pendingCoordinator;
@@ -928,7 +929,7 @@ class FrostService {
 
   Future<FrostRelayWalletResult> joinerCompleteFromRelay({
     required String walletName,
-    required rust_engine.ChainType chainType,
+    required rust_wallet.ChainType chainType,
     required Future<String> Function(String ufvk, int birthday) importUfvk,
   }) async {
     final pending = _pendingJoiner;
