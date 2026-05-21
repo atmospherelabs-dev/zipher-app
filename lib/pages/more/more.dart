@@ -129,8 +129,7 @@ class _MorePageState extends State<MorePage> {
                   label: 'Shared Wallet',
                   subtitle: 'Create or join a FROST wallet',
                   badge: 'NEW',
-                  onTap: () =>
-                      GoRouter.of(context).push('/wallet/create/frost'),
+                  onTap: () => GoRouter.of(context).push('/wallet/frost'),
                 ),
               ]),
               const Gap(20),

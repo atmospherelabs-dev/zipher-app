@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../services/frost_service.dart';
+import '../../services/wallet_service.dart';
 import '../../zipher_theme.dart';
 
 class FrostApprovalArgs {
@@ -22,13 +24,81 @@ class FrostApprovalArgs {
   });
 }
 
-class FrostApprovePage extends StatelessWidget {
+class FrostApprovePage extends StatefulWidget {
   final FrostApprovalArgs args;
   const FrostApprovePage({super.key, required this.args});
 
   @override
+  State<FrostApprovePage> createState() => _FrostApprovePageState();
+}
+
+class _FrostApprovePageState extends State<FrostApprovePage> {
+  FrostCosignerApprovalState? _state;
+  Object? _error;
+  bool _loading = true;
+  bool _approved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final walletKey = WalletService.instance.activeFrostWalletKey();
+      final state = await FrostService.instance.receiveSigningRequest(
+        walletId: walletKey,
+      );
+      if (!mounted) return;
+      setState(() {
+        _state = state;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _approve() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final walletKey = WalletService.instance.activeFrostWalletKey();
+      await FrostService.instance.approveSigningRequest(walletId: walletKey);
+      await FrostService.instance.cosignerFinishSigning(walletId: walletKey);
+      if (!mounted) return;
+      setState(() {
+        _approved = true;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final zec = (args.zatoshis / 100000000).toStringAsFixed(8);
+    final request = _state?.request;
+    final zatoshis = (request?['zatoshis'] as int?) ?? widget.args.zatoshis;
+    final destination =
+        (request?['destination'] as String?) ?? widget.args.destination;
+    final walletName =
+        (request?['wallet_label'] as String?) ?? widget.args.walletName;
+    final memoPreview =
+        (request?['memo_preview'] as String?) ?? widget.args.memoPreview;
+    final sessionId = _state?.sessionId ?? widget.args.sessionId;
+    final zec = (zatoshis / 100000000).toStringAsFixed(8);
     return Scaffold(
       backgroundColor: ZipherColors.bg,
       appBar: AppBar(
@@ -80,22 +150,43 @@ class FrostApprovePage extends StatelessWidget {
               _Card(
                 child: Column(
                   children: [
-                    _row('Wallet', args.walletName),
+                    _row('Wallet', walletName),
                     _row('Amount', '$zec ZEC'),
-                    _row('Fee', args.feeZec),
-                    _row('Recipient', _short(args.destination), mono: true),
-                    if (args.memoPreview?.isNotEmpty == true)
-                      _row('Memo', args.memoPreview!),
-                    _row('Session', args.sessionId, mono: true),
+                    _row('Fee', widget.args.feeZec),
+                    _row('Recipient', _short(destination), mono: true),
+                    if (memoPreview?.isNotEmpty == true)
+                      _row('Memo', memoPreview!),
+                    _row('Session', sessionId, mono: true),
                   ],
                 ),
               ),
+              if (_error != null) ...[
+                const Gap(14),
+                Text('Error: $_error',
+                    style: TextStyle(color: ZipherColors.red, fontSize: 13)),
+              ],
+              if (_approved) ...[
+                const Gap(14),
+                Text(
+                  'Approved. Signature share sent to coordinator.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: ZipherColors.green, fontSize: 13),
+                ),
+              ],
               const Spacer(),
               _Button(
-                label: 'Approve',
+                label: _loading
+                    ? 'Loading...'
+                    : _approved
+                        ? 'Done'
+                        : 'Approve',
                 icon: Icons.check_rounded,
                 color: ZipherColors.cyan,
-                onTap: () => GoRouter.of(context).pop(true),
+                onTap: _loading
+                    ? () {}
+                    : _approved
+                        ? () => GoRouter.of(context).go('/account')
+                        : _approve,
               ),
               const Gap(12),
               _Button(

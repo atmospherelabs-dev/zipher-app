@@ -67,10 +67,8 @@ class _WelcomePageState extends State<WelcomePage>
                     height: 700,
                     child: CustomPaint(
                       painter: _WelcomeBeamPainter(
-                        colorTop:
-                            ZipherColors.cyan.withValues(alpha: 0.12),
-                        colorMid:
-                            ZipherColors.purple.withValues(alpha: 0.08),
+                        colorTop: ZipherColors.cyan.withValues(alpha: 0.12),
+                        colorMid: ZipherColors.purple.withValues(alpha: 0.08),
                       ),
                     ),
                   ),
@@ -108,8 +106,7 @@ class _WelcomePageState extends State<WelcomePage>
                     },
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(ZipherRadius.xxl),
-                      child:
-                          Image.asset('assets/zipher_logo.png', height: 88),
+                      child: Image.asset('assets/zipher_logo.png', height: 88),
                     ),
                   ),
 
@@ -139,8 +136,8 @@ class _WelcomePageState extends State<WelcomePage>
                     child: ZipherWidgets.gradientButton(
                       label: 'Create Account',
                       icon: Icons.add_rounded,
-                      onPressed: () =>
-                          GoRouter.of(context).push('/disclaimer', extra: 'create'),
+                      onPressed: () => GoRouter.of(context)
+                          .push('/disclaimer', extra: 'create'),
                     ),
                   ),
 
@@ -152,8 +149,8 @@ class _WelcomePageState extends State<WelcomePage>
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: () =>
-                            GoRouter.of(context).push('/disclaimer', extra: 'restore'),
+                        onTap: () => GoRouter.of(context)
+                            .push('/disclaimer', extra: 'restore'),
                         borderRadius: BorderRadius.circular(ZipherRadius.md),
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 14),
@@ -189,6 +186,33 @@ class _WelcomePageState extends State<WelcomePage>
                     ),
                   ),
 
+                  const Gap(12),
+
+                  SizedBox(
+                    width: double.infinity,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _compactAction(
+                            icon: Icons.group_rounded,
+                            label: 'Shared Wallet',
+                            onTap: () =>
+                                GoRouter.of(context).push('/wallet/frost'),
+                          ),
+                        ),
+                        const Gap(10),
+                        Expanded(
+                          child: _compactAction(
+                            icon: Icons.link_rounded,
+                            label: 'Join Setup',
+                            onTap: () =>
+                                GoRouter.of(context).push('/wallet/join'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                   if (_hasExistingWallets) ...[
                     const Gap(8),
                     SizedBox(
@@ -217,6 +241,45 @@ class _WelcomePageState extends State<WelcomePage>
     );
   }
 
+  Widget _compactAction({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(ZipherRadius.md),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: ZipherColors.cardBg,
+            borderRadius: BorderRadius.circular(ZipherRadius.md),
+            border: Border.all(color: ZipherColors.borderSubtle),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 16, color: ZipherColors.text60),
+              const Gap(7),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: ZipherColors.text60,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ─── Beam painter (matching home page style) ─────────────────
