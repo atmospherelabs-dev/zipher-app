@@ -22,32 +22,32 @@ serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 rand = "0.8"
 
-# Zcash crates
-zcash_protocol = "0.7"
-zcash_address = "0.10"
-zcash_client_backend = { version = "0.21", features = ["lightwalletd-tonic", "transparent-inputs"] }
+# Zcash crates (NU6.2 cohort — orchard 0.14 / fixed proof circuit)
+zcash_protocol = "0.9"
+zcash_address = "0.12"
+zcash_client_backend = { version = "0.23", features = ["lightwalletd-tonic", "transparent-inputs"] }
 zip32 = "0.2"
-zcash_keys = { version = "0.12", features = ["orchard", "sapling", "unstable-frost"] }
+zcash_keys = { version = "0.14", features = ["orchard", "sapling", "unstable-frost"] }
 bip0039 = { version = "0.14", features = ["rand"] }
 xeddsa = "1.0.2"
 snow = "0.9.6"
 uuid = "1"
 
-zcash_client_sqlite = { version = "0.19", features = ["orchard", "transparent-inputs"] }
+zcash_client_sqlite = { version = "0.21", features = ["orchard", "transparent-inputs"] }
 secrecy = "0.8"
 tonic = { version = "0.14", features = ["channel", "tls-ring", "tls-webpki-roots"] }
 prost = "0.14"
 futures-util = "0.3"
 rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
 zeroize = "1"
-sapling-crypto = { version = "0.5", package = "sapling-crypto" }
-orchard = "0.11"
+sapling-crypto = { version = "0.7", package = "sapling-crypto" }
+orchard = "0.14"
 incrementalmerkletree = "0.8"
-zcash_primitives = "0.26"
-zcash_proofs = "0.26"
-zcash_transparent = "0.6"
+zcash_primitives = "0.28"
+zcash_proofs = "0.28"
+zcash_transparent = "0.8"
 zcash_script = "0.4"
-zip321 = "0.6"
+zip321 = "0.8"
 
 rustls = { version = "0.23", features = ["ring"] }
 lazy_static = "1"
@@ -71,3 +71,7 @@ lto = true
 codegen-units = 1
 opt-level = 3
 strip = true
+
+[patch.crates-io]
+zcash_client_backend = { git = "https://github.com/horizontalsystems/librustzcash", branch = "feature/custom-fee-expiry-api" }
+zcash_primitives = { git = "https://github.com/horizontalsystems/librustzcash", branch = "feature/custom-fee-expiry-api" }

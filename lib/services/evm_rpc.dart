@@ -11,6 +11,12 @@ final _log = Logger();
 
 const bscRpc = 'https://bsc-dataseed1.binance.org';
 const polygonRpc = 'https://polygon-bor-rpc.publicnode.com';
+const ethereumRpc = 'https://ethereum-rpc.publicnode.com';
+const arbitrumRpc = 'https://arb1.arbitrum.io/rpc';
+const baseRpc = 'https://mainnet.base.org';
+const optimismRpc = 'https://mainnet.optimism.io';
+const avalancheRpc = 'https://api.avax.network/ext/bc/C/rpc';
+const gnosisRpc = 'https://rpc.gnosischain.com';
 const usdtBsc = '0x55d398326f99059fF775485246999027B3197955';
 /// Bridged USDC from Ethereum (USDC.e) — Polymarket and many DEX pools use this.
 const usdcPolygon = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
@@ -26,6 +32,12 @@ class EvmRpc {
 
   static const bsc = EvmRpc(bscRpc);
   static const polygon = EvmRpc(polygonRpc);
+  static const ethereum = EvmRpc(ethereumRpc);
+  static const arbitrum = EvmRpc(arbitrumRpc);
+  static const base = EvmRpc(baseRpc);
+  static const optimism = EvmRpc(optimismRpc);
+  static const avalanche = EvmRpc(avalancheRpc);
+  static const gnosis = EvmRpc(gnosisRpc);
 
   // ── Balance queries ────────────────────────────────────────────────────
 
@@ -96,6 +108,20 @@ class EvmRpc {
         return const Eip1559Fees(
           maxPriorityFeePerGas: 50000000000,
           maxFeePerGas: 150000000000,
+        );
+      }
+      if (rpcUrl == ethereumRpc) {
+        return const Eip1559Fees(
+          maxPriorityFeePerGas: 2000000000,
+          maxFeePerGas: 30000000000,
+        );
+      }
+      if (rpcUrl == arbitrumRpc ||
+          rpcUrl == baseRpc ||
+          rpcUrl == optimismRpc) {
+        return const Eip1559Fees(
+          maxPriorityFeePerGas: 100000000,
+          maxFeePerGas: 500000000,
         );
       }
       return const Eip1559Fees(
@@ -206,6 +232,11 @@ class EvmRpc {
   int _inferChainId() {
     if (rpcUrl == polygonRpc) return 137;
     if (rpcUrl == bscRpc) return 56;
+    if (rpcUrl == arbitrumRpc) return 42161;
+    if (rpcUrl == baseRpc) return 8453;
+    if (rpcUrl == optimismRpc) return 10;
+    if (rpcUrl == avalancheRpc) return 43114;
+    if (rpcUrl == gnosisRpc) return 100;
     return 1;
   }
 }

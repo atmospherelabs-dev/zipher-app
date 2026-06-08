@@ -95,7 +95,7 @@ class CargoKitPlugin implements Plugin<Project> {
    private Plugin _findFlutterPlugin(Map projects) {
         for (project in projects) {
             for (plugin in project.value.getPlugins()) {
-                if (plugin.class.name == "FlutterPlugin") {
+                if (plugin.class.name == "FlutterPlugin" || plugin.class.name == "FlutterAppPlugin" || plugin.class.name == "com.flutter.gradle.FlutterPlugin") {
                     return plugin;
                 }
             }
@@ -132,12 +132,30 @@ class CargoKitPlugin implements Plugin<Project> {
             def jniLibs = project.android.sourceSets.maybeCreate(buildType).jniLibs;
             jniLibs.srcDir(new File(cargoOutputDir))
 
-            def platforms = plugin.getTargetPlatforms().collect()
+            def platforms = []
+            try {
+                platforms = plugin.getTargetPlatforms().collect()
+            } catch (Exception e) {
+                // New Flutter Gradle plugin doesn't expose getTargetPlatforms().
+                // Derive from ndk.abiFilters in the app's build.gradle.
+                def abiFilters = plugin.project.android.defaultConfig.ndk.abiFilters
+                if (abiFilters != null && !abiFilters.isEmpty()) {
+                    abiFilters.each { abi ->
+                        switch (abi) {
+                            case 'arm64-v8a': platforms.add('android-arm64'); break
+                            case 'armeabi-v7a': platforms.add('android-arm'); break
+                            case 'x86_64': platforms.add('android-x64'); break
+                            case 'x86': platforms.add('android-x86'); break
+                        }
+                    }
+                } else {
+                    platforms = ['android-arm64', 'android-arm']
+                }
+            }
 
-            // Same thing addFlutterDependencies does in flutter.gradle
             if (buildType == "debug") {
-                platforms.add("android-x86")
-                platforms.add("android-x64")
+                if (!platforms.contains("android-x86")) platforms.add("android-x86")
+                if (!platforms.contains("android-x64")) platforms.add("android-x64")
             }
 
             // The task name depends on plugin properties, which are not available
@@ -153,14 +171,24 @@ class CargoKitPlugin implements Plugin<Project> {
                     throw new GradleException("Please set 'android.ndkVersion' in 'app/build.gradle'.")
                 }
 
+                def appAndroid = plugin.project.android
+                def sdkDir
+                try {
+                    sdkDir = appAndroid.sdkDirectory
+                } catch (Exception e) {
+                    sdkDir = new File(project.rootProject.file('local.properties').withReader { r ->
+                        def props = new Properties(); props.load(r); props.getProperty('sdk.dir')
+                    })
+                }
+
                 def task = project.tasks.create(taskName, CargoKitBuildTask.class) {
                     buildMode = variant.buildType.name
                     buildDir = cargoBuildDir
                     outputDir = cargoOutputDir
-                    ndkVersion = plugin.project.android.ndkVersion
-                    sdkDirectory = plugin.project.android.sdkDirectory
-                    minSdkVersion = plugin.project.android.defaultConfig.minSdkVersion.apiLevel as int
-                    compileSdkVersion = plugin.project.android.compileSdkVersion.substring(8) as int
+                    ndkVersion = appAndroid.ndkVersion
+                    sdkDirectory = sdkDir
+                    minSdkVersion = appAndroid.defaultConfig.minSdkVersion.apiLevel as int
+                    compileSdkVersion = appAndroid.compileSdkVersion.substring(8) as int
                     targetPlatforms = platforms
                     pluginFile = CargoKitPlugin.file
                 }

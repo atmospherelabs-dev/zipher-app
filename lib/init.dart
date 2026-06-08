@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'appsettings.dart';
-import 'package:awesome_notifications/awesome_notifications.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
@@ -14,6 +14,7 @@ import 'main.dart';
 import 'pages/utils.dart';
 import 'router.dart';
 import 'sent_memos_db.dart';
+import 'services/frost_watch_service.dart';
 import 'zipher_theme.dart';
 
 Future<void> initCoins() async {
@@ -24,19 +25,23 @@ Future<void> initCoins() async {
   await SentMemosDb.migrateFromSharedPrefs();
 }
 
-void initNotifications() {
-  AwesomeNotifications().initialize(
-      'resource://drawable/res_notification',
-      [
-        NotificationChannel(
-          channelKey: APP_NAME,
-          channelName: APP_NAME,
-          channelDescription: 'Notification channel for $APP_NAME',
-          defaultColor: ZipherColors.cyan,
-          ledColor: ZipherColors.cyan,
-        )
-      ],
-      debug: false);
+final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
+Future<void> initNotifications() async {
+  const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const darwinSettings = DarwinInitializationSettings();
+  const settings = InitializationSettings(
+    android: androidSettings,
+    iOS: darwinSettings,
+  );
+  await flutterLocalNotificationsPlugin.initialize(
+    settings,
+    onDidReceiveNotificationResponse: onNotificationResponse,
+  );
+}
+
+void onNotificationResponse(NotificationResponse response) {
+  FrostWatchService.instance.handleNotificationPayload(response.payload);
 }
 
 class App extends StatefulWidget {
@@ -49,17 +54,21 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    FrostWatchService.instance.start();
   }
 
   @override
   void dispose() {
+    FrostWatchService.instance.stop();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // The engine manages its own state — no special lifecycle handling needed
+    if (state == AppLifecycleState.resumed) {
+      FrostWatchService.instance.onAppResumed();
+    }
   }
 
   @override

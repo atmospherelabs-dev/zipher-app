@@ -119,7 +119,7 @@ class _WelcomePageState extends State<WelcomePage>
 
                   // Tagline
                   Text(
-                    'Private Zcash Wallet',
+                    'Zcash for humans and agents',
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w400,
@@ -218,7 +218,7 @@ class _WelcomePageState extends State<WelcomePage>
                     SizedBox(
                       width: double.infinity,
                       child: TextButton(
-                        onPressed: () => GoRouter.of(context).go('/account'),
+                        onPressed: () => GoRouter.of(context).go('/'),
                         child: Text(
                           'Back to my wallets',
                           style: TextStyle(

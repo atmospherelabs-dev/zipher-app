@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'wallet.dart';
 
 // These functions are ignored because they are not marked as `pub`: `packages_from_map`, `packages_to_map`, `to_network`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Create a new wallet. Returns the 24-word seed phrase.
 Future<String> engineCreateWallet(
@@ -570,6 +570,254 @@ Future<EngineInvoice> engineCheckInvoice({required String idOrMemo}) =>
     RustLib.instance.api
         .crateApiEngineApiEngineCheckInvoice(idOrMemo: idOrMemo);
 
+/// Warm the proving key caches for voting ZKPs. Takes ~30s.
+/// Call once from a background isolate at app startup.
+Future<void> engineVoteWarmCaches() =>
+    RustLib.instance.api.crateApiEngineApiEngineVoteWarmCaches();
+
+/// Derive the voting seed from raw BIP-39 seed bytes (deterministic).
+Future<Uint8List> engineVoteDeriveSeed({required List<int> walletSeed}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineVoteDeriveSeed(walletSeed: walletSeed);
+
+/// Derive the voting seed from a BIP-39 mnemonic phrase.
+/// Converts the mnemonic to seed bytes first, then derives the voting seed.
+Future<Uint8List> engineVoteDeriveSeedFromPhrase(
+        {required String seedPhrase}) =>
+    RustLib.instance.api.crateApiEngineApiEngineVoteDeriveSeedFromPhrase(
+        seedPhrase: seedPhrase);
+
+/// Derive a voting hotkey from a 32-byte voting seed.
+/// Returns (secret_key, public_key, address).
+Future<EngineVotingHotkey> engineVoteDeriveHotkey(
+        {required List<int> votingSeed}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineVoteDeriveHotkey(votingSeed: votingSeed);
+
+/// Check voting eligibility at a given snapshot height.
+/// Returns (eligible_weight_zatoshi, note_count, bundle_count).
+Future<EngineVotingEligibility> engineVoteCheckEligibility(
+        {required BigInt snapshotHeight}) =>
+    RustLib.instance.api.crateApiEngineApiEngineVoteCheckEligibility(
+        snapshotHeight: snapshotHeight);
+
+/// Compute the proposals hash for vote config verification.
+Future<Uint8List> engineVoteProposalsHash({required String proposalsJson}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineVoteProposalsHash(proposalsJson: proposalsJson);
+
+/// Perform full delegation flow: PCZT → sign → PIR → witnesses → ZKP1 proof.
+/// Returns delegation submission data for each bundle.
+Future<List<EngineDelegationResult>> engineVoteDelegate(
+        {required String seedPhrase,
+        required String voteRoundId,
+        required BigInt snapshotHeight,
+        required List<int> eaPk,
+        required List<int> ncRoot,
+        required List<int> nfImtRoot,
+        required String pirUrl,
+        required int networkId}) =>
+    RustLib.instance.api.crateApiEngineApiEngineVoteDelegate(
+        seedPhrase: seedPhrase,
+        voteRoundId: voteRoundId,
+        snapshotHeight: snapshotHeight,
+        eaPk: eaPk,
+        ncRoot: ncRoot,
+        nfImtRoot: nfImtRoot,
+        pirUrl: pirUrl,
+        networkId: networkId);
+
+/// Build vote commitment (ZKP2) for a single proposal.
+/// voting_seed is the 32-byte deterministic voting seed (from engine_vote_derive_seed).
+Future<EngineVoteCommitment> engineVoteBuildCommitment(
+        {required List<int> votingSeed,
+        required int networkId,
+        required BigInt totalNoteValue,
+        required List<int> govCommRand,
+        required List<int> votingRoundId,
+        required List<int> eaPk,
+        required int proposalId,
+        required int choice,
+        required int numOptions,
+        required List<Uint8List> vanAuthPath,
+        required int vanPosition,
+        required int anchorHeight,
+        required BigInt proposalAuthority,
+        required bool singleShare}) =>
+    RustLib.instance.api.crateApiEngineApiEngineVoteBuildCommitment(
+        votingSeed: votingSeed,
+        networkId: networkId,
+        totalNoteValue: totalNoteValue,
+        govCommRand: govCommRand,
+        votingRoundId: votingRoundId,
+        eaPk: eaPk,
+        proposalId: proposalId,
+        choice: choice,
+        numOptions: numOptions,
+        vanAuthPath: vanAuthPath,
+        vanPosition: vanPosition,
+        anchorHeight: anchorHeight,
+        proposalAuthority: proposalAuthority,
+        singleShare: singleShare);
+
+/// Sign a cast-vote transaction using the voting hotkey.
+Future<Uint8List> engineVoteSignCast(
+        {required List<int> votingSeed,
+        required int networkId,
+        required String voteRoundIdHex,
+        required List<int> rVpkBytes,
+        required List<int> vanNullifier,
+        required List<int> voteAuthorityNoteNew,
+        required List<int> voteCommitment,
+        required int proposalId,
+        required int anchorHeight,
+        required List<int> alphaV}) =>
+    RustLib.instance.api.crateApiEngineApiEngineVoteSignCast(
+        votingSeed: votingSeed,
+        networkId: networkId,
+        voteRoundIdHex: voteRoundIdHex,
+        rVpkBytes: rVpkBytes,
+        vanNullifier: vanNullifier,
+        voteAuthorityNoteNew: voteAuthorityNoteNew,
+        voteCommitment: voteCommitment,
+        proposalId: proposalId,
+        anchorHeight: anchorHeight,
+        alphaV: alphaV);
+
+/// Build share payloads for helper server submission.
+Future<List<EngineSharePayload>> engineVoteBuildShares(
+        {required List<int> sharesHash,
+        required int proposalId,
+        required int voteDecision,
+        required int numOptions,
+        required BigInt vcTreePosition,
+        required List<Uint8List> encSharesC1,
+        required List<Uint8List> encSharesC2,
+        required List<int> encSharesIndices,
+        required List<Uint8List> shareBlinds,
+        required List<Uint8List> shareComms,
+        required bool singleShare}) =>
+    RustLib.instance.api.crateApiEngineApiEngineVoteBuildShares(
+        sharesHash: sharesHash,
+        proposalId: proposalId,
+        voteDecision: voteDecision,
+        numOptions: numOptions,
+        vcTreePosition: vcTreePosition,
+        encSharesC1: encSharesC1,
+        encSharesC2: encSharesC2,
+        encSharesIndices: encSharesIndices,
+        shareBlinds: shareBlinds,
+        shareComms: shareComms,
+        singleShare: singleShare);
+
+/// Sync the vote commitment tree and generate VAN witnesses for ZKP2.
+///
+/// Call after delegation TXs are confirmed. `van_positions` contains
+/// the VAN leaf position for each bundle (from the delegation response).
+Future<List<EngineVanWitness>> engineVoteSyncTreeAndWitness(
+        {required String nodeUrl,
+        required String voteRoundId,
+        required BigInt snapshotHeight,
+        required List<int> eaPk,
+        required List<int> ncRoot,
+        required List<int> nfImtRoot,
+        required List<int> vanPositions}) =>
+    RustLib.instance.api.crateApiEngineApiEngineVoteSyncTreeAndWitness(
+        nodeUrl: nodeUrl,
+        voteRoundId: voteRoundId,
+        snapshotHeight: snapshotHeight,
+        eaPk: eaPk,
+        ncRoot: ncRoot,
+        nfImtRoot: nfImtRoot,
+        vanPositions: vanPositions);
+
+class EngineDelegationResult {
+  final Uint8List proof;
+  final Uint8List rk;
+  final Uint8List nfSigned;
+  final Uint8List cmxNew;
+  final Uint8List vanComm;
+  final Uint8List vanCommRand;
+  final List<Uint8List> govNullifiers;
+  final Uint8List spendAuthSig;
+  final Uint8List sighash;
+  final String voteRoundId;
+  final BigInt totalValue;
+  final Uint8List actionBytes;
+
+  const EngineDelegationResult({
+    required this.proof,
+    required this.rk,
+    required this.nfSigned,
+    required this.cmxNew,
+    required this.vanComm,
+    required this.vanCommRand,
+    required this.govNullifiers,
+    required this.spendAuthSig,
+    required this.sighash,
+    required this.voteRoundId,
+    required this.totalValue,
+    required this.actionBytes,
+  });
+
+  @override
+  int get hashCode =>
+      proof.hashCode ^
+      rk.hashCode ^
+      nfSigned.hashCode ^
+      cmxNew.hashCode ^
+      vanComm.hashCode ^
+      vanCommRand.hashCode ^
+      govNullifiers.hashCode ^
+      spendAuthSig.hashCode ^
+      sighash.hashCode ^
+      voteRoundId.hashCode ^
+      totalValue.hashCode ^
+      actionBytes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineDelegationResult &&
+          runtimeType == other.runtimeType &&
+          proof == other.proof &&
+          rk == other.rk &&
+          nfSigned == other.nfSigned &&
+          cmxNew == other.cmxNew &&
+          vanComm == other.vanComm &&
+          vanCommRand == other.vanCommRand &&
+          govNullifiers == other.govNullifiers &&
+          spendAuthSig == other.spendAuthSig &&
+          sighash == other.sighash &&
+          voteRoundId == other.voteRoundId &&
+          totalValue == other.totalValue &&
+          actionBytes == other.actionBytes;
+}
+
+class EngineEncryptedShare {
+  final Uint8List c1;
+  final Uint8List c2;
+  final int shareIndex;
+
+  const EngineEncryptedShare({
+    required this.c1,
+    required this.c2,
+    required this.shareIndex,
+  });
+
+  @override
+  int get hashCode => c1.hashCode ^ c2.hashCode ^ shareIndex.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineEncryptedShare &&
+          runtimeType == other.runtimeType &&
+          c1 == other.c1 &&
+          c2 == other.c2 &&
+          shareIndex == other.shareIndex;
+}
+
 class EngineFrostActionSignature {
   final int actionIndex;
   final String signatureHex;
@@ -1013,6 +1261,53 @@ class EngineMultiChainAddresses {
           bitcoin == other.bitcoin;
 }
 
+class EngineSharePayload {
+  final Uint8List sharesHash;
+  final int proposalId;
+  final int voteDecision;
+  final Uint8List encShareC1;
+  final Uint8List encShareC2;
+  final int encShareIndex;
+  final BigInt treePosition;
+  final Uint8List primaryBlind;
+
+  const EngineSharePayload({
+    required this.sharesHash,
+    required this.proposalId,
+    required this.voteDecision,
+    required this.encShareC1,
+    required this.encShareC2,
+    required this.encShareIndex,
+    required this.treePosition,
+    required this.primaryBlind,
+  });
+
+  @override
+  int get hashCode =>
+      sharesHash.hashCode ^
+      proposalId.hashCode ^
+      voteDecision.hashCode ^
+      encShareC1.hashCode ^
+      encShareC2.hashCode ^
+      encShareIndex.hashCode ^
+      treePosition.hashCode ^
+      primaryBlind.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineSharePayload &&
+          runtimeType == other.runtimeType &&
+          sharesHash == other.sharesHash &&
+          proposalId == other.proposalId &&
+          voteDecision == other.voteDecision &&
+          encShareC1 == other.encShareC1 &&
+          encShareC2 == other.encShareC2 &&
+          encShareIndex == other.encShareIndex &&
+          treePosition == other.treePosition &&
+          primaryBlind == other.primaryBlind;
+}
+
 class EngineSyncEvent {
   final String eventType;
   final String? phase;
@@ -1211,6 +1506,153 @@ class EngineTransactionRecord {
           fee == other.fee &&
           memo == other.memo &&
           expiredUnmined == other.expiredUnmined;
+}
+
+class EngineVanWitness {
+  final List<Uint8List> authPath;
+  final int position;
+  final int anchorHeight;
+
+  const EngineVanWitness({
+    required this.authPath,
+    required this.position,
+    required this.anchorHeight,
+  });
+
+  @override
+  int get hashCode =>
+      authPath.hashCode ^ position.hashCode ^ anchorHeight.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineVanWitness &&
+          runtimeType == other.runtimeType &&
+          authPath == other.authPath &&
+          position == other.position &&
+          anchorHeight == other.anchorHeight;
+}
+
+class EngineVoteCommitment {
+  final Uint8List vanNullifier;
+  final Uint8List voteAuthorityNoteNew;
+  final Uint8List voteCommitment;
+  final int proposalId;
+  final Uint8List proof;
+  final List<EngineEncryptedShare> encShares;
+  final int anchorHeight;
+  final String voteRoundId;
+  final Uint8List sharesHash;
+  final List<Uint8List> shareBlinds;
+  final List<Uint8List> shareComms;
+  final Uint8List rVpkBytes;
+  final Uint8List alphaV;
+
+  const EngineVoteCommitment({
+    required this.vanNullifier,
+    required this.voteAuthorityNoteNew,
+    required this.voteCommitment,
+    required this.proposalId,
+    required this.proof,
+    required this.encShares,
+    required this.anchorHeight,
+    required this.voteRoundId,
+    required this.sharesHash,
+    required this.shareBlinds,
+    required this.shareComms,
+    required this.rVpkBytes,
+    required this.alphaV,
+  });
+
+  @override
+  int get hashCode =>
+      vanNullifier.hashCode ^
+      voteAuthorityNoteNew.hashCode ^
+      voteCommitment.hashCode ^
+      proposalId.hashCode ^
+      proof.hashCode ^
+      encShares.hashCode ^
+      anchorHeight.hashCode ^
+      voteRoundId.hashCode ^
+      sharesHash.hashCode ^
+      shareBlinds.hashCode ^
+      shareComms.hashCode ^
+      rVpkBytes.hashCode ^
+      alphaV.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineVoteCommitment &&
+          runtimeType == other.runtimeType &&
+          vanNullifier == other.vanNullifier &&
+          voteAuthorityNoteNew == other.voteAuthorityNoteNew &&
+          voteCommitment == other.voteCommitment &&
+          proposalId == other.proposalId &&
+          proof == other.proof &&
+          encShares == other.encShares &&
+          anchorHeight == other.anchorHeight &&
+          voteRoundId == other.voteRoundId &&
+          sharesHash == other.sharesHash &&
+          shareBlinds == other.shareBlinds &&
+          shareComms == other.shareComms &&
+          rVpkBytes == other.rVpkBytes &&
+          alphaV == other.alphaV;
+}
+
+class EngineVotingEligibility {
+  /// Total voting weight in zatoshis.
+  final BigInt eligibleWeight;
+
+  /// Number of unspent Orchard notes at snapshot.
+  final int noteCount;
+
+  /// Number of delegation bundles (max 5 notes each).
+  final int bundleCount;
+
+  const EngineVotingEligibility({
+    required this.eligibleWeight,
+    required this.noteCount,
+    required this.bundleCount,
+  });
+
+  @override
+  int get hashCode =>
+      eligibleWeight.hashCode ^ noteCount.hashCode ^ bundleCount.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineVotingEligibility &&
+          runtimeType == other.runtimeType &&
+          eligibleWeight == other.eligibleWeight &&
+          noteCount == other.noteCount &&
+          bundleCount == other.bundleCount;
+}
+
+class EngineVotingHotkey {
+  final Uint8List secretKey;
+  final Uint8List publicKey;
+  final String address;
+
+  const EngineVotingHotkey({
+    required this.secretKey,
+    required this.publicKey,
+    required this.address,
+  });
+
+  @override
+  int get hashCode =>
+      secretKey.hashCode ^ publicKey.hashCode ^ address.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineVotingHotkey &&
+          runtimeType == other.runtimeType &&
+          secretKey == other.secretKey &&
+          publicKey == other.publicKey &&
+          address == other.address;
 }
 
 class EvmFees {

@@ -498,18 +498,25 @@ class ActionExecutor {
           status: ActionStatus.waiting);
 
       double amountUsd;
+      String targetBlockchain;
       try {
         final tokens = await _near.getTokens();
         final zecToken = _near.findToken(tokens, 'ZEC');
         final zecPrice = (zecToken?['price'] as num?)?.toDouble() ?? 0;
         amountUsd = zecPrice > 0 ? amountZec * zecPrice : amountZec * 40;
+
+        // Resolve which blockchain the target token lives on via NEAR catalog.
+        final targetToken = _near.findToken(tokens, toToken.toUpperCase());
+        targetBlockchain =
+            (targetToken?['blockchain'] as String? ?? 'bsc').toLowerCase();
       } catch (_) {
         amountUsd = amountZec * 40;
+        targetBlockchain = 'bsc';
       }
 
       final swapResult = await _resolver.swapZecToToken(
         evmAddress: evmAddress, targetSymbol: toToken.toUpperCase(),
-        targetBlockchain: 'bsc', amountUsd: amountUsd, seed: seed,
+        targetBlockchain: targetBlockchain, amountUsd: amountUsd, seed: seed,
       );
       if (!swapResult.success) {
         yield ActionProgress(step: 3, totalSteps: total, label: 'Swap failed',
@@ -540,10 +547,36 @@ class ActionExecutor {
   }
 
   // ═════════════════════════════════════════════════════════════════════════
-  // Sweep token → ZEC
+  // Sweep token → ZEC (multi-chain)
   // ═════════════════════════════════════════════════════════════════════════
 
+  Future<void> _ensureSweepGas(
+    ChainConfig chain,
+    String walletAddress,
+    String seed,
+    StreamController<ActionProgress>? progress,
+  ) async {
+    final bal = await chain.rpc.getNativeBalance(walletAddress);
+    if (bal >= chain.minGasBalance) return;
+    progress?.add(ActionProgress(
+      step: 1,
+      totalSteps: 5,
+      label: 'Funding ${chain.nativeSymbol} for gas on ${chain.name}',
+    ));
+    await for (final _ in _resolver.ensureFunded(
+      chain: chain,
+      walletAddress: walletAddress,
+      seed: seed,
+      targetToken: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+      targetDecimals: 18,
+      amountNeeded: chain.gasTarget,
+      stepOffset: 1,
+      totalSteps: 5,
+    )) {}
+  }
+
   Future<ActionResult> executeSweepTokenToZec({
+    required ChainConfig chain,
     required String tokenSymbol,
     required String contractAddress,
     required int decimals,
@@ -552,122 +585,238 @@ class ActionExecutor {
     StreamController<ActionProgress>? progress,
   }) async {
     try {
-      progress?.add(ActionProgress(step: 1, totalSteps: 5, label: 'Getting swap quote ($tokenSymbol → ZEC)...'));
+      progress?.add(ActionProgress(
+        step: 1,
+        totalSteps: 5,
+        label: 'Getting quote ($tokenSymbol on ${chain.name} → ZEC)...',
+      ));
       final seed = await _getSeed();
-      final bscAddress = await rust_engine.engineDeriveEvmAddress(seedPhrase: seed);
+      final evmAddress = await rust_engine.engineDeriveEvmAddress(seedPhrase: seed);
       final zecAddress = await _getRefundAddress();
+
+      await _ensureSweepGas(chain, evmAddress, seed, progress);
 
       final tokens = await _near.getTokens();
       final zecToken = _near.findToken(tokens, 'ZEC');
       if (zecToken == null) throw Exception('ZEC not found on NEAR Intents');
 
-      final zecAssetId = zecToken['defuseAssetId'] ?? zecToken['assetId'] ?? zecToken['asset_id'] ?? zecToken['defuse_asset_id'] ?? '';
+      final zecAssetId = zecToken['defuseAssetId'] ??
+          zecToken['assetId'] ??
+          zecToken['asset_id'] ??
+          zecToken['defuse_asset_id'] ??
+          '';
       final rawAmount = toWei(amount, decimals: decimals).toString();
 
       final quote = await _near.getQuote(
-        originAsset: defuseAssetId, destAsset: zecAssetId as String,
-        amount: rawAmount, recipient: zecAddress, refundTo: bscAddress,
+        originAsset: defuseAssetId,
+        destAsset: zecAssetId as String,
+        amount: rawAmount,
+        recipient: zecAddress,
+        refundTo: evmAddress,
       );
 
-      final depositAddress = (quote['deposit_address'] ?? quote['depositAddress'] ?? '') as String;
+      final depositAddress =
+          (quote['deposit_address'] ?? quote['depositAddress'] ?? '') as String;
       if (depositAddress.isEmpty) throw Exception('No deposit address in quote');
 
-      progress?.add(ActionProgress(step: 2, totalSteps: 5, label: 'Approving $tokenSymbol transfer...'));
-      final bscFees = await _bsc.suggestEip1559Fees(urgent: true);
-      final nonce = await _bsc.getNonce(bscAddress);
+      final rpc = chain.rpc;
+      progress?.add(ActionProgress(
+        step: 2,
+        totalSteps: 5,
+        label: 'Approving $tokenSymbol on ${chain.name}...',
+      ));
+      final fees = await rpc.suggestEip1559Fees(urgent: true, chainId: chain.chainId);
+      final nonce = await rpc.getNonce(evmAddress);
       final spenderPadded = depositAddress.replaceAll('0x', '').padLeft(64, '0');
       final amountHex = BigInt.parse(rawAmount).toRadixString(16).padLeft(64, '0');
-      final approveCalldata = '0x095ea7b3000000000000000000000000$spenderPadded$amountHex';
+      final approveCalldata =
+          '0x095ea7b3000000000000000000000000$spenderPadded$amountHex';
       final approveUnsigned = TxBuilder.buildUnsignedEip1559(
-        chainId: 56, nonce: nonce,
-        maxPriorityFeePerGas: bscFees.maxPriorityFeePerGas,
-        maxFeePerGas: bscFees.maxFeePerGas,
-        gasLimit: 100000, to: contractAddress, value: BigInt.zero, data: approveCalldata,
+        chainId: chain.chainId,
+        nonce: nonce,
+        maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+        maxFeePerGas: fees.maxFeePerGas,
+        gasLimit: 100000,
+        to: contractAddress,
+        value: BigInt.zero,
+        data: approveCalldata,
       );
-      await _bsc.signBroadcastAndWait(seed: seed, unsignedTxHex: approveUnsigned);
+      await rpc.signBroadcastAndWait(seed: seed, unsignedTxHex: approveUnsigned);
 
-      progress?.add(ActionProgress(step: 3, totalSteps: 5, label: 'Depositing $tokenSymbol to bridge...'));
-      final transferData = TxBuilder.buildErc20TransferCalldata(depositAddress, rawAmount);
+      progress?.add(ActionProgress(
+        step: 3,
+        totalSteps: 5,
+        label: 'Depositing $tokenSymbol to bridge...',
+      ));
+      final transferData =
+          TxBuilder.buildErc20TransferCalldata(depositAddress, rawAmount);
       final transferHex = '0x${TxBuilder.bytesToHex(transferData)}';
-      final nonce2 = await _bsc.getNonce(bscAddress);
+      final nonce2 = await rpc.getNonce(evmAddress);
       final transferUnsigned = TxBuilder.buildUnsignedEip1559(
-        chainId: 56, nonce: nonce2,
-        maxPriorityFeePerGas: bscFees.maxPriorityFeePerGas,
-        maxFeePerGas: bscFees.maxFeePerGas,
-        gasLimit: 100000, to: contractAddress, value: BigInt.zero, data: transferHex,
+        chainId: chain.chainId,
+        nonce: nonce2,
+        maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+        maxFeePerGas: fees.maxFeePerGas,
+        gasLimit: 100000,
+        to: contractAddress,
+        value: BigInt.zero,
+        data: transferHex,
       );
-      final depositTxHash = await _bsc.signBroadcastAndWait(seed: seed, unsignedTxHex: transferUnsigned);
+      final depositTxHash =
+          await rpc.signBroadcastAndWait(seed: seed, unsignedTxHex: transferUnsigned);
 
-      progress?.add(const ActionProgress(step: 4, totalSteps: 5, label: 'Waiting for swap to complete...'));
-      final swapId = (quote['swap_id'] ?? quote['swapId'] ?? '') as String;
-      if (swapId.isNotEmpty) {
-        await _near.pollStatus(swapId);
-      } else {
-        await Future.delayed(const Duration(seconds: 30));
-      }
+      await _near.submitDeposit(depositTxHash, depositAddress);
 
-      progress?.add(ActionProgress(step: 5, totalSteps: 5, label: '$tokenSymbol swept', status: ActionStatus.done));
-      return ActionResult(success: true,
-        message: 'Swept ${amount.toStringAsFixed(4)} $tokenSymbol → ZEC (shielded)\nTX: $depositTxHash');
+      progress?.add(const ActionProgress(
+        step: 4,
+        totalSteps: 5,
+        label: 'Waiting for swap to complete...',
+      ));
+      final pollResult = await _near.pollStatus(depositAddress);
+
+      final swept = pollResult == 'success' || pollResult == 'timeout';
+      progress?.add(ActionProgress(
+        step: 5,
+        totalSteps: 5,
+        label: swept ? '$tokenSymbol swept' : '$tokenSymbol sweep $pollResult',
+        status: swept ? ActionStatus.done : ActionStatus.failed,
+      ));
+      return ActionResult(
+        success: swept,
+        message: swept
+            ? 'Swept ${amount.toStringAsFixed(4)} $tokenSymbol (${chain.name}) → ZEC\nTX: $depositTxHash'
+            : 'Sweep $tokenSymbol (${chain.name}) $pollResult (TX: $depositTxHash)',
+      );
     } catch (e) {
-      return ActionResult(success: false, message: 'Sweep $tokenSymbol failed: $e');
+      return ActionResult(
+        success: false,
+        message: 'Sweep $tokenSymbol on ${chain.name} failed: $e',
+      );
     }
   }
 
-  Future<ActionResult> executeSweepBnbToZec({
+  Future<ActionResult> executeSweepNativeToZec({
+    required ChainConfig chain,
     required double amount,
     StreamController<ActionProgress>? progress,
   }) async {
     try {
-      progress?.add(const ActionProgress(step: 1, totalSteps: 4, label: 'Getting swap quote (BNB → ZEC)...'));
+      progress?.add(ActionProgress(
+        step: 1,
+        totalSteps: 4,
+        label: 'Getting quote (${chain.nativeSymbol} on ${chain.name} → ZEC)...',
+      ));
       final seed = await _getSeed();
-      final bscAddress = await rust_engine.engineDeriveEvmAddress(seedPhrase: seed);
+      final evmAddress = await rust_engine.engineDeriveEvmAddress(seedPhrase: seed);
       final zecAddress = await _getRefundAddress();
+
+      await _ensureSweepGas(chain, evmAddress, seed, progress);
 
       final tokens = await _near.getTokens();
       final zecToken = _near.findToken(tokens, 'ZEC');
-      final bnbToken = _near.findToken(tokens, 'BNB', 'bsc');
-      if (zecToken == null || bnbToken == null) throw Exception('ZEC or BNB not found on NEAR Intents');
-
-      final zecAssetId = zecToken['defuseAssetId'] ?? zecToken['assetId'] ?? zecToken['asset_id'] ?? zecToken['defuse_asset_id'] ?? '';
-      final bnbAssetId = bnbToken['defuseAssetId'] ?? bnbToken['assetId'] ?? bnbToken['asset_id'] ?? bnbToken['defuse_asset_id'] ?? '';
-      final rawAmount = toWei(amount).toString();
-
-      final quote = await _near.getQuote(
-        originAsset: bnbAssetId as String, destAsset: zecAssetId as String,
-        amount: rawAmount, recipient: zecAddress, refundTo: bscAddress,
-      );
-
-      final depositAddress = (quote['deposit_address'] ?? quote['depositAddress'] ?? '') as String;
-      if (depositAddress.isEmpty) throw Exception('No deposit address in quote');
-
-      progress?.add(const ActionProgress(step: 2, totalSteps: 4, label: 'Sending BNB to bridge...'));
-      final bscFees = await _bsc.suggestEip1559Fees(urgent: true);
-      final nonce = await _bsc.getNonce(bscAddress);
-      final weiAmount = toWei(amount);
-      final unsignedTxHex = TxBuilder.buildUnsignedEip1559(
-        chainId: 56, nonce: nonce,
-        maxPriorityFeePerGas: bscFees.maxPriorityFeePerGas,
-        maxFeePerGas: bscFees.maxFeePerGas,
-        gasLimit: 21000, to: depositAddress, value: weiAmount, data: '0x',
-      );
-      final depositTxHash = await _bsc.signBroadcastAndWait(seed: seed, unsignedTxHex: unsignedTxHex);
-
-      progress?.add(const ActionProgress(step: 3, totalSteps: 4, label: 'Waiting for swap to complete...'));
-      final swapId = (quote['swap_id'] ?? quote['swapId'] ?? '') as String;
-      if (swapId.isNotEmpty) {
-        await _near.pollStatus(swapId);
-      } else {
-        await Future.delayed(const Duration(seconds: 30));
+      final nativeToken = _near.findToken(
+            tokens,
+            chain.nativeSymbol,
+            chain.nearIntentsBlockchain,
+          ) ??
+          (chain.nativeSymbol == 'POL'
+              ? _near.findToken(tokens, 'MATIC', chain.nearIntentsBlockchain)
+              : null) ??
+          (chain.nativeSymbol == 'ETH'
+              ? _near.findToken(tokens, 'ETH', chain.nearIntentsBlockchain)
+              : null);
+      if (zecToken == null || nativeToken == null) {
+        throw Exception('${chain.nativeSymbol} or ZEC not found on NEAR Intents');
       }
 
-      progress?.add(const ActionProgress(step: 4, totalSteps: 4, label: 'BNB swept', status: ActionStatus.done));
-      return ActionResult(success: true,
-        message: 'Swept ${amount.toStringAsFixed(6)} BNB → ZEC (shielded)\nTX: $depositTxHash');
+      final zecAssetId = zecToken['defuseAssetId'] ??
+          zecToken['assetId'] ??
+          zecToken['asset_id'] ??
+          zecToken['defuse_asset_id'] ??
+          '';
+      final nativeAssetId = nativeToken['defuseAssetId'] ??
+          nativeToken['assetId'] ??
+          nativeToken['asset_id'] ??
+          nativeToken['defuse_asset_id'] ??
+          '';
+      final rawAmount = toWei(amount, decimals: chain.nativeDecimals).toString();
+
+      final quote = await _near.getQuote(
+        originAsset: nativeAssetId as String,
+        destAsset: zecAssetId as String,
+        amount: rawAmount,
+        recipient: zecAddress,
+        refundTo: evmAddress,
+      );
+
+      final depositAddress =
+          (quote['deposit_address'] ?? quote['depositAddress'] ?? '') as String;
+      if (depositAddress.isEmpty) throw Exception('No deposit address in quote');
+
+      final rpc = chain.rpc;
+      progress?.add(ActionProgress(
+        step: 2,
+        totalSteps: 4,
+        label: 'Sending ${chain.nativeSymbol} on ${chain.name} to bridge...',
+      ));
+      final fees = await rpc.suggestEip1559Fees(urgent: true, chainId: chain.chainId);
+      final nonce = await rpc.getNonce(evmAddress);
+      final weiAmount = toWei(amount, decimals: chain.nativeDecimals);
+      final unsignedTxHex = TxBuilder.buildUnsignedEip1559(
+        chainId: chain.chainId,
+        nonce: nonce,
+        maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+        maxFeePerGas: fees.maxFeePerGas,
+        gasLimit: 21000,
+        to: depositAddress,
+        value: weiAmount,
+        data: '0x',
+      );
+      final depositTxHash =
+          await rpc.signBroadcastAndWait(seed: seed, unsignedTxHex: unsignedTxHex);
+
+      await _near.submitDeposit(depositTxHash, depositAddress);
+
+      progress?.add(const ActionProgress(
+        step: 3,
+        totalSteps: 4,
+        label: 'Waiting for swap to complete...',
+      ));
+      final pollResult = await _near.pollStatus(depositAddress);
+
+      final swept = pollResult == 'success' || pollResult == 'timeout';
+      progress?.add(ActionProgress(
+        step: 4,
+        totalSteps: 4,
+        label: swept
+            ? '${chain.nativeSymbol} swept'
+            : '${chain.nativeSymbol} sweep $pollResult',
+        status: swept ? ActionStatus.done : ActionStatus.failed,
+      ));
+      return ActionResult(
+        success: swept,
+        message: swept
+            ? 'Swept ${amount.toStringAsFixed(6)} ${chain.nativeSymbol} (${chain.name}) → ZEC\nTX: $depositTxHash'
+            : 'Sweep ${chain.nativeSymbol} (${chain.name}) $pollResult (TX: $depositTxHash)',
+      );
     } catch (e) {
-      return ActionResult(success: false, message: 'Sweep BNB failed: $e');
+      return ActionResult(
+        success: false,
+        message: 'Sweep ${chain.nativeSymbol} on ${chain.name} failed: $e',
+      );
     }
   }
+
+  /// Backward-compatible alias for BSC native sweeps.
+  Future<ActionResult> executeSweepBnbToZec({
+    required double amount,
+    StreamController<ActionProgress>? progress,
+  }) =>
+      executeSweepNativeToZec(
+        chain: ChainConfig.bsc,
+        amount: amount,
+        progress: progress,
+      );
 
   // ═════════════════════════════════════════════════════════════════════════
   // Private helpers

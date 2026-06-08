@@ -4,7 +4,8 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:zipher/main.dart';
-import 'package:awesome_notifications/awesome_notifications.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import '../init.dart' show flutterLocalNotificationsPlugin;
 import 'package:binary/binary.dart';
 import 'package:collection/collection.dart';
 import 'package:another_flushbar/flushbar_helper.dart';
@@ -921,13 +922,18 @@ Future<List<WalletProfile>> getAllWallets() {
 }
 
 void showLocalNotification({required int id, String? title, String? body}) {
-  AwesomeNotifications().createNotification(
-      content: NotificationContent(
-    channelKey: APP_NAME,
-    id: id,
-    title: title,
-    body: body,
-  ));
+  const androidDetails = AndroidNotificationDetails(
+    APP_NAME,
+    APP_NAME,
+    channelDescription: 'Notifications for $APP_NAME',
+    importance: Importance.high,
+    priority: Priority.high,
+  );
+  const details = NotificationDetails(
+    android: androidDetails,
+    iOS: DarwinNotificationDetails(),
+  );
+  flutterLocalNotificationsPlugin.show(id, title, body, details);
 }
 
 String? isValidUA(int uaType) {

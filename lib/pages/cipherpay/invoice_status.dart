@@ -119,7 +119,8 @@ class _InvoiceStatusPageState extends State<InvoiceStatusPage> {
             const Gap(ZipherSpacing.smMd),
           ],
           _DoneButton(
-            primary: phase == 'confirmed',
+            primary: phase == 'confirmed' || phase == 'detected',
+            label: phase == 'detected' ? 'Done — merchant notified' : null,
             onTap: () => GoRouter.of(context).go('/account'),
           ),
           const Gap(ZipherSpacing.md),
@@ -233,8 +234,8 @@ class _PhaseDisplay extends StatelessWidget {
         color = ZipherColors.green;
         title = 'Payment accepted';
         subtitle =
-            'CipherPay sees your transaction. The merchant can accept the checkout while Zcash confirms it.';
-        spin = true;
+            'CipherPay sees your transaction. The merchant has been notified — on-chain confirmation may take a few minutes.';
+        spin = false;
         break;
       case 'confirmed':
         icon = Icons.check_circle_rounded;
@@ -423,8 +424,13 @@ class _ActionButton extends StatelessWidget {
 
 class _DoneButton extends StatelessWidget {
   final bool primary;
+  final String? label;
   final VoidCallback onTap;
-  const _DoneButton({required this.primary, required this.onTap});
+  const _DoneButton({
+    required this.primary,
+    required this.onTap,
+    this.label,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -445,7 +451,7 @@ class _DoneButton extends StatelessWidget {
         ),
         alignment: Alignment.center,
         child: Text(
-          primary ? 'Done' : 'Back to wallet',
+          label ?? (primary ? 'Done' : 'Back to wallet'),
           style: TextStyle(
             color: primary ? ZipherColors.cyan : ZipherColors.text90,
             fontSize: 15,

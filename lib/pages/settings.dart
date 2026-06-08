@@ -583,8 +583,8 @@ class _SettingsState extends State<SettingsPage> {
     await appSettings.save(prefs);
     coinSettings.save(aa.coin);
     app.appSettings = app.AppSettingsExtension.load(prefs);
-    app.coinSettings = app.CoinSettingsExtension.load(aa.coin);
-    final serverUrl = app.resolveURL(coins[aa.coin], app.coinSettings);
+    app.coinSettings = coinSettings;
+    final serverUrl = app.resolveURL(coins[aa.coin], coinSettings);
     logger.i('[Settings] server → $serverUrl');
     var serverUpdated = false;
     try {

@@ -14,8 +14,8 @@ class ZcashCoin extends CoinBase {
   String? marketTicker = "ZECUSDT";
   AssetImage image = AssetImage('assets/zcash.png');
   List<LWInstance> lwd = [
-    LWInstance("CipherScan (Mainnet)", "https://lightwalletd.mainnet.cipherscan.app:443"),
     LWInstance("Zec.rocks (Global)", "https://zec.rocks:443"),
+    LWInstance("CipherScan (Mainnet)", "https://lightwalletd.mainnet.cipherscan.app:443"),
     LWInstance("Zec.rocks (NA)", "https://na.zec.rocks:443"),
     LWInstance("Zec.rocks (SA)", "https://sa.zec.rocks:443"),
     LWInstance("Zec.rocks (EU)", "https://eu.zec.rocks:443"),

@@ -40,6 +40,7 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
   Object? _error;
   bool _paying = false;
   Timer? _expiryTicker;
+  StreamSubscription<CipherPayInvoice>? _statusSub;
 
   @override
   void initState() {
@@ -49,12 +50,14 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
       _load();
     } else {
       _startExpiryTicker();
+      _maybeStartStatusPolling();
     }
   }
 
   @override
   void dispose() {
     _expiryTicker?.cancel();
+    _statusSub?.cancel();
     super.dispose();
   }
 
@@ -67,6 +70,7 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
         _error = null;
       });
       _startExpiryTicker();
+      _maybeStartStatusPolling();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -81,6 +85,53 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
     _expiryTicker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
+  }
+
+  void _maybeStartStatusPolling() {
+    final invoice = _invoice;
+    if (invoice == null) return;
+    if (invoice.status == 'confirmed' ||
+        invoice.status == 'expired' ||
+        invoice.status == 'cancelled') {
+      return;
+    }
+    _statusSub?.cancel();
+    _statusSub = CipherPayClient.pollInvoice(
+      invoice.id.isNotEmpty ? invoice.id : widget.invoiceRef,
+      interval: const Duration(seconds: 5),
+      timeout: null,
+    ).listen(
+      (inv) {
+        if (!mounted) return;
+        setState(() => _invoice = inv);
+        if (inv.status == 'confirmed' ||
+            inv.status == 'expired' ||
+            inv.status == 'cancelled') {
+          _statusSub?.cancel();
+        }
+      },
+    );
+  }
+
+  void _openReceipt() {
+    final invoice = _invoice;
+    if (invoice == null) return;
+    final txid = invoice.detectedTxid;
+    if (txid == null || txid.isEmpty) return;
+    GoRouter.of(context).push(
+      '/invoice/status',
+      extra: InvoiceStatusArgs(
+        invoiceId: invoice.id,
+        memoCode: invoice.memoCode,
+        txid: txid,
+        productName: invoice.productName,
+        merchantName: invoice.merchantName,
+        amount: invoice.amount,
+        currency: invoice.currency,
+        priceEur: invoice.priceEur,
+        priceZec: invoice.priceZec,
+      ),
+    );
   }
 
   Duration? get _untilExpiry {
@@ -218,6 +269,7 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
       untilExpiry: _untilExpiry,
       paying: _paying,
       onPay: _pay,
+      onViewReceipt: _openReceipt,
     );
   }
 
@@ -241,6 +293,7 @@ class _InvoiceBody extends StatelessWidget {
   final Duration? untilExpiry;
   final bool paying;
   final VoidCallback onPay;
+  final VoidCallback onViewReceipt;
 
   const _InvoiceBody({
     required this.invoice,
@@ -249,6 +302,7 @@ class _InvoiceBody extends StatelessWidget {
     required this.untilExpiry,
     required this.paying,
     required this.onPay,
+    required this.onViewReceipt,
   });
 
   @override
@@ -271,14 +325,24 @@ class _InvoiceBody extends StatelessWidget {
           ),
           const Spacer(),
           if (alreadyPaid)
-            _StatusBanner(
-              icon: Icons.check_circle_rounded,
-              color: ZipherColors.green,
-              title: invoice.status == 'confirmed'
-                  ? 'Already paid and confirmed'
-                  : 'Already paid — confirming on-chain',
-              subtitle:
-                  'You don\'t need to pay again. Close this screen or view the receipt.',
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _StatusBanner(
+                  icon: Icons.check_circle_rounded,
+                  color: ZipherColors.green,
+                  title: invoice.status == 'confirmed'
+                      ? 'Payment confirmed'
+                      : 'Payment accepted',
+                  subtitle: invoice.status == 'confirmed'
+                      ? 'This invoice is fully settled. You don\'t need to pay again.'
+                      : 'CipherPay sees your payment. The merchant has been notified — on-chain confirmation may take a few minutes.',
+                ),
+                if (invoice.detectedTxid?.isNotEmpty == true) ...[
+                  const Gap(ZipherSpacing.smMd),
+                  _ReceiptButton(onTap: onViewReceipt),
+                ],
+              ],
             )
           else if (expired)
             _StatusBanner(
@@ -545,7 +609,7 @@ class _MetaCard extends StatelessWidget {
       case 'pending':
         return 'Awaiting payment';
       case 'detected':
-        return 'Detected';
+        return 'Payment accepted';
       case 'confirmed':
         return 'Confirmed';
       case 'cancelled':
@@ -624,6 +688,35 @@ class _PayButton extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+      ),
+    );
+  }
+}
+
+class _ReceiptButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _ReceiptButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 48,
+        decoration: BoxDecoration(
+          color: ZipherColors.green.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(ZipherRadius.md),
+          border: Border.all(color: ZipherColors.green.withValues(alpha: 0.25)),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          'View payment receipt',
+          style: TextStyle(
+            color: ZipherColors.green,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
     );
   }

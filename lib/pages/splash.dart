@@ -11,6 +11,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../accounts.dart';
 import 'accounts/send.dart';
@@ -18,6 +19,7 @@ import 'utils.dart';
 import '../appsettings.dart';
 import '../coin/coins.dart';
 import '../services/cipherpay_client.dart';
+import '../services/frost_watch_service.dart';
 import '../generated/intl/messages.dart';
 import '../init.dart';
 import '../services/wallet_service.dart';
@@ -92,6 +94,20 @@ class _SplashState extends State<SplashPage> {
                 logger.d('fallback to available wallet');
                 await registry.setActive(activeId);
               } else {
+                // Wallets exist in registry but not on disk. If we're on
+                // testnet, the mainnet files are there — revert and retry.
+                if (isTestnet) {
+                  logger.i('No testnet wallet files found, reverting to mainnet');
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('testnet', false);
+                  isTestnet = false;
+                  testnetNotifier.value = false;
+                  await initCoins();
+                  if (mounted) {
+                    GoRouter.of(context).go('/');
+                    return;
+                  }
+                }
                 await minDisplayTime;
                 logger.d('no wallets on disk, going to /welcome');
                 appStore.initialized = true;
@@ -164,6 +180,27 @@ class _SplashState extends State<SplashPage> {
           }
         } catch (e, st) {
           logger.e('Splash init error: $e\n$st');
+
+          // If we were on testnet and it failed, auto-revert to mainnet
+          // so the user isn't stranded by a dead testnet server.
+          if (isTestnet) {
+            logger.i('Testnet init failed, reverting to mainnet');
+            try {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool('testnet', false);
+              isTestnet = false;
+              testnetNotifier.value = false;
+              await initCoins();
+              // Retry splash on mainnet
+              if (mounted) {
+                GoRouter.of(context).go('/');
+                return;
+              }
+            } catch (revertErr) {
+              logger.e('Mainnet revert also failed: $revertErr');
+            }
+          }
+
           await minDisplayTime;
           if (mounted) {
             appStore.initialized = true;
@@ -308,7 +345,7 @@ class _LoadProgressState extends State<LoadProgress>
               ZipherWidgets.brandText(fontSize: 32),
               const SizedBox(height: ZipherSpacing.sm),
               Text(
-                isTestnet ? 'Testnet Mode' : 'Private Zcash Wallet',
+                isTestnet ? 'Testnet Mode' : 'Zcash for humans and agents',
                 style: TextStyle(
                   fontSize: 14,
                   color: isTestnet
@@ -407,6 +444,19 @@ bool setActiveAccountOf(int coin) {
 
 void handleUri(Uri uri) async {
   final raw = uri.toString();
+
+  // FROST co-signer approval deep links:
+  // zipher://frost/approve?session_id=...&wallet_id=...
+  if (uri.scheme == 'zipher' &&
+      uri.host == 'frost' &&
+      uri.pathSegments.isNotEmpty &&
+      uri.pathSegments.first == 'approve') {
+    final context = rootNavigatorKey.currentContext;
+    if (context == null) return;
+    if (aa.id == 0) return;
+    await FrostWatchService.instance.openApprovalFromUri(uri);
+    return;
+  }
 
   // CipherPay deep links: https://cipherpay.app/pay/<uuid>
   final invoiceRef = CipherPayClient.extractInvoiceRef(raw);

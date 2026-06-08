@@ -8,6 +8,7 @@ import '../../services/frost_service.dart';
 import '../../services/wallet_service.dart';
 import '../../zipher_theme.dart';
 import '../scan.dart';
+import 'frost_backup_share.dart';
 
 enum FrostSetupUseCase { personalRecovery, sharedBusiness, agentWallet }
 
@@ -31,6 +32,8 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
   bool _thresholdLocked = false;
   bool _creating = false;
   String? _createdAddress;
+  String? _backupKeyPackage;
+  bool _backupSaved = false;
 
   @override
   void dispose() {
@@ -45,6 +48,8 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
     _thresholdLocked = false;
     _pendingCoordinator = null;
     _createdAddress = null;
+    _backupKeyPackage = null;
+    _backupSaved = false;
     switch (useCase) {
       case FrostSetupUseCase.personalRecovery:
       case FrostSetupUseCase.agentWallet:
@@ -154,13 +159,10 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
       if (!mounted) return;
       setState(() {
         _createdAddress = result.address;
+        _backupKeyPackage = result.backupKeyPackage;
+        _backupSaved = result.backupKeyPackage == null;
         _creating = false;
       });
-      if (result.backupKeyPackage != null) {
-        await Clipboard.setData(
-          ClipboardData(text: result.backupKeyPackage!),
-        );
-      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _creating = false);
@@ -196,13 +198,15 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
       try {
         birthday = await WalletService.instance.getLatestBlockHeight();
       } catch (_) {}
-      final address = await WalletService.instance.createFrostWallet(
+      final result = await WalletService.instance.createFrostWallet(
         _label,
         birthday,
       );
       if (!mounted) return;
       setState(() {
-        _createdAddress = address;
+        _createdAddress = result.address;
+        _backupKeyPackage = result.backupKeyPackage;
+        _backupSaved = result.backupKeyPackage == null;
         _creating = false;
       });
     } catch (e) {
@@ -359,12 +363,21 @@ class _FrostCreatePageState extends State<FrostCreatePage> {
               ],
             ),
             if (_createdAddress != null) ...[
-              const Gap(16),
-              _PrimaryButton(
-                label: 'Open wallet',
-                icon: Icons.arrow_forward_rounded,
-                onTap: () => GoRouter.of(context).go('/account'),
-              ),
+              if (_backupKeyPackage != null && !_backupSaved) ...[
+                const Gap(16),
+                FrostBackupShareStep(
+                  backupKeyPackage: _backupKeyPackage!,
+                  onSaved: () => setState(() => _backupSaved = true),
+                ),
+              ],
+              if (_backupSaved) ...[
+                const Gap(16),
+                _PrimaryButton(
+                  label: 'Open wallet',
+                  icon: Icons.arrow_forward_rounded,
+                  onTap: () => GoRouter.of(context).go('/account'),
+                ),
+              ],
             ],
           ],
         ),

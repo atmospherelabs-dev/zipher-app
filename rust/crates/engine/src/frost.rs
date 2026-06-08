@@ -677,7 +677,7 @@ pub fn frost_pczt_signing_request(pczt_bytes: Vec<u8>) -> Result<FrostPcztSignin
     let effects = pczt
         .clone()
         .into_effects()
-        .ok_or_else(|| anyhow!("PCZT does not contain signable transaction effects"))?;
+        .map_err(|e| anyhow!("PCZT does not contain signable transaction effects: {:?}", e))?;
     let txid_parts = effects.digest(TxIdDigester);
     let sighash = v5_signature_hash(&effects, &SignableInput::Shielded, &txid_parts);
     let sighash_bytes: [u8; 32] = sighash

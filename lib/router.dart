@@ -32,7 +32,9 @@ import 'pages/more/memos.dart';
 import 'pages/more/more.dart';
 import 'pages/more/sweep.dart';
 import 'pages/more/debug_log.dart';
+import 'pages/more/governance.dart';
 import 'pages/action/action.dart';
+import 'services/frost_service.dart';
 import 'pages/cipherpay/invoice_pay.dart';
 import 'pages/cipherpay/invoice_status.dart';
 import 'pages/frost/frost_create.dart';
@@ -170,7 +172,10 @@ final router = GoRouter(
                 ),
                 GoRoute(
                   path: 'action',
-                  builder: (context, state) => const ActionPage(),
+                  builder: (context, state) {
+                    final intent = state.uri.queryParameters['intent'];
+                    return ActionPage(initialIntent: intent);
+                  },
                 ),
                 GoRoute(
                   path: 'split',
@@ -281,6 +286,10 @@ final router = GoRouter(
                   GoRoute(
                     path: 'debug_log',
                     builder: (context, state) => const DebugLogPage(),
+                  ),
+                  GoRoute(
+                    path: 'governance',
+                    builder: (context, state) => const GovernancePage(),
                   ),
                   GoRoute(
                       path: 'about',
@@ -399,8 +408,24 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/frost/approve',
-      builder: (context, state) =>
-          FrostApprovePage(args: state.extra as FrostApprovalArgs),
+      builder: (context, state) {
+        final extra = state.extra;
+        if (extra is FrostApprovalArgs) {
+          return FrostApprovePage(args: extra);
+        }
+        final request =
+            FrostApprovalRequest.fromPayload(state.uri.queryParameters);
+        return FrostApprovePage(
+          args: FrostApprovalArgs(
+            sessionId: request.sessionId,
+            walletName: request.walletLabel,
+            destination: request.destination,
+            zatoshis: request.zatoshis,
+            feeZec: request.feeZec,
+            memoPreview: request.memoPreview,
+          ),
+        );
+      },
     ),
     GoRoute(
       path: '/frost/recovery',

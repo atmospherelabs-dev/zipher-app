@@ -288,7 +288,8 @@ class WalletService {
   /// Create a real Orchard-only FROST wallet locally and import its UFVK as a
   /// watch-only account. The phone stores only participant #1's FROST share;
   /// spending requires at least one co-signer share through the approval flow.
-  Future<String> createFrostWallet(String name, int birthday) async {
+  Future<FrostRelayWalletResult> createFrostWallet(
+      String name, int birthday) async {
     _checkBusy();
     final registry = WalletRegistry.instance;
     final profile = await registry.create(name, watchOnly: true);
@@ -339,7 +340,11 @@ class WalletService {
       ),
     );
     if (!useNewEngine) await rust_wallet.startSaveTask();
-    return dkg.view.address;
+    return FrostRelayWalletResult(
+      address: dkg.view.address,
+      walletId: key,
+      backupKeyPackage: dkg.participant3.keyPackage,
+    );
   }
 
   /// Open an existing wallet by profile ID.
@@ -407,12 +412,14 @@ class WalletService {
           if (seed != null) {
             final dir = await walletDir(walletId: targetWalletId);
             final dbKey = await _getDbCipherKey();
+            final birthday = await getLatestBlockHeight();
+            _log.i('[WS] restoring at height $birthday');
             await rust_engine.engineRestoreFromSeed(
               dataDir: dir,
               serverUrl: serverUrl,
               chainType: _chainType,
               seedPhrase: seed,
-              birthday: 0,
+              birthday: birthday,
               dbCipherKey: dbKey,
             );
             await rust_engine.engineCloseWallet();
@@ -643,11 +650,9 @@ class WalletService {
   /// completely independent of mainnet — preventing accidental seed leakage.
   Future<void> createNetworkWalletForProfile(String walletId) async {
     final dir = await walletDir(walletId: walletId);
-    int height = 0;
-    try {
-      height = await getLatestBlockHeight();
-    } catch (e) {
-      _log.w('[WS] failed to get chain height for network wallet, using 0: $e');
+    final height = await getLatestBlockHeight();
+    if (height <= 0) {
+      throw Exception('Cannot create wallet: server returned invalid chain height ($height)');
     }
     _log.i(
         '[WS] creating fresh network wallet for $walletId in $dir at height $height');

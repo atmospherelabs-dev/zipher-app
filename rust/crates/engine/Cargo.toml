@@ -23,21 +23,29 @@ tonic = { version = "0.14", features = ["channel", "tls-ring", "tls-webpki-roots
 rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
 bip0039 = { version = "0.14", features = ["rand"] }
 
-# Zcash crates
-zcash_protocol = "0.7"
-zcash_address = "0.10"
-zcash_client_backend = { version = "0.21", features = ["lightwalletd-tonic", "transparent-inputs", "pczt"] }
-pczt = { version = "0.5", features = ["prover", "signer", "sapling", "orchard"] }
-zcash_client_sqlite = { version = "0.19", features = ["orchard", "transparent-inputs", "serde"] }
-zcash_keys = { version = "0.12", features = ["orchard", "sapling", "unstable-frost"] }
-zcash_primitives = "0.26"
-zcash_proofs = "0.26"
-zcash_transparent = "0.6"
+# Zcash crates (NU6.2 cohort — orchard 0.14 / fixed proof circuit)
+zcash_protocol = "0.9"
+zcash_address = "0.12"
+zcash_client_backend = { version = "0.23", features = ["lightwalletd-tonic", "transparent-inputs", "pczt", "non-standard-fees"] }
+pczt = { version = "0.7", features = ["prover", "signer", "sapling", "orchard"] }
+zcash_client_sqlite = { version = "0.21", features = ["orchard", "transparent-inputs", "serde"] }
+zcash_keys = { version = "0.14", features = ["orchard", "sapling", "unstable-frost"] }
+zcash_primitives = "0.28"
+zcash_proofs = "0.28"
+zcash_transparent = "0.8"
 zcash_script = "0.4"
 zip32 = "0.2"
-sapling-crypto = { version = "0.5", package = "sapling-crypto" }
-orchard = "0.11"
+sapling-crypto = { version = "0.7", package = "sapling-crypto" }
+orchard = "0.14"
 incrementalmerkletree = "0.8"
+# Shielded voting
+zcash_voting = { version = "0.11", features = ["client"] }
+blake2b_simd = "1"
+sha2 = "0.10"
+ff = "0.13"
+pasta_curves = "0.5"
+voting-circuits = "0.8"
+
 rustls = { version = "0.23", features = ["ring"] }
 reqwest = { version = "0.13", features = ["json"] }
 reddsa = { version = "0.5", features = ["frost", "serde"] }

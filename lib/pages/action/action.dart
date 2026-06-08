@@ -12,11 +12,11 @@ import '../../zipher_theme.dart';
 import '../../coin/coins.dart' show isTestnet;
 import '../../services/chain_config.dart';
 import '../../services/wallet_service.dart';
+import '../../services/portfolio_scanner.dart';
 import '../../services/market_venue.dart';
 import '../../services/action_executor.dart';
 import '../../services/action_history.dart';
 import '../../services/evm_portfolio_balance.dart';
-import '../../services/evm_rpc.dart';
 import '../../services/llm_service.dart';
 import '../../services/secure_key_store.dart';
 import '../../src/rust/api/engine_api.dart' as rust_engine;
@@ -28,12 +28,15 @@ import 'widgets/polymarket_bet_confirmation.dart';
 import 'widgets/polymarket_sell_confirmation.dart';
 import 'widgets/evm_swap_confirmation.dart';
 import 'widgets/sweep_confirmation.dart';
+import 'widgets/vote_confirmation.dart';
+import '../../services/voting_service.dart';
 import 'widgets/llm_settings_sheet.dart';
 
 final _log = Logger();
 
 class ActionPage extends StatefulWidget {
-  const ActionPage({super.key});
+  final String? initialIntent;
+  const ActionPage({super.key, this.initialIntent});
 
   @override
   State<ActionPage> createState() => _ActionPageState();
@@ -72,7 +75,15 @@ class _ActionPageState extends State<ActionPage> {
     _fetchAggregatedBalance();
     _loadHistory();
     _initLlm();
-    _addSystemMessage('What would you like to do?', card: _buildSuggestionChips());
+    if (widget.initialIntent != null) {
+      _addSystemMessage('What would you like to do?', card: _buildSuggestionChips());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _executeIntent(IntentParser.parse(widget.initialIntent!));
+      });
+    } else {
+      _checkForActiveVote();
+      _addSystemMessage('What would you like to do?', card: _buildSuggestionChips());
+    }
   }
 
   @override
@@ -126,16 +137,6 @@ class _ActionPageState extends State<ActionPage> {
   }
 
   double get _totalUsd => _zecBalanceUsd + _evmTotalUsd;
-
-  /// For sweep UX: derive BNB/USD from last portfolio fetch, else rough default.
-  double _bnbUsdPerUnit(double bnbBal) {
-    for (final t in _evmBalances) {
-      if (t.symbol == 'BNB' && t.chainLabel == 'BSC' && t.balance > 0) {
-        return t.balanceUsd / t.balance;
-      }
-    }
-    return 600;
-  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // History & LLM
@@ -311,6 +312,8 @@ class _ActionPageState extends State<ActionPage> {
         await _handleSell(intent);
       case IntentType.sweep:
         await _handleSweep();
+      case IntentType.vote:
+        await _handleVote();
       case IntentType.unknown:
         final suggestion = await LlmService.instance.suggestForUnknown(intent.raw);
         _addSystemMessage(
@@ -420,53 +423,111 @@ class _ActionPageState extends State<ActionPage> {
 
   Future<void> _handleSweep() async {
     try {
-      _addSystemMessage('Scanning your BSC wallet...');
+      _addSystemMessage('Scanning your wallets across chains...');
       final seed = await _getSeedForAction();
-      final bscAddress = await rust_engine.engineDeriveEvmAddress(seedPhrase: seed);
-      final supportedTokens = await ActionExecutor.instance.getSweepableBscTokens();
-      final sweepable = <SweepableToken>[];
+      final evmAddress = await rust_engine.engineDeriveEvmAddress(seedPhrase: seed);
+      final sweepable = await PortfolioScanner.scanSweepable(evmAddress);
 
-      final bscRpc = EvmRpc.bsc;
-      final bnbBal = await bscRpc.getNativeBalance(bscAddress);
-      final bnbSweepable = bnbBal - 0.003;
-      if (bnbSweepable > 0.001) {
-        final rate = _bnbUsdPerUnit(bnbBal);
-        sweepable.add(SweepableToken(symbol: 'BNB', balance: bnbBal, sweepAmount: bnbSweepable,
-            usdValue: bnbSweepable * rate, decimals: 18));
-      }
-
-      for (final token in supportedTokens) {
-        final symbol = (token['symbol'] as String? ?? '').toUpperCase();
-        final contract = token['address'] as String? ?? token['contractAddress'] as String? ?? '';
-        final decimals = (token['decimals'] as num?)?.toInt() ?? 18;
-        final price = (token['price'] as num?)?.toDouble() ?? 0;
-        final defuseId = (token['defuseAssetId'] ?? token['assetId'] ?? token['asset_id'] ?? token['defuse_asset_id'] ?? '') as String;
-        if (contract.isEmpty || defuseId.isEmpty) continue;
-
-        try {
-          final bal = await bscRpc.getErc20Balance(bscAddress, contract, decimals: decimals);
-          if (bal <= 0) continue;
-          final usd = price > 0 ? bal * price : (symbol == 'USDT' || symbol == 'USDC' || symbol == 'DAI' || symbol == 'BUSD' ? bal : 0.0);
-          if (usd < 0.10) continue;
-          sweepable.add(SweepableToken(symbol: symbol, balance: bal, sweepAmount: bal, usdValue: usd,
-              contractAddress: contract, defuseAssetId: defuseId, decimals: decimals));
-        } catch (_) {}
-      }
-
-      setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
+      setState(() {
+        if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast();
+      });
 
       if (sweepable.isEmpty) {
-        _addSystemMessage('Nothing to sweep. Your BSC wallet is empty or all balances are below the minimum.');
+        _addSystemMessage(
+          'Nothing to sweep. Non-zero balances across EVM chains are below \$${PortfolioScanner.minUsd.toStringAsFixed(2)}.',
+        );
         return;
       }
 
+      final supported = sweepable.where((t) => t.isSupported).length;
+      final chains = sweepable.map((t) => t.chainLabel).toSet().length;
       final totalUsd = sweepable.fold<double>(0, (sum, t) => sum + t.usdValue);
-      _addSystemMessage('', card: SweepConfirmation(
-        tokens: sweepable, totalUsd: totalUsd,
-        onResult: (msg) { _addSystemMessage(msg); _fetchAggregatedBalance(); },
-      ));
+
+      _addSystemMessage(
+        'Found ~\$${totalUsd.toStringAsFixed(2)} on $chains chain${chains == 1 ? '' : 's'}. '
+        '${supported > 0 ? 'Select what to bring back to shielded ZEC.' : 'Some balances need a different path (e.g. Polymarket pUSD).'}',
+        card: SweepConfirmation(
+          tokens: sweepable,
+          totalUsd: totalUsd,
+          onResult: (msg) {
+            _addSystemMessage(msg);
+            _fetchAggregatedBalance();
+          },
+        ),
+      );
     } catch (e) {
       _addSystemMessage('Failed to scan balances: $e');
+    }
+  }
+
+  Future<void> _checkForActiveVote() async {
+    try {
+      final hasActive = await VotingService.instance.discoverActiveRound();
+      if (hasActive && mounted) {
+        _addSystemMessage(
+          'A governance vote is active: "${VotingService.instance.config!.title}". '
+          'You are eligible with ${VotingService.instance.eligibility!.eligibleZec.toStringAsFixed(2)} ZEC.',
+          card: _buildSuggestionChips(items: [
+            SuggestionItem(Icons.how_to_vote, 'Vote now', 'vote',
+                intent: const ParsedIntent(type: IntentType.vote, raw: 'vote')),
+          ]),
+          intentType: IntentType.vote,
+        );
+      }
+    } catch (_) {
+      // Non-critical; don't surface errors for background discovery
+    }
+  }
+
+  Future<void> _handleVote() async {
+    try {
+      _addSystemMessage('Checking for active governance votes...');
+
+      final voting = VotingService.instance;
+      final config = await voting.discover(staging: true);
+
+      setState(() {
+        if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast();
+      });
+
+      if (config == null) {
+        _addSystemMessage('No active vote round found. Check back when a governance vote is announced.');
+        return;
+      }
+
+      if (config.isExpired) {
+        _addSystemMessage('The vote round "${config.title}" has ended.');
+        return;
+      }
+
+      if (!config.isActive) {
+        _addSystemMessage('Vote round "${config.title}" is not currently active (${config.statusLabel}).');
+        return;
+      }
+
+      final eligibility = await voting.checkEligibility(config.snapshotHeight);
+      if (!eligibility.isEligible) {
+        _addSystemMessage(
+          'You don\'t have eligible Orchard notes at snapshot height ${config.snapshotHeight}. '
+          'Shield some ZEC and wait for the next round.',
+        );
+        return;
+      }
+
+      _addSystemMessage(
+        '${config.title}\n'
+        'Your voting weight: ${eligibility.eligibleZec.toStringAsFixed(2)} ZEC '
+        '(${eligibility.noteCount} note${eligibility.noteCount == 1 ? '' : 's'}).',
+        card: VoteConfirmation(
+          config: config,
+          eligibility: eligibility,
+          onResult: (msg) {
+            _addSystemMessage(msg);
+          },
+        ),
+      );
+    } catch (e) {
+      _addSystemMessage('Failed to check voting status: $e');
     }
   }
 
@@ -493,11 +554,33 @@ class _ActionPageState extends State<ActionPage> {
         if (intent.memo != null) _detailRow('Memo', intent.memo!),
       ],
       onConfirm: () async {
+        final authed = await requireSigningAuthorization(
+          context,
+          actionSummary:
+              'Send ${intent.amount!.toStringAsFixed(8)} ZEC to ${ParsedIntent.truncAddr(intent.address!)}',
+        );
+        if (!authed) {
+          _addSystemMessage('Send cancelled.');
+          return;
+        }
         _addSystemMessage('Preparing transaction...');
         try {
-          final result = await WalletService.instance.proposeSend(intent.address!, amountZat, memo: intent.memo);
-          _addSystemMessage('Transaction proposed.\n\n  Amount: ${(result.sendAmount / 1e8).toStringAsFixed(8)} ZEC\n  Fee:    ${(result.fee / 1e8).toStringAsFixed(8)} ZEC\n\nConfirm in the send screen to broadcast.');
-        } catch (e) { _addSystemMessage('Send failed: $e'); }
+          final result = await WalletService.instance.proposeSend(
+            intent.address!,
+            amountZat,
+            memo: intent.memo,
+          );
+          _addSystemMessage('Signing and broadcasting...');
+          final txid = await WalletService.instance.confirmSend();
+          _addSystemMessage(
+            'Sent ${(result.sendAmount / 1e8).toStringAsFixed(8)} ZEC\n'
+            'Fee: ${(result.fee / 1e8).toStringAsFixed(8)} ZEC\n'
+            'Txid: $txid',
+          );
+          _fetchAggregatedBalance();
+        } catch (e) {
+          _addSystemMessage('Send failed: $e');
+        }
       },
       onCancel: () => _addSystemMessage('Send cancelled.'),
     ), intentType: IntentType.send);
@@ -587,12 +670,13 @@ class _ActionPageState extends State<ActionPage> {
     // Resolve chain config
     ChainConfig? chain;
     if (intent.chain != null) {
-      final chainLower = intent.chain!.toLowerCase();
-      if (chainLower == 'polygon') chain = ChainConfig.polygon;
-      else if (chainLower == 'bsc') chain = ChainConfig.bsc;
+      chain = ChainConfig.forLabel(intent.chain!);
     }
     if (chain == null) {
-      _addSystemMessage('Could not determine which chain to swap on.\n\nTry: swap 1 $from to $to on polygon');
+      _addSystemMessage(
+        'Could not determine which chain to swap on.\n\n'
+        'Try: swap 1 $from to $to on polygon, arbitrum, base, or bsc',
+      );
       return;
     }
 
@@ -1175,6 +1259,8 @@ class _ActionPageState extends State<ActionPage> {
               intent: const ParsedIntent(type: IntentType.marketDiscover, raw: 'find promising markets')),
           SuggestionItem(Icons.swap_horiz, 'Sweep', 'sweep',
               intent: const ParsedIntent(type: IntentType.sweep, raw: 'sweep')),
+          SuggestionItem(Icons.how_to_vote, 'Vote', 'vote',
+              intent: const ParsedIntent(type: IntentType.vote, raw: 'vote')),
         ];
       case IntentType.bet:
       case IntentType.betPolymarket:
@@ -1197,6 +1283,11 @@ class _ActionPageState extends State<ActionPage> {
               intent: const ParsedIntent(type: IntentType.balance, raw: 'balance')),
           SuggestionItem(Icons.pie_chart_outline, 'My bets', 'my bets',
               intent: const ParsedIntent(type: IntentType.portfolio, raw: 'my bets')),
+        ];
+      case IntentType.vote:
+        chips = [
+          SuggestionItem(Icons.account_balance_wallet_outlined, 'Balance', 'balance',
+              intent: const ParsedIntent(type: IntentType.balance, raw: 'balance')),
         ];
       case IntentType.evmSwap:
       case IntentType.swap:
@@ -1482,7 +1573,7 @@ class _ActionPageState extends State<ActionPage> {
       ('bet \$5 yes on polymarket 0x…', 'Polymarket bet (Polygon / USDC)'),
       ('my bets', 'View open positions'),
       ('sell market 0x…', 'Close a position'),
-      ('sweep', 'Convert EVM tokens back to ZEC'),
+      ('sweep', 'Bring EVM chain balances back to shielded ZEC'),
     ];
     return Container(
       margin: const EdgeInsets.only(top: 8), padding: const EdgeInsets.all(14),

@@ -98,6 +98,20 @@ class _MorePageState extends State<MorePage> {
               ]),
               const Gap(20),
 
+              // ── Governance ──
+              _sectionLabel('Governance'),
+              const Gap(8),
+              _card([
+                _SettingsItem(
+                  icon: Icons.how_to_vote_rounded,
+                  label: 'Coinholder Voting',
+                  subtitle: 'Vote on Zcash governance proposals',
+                  badge: 'BETA',
+                  onTap: () => _nav('/more/governance'),
+                ),
+              ]),
+              const Gap(20),
+
               // ── Security & Tools ──
               _sectionLabel('Security & Tools'),
               const Gap(8),
@@ -443,6 +457,13 @@ class _TestnetToggleState extends State<_TestnetToggle> {
       }
     } catch (e) {
       logger.e('Testnet toggle error: $e');
+      // Revert the persisted flag so a cold restart doesn't strand the user
+      // on a broken network.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('testnet', !enable);
+      isTestnet = !enable;
+      testnetNotifier.value = !enable;
+      try { await initCoins(); } catch (_) {}
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error switching network: $e')),

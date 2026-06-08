@@ -1,6 +1,6 @@
 import UIKit
 import Flutter
-import workmanager
+import workmanager_apple
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -13,7 +13,7 @@ import workmanager
     if #available(iOS 10.0, *) {
         UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
     }
-    WorkmanagerPlugin.registerTask(withIdentifier: "background-sync")
+    WorkmanagerPlugin.registerBGProcessingTask(withIdentifier: "background-sync")
 
     protectWalletDirectory()
 

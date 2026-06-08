@@ -1,4 +1,4 @@
-enum IntentType { balance, send, swap, evmSwap, shield, marketSearch, marketDiscover, bet, betPolymarket, portfolio, sell, sweep, help, unknown }
+enum IntentType { balance, send, swap, evmSwap, shield, marketSearch, marketDiscover, bet, betPolymarket, portfolio, sell, sweep, vote, help, unknown }
 
 class ParsedIntent {
   final IntentType type;
@@ -119,6 +119,8 @@ class ParsedIntent {
         return 'Selling position on market #${marketId ?? "?"}';
       case IntentType.sweep:
         return 'Checking what you can sweep back to ZEC...';
+      case IntentType.vote:
+        return 'Checking active governance votes...';
       case IntentType.help:
         return 'Help';
       case IntentType.unknown:
@@ -221,6 +223,10 @@ class IntentParser {
       return ParsedIntent(type: IntentType.portfolio, raw: trimmed);
     }
 
+    if (_isVote(lower)) {
+      return ParsedIntent(type: IntentType.vote, raw: trimmed);
+    }
+
     if (_isSweep(lower)) {
       return ParsedIntent(type: IntentType.sweep, raw: trimmed);
     }
@@ -264,6 +270,10 @@ class IntentParser {
   static bool _isPortfolio(String s) =>
       s.contains('my bet') || s.contains('my position') || s.contains('portfolio') ||
       s.contains('positions') || s.contains('my bets') || s == 'bets';
+
+  static bool _isVote(String s) =>
+      s.contains('vote') || s.contains('voting') || s.contains('governance') ||
+      s.contains('ballot') || s.contains('delegate vote');
 
   static bool _isSweep(String s) =>
       s.contains('sweep') || s.contains('usdt to zec') || s.contains('convert usdt') ||

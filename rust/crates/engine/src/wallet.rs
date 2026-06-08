@@ -29,7 +29,7 @@ pub(crate) async fn connect_lwd(
     Ok(CompactTxStreamerClient::new(channel))
 }
 
-async fn fetch_tree_state(
+pub(crate) async fn fetch_tree_state(
     server_url: &str,
     height: u64,
 ) -> Result<zcash_client_backend::proto::service::TreeState> {
@@ -53,6 +53,56 @@ pub async fn fetch_latest_height(server_url: &str) -> Result<u64> {
     Ok(resp.into_inner().height)
 }
 
+/// Resolve a caller-supplied height: 0 means "use chain tip".
+async fn resolve_height(server_url: &str, height: u32) -> Result<u64> {
+    if height == 0 {
+        let tip = fetch_latest_height(server_url).await?;
+        println!("[engine] height was 0, resolved to chain tip {}", tip);
+        Ok(tip)
+    } else {
+        Ok(height as u64)
+    }
+}
+
+/// Fetch tree state and build an AccountBirthday.
+/// `recover_until`: if `true`, also fetches the chain tip for recover-until
+/// (used by restore flows that need to scan from birthday to tip).
+async fn build_birthday(
+    server_url: &str,
+    height: u64,
+    with_recover_until: bool,
+) -> Result<(AccountBirthday, u64)> {
+    let tree_state = fetch_tree_state(server_url, height).await?;
+    let recover_until = if with_recover_until {
+        let tip = fetch_latest_height(server_url).await?;
+        Some(BlockHeight::from_u32(tip as u32))
+    } else {
+        None
+    };
+    let birthday = AccountBirthday::from_treestate(tree_state, recover_until)
+        .map_err(|_| anyhow::anyhow!("Failed to create account birthday from tree state"))?;
+    Ok((birthday, height))
+}
+
+/// Store the engine singleton after wallet init.
+async fn activate_engine(
+    db_data_path: std::path::PathBuf,
+    db_cache_path: std::path::PathBuf,
+    params: Network,
+    server_url: &str,
+    birthday_height: u64,
+    db_cipher_key: Option<String>,
+) {
+    *ENGINE.lock().await = Some(ZipherEngine {
+        db_data_path,
+        db_cache_path,
+        params,
+        server_url: server_url.to_string(),
+        birthday: BlockHeight::from_u32(birthday_height as u32),
+        db_cipher_key,
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Wallet lifecycle
 // ---------------------------------------------------------------------------
@@ -70,46 +120,31 @@ pub async fn create(
     db_cipher_key: Option<String>,
     vault_passphrase: Option<&str>,
 ) -> Result<String> {
-    println!(
-        "[engine] create wallet dir={} height={}",
-        data_dir, chain_height
-    );
-
+    println!("[engine] create wallet dir={} height={}", data_dir, chain_height);
     let (db_data_path, db_cache_path) = db_paths(data_dir);
 
-    let tree_state = fetch_tree_state(server_url, chain_height as u64).await?;
-    let birthday = AccountBirthday::from_treestate(tree_state, None)
-        .map_err(|_| anyhow::anyhow!("Failed to create account birthday from tree state"))?;
+    let height = resolve_height(server_url, chain_height).await?;
+    let (birthday, _) = build_birthday(server_url, height, false).await?;
 
     let entropy: [u8; 32] = rand::random();
     let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_entropy(&entropy)
         .map_err(|e| anyhow::anyhow!("Mnemonic error: {:?}", e))?;
     let phrase = mnemonic.phrase().to_string();
-    let seed_bytes = mnemonic.to_seed("");
-    let seed = SecretVec::new(seed_bytes.to_vec());
+    let seed = SecretVec::new(mnemonic.to_seed("").to_vec());
 
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
-    init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db error: {:?}", e))?;
+    init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db: {:?}", e))?;
 
     let (account_id, _usk) = db
         .create_account("Main", &seed, &birthday, None)
-        .map_err(|e| anyhow::anyhow!("create_account error: {:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("create_account: {:?}", e))?;
     println!("[engine] created account {:?}", account_id);
 
     if let Some(passphrase) = vault_passphrase {
-        let secret = SecretString::new(phrase.clone());
-        Vault::create(data_dir, &secret, passphrase)?;
+        Vault::create(data_dir, &SecretString::new(phrase.clone()), passphrase)?;
     }
 
-    *ENGINE.lock().await = Some(ZipherEngine {
-        db_data_path,
-        db_cache_path,
-        params,
-        server_url: server_url.to_string(),
-        birthday: BlockHeight::from_u32(chain_height),
-        db_cipher_key,
-    });
-
+    activate_engine(db_data_path, db_cache_path, params, server_url, height, db_cipher_key).await;
     Ok(phrase)
 }
 
@@ -126,47 +161,29 @@ pub async fn restore(
     db_cipher_key: Option<String>,
     vault_passphrase: Option<&str>,
 ) -> Result<()> {
-    println!(
-        "[engine] restore wallet dir={} birthday={}",
-        data_dir, birthday_height
-    );
-
+    println!("[engine] restore wallet dir={} birthday={}", data_dir, birthday_height);
     let (db_data_path, db_cache_path) = db_paths(data_dir);
 
     let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase)
         .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
-    let seed_bytes = mnemonic.to_seed("");
-    let seed = SecretVec::new(seed_bytes.to_vec());
+    let seed = SecretVec::new(mnemonic.to_seed("").to_vec());
 
-    let tree_state = fetch_tree_state(server_url, birthday_height as u64).await?;
-    let chain_tip = fetch_latest_height(server_url).await?;
-    let recover_until = Some(BlockHeight::from_u32(chain_tip as u32));
-
-    let birthday = AccountBirthday::from_treestate(tree_state, recover_until)
-        .map_err(|_| anyhow::anyhow!("Failed to create account birthday from tree state"))?;
+    let height = resolve_height(server_url, birthday_height).await?;
+    let (birthday, _) = build_birthday(server_url, height, true).await?;
 
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
-    init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db error: {:?}", e))?;
+    init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db: {:?}", e))?;
 
     let (account_id, _usk) = db
         .create_account("Restored", &seed, &birthday, None)
-        .map_err(|e| anyhow::anyhow!("create_account error: {:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("create_account: {:?}", e))?;
     println!("[engine] restored account {:?}", account_id);
 
     if let Some(passphrase) = vault_passphrase {
-        let secret = SecretString::new(seed_phrase.to_string());
-        Vault::create(data_dir, &secret, passphrase)?;
+        Vault::create(data_dir, &SecretString::new(seed_phrase.to_string()), passphrase)?;
     }
 
-    *ENGINE.lock().await = Some(ZipherEngine {
-        db_data_path,
-        db_cache_path,
-        params,
-        server_url: server_url.to_string(),
-        birthday: BlockHeight::from_u32(birthday_height),
-        db_cipher_key,
-    });
-
+    activate_engine(db_data_path, db_cache_path, params, server_url, height, db_cipher_key).await;
     Ok(())
 }
 
@@ -179,25 +196,17 @@ pub async fn restore_from_ufvk(
     birthday_height: u32,
     db_cipher_key: Option<String>,
 ) -> Result<()> {
-    println!(
-        "[engine] restore from UFVK dir={} birthday={}",
-        data_dir, birthday_height
-    );
-
+    println!("[engine] restore from UFVK dir={} birthday={}", data_dir, birthday_height);
     let (db_data_path, db_cache_path) = db_paths(data_dir);
 
-    let tree_state = fetch_tree_state(server_url, birthday_height as u64).await?;
-    let chain_tip = fetch_latest_height(server_url).await?;
-    let recover_until = Some(BlockHeight::from_u32(chain_tip as u32));
-
-    let birthday = AccountBirthday::from_treestate(tree_state, recover_until)
-        .map_err(|_| anyhow::anyhow!("Failed to create account birthday from tree state"))?;
+    let height = resolve_height(server_url, birthday_height).await?;
+    let (birthday, _) = build_birthday(server_url, height, true).await?;
 
     let ufvk = zcash_keys::keys::UnifiedFullViewingKey::decode(&params, ufvk_str)
         .map_err(|e| anyhow::anyhow!("Invalid UFVK: {:?}", e))?;
 
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
-    init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db error: {:?}", e))?;
+    init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db: {:?}", e))?;
 
     let _account = db
         .import_account_ufvk(
@@ -207,18 +216,10 @@ pub async fn restore_from_ufvk(
             zcash_client_backend::data_api::AccountPurpose::ViewOnly,
             None,
         )
-        .map_err(|e| anyhow::anyhow!("import_account_ufvk error: {:?}", e))?;
+        .map_err(|e| anyhow::anyhow!("import_account_ufvk: {:?}", e))?;
     println!("[engine] imported watch-only account");
 
-    *ENGINE.lock().await = Some(ZipherEngine {
-        db_data_path,
-        db_cache_path,
-        params,
-        server_url: server_url.to_string(),
-        birthday: BlockHeight::from_u32(birthday_height),
-        db_cipher_key,
-    });
-
+    activate_engine(db_data_path, db_cache_path, params, server_url, height, db_cipher_key).await;
     Ok(())
 }
 

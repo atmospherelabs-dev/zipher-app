@@ -11,6 +11,10 @@ class SuggestionItem {
 }
 
 class SweepableToken {
+  /// Stable key for selection, e.g. `BSC:USDT:0x55d3…`.
+  final String id;
+  final String chainLabel;
+  final int chainId;
   final String symbol;
   final double balance;
   final double sweepAmount;
@@ -18,8 +22,13 @@ class SweepableToken {
   final String? contractAddress;
   final String? defuseAssetId;
   final int decimals;
+  final bool supported;
+  final String? unsupportedReason;
 
   const SweepableToken({
+    required this.id,
+    required this.chainLabel,
+    required this.chainId,
     required this.symbol,
     required this.balance,
     required this.sweepAmount,
@@ -27,10 +36,12 @@ class SweepableToken {
     this.contractAddress,
     this.defuseAssetId,
     required this.decimals,
+    this.supported = true,
+    this.unsupportedReason,
   });
 
   bool get isNative => contractAddress == null;
-  bool get isSupported => defuseAssetId != null || isNative;
+  bool get isSupported => supported && (isNative ? defuseAssetId != null : defuseAssetId != null);
 }
 
 class ActionMessage {

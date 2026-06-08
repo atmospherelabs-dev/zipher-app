@@ -24,6 +24,8 @@ rootProject.allprojects {
 
 apply plugin: 'com.android.library'
 
+project.evaluationDependsOn(':app')
+
 android {
     if (project.android.hasProperty("namespace")) {
         namespace 'com.flutter_rust_bridge.rust_lib_zipher'

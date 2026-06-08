@@ -8,7 +8,16 @@ import 'package:http/http.dart' as http;
 
 import '../src/rust/api/engine_api.dart' as rust_engine;
 import '../src/rust/api/wallet.dart' as rust_wallet;
+import 'app_log.dart';
 import 'secure_key_store.dart';
+
+final _log = createLogger();
+
+String _redact(String? value, {int keep = 8}) {
+  if (value == null || value.isEmpty) return '–';
+  if (value.length <= keep * 2) return '${value.substring(0, keep)}…';
+  return '${value.substring(0, keep)}…${value.substring(value.length - 4)}';
+}
 
 String _hexEncode(List<int> bytes) =>
     bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
@@ -520,19 +529,66 @@ class FrostApprovalRequest {
   final String sessionId;
   final String walletId;
   final int zatoshis;
+  final String destination;
   final String destinationPreview;
+  final String walletLabel;
+  final String feeZec;
+  final String? memoPreview;
 
   const FrostApprovalRequest({
     required this.sessionId,
     required this.walletId,
     required this.zatoshis,
+    required this.destination,
     required this.destinationPreview,
+    this.walletLabel = 'Shared wallet',
+    this.feeZec = '–',
+    this.memoPreview,
   });
+
+  factory FrostApprovalRequest.fromPeek(
+    FrostSigningRequestPeek peek,
+    String walletId,
+  ) {
+    final request = peek.request;
+    final destination = request['destination'] as String? ?? '';
+    return FrostApprovalRequest(
+      sessionId: peek.sessionId,
+      walletId: walletId,
+      zatoshis: request['zatoshis'] as int? ?? 0,
+      destination: destination,
+      destinationPreview: _redact(destination, keep: 10),
+      walletLabel: request['wallet_label'] as String? ?? 'Shared wallet',
+      memoPreview: request['memo_preview'] as String?,
+      feeZec: '–',
+    );
+  }
+
+  factory FrostApprovalRequest.fromPayload(Map<String, String?> payload) {
+    final destination = payload['destination'] ?? '';
+    return FrostApprovalRequest(
+      sessionId: payload['session_id'] ?? '',
+      walletId: payload['wallet_id'] ?? '',
+      zatoshis: int.tryParse(payload['zatoshis'] ?? '') ?? 0,
+      destination: destination,
+      destinationPreview:
+          payload['destination_preview'] ?? _redact(destination, keep: 10),
+      walletLabel: payload['wallet_label'] ?? 'Shared wallet',
+      feeZec: payload['fee_zec'] ?? '–',
+      memoPreview: payload['memo_preview'],
+    );
+  }
 
   Map<String, dynamic> toPushPayload() => {
         'type': 'frost_approval_request',
         'session_id': sessionId,
         'wallet_id': walletId,
+        'zatoshis': zatoshis.toString(),
+        'destination': destination,
+        'destination_preview': destinationPreview,
+        'wallet_label': walletLabel,
+        if (memoPreview != null) 'memo_preview': memoPreview,
+        'fee_zec': feeZec,
       };
 
   String get localNotificationTitle => 'Shared wallet approval';
@@ -541,6 +597,18 @@ class FrostApprovalRequest {
     final zec = (zatoshis / 100000000).toStringAsFixed(8);
     return 'Approve $zec ZEC to $destinationPreview';
   }
+}
+
+class FrostSigningRequestPeek {
+  final String sessionId;
+  final String coordinatorPubkey;
+  final Map<String, dynamic> request;
+
+  const FrostSigningRequestPeek({
+    required this.sessionId,
+    required this.coordinatorPubkey,
+    required this.request,
+  });
 }
 
 class FrostService {
@@ -608,6 +676,8 @@ class FrostService {
       backupParticipant3: p3,
     );
     _pendingCoordinator = pending;
+    _log.i(
+        '[FROST] relay coordinator started relay=${_redact(relay, keep: 12)} pubkey=${_redact(identity.publicKeyHex)}');
     return pending;
   }
 
@@ -636,6 +706,8 @@ class FrostService {
       response: response,
     );
     _pendingJoiner = pending;
+    _log.i(
+        '[FROST] joiner started label=${_redact(participantLabel, keep: 12)} relay=${_redact(invite.relay, keep: 12)}');
     return pending;
   }
 
@@ -920,6 +992,8 @@ class FrostService {
       relayPrivateKeyHex: pending.identity.privateKeyHex,
     );
     _pendingCoordinator = null;
+    _log.i(
+        '[FROST] coordinator wallet ready wallet=${_redact(walletId, keep: 6)} address=${_redact(view.address, keep: 10)}');
     return FrostRelayWalletResult(
       address: view.address,
       walletId: walletId,
@@ -1044,6 +1118,8 @@ class FrostService {
       relayPrivateKeyHex: pending.identity.privateKeyHex,
     );
     _pendingJoiner = null;
+    _log.i(
+        '[FROST] joiner wallet ready wallet=${_redact(walletId, keep: 6)} address=${_redact(view.address, keep: 10)}');
     return FrostRelayWalletResult(address: view.address, walletId: walletId);
   }
 
@@ -1221,12 +1297,63 @@ class FrostService {
       relayPrivateKeyHex: relayPriv,
     );
     _pendingSigningCoordinator = session;
+    _log.i(
+        '[FROST] signing session started session=${_redact(sessionId, keep: 6)} wallet=${_redact(walletId, keep: 6)} zat=$zatoshis');
     return session;
+  }
+
+  Future<FrostSigningRequestPeek?> peekSigningRequest({
+    required String walletId,
+  }) async {
+    final metadata = await loadMetadata(walletId);
+    if (metadata == null) return null;
+    if (metadata.participantId == 1) return null;
+    final relayPriv = await SecureKeyStore.getFrostRelayPrivateKey(walletId);
+    final relayPub = metadata.relayPublicKeyHex;
+    if (relayPriv == null || relayPub == null) return null;
+
+    final client = FrostRelayClient(metadata.relay);
+    try {
+      await client.loginWithIdentity(
+        privateKeyHex: relayPriv,
+        publicKeyHex: relayPub,
+      );
+    } catch (e) {
+      _log.w('[FROST] relay login failed wallet=${_redact(walletId, keep: 6)}: $e');
+      return null;
+    }
+
+    final sessions = await client.listSessions();
+    if (sessions.isEmpty) return null;
+
+    for (final sessionId in sessions) {
+      final msgs = await client.receiveAndDecrypt(
+        sessionId: sessionId,
+        asCoordinator: false,
+      );
+      for (final m in msgs) {
+        final request = jsonDecode(utf8.decode(_hexDecode(m['msg'] as String)))
+            as Map<String, dynamic>;
+        if (request['type'] != 'frost_sign_request_v1') continue;
+        _log.d('[FROST] peek found session=${_redact(sessionId, keep: 6)}');
+        return FrostSigningRequestPeek(
+          sessionId: sessionId,
+          coordinatorPubkey: m['sender'] as String,
+          request: request,
+        );
+      }
+    }
+    return null;
   }
 
   Future<FrostCosignerApprovalState> receiveSigningRequest({
     required String walletId,
   }) async {
+    final pending = _pendingCosignerApproval;
+    if (pending != null) {
+      _log.d('[FROST] reusing pending approval session=${_redact(pending.sessionId, keep: 6)}');
+      return pending;
+    }
     final metadata = await loadMetadata(walletId);
     if (metadata == null) throw StateError('FROST metadata missing');
     final relayPriv = await SecureKeyStore.getFrostRelayPrivateKey(walletId);
@@ -1270,6 +1397,8 @@ class FrostService {
           request: request,
         );
         _pendingCosignerApproval = state;
+        _log.i(
+            '[FROST] signing request loaded session=${_redact(sessionId, keep: 6)} actions=${actions.length}');
         return state;
       }
     }
@@ -1302,6 +1431,7 @@ class FrostService {
       recipientPublicKeyHex: state.coordinatorPubkey,
       messageHex: _hexEncode(utf8.encode(msg)),
     );
+    _log.i('[FROST] commitments sent session=${_redact(state.sessionId, keep: 6)}');
   }
 
   Future<void> cosignerFinishSigning({
@@ -1365,6 +1495,7 @@ class FrostService {
       messageHex: _hexEncode(utf8.encode(reply)),
     );
     _pendingCosignerApproval = null;
+    _log.i('[FROST] signature shares sent session=${_redact(state.sessionId, keep: 6)}');
   }
 
   Future<Uint8List> coordinatorFinishSigning() async {

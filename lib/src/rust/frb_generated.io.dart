@@ -48,6 +48,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ChainType dco_decode_chain_type(dynamic raw);
 
   @protected
+  EngineDelegationResult dco_decode_engine_delegation_result(dynamic raw);
+
+  @protected
+  EngineEncryptedShare dco_decode_engine_encrypted_share(dynamic raw);
+
+  @protected
   EngineFrostActionSignature dco_decode_engine_frost_action_signature(
       dynamic raw);
 
@@ -108,6 +114,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dynamic raw);
 
   @protected
+  EngineSharePayload dco_decode_engine_share_payload(dynamic raw);
+
+  @protected
   EngineSyncEvent dco_decode_engine_sync_event(dynamic raw);
 
   @protected
@@ -115,6 +124,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EngineTransactionRecord dco_decode_engine_transaction_record(dynamic raw);
+
+  @protected
+  EngineVanWitness dco_decode_engine_van_witness(dynamic raw);
+
+  @protected
+  EngineVoteCommitment dco_decode_engine_vote_commitment(dynamic raw);
+
+  @protected
+  EngineVotingEligibility dco_decode_engine_voting_eligibility(dynamic raw);
+
+  @protected
+  EngineVotingHotkey dco_decode_engine_voting_hotkey(dynamic raw);
 
   @protected
   EvmFees dco_decode_evm_fees(dynamic raw);
@@ -144,6 +165,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<AddressInfo> dco_decode_list_address_info(dynamic raw);
 
   @protected
+  List<EngineDelegationResult> dco_decode_list_engine_delegation_result(
+      dynamic raw);
+
+  @protected
+  List<EngineEncryptedShare> dco_decode_list_engine_encrypted_share(
+      dynamic raw);
+
+  @protected
   List<EngineFrostActionSignature>
       dco_decode_list_engine_frost_action_signature(dynamic raw);
 
@@ -156,11 +185,26 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dco_decode_list_engine_frost_pczt_action_request(dynamic raw);
 
   @protected
+  List<EngineSharePayload> dco_decode_list_engine_share_payload(dynamic raw);
+
+  @protected
   List<EngineTransactionRecord> dco_decode_list_engine_transaction_record(
       dynamic raw);
 
   @protected
+  List<EngineVanWitness> dco_decode_list_engine_van_witness(dynamic raw);
+
+  @protected
+  List<Uint8List> dco_decode_list_list_prim_u_8_strict(dynamic raw);
+
+  @protected
   List<PaymentRecipient> dco_decode_list_payment_recipient(dynamic raw);
+
+  @protected
+  List<int> dco_decode_list_prim_u_32_loose(dynamic raw);
+
+  @protected
+  Uint32List dco_decode_list_prim_u_32_strict(dynamic raw);
 
   @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
@@ -251,6 +295,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ChainType sse_decode_chain_type(SseDeserializer deserializer);
 
   @protected
+  EngineDelegationResult sse_decode_engine_delegation_result(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineEncryptedShare sse_decode_engine_encrypted_share(
+      SseDeserializer deserializer);
+
+  @protected
   EngineFrostActionSignature sse_decode_engine_frost_action_signature(
       SseDeserializer deserializer);
 
@@ -314,6 +366,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  EngineSharePayload sse_decode_engine_share_payload(
+      SseDeserializer deserializer);
+
+  @protected
   EngineSyncEvent sse_decode_engine_sync_event(SseDeserializer deserializer);
 
   @protected
@@ -322,6 +378,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EngineTransactionRecord sse_decode_engine_transaction_record(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineVanWitness sse_decode_engine_van_witness(SseDeserializer deserializer);
+
+  @protected
+  EngineVoteCommitment sse_decode_engine_vote_commitment(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineVotingEligibility sse_decode_engine_voting_eligibility(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineVotingHotkey sse_decode_engine_voting_hotkey(
       SseDeserializer deserializer);
 
   @protected
@@ -354,6 +425,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<AddressInfo> sse_decode_list_address_info(SseDeserializer deserializer);
 
   @protected
+  List<EngineDelegationResult> sse_decode_list_engine_delegation_result(
+      SseDeserializer deserializer);
+
+  @protected
+  List<EngineEncryptedShare> sse_decode_list_engine_encrypted_share(
+      SseDeserializer deserializer);
+
+  @protected
   List<EngineFrostActionSignature>
       sse_decode_list_engine_frost_action_signature(
           SseDeserializer deserializer);
@@ -369,12 +448,30 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
           SseDeserializer deserializer);
 
   @protected
+  List<EngineSharePayload> sse_decode_list_engine_share_payload(
+      SseDeserializer deserializer);
+
+  @protected
   List<EngineTransactionRecord> sse_decode_list_engine_transaction_record(
+      SseDeserializer deserializer);
+
+  @protected
+  List<EngineVanWitness> sse_decode_list_engine_van_witness(
+      SseDeserializer deserializer);
+
+  @protected
+  List<Uint8List> sse_decode_list_list_prim_u_8_strict(
       SseDeserializer deserializer);
 
   @protected
   List<PaymentRecipient> sse_decode_list_payment_recipient(
       SseDeserializer deserializer);
+
+  @protected
+  List<int> sse_decode_list_prim_u_32_loose(SseDeserializer deserializer);
+
+  @protected
+  Uint32List sse_decode_list_prim_u_32_strict(SseDeserializer deserializer);
 
   @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
@@ -471,6 +568,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_chain_type(ChainType self, SseSerializer serializer);
 
   @protected
+  void sse_encode_engine_delegation_result(
+      EngineDelegationResult self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_encrypted_share(
+      EngineEncryptedShare self, SseSerializer serializer);
+
+  @protected
   void sse_encode_engine_frost_action_signature(
       EngineFrostActionSignature self, SseSerializer serializer);
 
@@ -534,6 +639,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       EngineMultiChainAddresses self, SseSerializer serializer);
 
   @protected
+  void sse_encode_engine_share_payload(
+      EngineSharePayload self, SseSerializer serializer);
+
+  @protected
   void sse_encode_engine_sync_event(
       EngineSyncEvent self, SseSerializer serializer);
 
@@ -544,6 +653,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_engine_transaction_record(
       EngineTransactionRecord self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_van_witness(
+      EngineVanWitness self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_vote_commitment(
+      EngineVoteCommitment self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_voting_eligibility(
+      EngineVotingEligibility self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_voting_hotkey(
+      EngineVotingHotkey self, SseSerializer serializer);
 
   @protected
   void sse_encode_evm_fees(EvmFees self, SseSerializer serializer);
@@ -576,6 +701,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<AddressInfo> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_engine_delegation_result(
+      List<EngineDelegationResult> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_engine_encrypted_share(
+      List<EngineEncryptedShare> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_engine_frost_action_signature(
       List<EngineFrostActionSignature> self, SseSerializer serializer);
 
@@ -588,12 +721,32 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<EngineFrostPcztActionRequest> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_engine_share_payload(
+      List<EngineSharePayload> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_engine_transaction_record(
       List<EngineTransactionRecord> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_engine_van_witness(
+      List<EngineVanWitness> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_list_prim_u_8_strict(
+      List<Uint8List> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_payment_recipient(
       List<PaymentRecipient> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_prim_u_32_loose(
+      List<int> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_prim_u_32_strict(
+      Uint32List self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);

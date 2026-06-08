@@ -19,6 +19,7 @@ pub mod swap;
 pub mod sync;
 pub mod types;
 pub mod vault;
+pub mod voting;
 pub mod wallet;
 pub mod x402;
 

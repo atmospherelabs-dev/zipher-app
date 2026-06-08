@@ -1306,3 +1306,362 @@ pub async fn engine_check_invoice(id_or_memo: String) -> Result<EngineInvoice> {
         product_name: invoice.product_name,
     })
 }
+
+// ---------------------------------------------------------------------------
+// Shielded voting
+// ---------------------------------------------------------------------------
+
+/// Warm the proving key caches for voting ZKPs. Takes ~30s.
+/// Call once from a background isolate at app startup.
+pub fn engine_vote_warm_caches() {
+    zipher_engine::voting::warm_proving_caches();
+}
+
+/// Derive the voting seed from raw BIP-39 seed bytes (deterministic).
+pub fn engine_vote_derive_seed(wallet_seed: Vec<u8>) -> Vec<u8> {
+    zipher_engine::voting::derive_voting_seed(&wallet_seed).to_vec()
+}
+
+/// Derive the voting seed from a BIP-39 mnemonic phrase.
+/// Converts the mnemonic to seed bytes first, then derives the voting seed.
+pub fn engine_vote_derive_seed_from_phrase(seed_phrase: String) -> Result<Vec<u8>> {
+    let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(&seed_phrase)
+        .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
+    let seed_bytes = mnemonic.to_seed("");
+    Ok(zipher_engine::voting::derive_voting_seed(&seed_bytes).to_vec())
+}
+
+/// Derive a voting hotkey from a 32-byte voting seed.
+/// Returns (secret_key, public_key, address).
+pub fn engine_vote_derive_hotkey(
+    voting_seed: Vec<u8>,
+) -> Result<EngineVotingHotkey> {
+    let hk = zipher_engine::voting::derive_hotkey(&voting_seed)?;
+    Ok(EngineVotingHotkey {
+        secret_key: hk.secret_key,
+        public_key: hk.public_key,
+        address: hk.address,
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct EngineVotingHotkey {
+    pub secret_key: Vec<u8>,
+    pub public_key: Vec<u8>,
+    pub address: String,
+}
+
+/// Check voting eligibility at a given snapshot height.
+/// Returns (eligible_weight_zatoshi, note_count, bundle_count).
+pub async fn engine_vote_check_eligibility(
+    snapshot_height: u64,
+) -> Result<EngineVotingEligibility> {
+    let (weight, notes, bundles) =
+        zipher_engine::voting::check_eligibility(snapshot_height).await?;
+    Ok(EngineVotingEligibility {
+        eligible_weight: weight,
+        note_count: notes as u32,
+        bundle_count: bundles as u32,
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct EngineVotingEligibility {
+    /// Total voting weight in zatoshis.
+    pub eligible_weight: u64,
+    /// Number of unspent Orchard notes at snapshot.
+    pub note_count: u32,
+    /// Number of delegation bundles (max 5 notes each).
+    pub bundle_count: u32,
+}
+
+/// Compute the proposals hash for vote config verification.
+pub fn engine_vote_proposals_hash(proposals_json: String) -> Vec<u8> {
+    zipher_engine::voting::compute_proposals_hash(&proposals_json).to_vec()
+}
+
+/// Perform full delegation flow: PCZT → sign → PIR → witnesses → ZKP1 proof.
+/// Returns delegation submission data for each bundle.
+pub async fn engine_vote_delegate(
+    seed_phrase: String,
+    vote_round_id: String,
+    snapshot_height: u64,
+    ea_pk: Vec<u8>,
+    nc_root: Vec<u8>,
+    nf_imt_root: Vec<u8>,
+    pir_url: String,
+    network_id: u32,
+) -> Result<Vec<EngineDelegationResult>> {
+    let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(&seed_phrase)
+        .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
+    let wallet_seed = mnemonic.to_seed("");
+
+    let params = zipher_engine::voting::VotingRoundParams {
+        vote_round_id,
+        snapshot_height,
+        ea_pk,
+        nc_root,
+        nullifier_imt_root: nf_imt_root,
+    };
+
+    let results = zipher_engine::voting::perform_delegation(
+        &wallet_seed,
+        params,
+        &pir_url,
+        network_id,
+    )
+    .await?;
+
+    Ok(results
+        .into_iter()
+        .map(|r| EngineDelegationResult {
+            proof: r.proof,
+            rk: r.rk,
+            nf_signed: r.nf_signed,
+            cmx_new: r.cmx_new,
+            van_comm: r.van_comm,
+            van_comm_rand: r.van_comm_rand,
+            gov_nullifiers: r.gov_nullifiers,
+            spend_auth_sig: r.spend_auth_sig,
+            sighash: r.sighash,
+            vote_round_id: r.vote_round_id,
+            total_value: r.total_value,
+            action_bytes: r.action_bytes,
+        })
+        .collect())
+}
+
+#[derive(Debug, Clone)]
+pub struct EngineDelegationResult {
+    pub proof: Vec<u8>,
+    pub rk: Vec<u8>,
+    pub nf_signed: Vec<u8>,
+    pub cmx_new: Vec<u8>,
+    pub van_comm: Vec<u8>,
+    pub van_comm_rand: Vec<u8>,
+    pub gov_nullifiers: Vec<Vec<u8>>,
+    pub spend_auth_sig: Vec<u8>,
+    pub sighash: Vec<u8>,
+    pub vote_round_id: String,
+    pub total_value: u64,
+    pub action_bytes: Vec<u8>,
+}
+
+/// Build vote commitment (ZKP2) for a single proposal.
+/// voting_seed is the 32-byte deterministic voting seed (from engine_vote_derive_seed).
+pub fn engine_vote_build_commitment(
+    voting_seed: Vec<u8>,
+    network_id: u32,
+    total_note_value: u64,
+    gov_comm_rand: Vec<u8>,
+    voting_round_id: Vec<u8>,
+    ea_pk: Vec<u8>,
+    proposal_id: u32,
+    choice: u32,
+    num_options: u32,
+    van_auth_path: Vec<Vec<u8>>,
+    van_position: u32,
+    anchor_height: u32,
+    proposal_authority: u64,
+    single_share: bool,
+) -> Result<EngineVoteCommitment> {
+    let bundle = zipher_engine::voting::build_vote_commitment_for_proposal(
+        &voting_seed,
+        network_id,
+        total_note_value,
+        &gov_comm_rand,
+        &voting_round_id,
+        &ea_pk,
+        proposal_id,
+        choice,
+        num_options,
+        van_auth_path,
+        van_position,
+        anchor_height,
+        proposal_authority,
+        single_share,
+    )?;
+
+    let enc_shares: Vec<EngineEncryptedShare> = bundle
+        .enc_shares
+        .iter()
+        .map(|s| EngineEncryptedShare {
+            c1: s.c1.clone(),
+            c2: s.c2.clone(),
+            share_index: s.share_index,
+        })
+        .collect();
+
+    Ok(EngineVoteCommitment {
+        van_nullifier: bundle.van_nullifier,
+        vote_authority_note_new: bundle.vote_authority_note_new,
+        vote_commitment: bundle.vote_commitment,
+        proposal_id: bundle.proposal_id,
+        proof: bundle.proof,
+        enc_shares,
+        anchor_height: bundle.anchor_height,
+        vote_round_id: bundle.vote_round_id,
+        shares_hash: bundle.shares_hash,
+        share_blinds: bundle.share_blinds,
+        share_comms: bundle.share_comms,
+        r_vpk_bytes: bundle.r_vpk_bytes,
+        alpha_v: bundle.alpha_v,
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct EngineVoteCommitment {
+    pub van_nullifier: Vec<u8>,
+    pub vote_authority_note_new: Vec<u8>,
+    pub vote_commitment: Vec<u8>,
+    pub proposal_id: u32,
+    pub proof: Vec<u8>,
+    pub enc_shares: Vec<EngineEncryptedShare>,
+    pub anchor_height: u32,
+    pub vote_round_id: String,
+    pub shares_hash: Vec<u8>,
+    pub share_blinds: Vec<Vec<u8>>,
+    pub share_comms: Vec<Vec<u8>>,
+    pub r_vpk_bytes: Vec<u8>,
+    pub alpha_v: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EngineEncryptedShare {
+    pub c1: Vec<u8>,
+    pub c2: Vec<u8>,
+    pub share_index: u32,
+}
+
+/// Sign a cast-vote transaction using the voting hotkey.
+pub fn engine_vote_sign_cast(
+    voting_seed: Vec<u8>,
+    network_id: u32,
+    vote_round_id_hex: String,
+    r_vpk_bytes: Vec<u8>,
+    van_nullifier: Vec<u8>,
+    vote_authority_note_new: Vec<u8>,
+    vote_commitment: Vec<u8>,
+    proposal_id: u32,
+    anchor_height: u32,
+    alpha_v: Vec<u8>,
+) -> Result<Vec<u8>> {
+    let bundle = zipher_engine::voting::VoteCommitmentBundleRef {
+        van_nullifier: &van_nullifier,
+        vote_authority_note_new: &vote_authority_note_new,
+        vote_commitment: &vote_commitment,
+        vote_round_id: &vote_round_id_hex,
+        r_vpk_bytes: &r_vpk_bytes,
+        alpha_v: &alpha_v,
+        proposal_id,
+        anchor_height,
+    };
+
+    let sig = zipher_engine::voting::sign_cast_vote_tx_raw(
+        &voting_seed,
+        network_id,
+        &bundle,
+    )?;
+
+    Ok(sig)
+}
+
+/// Build share payloads for helper server submission.
+pub fn engine_vote_build_shares(
+    shares_hash: Vec<u8>,
+    proposal_id: u32,
+    vote_decision: u32,
+    num_options: u32,
+    vc_tree_position: u64,
+    enc_shares_c1: Vec<Vec<u8>>,
+    enc_shares_c2: Vec<Vec<u8>>,
+    enc_shares_indices: Vec<u32>,
+    share_blinds: Vec<Vec<u8>>,
+    share_comms: Vec<Vec<u8>>,
+    single_share: bool,
+) -> Result<Vec<EngineSharePayload>> {
+    let payloads = zipher_engine::voting::build_vote_share_payloads_raw(
+        &shares_hash,
+        proposal_id,
+        vote_decision,
+        num_options,
+        vc_tree_position,
+        &enc_shares_c1,
+        &enc_shares_c2,
+        &enc_shares_indices,
+        &share_blinds,
+        &share_comms,
+        single_share,
+    )?;
+
+    Ok(payloads
+        .into_iter()
+        .map(|p| EngineSharePayload {
+            shares_hash: p.0,
+            proposal_id: p.1,
+            vote_decision: p.2,
+            enc_share_c1: p.3,
+            enc_share_c2: p.4,
+            enc_share_index: p.5,
+            tree_position: p.6,
+            primary_blind: p.7,
+        })
+        .collect())
+}
+
+#[derive(Debug, Clone)]
+pub struct EngineSharePayload {
+    pub shares_hash: Vec<u8>,
+    pub proposal_id: u32,
+    pub vote_decision: u32,
+    pub enc_share_c1: Vec<u8>,
+    pub enc_share_c2: Vec<u8>,
+    pub enc_share_index: u32,
+    pub tree_position: u64,
+    pub primary_blind: Vec<u8>,
+}
+
+/// Sync the vote commitment tree and generate VAN witnesses for ZKP2.
+///
+/// Call after delegation TXs are confirmed. `van_positions` contains
+/// the VAN leaf position for each bundle (from the delegation response).
+pub fn engine_vote_sync_tree_and_witness(
+    node_url: String,
+    vote_round_id: String,
+    snapshot_height: u64,
+    ea_pk: Vec<u8>,
+    nc_root: Vec<u8>,
+    nf_imt_root: Vec<u8>,
+    van_positions: Vec<u32>,
+) -> Result<Vec<EngineVanWitness>> {
+    let params = zipher_engine::voting::VotingRoundParams {
+        vote_round_id: vote_round_id.clone(),
+        snapshot_height,
+        ea_pk,
+        nc_root,
+        nullifier_imt_root: nf_imt_root,
+    };
+
+    let witnesses = zipher_engine::voting::sync_tree_and_witness(
+        &node_url,
+        &vote_round_id,
+        &params,
+        &van_positions,
+    )?;
+
+    Ok(witnesses
+        .into_iter()
+        .map(|w| EngineVanWitness {
+            auth_path: w.auth_path,
+            position: w.position,
+            anchor_height: w.anchor_height,
+        })
+        .collect())
+}
+
+#[derive(Debug, Clone)]
+pub struct EngineVanWitness {
+    pub auth_path: Vec<Vec<u8>>,
+    pub position: u32,
+    pub anchor_height: u32,
+}

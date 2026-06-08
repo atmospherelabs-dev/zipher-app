@@ -6,13 +6,18 @@ use secrecy::{ExposeSecret, SecretString};
 use tracing::{debug, error, info};
 use zeroize::Zeroize;
 
+use std::num::NonZeroU32;
+
 use super::wallet::connect_lwd;
 use super::{open_wallet_db, ENGINE};
 use zcash_address::ZcashAddress;
 use zcash_client_backend::data_api::wallet::{
     create_pczt_from_proposal, create_proposed_transactions,
+    create_proposed_transactions_with_expiry_delta,
     extract_and_store_transaction_from_pczt, propose_send_max_transfer, propose_shielding,
-    propose_standard_transfer_to_address, ConfirmationsPolicy, SpendingKeys,
+    propose_standard_transfer_to_address,
+    propose_zip317_transfer_to_address_with_marginal_fee,
+    ConfirmationsPolicy, SpendingKeys,
 };
 use zcash_client_backend::data_api::{InputSource, MaxSpendMode, WalletRead};
 use zcash_client_backend::fees::StandardFeeRule;
@@ -23,6 +28,7 @@ use zcash_client_sqlite::ReceivedNoteId;
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::address::Address;
 use zcash_keys::keys::UnifiedSpendingKey;
+use zcash_primitives::transaction::fees::zip317::FeeRule as Zip317FeeRule;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::consensus::Network;
 use zcash_protocol::value::Zatoshis;
@@ -30,14 +36,29 @@ use zcash_protocol::ShieldedProtocol;
 
 type DbType = WalletDb<rusqlite::Connection, Network, SystemClock, rand::rngs::OsRng>;
 type ProposalType = Proposal<StandardFeeRule, ReceivedNoteId>;
+type PriorityProposalType = Proposal<Zip317FeeRule, ReceivedNoteId>;
 
 use zcash_client_sqlite::util::SystemClock;
+
+/// 2-block expiry delta (~2.5 minutes at 75s/block).
+const TX_EXPIRY_DELTA: u32 = 2;
+
+/// 4x the standard ZIP-317 marginal fee (5000 zat) = 20000 zat.
+const PRIORITY_MARGINAL_FEE: u64 = 20_000;
+
+/// Holds either a standard or priority-fee proposal. The priority variant
+/// uses an explicit `Zip317FeeRule` which cannot be serialized into the
+/// standard proposal format but works fine for in-memory execution.
+enum PendingProposal {
+    Standard(ProposalType),
+    Priority(PriorityProposalType),
+}
 
 // ---------------------------------------------------------------------------
 // Pending proposal state — always an SDK Proposal now
 // ---------------------------------------------------------------------------
 
-static PENDING_SEND: StdMutex<Option<ProposalType>> = StdMutex::new(None);
+static PENDING_SEND: StdMutex<Option<PendingProposal>> = StdMutex::new(None);
 
 const PCZT_LOCK_EXPIRY_SECS: u64 = 600; // 10 minutes
 
@@ -92,11 +113,16 @@ pub fn clear_pczt_lock(data_dir: &str) {
 ///
 /// When `is_max` is true the SDK's `propose_send_max_transfer` is used and
 /// `amount` is ignored — the returned `send_amount` is computed by the SDK.
+///
+/// When `priority` is true, a 4x marginal fee is used (20000 zat vs 5000 zat
+/// standard). This makes the transaction more likely to be mined quickly but
+/// also more distinguishable on-chain.
 pub async fn propose_send(
     address: &str,
     amount: u64,
     memo: Option<String>,
     is_max: bool,
+    priority: bool,
 ) -> Result<(u64, u64, bool)> {
     super::sync::ensure_synced().await?;
 
@@ -201,7 +227,7 @@ pub async fn propose_send(
                             fee as f64 / 1e8,
                             fee_buffer,
                         );
-                        *PENDING_SEND.lock().unwrap() = Some(proposal);
+                        *PENDING_SEND.lock().unwrap() = Some(PendingProposal::Standard(proposal));
                         return Ok((target, fee, true));
                     }
                     Err(e) => {
@@ -234,7 +260,7 @@ pub async fn propose_send(
             .transaction_request()
             .payments()
             .values()
-            .map(|p| u64::from(p.amount()))
+            .filter_map(|p| p.amount().map(|a| u64::from(a)))
             .sum();
 
         info!(
@@ -242,33 +268,60 @@ pub async fn propose_send(
             send_amount as f64 / 1e8,
             fee as f64 / 1e8
         );
-        *PENDING_SEND.lock().unwrap() = Some(proposal);
+        *PENDING_SEND.lock().unwrap() = Some(PendingProposal::Standard(proposal));
         Ok((send_amount, fee, true))
     } else {
         let send_zat = Zatoshis::from_u64(amount).map_err(|_| anyhow::anyhow!("Invalid amount"))?;
 
-        let proposal = propose_standard_transfer_to_address::<_, _, std::convert::Infallible>(
-            &mut db_data,
-            &params,
-            StandardFeeRule::Zip317,
-            account_id,
-            confirmations,
-            &to,
-            send_zat,
-            memo_bytes,
-            None,
-            ShieldedProtocol::Orchard,
-        )
-        .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))?;
+        if priority {
+            let marginal = Zatoshis::from_u64(PRIORITY_MARGINAL_FEE)
+                .map_err(|_| anyhow::anyhow!("Invalid marginal fee"))?;
+            let proposal = propose_zip317_transfer_to_address_with_marginal_fee::<_, _, std::convert::Infallible>(
+                &mut db_data,
+                &params,
+                marginal,
+                account_id,
+                confirmations,
+                &to,
+                send_zat,
+                memo_bytes,
+                None,
+                ShieldedProtocol::Orchard,
+            )
+            .map_err(|e| anyhow::anyhow!("Priority proposal failed: {:?}", e))?;
 
-        let fee = u64::from(proposal.steps().first().balance().fee_required());
-        info!(
-            "Proposal ready: {:.8} ZEC + {:.8} ZEC fee",
-            amount as f64 / 1e8,
-            fee as f64 / 1e8
-        );
-        *PENDING_SEND.lock().unwrap() = Some(proposal);
-        Ok((amount, fee, true))
+            let fee = u64::from(proposal.steps().first().balance().fee_required());
+            info!(
+                "Priority proposal ready: {:.8} ZEC + {:.8} ZEC fee (4x marginal)",
+                amount as f64 / 1e8,
+                fee as f64 / 1e8
+            );
+            *PENDING_SEND.lock().unwrap() = Some(PendingProposal::Priority(proposal));
+            Ok((amount, fee, true))
+        } else {
+            let proposal = propose_standard_transfer_to_address::<_, _, std::convert::Infallible>(
+                &mut db_data,
+                &params,
+                StandardFeeRule::Zip317,
+                account_id,
+                confirmations,
+                &to,
+                send_zat,
+                memo_bytes,
+                None,
+                ShieldedProtocol::Orchard,
+            )
+            .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))?;
+
+            let fee = u64::from(proposal.steps().first().balance().fee_required());
+            info!(
+                "Proposal ready: {:.8} ZEC + {:.8} ZEC fee",
+                amount as f64 / 1e8,
+                fee as f64 / 1e8
+            );
+            *PENDING_SEND.lock().unwrap() = Some(PendingProposal::Standard(proposal));
+            Ok((amount, fee, true))
+        }
     }
 }
 
@@ -276,16 +329,11 @@ pub async fn propose_send(
 pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     info!("Signing and broadcasting transaction...");
 
-    let proposal = {
+    let pending = {
         let mut lock = PENDING_SEND.lock().unwrap();
         lock.take()
             .ok_or_else(|| anyhow::anyhow!("No pending proposal — call propose_send first"))?
     };
-
-    let step = proposal.steps().first();
-    let fee = u64::from(step.balance().fee_required());
-    let n_payments = step.transaction_request().payments().len();
-    info!("Transaction: {} payment(s), {} zat fee", n_payments, fee);
 
     let engine_guard = ENGINE.lock().await;
     let engine = engine_guard
@@ -311,26 +359,57 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     let prover = load_prover_from_path(&db_data_path)?;
     let spending_keys = SpendingKeys::from_unified_spending_key(usk);
 
-    let txids = create_proposed_transactions::<
-        _,
-        _,
-        std::convert::Infallible,
-        _,
-        std::convert::Infallible,
-        _,
-    >(
-        &mut db_data,
-        &params,
-        &prover,
-        &prover,
-        &spending_keys,
-        OvkPolicy::Sender,
-        &proposal,
-    )
-    .map_err(|e| {
-        error!("Transaction creation failed: {:?}", e);
-        anyhow::anyhow!("Create tx failed: {:?}", e)
-    })?;
+    let expiry_delta = NonZeroU32::new(TX_EXPIRY_DELTA)
+        .expect("TX_EXPIRY_DELTA must be non-zero");
+
+    let txids = match pending {
+        PendingProposal::Standard(ref proposal) => {
+            create_proposed_transactions_with_expiry_delta::<
+                _,
+                _,
+                std::convert::Infallible,
+                _,
+                std::convert::Infallible,
+                _,
+            >(
+                &mut db_data,
+                &params,
+                &prover,
+                &prover,
+                &spending_keys,
+                OvkPolicy::Sender,
+                proposal,
+                expiry_delta,
+            )
+            .map_err(|e| {
+                error!("Transaction creation failed: {:?}", e);
+                anyhow::anyhow!("Create tx failed: {:?}", e)
+            })?
+        }
+        PendingProposal::Priority(ref proposal) => {
+            create_proposed_transactions_with_expiry_delta::<
+                _,
+                _,
+                std::convert::Infallible,
+                _,
+                std::convert::Infallible,
+                _,
+            >(
+                &mut db_data,
+                &params,
+                &prover,
+                &prover,
+                &spending_keys,
+                OvkPolicy::Sender,
+                proposal,
+                expiry_delta,
+            )
+            .map_err(|e| {
+                error!("Transaction creation (priority) failed: {:?}", e);
+                anyhow::anyhow!("Create tx (priority) failed: {:?}", e)
+            })?
+        }
+    };
 
     let txid = txids.first();
     info!("Transaction built: {}", txid);
@@ -408,8 +487,14 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
 pub async fn create_pczt() -> Result<Vec<u8>> {
     let proposal = {
         let mut lock = PENDING_SEND.lock().unwrap();
-        lock.take()
-            .ok_or_else(|| anyhow::anyhow!("No pending proposal — call propose_send first"))?
+        let pending = lock.take()
+            .ok_or_else(|| anyhow::anyhow!("No pending proposal — call propose_send first"))?;
+        match pending {
+            PendingProposal::Standard(p) => p,
+            PendingProposal::Priority(_) => {
+                return Err(anyhow::anyhow!("PCZT does not support priority-fee proposals"));
+            }
+        }
     };
 
     let engine_guard = ENGINE.lock().await;
@@ -666,7 +751,7 @@ pub async fn get_max_sendable(address: &str) -> Result<u64> {
                 .transaction_request()
                 .payments()
                 .values()
-                .map(|p| u64::from(p.amount()))
+                .filter_map(|p| p.amount().map(|a| u64::from(a)))
                 .sum();
             Ok(send_amount)
         }
@@ -710,8 +795,10 @@ fn propose_and_create_send(
     .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))?;
 
     let spending_keys = SpendingKeys::from_unified_spending_key(usk);
+    let expiry_delta = NonZeroU32::new(TX_EXPIRY_DELTA)
+        .expect("TX_EXPIRY_DELTA must be non-zero");
 
-    create_proposed_transactions::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(
+    create_proposed_transactions_with_expiry_delta::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(
         db_data,
         params,
         prover,
@@ -719,6 +806,7 @@ fn propose_and_create_send(
         &spending_keys,
         OvkPolicy::Sender,
         &proposal,
+        expiry_delta,
     )
     .map_err(|e| anyhow::anyhow!("Create tx failed: {:?}", e))
 }
@@ -749,12 +837,15 @@ fn propose_and_create_shielding(
         from_addrs,
         to_account,
         ConfirmationsPolicy::MIN,
+        zcash_client_backend::data_api::TransparentOutputFilter::All,
     )
     .map_err(|e| anyhow::anyhow!("Shielding proposal failed: {:?}", e))?;
 
     let spending_keys = SpendingKeys::from_unified_spending_key(usk);
+    let expiry_delta = NonZeroU32::new(TX_EXPIRY_DELTA)
+        .expect("TX_EXPIRY_DELTA must be non-zero");
 
-    create_proposed_transactions::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(
+    create_proposed_transactions_with_expiry_delta::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(
         db_data,
         params,
         prover,
@@ -762,6 +853,7 @@ fn propose_and_create_shielding(
         &spending_keys,
         OvkPolicy::Sender,
         &proposal,
+        expiry_delta,
     )
     .map_err(|e| anyhow::anyhow!("Create shielding tx failed: {:?}", e))
 }
@@ -820,6 +912,7 @@ pub async fn create_shield_pczt() -> Result<Vec<u8>> {
         &from_addrs,
         account_id,
         ConfirmationsPolicy::MIN,
+        zcash_client_backend::data_api::TransparentOutputFilter::All,
     )
     .map_err(|e| anyhow::anyhow!("Shielding proposal failed: {:?}", e))?;
 

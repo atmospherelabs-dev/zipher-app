@@ -1976,6 +1976,7 @@ async fn scan_address_transactions(
                 height: end_inclusive as u64,
                 hash: Vec::new(),
             }),
+            pool_types: vec![],
         }),
     };
 
@@ -3020,58 +3021,81 @@ async fn update_subtree_roots(
     db_data: &mut DbType,
 ) -> Result<()> {
     use futures_util::TryStreamExt;
+    const SUBTREE_TIMEOUT: Duration = Duration::from_secs(30);
 
     // Sapling
     let mut sapling_request = GetSubtreeRootsArg::default();
     sapling_request.set_shielded_protocol(ShieldedProtocol::Sapling);
 
-    let sapling_roots: Vec<CommitmentTreeRoot<sapling_crypto::Node>> = lwd
+    emit_log("subtree roots: fetching sapling...");
+    let sapling_stream = lwd
         .get_subtree_roots(sapling_request)
         .await
-        .map_err(|e| anyhow::anyhow!("get_subtree_roots(sapling): {:?}", e))?
-        .into_inner()
-        .and_then(|root| async move {
-            let root_hash = sapling_crypto::Node::read(&root.root_hash[..])
-                .map_err(|e| tonic::Status::internal(format!("{:?}", e)))?;
-            Ok(CommitmentTreeRoot::from_parts(
-                BlockHeight::from_u32(root.completing_block_height as u32),
-                root_hash,
-            ))
+        .map_err(|e| anyhow::anyhow!("get_subtree_roots(sapling): {:?}", e))?;
+    emit_log("subtree roots: sapling stream opened, collecting...");
+
+    let sapling_roots: Vec<CommitmentTreeRoot<sapling_crypto::Node>> =
+        tokio::time::timeout(SUBTREE_TIMEOUT, async {
+            sapling_stream
+                .into_inner()
+                .and_then(|root| async move {
+                    let root_hash = sapling_crypto::Node::read(&root.root_hash[..])
+                        .map_err(|e| tonic::Status::internal(format!("{:?}", e)))?;
+                    Ok(CommitmentTreeRoot::from_parts(
+                        BlockHeight::from_u32(root.completing_block_height as u32),
+                        root_hash,
+                    ))
+                })
+                .try_collect()
+                .await
         })
-        .try_collect()
         .await
+        .map_err(|_| anyhow::anyhow!("sapling subtree roots: timed out after {}s", SUBTREE_TIMEOUT.as_secs()))?
         .map_err(|e| anyhow::anyhow!("sapling subtree roots: {:?}", e))?;
 
+    emit_log(&format!("subtree roots: sapling {} roots, writing to db...", sapling_roots.len()));
     tracing::info!("[sync] sapling: {} subtree roots", sapling_roots.len());
     db_data
         .put_sapling_subtree_roots(0, &sapling_roots)
         .map_err(|e| anyhow::anyhow!("put_sapling_subtree_roots: {:?}", e))?;
+    emit_log("subtree roots: sapling written");
 
     // Orchard
     let mut orchard_request = GetSubtreeRootsArg::default();
     orchard_request.set_shielded_protocol(ShieldedProtocol::Orchard);
 
-    let orchard_roots: Vec<CommitmentTreeRoot<orchard::tree::MerkleHashOrchard>> = lwd
+    emit_log("subtree roots: fetching orchard...");
+    let orchard_stream = lwd
         .get_subtree_roots(orchard_request)
         .await
-        .map_err(|e| anyhow::anyhow!("get_subtree_roots(orchard): {:?}", e))?
-        .into_inner()
-        .and_then(|root| async move {
-            let root_hash = orchard::tree::MerkleHashOrchard::read(&root.root_hash[..])
-                .map_err(|e| tonic::Status::internal(format!("{:?}", e)))?;
-            Ok(CommitmentTreeRoot::from_parts(
-                BlockHeight::from_u32(root.completing_block_height as u32),
-                root_hash,
-            ))
+        .map_err(|e| anyhow::anyhow!("get_subtree_roots(orchard): {:?}", e))?;
+    emit_log("subtree roots: orchard stream opened, collecting...");
+
+    let orchard_roots: Vec<CommitmentTreeRoot<orchard::tree::MerkleHashOrchard>> =
+        tokio::time::timeout(SUBTREE_TIMEOUT, async {
+            orchard_stream
+                .into_inner()
+                .and_then(|root| async move {
+                    let root_hash = orchard::tree::MerkleHashOrchard::read(&root.root_hash[..])
+                        .map_err(|e| tonic::Status::internal(format!("{:?}", e)))?;
+                    Ok(CommitmentTreeRoot::from_parts(
+                        BlockHeight::from_u32(root.completing_block_height as u32),
+                        root_hash,
+                    ))
+                })
+                .try_collect()
+                .await
         })
-        .try_collect()
         .await
+        .map_err(|_| anyhow::anyhow!("orchard subtree roots: timed out after {}s", SUBTREE_TIMEOUT.as_secs()))?
         .map_err(|e| anyhow::anyhow!("orchard subtree roots: {:?}", e))?;
 
+    emit_log(&format!("subtree roots: orchard {} roots, writing to db...", orchard_roots.len()));
     tracing::info!("[sync] orchard: {} subtree roots", orchard_roots.len());
     db_data
         .put_orchard_subtree_roots(0, &orchard_roots)
         .map_err(|e| anyhow::anyhow!("put_orchard_subtree_roots: {:?}", e))?;
+    emit_log("subtree roots: orchard written");
 
     Ok(())
 }
@@ -3315,6 +3339,7 @@ async fn download_blocks(
             height: u64::from(u32::from(to) - 1),
             hash: vec![],
         }),
+        pool_types: vec![],
     };
 
     let mut stream = lwd
