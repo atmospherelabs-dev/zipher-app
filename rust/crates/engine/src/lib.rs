@@ -4,6 +4,7 @@ pub mod evm;
 pub mod evm_pay;
 pub mod evm_swap;
 pub mod frost;
+pub mod hitl;
 pub mod llm;
 pub mod mpp;
 pub mod ows;
@@ -19,6 +20,7 @@ pub mod swap;
 pub mod sync;
 pub mod types;
 pub mod vault;
+#[cfg(feature = "voting")]
 pub mod voting;
 pub mod wallet;
 pub mod x402;

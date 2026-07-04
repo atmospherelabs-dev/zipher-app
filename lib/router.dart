@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/foundation.dart';
 import 'package:showcaseview/showcaseview.dart';
 
@@ -43,7 +41,9 @@ import 'pages/frost/frost_approve.dart';
 import 'pages/frost/frost_recovery.dart';
 import 'pages/frost/frost_sign_coordinator.dart';
 import 'pages/frost/frost_hub.dart';
+import 'pages/hitl/hitl_approve.dart';
 import 'services/cipherpay_client.dart';
+import 'services/hitl_watch_service.dart';
 import 'pages/tx.dart';
 import 'pages/scan.dart';
 import 'pages/showqr.dart';
@@ -56,6 +56,28 @@ import 'zipher_theme.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _accountNavigatorKey = GlobalKey<NavigatorState>();
+
+Page<void> _slideUpPage(Widget child, GoRouterState state) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 250),
+    reverseTransitionDuration: const Duration(milliseconds: 200),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final offsetTween = Tween<Offset>(
+        begin: const Offset(0, 0.08),
+        end: Offset.zero,
+      ).chain(CurveTween(curve: Curves.easeOutCubic));
+      return FadeTransition(
+        opacity: animation,
+        child: SlideTransition(
+          position: offsetTween.animate(animation),
+          child: child,
+        ),
+      );
+    },
+  );
+}
 
 final helpRouteMap = {
   "/account": "/accounts",
@@ -146,13 +168,13 @@ final router = GoRouter(
                 ),
                 GoRoute(
                   path: 'quick_send',
-                  builder: (context, state) {
+                  pageBuilder: (context, state) {
                     bool custom = state.uri.queryParameters['custom'] == '1';
-                    return QuickSendPage(
+                    return _slideUpPage(QuickSendPage(
                       custom: custom,
                       single: true,
                       sendContext: state.extra as SendContext?,
-                    );
+                    ), state);
                   },
                   routes: [
                     GoRoute(
@@ -215,6 +237,17 @@ final router = GoRouter(
                   },
                 ),
               ],
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: '/ask',
+              builder: (context, state) {
+                final intent = state.uri.queryParameters['intent'];
+                return ActionPage(initialIntent: intent);
+              },
             ),
           ],
         ),
@@ -363,15 +396,15 @@ final router = GoRouter(
     GoRoute(
       path: '/settings',
       parentNavigatorKey: rootNavigatorKey,
-      builder: (context, state) {
+      pageBuilder: (context, state) {
         final coin =
             state.uri.queryParameters['coin']?.let(int.parse) ?? aa.coin;
-        return SettingsPage(coin: coin);
+        return _slideUpPage(SettingsPage(coin: coin), state);
       },
     ),
     GoRoute(
       path: '/scan',
-      builder: (context, state) => ScanQRCodePage(state.extra as ScanQRContext),
+      pageBuilder: (context, state) => _slideUpPage(ScanQRCodePage(state.extra as ScanQRContext), state),
     ),
     GoRoute(
       path: '/showqr',
@@ -381,41 +414,41 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/invoice/pay',
-      builder: (context, state) {
+      pageBuilder: (context, state) {
         final ref = state.extra as InvoicePayArgs;
-        return InvoicePayPage(
+        return _slideUpPage(InvoicePayPage(
           invoiceRef: ref.invoiceRef,
           prefetched: ref.prefetched,
-        );
+        ), state);
       },
     ),
     GoRoute(
       path: '/invoice/status',
-      builder: (context, state) =>
-          InvoiceStatusPage(args: state.extra as InvoiceStatusArgs),
+      pageBuilder: (context, state) =>
+          _slideUpPage(InvoiceStatusPage(args: state.extra as InvoiceStatusArgs), state),
     ),
     GoRoute(
       path: '/wallet/frost',
-      builder: (context, state) => const FrostHubPage(),
+      pageBuilder: (context, state) => _slideUpPage(const FrostHubPage(), state),
     ),
     GoRoute(
       path: '/wallet/create/frost',
-      builder: (context, state) => const FrostCreatePage(),
+      pageBuilder: (context, state) => _slideUpPage(const FrostCreatePage(), state),
     ),
     GoRoute(
       path: '/wallet/join',
-      builder: (context, state) => const FrostJoinPage(),
+      pageBuilder: (context, state) => _slideUpPage(const FrostJoinPage(), state),
     ),
     GoRoute(
       path: '/frost/approve',
-      builder: (context, state) {
+      pageBuilder: (context, state) {
         final extra = state.extra;
         if (extra is FrostApprovalArgs) {
-          return FrostApprovePage(args: extra);
+          return _slideUpPage(FrostApprovePage(args: extra), state);
         }
         final request =
             FrostApprovalRequest.fromPayload(state.uri.queryParameters);
-        return FrostApprovePage(
+        return _slideUpPage(FrostApprovePage(
           args: FrostApprovalArgs(
             sessionId: request.sessionId,
             walletName: request.walletLabel,
@@ -424,19 +457,29 @@ final router = GoRouter(
             feeZec: request.feeZec,
             memoPreview: request.memoPreview,
           ),
-        );
+        ), state);
+      },
+    ),
+    GoRoute(
+      path: '/hitl/approve',
+      pageBuilder: (context, state) {
+        final extra = state.extra;
+        if (extra is HitlApprovalRequest) {
+          return _slideUpPage(HitlApprovePage(request: extra), state);
+        }
+        return _slideUpPage(const Scaffold(), state);
       },
     ),
     GoRoute(
       path: '/frost/recovery',
-      builder: (context, state) => FrostRecoveryPage(
+      pageBuilder: (context, state) => _slideUpPage(FrostRecoveryPage(
         walletId: state.uri.queryParameters['walletId'] ?? '',
-      ),
+      ), state),
     ),
     GoRoute(
       path: '/frost/sign',
-      builder: (context, state) => FrostSignCoordinatorPage(
-          args: state.extra as FrostSignCoordinatorArgs),
+      pageBuilder: (context, state) => _slideUpPage(FrostSignCoordinatorPage(
+          args: state.extra as FrostSignCoordinatorArgs), state),
     ),
   ],
 );
@@ -458,11 +501,50 @@ class ScaffoldBar extends StatefulWidget {
   State<ScaffoldBar> createState() => _ScaffoldBar();
 }
 
-class _ScaffoldBar extends State<ScaffoldBar> {
+class _ScaffoldBar extends State<ScaffoldBar> with SingleTickerProviderStateMixin {
   int _knownCoin = aa.coin;
   int _knownId = aa.id;
   bool _knownTestnet = isTestnet;
   final Set<int> _staleTabs = {};
+  late final AnimationController _zBounce;
+  late final Animation<double> _zScale;
+
+  @override
+  void initState() {
+    super.initState();
+    _zBounce = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 150),
+    );
+    _zScale = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.08), weight: 50),
+      TweenSequenceItem(tween: Tween(begin: 1.08, end: 1.0), weight: 50),
+    ]).animate(CurvedAnimation(parent: _zBounce, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _zBounce.dispose();
+    super.dispose();
+  }
+
+  void _goToBranch(int i) {
+    if (aa.coin != _knownCoin || aa.id != _knownId) {
+      _knownCoin = aa.coin;
+      _knownId = aa.id;
+      _staleTabs.addAll([0, 1, 2, 3]);
+    }
+    if (isTestnet != _knownTestnet) {
+      _knownTestnet = isTestnet;
+      _staleTabs.addAll([0, 1, 2, 3]);
+    }
+    final isCurrentTab = i == widget.shell.currentIndex;
+    final isStale = _staleTabs.remove(i);
+    widget.shell.goBranch(
+      i,
+      initialLocation: isCurrentTab || isStale,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -479,27 +561,82 @@ class _ScaffoldBar extends State<ScaffoldBar> {
         onPopInvokedWithResult: (didPop, _) => _onPop(didPop),
         child: Scaffold(
           backgroundColor: ZipherColors.bg,
-          bottomNavigationBar: ClipRect(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: ZipherColors.bg.withValues(alpha: 0.80),
-                  border: Border(
-                    top: BorderSide(
-                      color: ZipherColors.borderSubtle,
-                      width: 0.5,
-                    ),
-                  ),
+          bottomNavigationBar: Container(
+            clipBehavior: Clip.none,
+            decoration: BoxDecoration(
+              color: ZipherColors.bg,
+              border: Border(
+                top: BorderSide(
+                  color: ZipherColors.borderSubtle,
+                  width: 0.5,
                 ),
-                child: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+              ),
+            ),
+            child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: List.generate(3, (i) {
+                      children: List.generate(4, (i) {
                         final isActive = widget.shell.currentIndex == i;
+                        final isZButton = i == 2;
+
+                        if (isZButton) {
+                          final zActive = isActive;
+                          return Expanded(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {
+                                _zBounce.forward(from: 0);
+                                _goToBranch(i);
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  ScaleTransition(
+                                    scale: _zScale,
+                                    child: Container(
+                                      width: 42,
+                                      height: 42,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: zActive
+                                            ? ZipherColors.surfaceLight
+                                            : ZipherColors.surface,
+                                        border: Border.all(
+                                          color: zActive
+                                              ? ZipherColors.cyan.withValues(alpha: 0.4)
+                                              : ZipherColors.border,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Center(
+                                        child: AnimatedDefaultTextStyle(
+                                          duration: const Duration(milliseconds: 200),
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w800,
+                                            fontFamily: 'JetBrains Mono',
+                                            color: zActive
+                                                ? ZipherColors.textPrimary
+                                                : ZipherColors.text40,
+                                          ),
+                                          child: const Text('Z'),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              ),
+                            ),
+                          );
+                        }
+
+                        final navIndex = i < 2 ? i : i - 1;
                         final icons = [
                           Icons.home_outlined,
                           isTestnet
@@ -522,62 +659,47 @@ class _ScaffoldBar extends State<ScaffoldBar> {
                         return Expanded(
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
-                            onTap: () {
-                              // Detect account or network change since last tap
-                              if (aa.coin != _knownCoin || aa.id != _knownId) {
-                                _knownCoin = aa.coin;
-                                _knownId = aa.id;
-                                _staleTabs.addAll([0, 1, 2]);
-                              }
-                              if (isTestnet != _knownTestnet) {
-                                _knownTestnet = isTestnet;
-                                _staleTabs.addAll([0, 1, 2]);
-                              }
-                              final isCurrentTab =
-                                  i == widget.shell.currentIndex;
-                              final isStale = _staleTabs.remove(i);
-                              widget.shell.goBranch(
-                                i,
-                                initialLocation: isCurrentTab || isStale,
-                              );
-                            },
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                AnimatedContainer(
-                                  duration: const Duration(milliseconds: 200),
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 16, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: isActive
-                                        ? ZipherColors.cyan
-                                            .withValues(alpha: 0.10)
-                                        : Colors.transparent,
-                                    borderRadius:
-                                        BorderRadius.circular(ZipherRadius.md),
+                            onTap: () => _goToBranch(i),
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: isActive
+                                          ? ZipherColors.cyan
+                                              .withValues(alpha: 0.10)
+                                          : Colors.transparent,
+                                      borderRadius:
+                                          BorderRadius.circular(ZipherRadius.md),
+                                    ),
+                                    child: Icon(
+                                      isActive ? activeIcons[navIndex] : icons[navIndex],
+                                      size: 24,
+                                      color: isActive
+                                          ? ZipherColors.cyan
+                                          : ZipherColors.text20,
+                                    ),
                                   ),
-                                  child: Icon(
-                                    isActive ? activeIcons[i] : icons[i],
-                                    size: 24,
-                                    color: isActive
-                                        ? ZipherColors.cyan
-                                        : ZipherColors.text20,
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    labels[navIndex],
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: isActive
+                                          ? FontWeight.w600
+                                          : FontWeight.w400,
+                                      color: isActive
+                                          ? ZipherColors.cyan
+                                          : ZipherColors.text20,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  labels[i],
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: isActive
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
-                                    color: isActive
-                                        ? ZipherColors.cyan
-                                        : ZipherColors.text20,
-                                  ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         );
@@ -586,8 +708,6 @@ class _ScaffoldBar extends State<ScaffoldBar> {
                   ),
                 ),
               ),
-            ),
-          ),
           body: ShowCaseWidget(builder: (context) => widget.shell),
         ));
   }

@@ -199,7 +199,7 @@ pub async fn cmd_swap_execute(
     }
 
     let (send_amount, fee, _) =
-        zipher_engine::send::propose_send(&quote.deposit_address, amount, None, false).await?;
+        zipher_engine::send::propose_send(&quote.deposit_address, amount, None, false, false).await?;
 
     let seed = read_seed(&cfg.data_dir)?;
     let txid = match zipher_engine::send::confirm_send(&seed).await {

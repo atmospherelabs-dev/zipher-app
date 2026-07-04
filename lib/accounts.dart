@@ -244,32 +244,26 @@ abstract class _ActiveAccount2 with Store {
       final next = PoolBalance.fromRust(balance);
 
       // Defensive: never overwrite a known-good balance with an all-zero
-      // reading while the wallet is in a transient state. This guards
-      // against two real failure modes seen in the field:
+      // reading while the wallet is actively syncing or maintaining. This
+      // guards against the SDK briefly reporting spendable + pending == 0
+      // right after create_proposed_transactions writes spent notes but
+      // before the change output is reflected, or after a reorg triggers
+      // truncate_to_height and the affected range hasn't been rescanned.
       //
-      //   1. The SDK briefly reports `spendable + pending == 0` right
-      //      after `create_proposed_transactions` writes spent notes
-      //      but before the change output is reflected in the summary.
-      //      A user mid-send would see "Balance: 0" and panic.
-      //
-      //   2. A reorg triggers `truncate_to_height` in the engine and the
-      //      affected range hasn't been rescanned yet.
-      //
-      // We only accept a zero reading if sync is fully caught up AND the
-      // post-action boost window has expired — i.e. when zero is most
-      // likely to be the truth.
+      // We suppress only when sync is actively in progress. The boost
+      // window is intentionally NOT used here — it governs polling
+      // frequency, not balance truth. When the user sends their full
+      // balance, zero is correct and must be shown once sync catches up.
       final hadBalance = poolBalances.total > 0;
       final newAllZero = next.total == 0;
       if (hadBalance && newAllZero) {
         final transient = store2.syncStatus2.syncing ||
-            store2.syncStatus2.maintenanceQueueLen > 0 ||
-            store2.isSyncBoosted();
+            store2.syncStatus2.maintenanceQueueLen > 0;
         if (transient) {
           logger.w('[AA] suppressed transient zero balance '
               '(prev=${poolBalances.total} zat, '
               'syncing=${store2.syncStatus2.syncing}, '
-              'queue=${store2.syncStatus2.maintenanceQueueLen}, '
-              'boosted=${store2.isSyncBoosted()})');
+              'queue=${store2.syncStatus2.maintenanceQueueLen})');
           return;
         }
       }

@@ -686,8 +686,16 @@ pub fn frost_pczt_signing_request(pczt_bytes: Vec<u8>) -> Result<FrostPcztSignin
         .map_err(|_| anyhow!("invalid shielded sighash length"))?;
     let sighash_hex = hex::encode(sighash_bytes);
 
-    let pczt_json = serde_json::to_value(&pczt)?;
-    let actions = pczt_json["orchard"]["actions"]
+    // The in-memory Pczt type no longer implements serde; use the v2 wire encoding
+    // (which still serializes to JSON) to inspect Orchard spend metadata.
+    let encoded = pczt::v2::Pczt::try_from(pczt.clone())
+        .map_err(|e| anyhow!("Failed to encode PCZT for inspection: {:?}", e))?;
+    let pczt_json = serde_json::to_value(&encoded)?;
+    let orchard = &pczt_json["orchard"];
+    if orchard.is_null() {
+        return Err(anyhow!("PCZT has no Orchard bundle"));
+    }
+    let actions = orchard["actions"]
         .as_array()
         .ok_or_else(|| anyhow!("PCZT orchard actions were not encoded as an array"))?;
 
@@ -730,33 +738,31 @@ pub fn frost_pczt_apply_signatures(
     pczt_bytes: Vec<u8>,
     orchard_signatures: BTreeMap<usize, String>,
 ) -> Result<Vec<u8>> {
+    use orchard::primitives::redpallas::{Signature, SpendAuth};
+
     let pczt = pczt::Pczt::parse(&pczt_bytes)
         .map_err(|e| anyhow!("Failed to parse PCZT: {:?}", e))?;
-    let mut value = serde_json::to_value(&pczt)?;
+    let mut signer = pczt::roles::signer::Signer::new(pczt)
+        .map_err(|e| anyhow!("Failed to initialize PCZT signer: {:?}", e))?;
 
     for (idx, sig_hex) in orchard_signatures {
         let sig_bytes = hex::decode(sig_hex).map_err(|e| anyhow!("Invalid signature hex: {e}"))?;
         if sig_bytes.len() != 64 {
             return Err(anyhow!("Orchard spend auth signature must be 64 bytes"));
         }
-        value["orchard"]["actions"][idx]["spend"]["spend_auth_sig"] =
-            serde_json::Value::Array(
-                sig_bytes
-                    .into_iter()
-                    .map(|b| serde_json::Value::from(b as u64))
-                    .collect(),
-            );
+        let mut sig_arr = [0u8; 64];
+        sig_arr.copy_from_slice(&sig_bytes);
+        let signature = Signature::<SpendAuth>::from(sig_arr);
+        signer
+            .apply_orchard_signature(idx, signature)
+            .map_err(|e| anyhow!("Failed to apply Orchard signature at index {idx}: {:?}", e))?;
     }
 
-    // Shielded signatures commit to all transaction effects, so no inputs,
-    // outputs, or shielded components may be modified after applying them.
-    if let Some(tx_modifiable) = value["global"]["tx_modifiable"].as_u64() {
-        let cleared = (tx_modifiable as u8) & !(0b0000_0001 | 0b0000_0010 | 0b1000_0000);
-        value["global"]["tx_modifiable"] = serde_json::Value::from(cleared);
-    }
-
-    let signed_pczt: pczt::Pczt = serde_json::from_value(value)?;
-    Ok(signed_pczt.serialize())
+    let signed_pczt = signer.finish();
+    let bytes = signed_pczt
+        .serialize()
+        .map_err(|e| anyhow!("Failed to serialize signed PCZT: {:?}", e))?;
+    Ok(bytes)
 }
 
 pub fn frost_create_view_from_group_key(

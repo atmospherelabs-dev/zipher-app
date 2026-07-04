@@ -211,6 +211,21 @@ enum Commands {
         #[arg(long, env = "OWS_WALLET", default_value = "default")]
         ows_wallet: String,
     },
+
+    /// Governance voting (check eligibility, delegate, cast vote)
+    #[cfg(feature = "voting")]
+    #[command(subcommand)]
+    Vote(VoteCmd),
+
+    /// Pair with a Zipher mobile wallet for agent approval relay
+    Pair {
+        /// Device name for the mobile wallet
+        #[arg(long, default_value = "mobile")]
+        device_name: String,
+        /// Override relay URL
+        #[arg(long)]
+        relay_url: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -383,6 +398,10 @@ enum SendCmd {
         /// Optional memo (shielded only)
         #[arg(long)]
         memo: Option<String>,
+
+        /// Use priority fee (4x marginal fee for faster confirmation during congestion)
+        #[arg(long, default_value_t = false)]
+        priority: bool,
 
         /// Context identifier for audit trail
         #[arg(long)]
@@ -604,6 +623,17 @@ enum FrostCmd {
     },
 }
 
+#[cfg(feature = "voting")]
+#[derive(Subcommand)]
+enum VoteCmd {
+    /// Check your voting eligibility for a governance round
+    Eligibility {
+        /// Snapshot height for the vote round
+        #[arg(long)]
+        snapshot_height: u64,
+    },
+}
+
 // ---------------------------------------------------------------------------
 // JSON output helpers
 // ---------------------------------------------------------------------------
@@ -757,7 +787,8 @@ async fn main() {
                 max,
                 memo,
                 context_id,
-            } => wallet::cmd_send_propose(&cfg, to, amount, max, memo, context_id).await,
+                priority,
+            } => wallet::cmd_send_propose(&cfg, to, amount, max, memo, context_id, priority).await,
             SendCmd::Confirm => wallet::cmd_send_confirm(&cfg).await,
             SendCmd::Max { to } => wallet::cmd_send_max(&cfg, to).await,
             SendCmd::Pczt { to, amount, memo } => {
@@ -927,6 +958,88 @@ async fn main() {
             yes,
             ows_wallet,
         } => evm_swap::cmd_evm_swap(&cfg, chain, from, to, amount, slippage, yes, ows_wallet).await,
+        Commands::Pair { device_name, relay_url } => {
+            match zipher_engine::hitl::generate_pairing_code(&cfg.data_dir) {
+                Ok((channel_id, pairing_code)) => {
+                    match zipher_engine::hitl::complete_pairing(
+                        &cfg.data_dir,
+                        &channel_id,
+                        &device_name,
+                        relay_url.as_deref(),
+                    ) {
+                        Ok(_) => {
+                            print_ok(
+                                serde_json::json!({
+                                    "channel_id": channel_id,
+                                    "pairing_code": pairing_code,
+                                    "device_name": device_name,
+                                }),
+                                cfg.human,
+                                |d| {
+                                    eprintln!("Paired successfully!");
+                                    eprintln!();
+                                    eprintln!("  Scan this in Zipher mobile app (Settings > Agent Pairing):");
+                                    eprintln!();
+                                    eprintln!("  {}", d.get("pairing_code").and_then(|v| v.as_str()).unwrap_or(""));
+                                    eprintln!();
+                                    eprintln!("  Channel: {}", d.get("channel_id").and_then(|v| v.as_str()).unwrap_or(""));
+                                },
+                            );
+                            Ok(())
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+                Err(e) => Err(e),
+            }
+        }
+        #[cfg(feature = "voting")]
+        Commands::Vote(sub) => match sub {
+            VoteCmd::Eligibility { snapshot_height } => {
+                let open_res = async {
+                    helpers::ensure_sapling_params(&cfg.data_dir).await?;
+                    helpers::auto_open(&cfg).await?;
+                    Ok::<(), anyhow::Error>(())
+                }.await;
+                if let Err(e) = open_res {
+                    Err(e)
+                } else {
+                    match zipher_engine::voting::check_eligibility(snapshot_height).await {
+                        Ok((total_value, note_count, bundle_count)) => {
+                            print_ok(
+                                serde_json::json!({
+                                    "eligible": total_value > 0,
+                                    "total_zatoshis": total_value,
+                                    "total_zec": total_value as f64 / 1e8,
+                                    "note_count": note_count,
+                                    "bundle_count": bundle_count,
+                                    "snapshot_height": snapshot_height,
+                                }),
+                                cfg.human,
+                                |d| {
+                                    let e = d.get("eligible").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    if e {
+                                        eprintln!("Eligible: {} ZEC ({} notes, {} bundles)",
+                                            d.get("total_zec").unwrap_or(&serde_json::json!(0)),
+                                            d.get("note_count").unwrap_or(&serde_json::json!(0)),
+                                            d.get("bundle_count").unwrap_or(&serde_json::json!(0)),
+                                        );
+                                    } else {
+                                        eprintln!("Not eligible: no shielded notes at snapshot height {}", snapshot_height);
+                                    }
+                                },
+                            );
+                            zipher_engine::wallet::close().await;
+                            Ok(())
+                        }
+                        Err(e) => {
+                            zipher_engine::wallet::close().await;
+                            Err(e)
+                        }
+                    }
+                }
+            }
+        },
     };
 
     if let Err(e) = result {

@@ -2,11 +2,10 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
-import 'package:logger/logger.dart';
-
+import 'app_log.dart';
 import '../src/rust/api/engine_api.dart' as rust_engine;
 
-final _log = Logger();
+final _log = createLogger();
 
 const polymarketClobApi = 'https://clob.polymarket.com';
 

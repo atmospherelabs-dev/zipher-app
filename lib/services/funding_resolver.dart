@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:logger/logger.dart';
-
+import 'app_log.dart';
 import '../src/rust/api/engine_api.dart' as rust_engine;
 import 'action_executor.dart' show ActionProgress, ActionResult, ActionStatus;
 import 'chain_config.dart';
@@ -10,7 +9,7 @@ import 'evm_swap.dart' show paraswapNativeToken;
 import 'near_intents.dart';
 import 'secure_key_store.dart';
 
-final _log = Logger();
+final _log = createLogger();
 
 /// Convert a floating-point token amount to raw wei/units as [BigInt].
 ///

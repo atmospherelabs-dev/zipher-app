@@ -1,11 +1,10 @@
 import 'dart:convert';
 
-import 'package:logger/logger.dart';
-
+import '../../services/app_log.dart';
 import '../../services/llm_service.dart';
 import 'intent.dart';
 
-final _log = Logger();
+final _log = createLogger();
 
 /// Intent parser powered by an on-device LLM.
 ///
@@ -364,6 +363,12 @@ class LlmIntentParser {
 
       case 'sweep':
         return ParsedIntent(type: IntentType.sweep, raw: raw);
+
+      case 'history':
+        return ParsedIntent(type: IntentType.history, raw: raw);
+
+      case 'receive':
+        return ParsedIntent(type: IntentType.receive, raw: raw);
 
       case 'help':
         return ParsedIntent(type: IntentType.help, raw: raw);

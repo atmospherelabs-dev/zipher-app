@@ -1,6 +1,6 @@
 [package]
 name = "zipher-cli"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [[bin]]
@@ -20,7 +20,7 @@ tracing-subscriber = { version = "0.3", features = ["fmt"] }
 dirs = "6"
 ctrlc = "3"
 anyhow = "1"
-zcash_protocol = "0.9"
+zcash_protocol = "0.10.0-pre.0"
 zeroize = "1"
 toml = "0.8"
 sha2 = "0.10.9"

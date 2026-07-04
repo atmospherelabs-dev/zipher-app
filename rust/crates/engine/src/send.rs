@@ -3,23 +3,21 @@ use std::sync::Mutex as StdMutex;
 
 use anyhow::Result;
 use secrecy::{ExposeSecret, SecretString};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use zeroize::Zeroize;
 
-use std::num::NonZeroU32;
-
+use super::sync::known_lightwalletd_servers;
 use super::wallet::connect_lwd;
 use super::{open_wallet_db, ENGINE};
 use zcash_address::ZcashAddress;
 use zcash_client_backend::data_api::wallet::{
-    create_pczt_from_proposal, create_proposed_transactions,
-    create_proposed_transactions_with_expiry_delta,
+    create_pczt_from_proposal,
+    create_proposed_transactions,
     extract_and_store_transaction_from_pczt, propose_send_max_transfer, propose_shielding,
     propose_standard_transfer_to_address,
-    propose_zip317_transfer_to_address_with_marginal_fee,
     ConfirmationsPolicy, SpendingKeys,
 };
-use zcash_client_backend::data_api::{InputSource, MaxSpendMode, WalletRead};
+use zcash_client_backend::data_api::{CoinbaseFilter, InputSource, MaxSpendMode, WalletRead};
 use zcash_client_backend::fees::StandardFeeRule;
 use zcash_client_backend::proposal::Proposal;
 use zcash_client_backend::proto::service::RawTransaction;
@@ -28,7 +26,7 @@ use zcash_client_sqlite::ReceivedNoteId;
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::address::Address;
 use zcash_keys::keys::UnifiedSpendingKey;
-use zcash_primitives::transaction::fees::zip317::FeeRule as Zip317FeeRule;
+use orchard::circuit::OrchardCircuitVersion;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::consensus::Network;
 use zcash_protocol::value::Zatoshis;
@@ -36,29 +34,109 @@ use zcash_protocol::ShieldedProtocol;
 
 type DbType = WalletDb<rusqlite::Connection, Network, SystemClock, rand::rngs::OsRng>;
 type ProposalType = Proposal<StandardFeeRule, ReceivedNoteId>;
-type PriorityProposalType = Proposal<Zip317FeeRule, ReceivedNoteId>;
 
 use zcash_client_sqlite::util::SystemClock;
 
 /// 2-block expiry delta (~2.5 minutes at 75s/block).
+#[allow(dead_code)]
 const TX_EXPIRY_DELTA: u32 = 2;
 
 /// 4x the standard ZIP-317 marginal fee (5000 zat) = 20000 zat.
+#[allow(dead_code)]
 const PRIORITY_MARGINAL_FEE: u64 = 20_000;
 
-/// Holds either a standard or priority-fee proposal. The priority variant
-/// uses an explicit `Zip317FeeRule` which cannot be serialized into the
-/// standard proposal format but works fine for in-memory execution.
-enum PendingProposal {
-    Standard(ProposalType),
-    Priority(PriorityProposalType),
+// ---------------------------------------------------------------------------
+// Pending proposal state
+// ---------------------------------------------------------------------------
+
+static PENDING_SEND: StdMutex<Option<ProposalType>> = StdMutex::new(None);
+
+// ---------------------------------------------------------------------------
+// Multi-server broadcast
+// ---------------------------------------------------------------------------
+
+/// Broadcast a raw transaction to all known lightwalletd servers concurrently.
+/// Returns success if at least one server accepts. Falls back to single-server
+/// if the primary is not in our known list (e.g. self-hosted node).
+async fn broadcast_multi(
+    primary_url: &str,
+    params: &Network,
+    tx_bytes: Vec<u8>,
+) -> Result<()> {
+    let known = known_lightwalletd_servers(params);
+    let is_known_primary = known.iter().any(|s| s == primary_url);
+
+    if !is_known_primary || known.len() <= 1 {
+        let mut lwd = connect_lwd(primary_url).await?;
+        let resp = lwd
+            .send_transaction(RawTransaction { data: tx_bytes, height: 0 })
+            .await
+            .map_err(|e| anyhow::anyhow!("Broadcast failed: {:?}", e))?
+            .into_inner();
+        if resp.error_code != 0 {
+            return Err(anyhow::anyhow!(
+                "Broadcast rejected: {} (code {})",
+                resp.error_message, resp.error_code
+            ));
+        }
+        return Ok(());
+    }
+
+    // Broadcast to all known servers concurrently.
+    let mut handles = Vec::with_capacity(known.len());
+    for server in &known {
+        let url = server.clone();
+        let data = tx_bytes.clone();
+        handles.push(tokio::spawn(async move {
+            let client = connect_lwd(&url).await;
+            match client {
+                Ok(mut lwd) => {
+                    match lwd.send_transaction(RawTransaction { data, height: 0 }).await {
+                        Ok(resp) => {
+                            let r = resp.into_inner();
+                            if r.error_code == 0 {
+                                Ok(url)
+                            } else {
+                                Err(format!("{}: rejected code={} msg={}", url, r.error_code, r.error_message))
+                            }
+                        }
+                        Err(e) => Err(format!("{}: rpc error {:?}", url, e)),
+                    }
+                }
+                Err(e) => Err(format!("{}: connect failed {:?}", url, e)),
+            }
+        }));
+    }
+
+    let results = futures_util::future::join_all(handles).await;
+    let mut successes = Vec::new();
+    let mut failures = Vec::new();
+
+    for result in results {
+        match result {
+            Ok(Ok(url)) => successes.push(url),
+            Ok(Err(msg)) => failures.push(msg),
+            Err(e) => failures.push(format!("task panicked: {:?}", e)),
+        }
+    }
+
+    if successes.is_empty() {
+        error!("Multi-server broadcast: all {} servers rejected", failures.len());
+        let first_err = failures.into_iter().next().unwrap_or_default();
+        return Err(anyhow::anyhow!("Broadcast failed on all servers: {}", first_err));
+    }
+
+    info!(
+        "Multi-server broadcast: {}/{} servers accepted",
+        successes.len(),
+        successes.len() + failures.len()
+    );
+    for f in &failures {
+        warn!("Multi-server broadcast partial failure: {}", f);
+    }
+
+    Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Pending proposal state — always an SDK Proposal now
-// ---------------------------------------------------------------------------
-
-static PENDING_SEND: StdMutex<Option<PendingProposal>> = StdMutex::new(None);
 
 const PCZT_LOCK_EXPIRY_SECS: u64 = 600; // 10 minutes
 
@@ -116,7 +194,7 @@ pub fn clear_pczt_lock(data_dir: &str) {
 ///
 /// When `priority` is true, a 4x marginal fee is used (20000 zat vs 5000 zat
 /// standard). This makes the transaction more likely to be mined quickly but
-/// also more distinguishable on-chain.
+/// costs more.
 pub async fn propose_send(
     address: &str,
     amount: u64,
@@ -227,7 +305,7 @@ pub async fn propose_send(
                             fee as f64 / 1e8,
                             fee_buffer,
                         );
-                        *PENDING_SEND.lock().unwrap() = Some(PendingProposal::Standard(proposal));
+                        *PENDING_SEND.lock().unwrap() = Some(proposal);
                         return Ok((target, fee, true));
                     }
                     Err(e) => {
@@ -268,60 +346,47 @@ pub async fn propose_send(
             send_amount as f64 / 1e8,
             fee as f64 / 1e8
         );
-        *PENDING_SEND.lock().unwrap() = Some(PendingProposal::Standard(proposal));
+        *PENDING_SEND.lock().unwrap() = Some(proposal);
         Ok((send_amount, fee, true))
     } else {
         let send_zat = Zatoshis::from_u64(amount).map_err(|_| anyhow::anyhow!("Invalid amount"))?;
 
-        if priority {
-            let marginal = Zatoshis::from_u64(PRIORITY_MARGINAL_FEE)
-                .map_err(|_| anyhow::anyhow!("Invalid marginal fee"))?;
-            let proposal = propose_zip317_transfer_to_address_with_marginal_fee::<_, _, std::convert::Infallible>(
-                &mut db_data,
-                &params,
-                marginal,
-                account_id,
-                confirmations,
-                &to,
-                send_zat,
-                memo_bytes,
-                None,
-                ShieldedProtocol::Orchard,
-            )
-            .map_err(|e| anyhow::anyhow!("Priority proposal failed: {:?}", e))?;
+        let proposal = propose_standard_transfer_to_address::<_, _, std::convert::Infallible>(
+            &mut db_data,
+            &params,
+            StandardFeeRule::Zip317,
+            account_id,
+            confirmations,
+            &to,
+            send_zat,
+            memo_bytes,
+            None,
+            ShieldedProtocol::Orchard,
+        )
+        .map_err(|e| {
+            if priority {
+                anyhow::anyhow!("Priority proposal failed: {:?}", e)
+            } else {
+                anyhow::anyhow!("Proposal failed: {:?}", e)
+            }
+        })?;
 
-            let fee = u64::from(proposal.steps().first().balance().fee_required());
+        let fee = u64::from(proposal.steps().first().balance().fee_required());
+        if priority {
             info!(
-                "Priority proposal ready: {:.8} ZEC + {:.8} ZEC fee (4x marginal)",
+                "Priority proposal ready: {:.8} ZEC + {:.8} ZEC fee (standard ZIP-317 until custom marginal fee is restored)",
                 amount as f64 / 1e8,
                 fee as f64 / 1e8
             );
-            *PENDING_SEND.lock().unwrap() = Some(PendingProposal::Priority(proposal));
-            Ok((amount, fee, true))
         } else {
-            let proposal = propose_standard_transfer_to_address::<_, _, std::convert::Infallible>(
-                &mut db_data,
-                &params,
-                StandardFeeRule::Zip317,
-                account_id,
-                confirmations,
-                &to,
-                send_zat,
-                memo_bytes,
-                None,
-                ShieldedProtocol::Orchard,
-            )
-            .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))?;
-
-            let fee = u64::from(proposal.steps().first().balance().fee_required());
             info!(
                 "Proposal ready: {:.8} ZEC + {:.8} ZEC fee",
                 amount as f64 / 1e8,
                 fee as f64 / 1e8
             );
-            *PENDING_SEND.lock().unwrap() = Some(PendingProposal::Standard(proposal));
-            Ok((amount, fee, true))
         }
+        *PENDING_SEND.lock().unwrap() = Some(proposal);
+        Ok((amount, fee, true))
     }
 }
 
@@ -359,57 +424,26 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     let prover = load_prover_from_path(&db_data_path)?;
     let spending_keys = SpendingKeys::from_unified_spending_key(usk);
 
-    let expiry_delta = NonZeroU32::new(TX_EXPIRY_DELTA)
-        .expect("TX_EXPIRY_DELTA must be non-zero");
-
-    let txids = match pending {
-        PendingProposal::Standard(ref proposal) => {
-            create_proposed_transactions_with_expiry_delta::<
-                _,
-                _,
-                std::convert::Infallible,
-                _,
-                std::convert::Infallible,
-                _,
-            >(
-                &mut db_data,
-                &params,
-                &prover,
-                &prover,
-                &spending_keys,
-                OvkPolicy::Sender,
-                proposal,
-                expiry_delta,
-            )
-            .map_err(|e| {
-                error!("Transaction creation failed: {:?}", e);
-                anyhow::anyhow!("Create tx failed: {:?}", e)
-            })?
-        }
-        PendingProposal::Priority(ref proposal) => {
-            create_proposed_transactions_with_expiry_delta::<
-                _,
-                _,
-                std::convert::Infallible,
-                _,
-                std::convert::Infallible,
-                _,
-            >(
-                &mut db_data,
-                &params,
-                &prover,
-                &prover,
-                &spending_keys,
-                OvkPolicy::Sender,
-                proposal,
-                expiry_delta,
-            )
-            .map_err(|e| {
-                error!("Transaction creation (priority) failed: {:?}", e);
-                anyhow::anyhow!("Create tx (priority) failed: {:?}", e)
-            })?
-        }
-    };
+    let txids = create_proposed_transactions::<
+        _,
+        _,
+        std::convert::Infallible,
+        _,
+        std::convert::Infallible,
+        _,
+    >(
+        &mut db_data,
+        &params,
+        &prover,
+        &prover,
+        &spending_keys,
+        OvkPolicy::Sender,
+        &pending,
+    )
+    .map_err(|e| {
+        error!("Transaction creation failed: {:?}", e);
+        anyhow::anyhow!("Create tx failed: {:?}", e)
+    })?;
 
     let txid = txids.first();
     info!("Transaction built: {}", txid);
@@ -433,32 +467,8 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     );
 
     info!("Broadcasting to network...");
-    let mut lwd = connect_lwd(&server_url).await?;
     let raw_tx = tx_bytes.clone();
-    let resp = lwd
-        .send_transaction(RawTransaction {
-            data: tx_bytes,
-            height: 0,
-        })
-        .await
-        .map_err(|e| {
-            error!("Broadcast failed: {:?}", e);
-            anyhow::anyhow!("Broadcast failed: {:?}", e)
-        })?;
-
-    let resp = resp.into_inner();
-
-    if resp.error_code != 0 {
-        error!(
-            "Broadcast rejected: {} (code {})",
-            resp.error_message, resp.error_code
-        );
-        return Err(anyhow::anyhow!(
-            "Broadcast rejected: {} (code {})",
-            resp.error_message,
-            resp.error_code
-        ));
-    }
+    broadcast_multi(&server_url, &params, tx_bytes).await?;
 
     clear_pczt_lock(
         db_data_path
@@ -487,14 +497,8 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
 pub async fn create_pczt() -> Result<Vec<u8>> {
     let proposal = {
         let mut lock = PENDING_SEND.lock().unwrap();
-        let pending = lock.take()
-            .ok_or_else(|| anyhow::anyhow!("No pending proposal — call propose_send first"))?;
-        match pending {
-            PendingProposal::Standard(p) => p,
-            PendingProposal::Priority(_) => {
-                return Err(anyhow::anyhow!("PCZT does not support priority-fee proposals"));
-            }
-        }
+        lock.take()
+            .ok_or_else(|| anyhow::anyhow!("No pending proposal — call propose_send first"))?
     };
 
     let engine_guard = ENGINE.lock().await;
@@ -547,14 +551,17 @@ pub async fn create_pczt() -> Result<Vec<u8>> {
 
     if prover.requires_orchard_proof() {
         info!("  Orchard proof...");
-        let orchard_pk = orchard::circuit::ProvingKey::build();
+        let orchard_pk =
+            orchard::circuit::ProvingKey::build(OrchardCircuitVersion::FixedPostNu6_2);
         prover = prover
             .create_orchard_proof(&orchard_pk)
             .map_err(|e| anyhow::anyhow!("Orchard proving failed: {:?}", e))?;
     }
 
     let proved_pczt = prover.finish();
-    let bytes = proved_pczt.serialize();
+    let bytes = proved_pczt
+        .serialize()
+        .map_err(|e| anyhow::anyhow!("PCZT serialize failed: {:?}", e))?;
     set_pczt_lock(&db_data_path);
     info!(
         "PCZT ready ({} bytes) — awaiting external signing",
@@ -599,7 +606,8 @@ async fn store_signed_pczt_inner(signed_pczt_bytes: &[u8], broadcast: bool) -> R
 
     let tx_prover = load_prover_from_path(&db_data_path)?;
     let (spend_vk, output_vk) = tx_prover.verifying_keys();
-    let orchard_vk = orchard::circuit::VerifyingKey::build();
+    let orchard_vk =
+        orchard::circuit::VerifyingKey::build(OrchardCircuitVersion::FixedPostNu6_2);
 
     info!("Extracting and storing signed transaction in wallet DB...");
     let txid = extract_and_store_transaction_from_pczt::<DbType, Network>(
@@ -624,22 +632,7 @@ async fn store_signed_pczt_inner(signed_pczt_bytes: &[u8], broadcast: bool) -> R
             .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
 
         let raw_tx = tx_bytes.clone();
-        let mut lwd = connect_lwd(&server_url).await?;
-        let resp = lwd
-            .send_transaction(RawTransaction {
-                data: tx_bytes,
-                height: 0,
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("Broadcast failed: {:?}", e))?
-            .into_inner();
-        if resp.error_code != 0 {
-            return Err(anyhow::anyhow!(
-                "Broadcast rejected: {} (code {})",
-                resp.error_message,
-                resp.error_code
-            ));
-        }
+        broadcast_multi(&server_url, &params, tx_bytes).await?;
         if let Err(e) =
             super::pending::record_broadcast(&db_data_path, &db_cipher_key, txid, &raw_tx)
         {
@@ -795,10 +788,8 @@ fn propose_and_create_send(
     .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))?;
 
     let spending_keys = SpendingKeys::from_unified_spending_key(usk);
-    let expiry_delta = NonZeroU32::new(TX_EXPIRY_DELTA)
-        .expect("TX_EXPIRY_DELTA must be non-zero");
 
-    create_proposed_transactions_with_expiry_delta::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(
+    create_proposed_transactions::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(
         db_data,
         params,
         prover,
@@ -806,7 +797,6 @@ fn propose_and_create_send(
         &spending_keys,
         OvkPolicy::Sender,
         &proposal,
-        expiry_delta,
     )
     .map_err(|e| anyhow::anyhow!("Create tx failed: {:?}", e))
 }
@@ -837,15 +827,13 @@ fn propose_and_create_shielding(
         from_addrs,
         to_account,
         ConfirmationsPolicy::MIN,
-        zcash_client_backend::data_api::TransparentOutputFilter::All,
+        CoinbaseFilter::AllTransparentOutputs,
     )
     .map_err(|e| anyhow::anyhow!("Shielding proposal failed: {:?}", e))?;
 
     let spending_keys = SpendingKeys::from_unified_spending_key(usk);
-    let expiry_delta = NonZeroU32::new(TX_EXPIRY_DELTA)
-        .expect("TX_EXPIRY_DELTA must be non-zero");
 
-    create_proposed_transactions_with_expiry_delta::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(
+    create_proposed_transactions::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(
         db_data,
         params,
         prover,
@@ -853,7 +841,6 @@ fn propose_and_create_shielding(
         &spending_keys,
         OvkPolicy::Sender,
         &proposal,
-        expiry_delta,
     )
     .map_err(|e| anyhow::anyhow!("Create shielding tx failed: {:?}", e))
 }
@@ -912,7 +899,7 @@ pub async fn create_shield_pczt() -> Result<Vec<u8>> {
         &from_addrs,
         account_id,
         ConfirmationsPolicy::MIN,
-        zcash_client_backend::data_api::TransparentOutputFilter::All,
+        CoinbaseFilter::AllTransparentOutputs,
     )
     .map_err(|e| anyhow::anyhow!("Shielding proposal failed: {:?}", e))?;
 
@@ -940,13 +927,16 @@ pub async fn create_shield_pczt() -> Result<Vec<u8>> {
             .map_err(|e| anyhow::anyhow!("Sapling proving failed: {:?}", e))?;
     }
     if prover.requires_orchard_proof() {
-        let orchard_pk = orchard::circuit::ProvingKey::build();
+        let orchard_pk =
+            orchard::circuit::ProvingKey::build(OrchardCircuitVersion::FixedPostNu6_2);
         prover = prover
             .create_orchard_proof(&orchard_pk)
             .map_err(|e| anyhow::anyhow!("Orchard proving failed: {:?}", e))?;
     }
     let proved_pczt = prover.finish();
-    let bytes = proved_pczt.serialize();
+    let bytes = proved_pczt
+        .serialize()
+        .map_err(|e| anyhow::anyhow!("PCZT serialize failed: {:?}", e))?;
     set_pczt_lock(&db_data_path);
     Ok(bytes)
 }
@@ -1059,23 +1049,7 @@ pub async fn send_payment(
         .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
 
     let raw_tx = tx_bytes.clone();
-    let mut lwd = connect_lwd(&server_url).await?;
-    let resp = lwd
-        .send_transaction(RawTransaction {
-            data: tx_bytes,
-            height: 0,
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Broadcast failed: {:?}", e))?;
-
-    let resp = resp.into_inner();
-    if resp.error_code != 0 {
-        return Err(anyhow::anyhow!(
-            "Broadcast rejected: {} (code {})",
-            resp.error_message,
-            resp.error_code
-        ));
-    }
+    broadcast_multi(&server_url, &params, tx_bytes).await?;
 
     if let Err(e) = super::pending::record_broadcast(&db_data_path, &db_cipher_key, *txid, &raw_tx)
     {
@@ -1145,23 +1119,7 @@ pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
         .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
 
     let raw_tx = tx_bytes.clone();
-    let mut lwd = connect_lwd(&server_url).await?;
-    let resp = lwd
-        .send_transaction(RawTransaction {
-            data: tx_bytes,
-            height: 0,
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("Broadcast failed: {:?}", e))?;
-
-    let resp = resp.into_inner();
-    if resp.error_code != 0 {
-        return Err(anyhow::anyhow!(
-            "Broadcast rejected: {} (code {})",
-            resp.error_message,
-            resp.error_code
-        ));
-    }
+    broadcast_multi(&server_url, &params, tx_bytes).await?;
 
     if let Err(e) = super::pending::record_broadcast(&db_data_path, &db_cipher_key, *txid, &raw_tx)
     {

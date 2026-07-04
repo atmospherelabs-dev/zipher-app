@@ -257,7 +257,11 @@ fn parse_hex_u64(hex: &str) -> Result<u64> {
 }
 
 fn parse_hex_u128(hex: &str) -> Result<u128> {
-    u128::from_str_radix(hex.trim_start_matches("0x"), 16)
+    let stripped = hex.trim_start_matches("0x");
+    if stripped.is_empty() {
+        return Ok(0);
+    }
+    u128::from_str_radix(stripped, 16)
         .map_err(|e| anyhow!("Invalid hex u128 '{}': {}", hex, e))
 }
 

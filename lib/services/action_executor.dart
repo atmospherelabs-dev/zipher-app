@@ -1,8 +1,7 @@
 import 'dart:async';
 
 import 'package:http/http.dart' as http;
-import 'package:logger/logger.dart';
-
+import 'app_log.dart';
 import '../coin/coins.dart' show isTestnet;
 import '../src/rust/api/engine_api.dart' as rust_engine;
 import 'action_history.dart';
@@ -15,7 +14,7 @@ import 'tx_builder.dart';
 import 'wallet_service.dart';
 import 'secure_key_store.dart';
 
-final _log = Logger();
+final _log = createLogger();
 
 /// Progress update emitted during multi-step execution flows.
 class ActionProgress {
@@ -607,7 +606,7 @@ class ActionExecutor {
           '';
       final rawAmount = toWei(amount, decimals: decimals).toString();
 
-      final quote = await _near.getQuote(
+      final quoteResp = await _near.getQuote(
         originAsset: defuseAssetId,
         destAsset: zecAssetId as String,
         amount: rawAmount,
@@ -615,8 +614,11 @@ class ActionExecutor {
         refundTo: evmAddress,
       );
 
+      final inner = quoteResp['quote'] as Map<String, dynamic>? ?? quoteResp;
       final depositAddress =
-          (quote['deposit_address'] ?? quote['depositAddress'] ?? '') as String;
+          (inner['deposit_address'] ?? inner['depositAddress'] ?? '') as String;
+      _log.i('[Sweep] quote response keys=${quoteResp.keys.toList()}, '
+          'inner keys=${inner.keys.toList()}, depositAddress=$depositAddress');
       if (depositAddress.isEmpty) throw Exception('No deposit address in quote');
 
       final rpc = chain.rpc;
@@ -741,7 +743,7 @@ class ActionExecutor {
           '';
       final rawAmount = toWei(amount, decimals: chain.nativeDecimals).toString();
 
-      final quote = await _near.getQuote(
+      final quoteResp = await _near.getQuote(
         originAsset: nativeAssetId as String,
         destAsset: zecAssetId as String,
         amount: rawAmount,
@@ -749,8 +751,11 @@ class ActionExecutor {
         refundTo: evmAddress,
       );
 
+      final inner = quoteResp['quote'] as Map<String, dynamic>? ?? quoteResp;
       final depositAddress =
-          (quote['deposit_address'] ?? quote['depositAddress'] ?? '') as String;
+          (inner['deposit_address'] ?? inner['depositAddress'] ?? '') as String;
+      _log.i('[Sweep] native quote keys=${quoteResp.keys.toList()}, '
+          'inner keys=${inner.keys.toList()}, depositAddress=$depositAddress');
       if (depositAddress.isEmpty) throw Exception('No deposit address in quote');
 
       final rpc = chain.rpc;

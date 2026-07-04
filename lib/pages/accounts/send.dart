@@ -224,7 +224,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                       style: const TextStyle(
                         fontSize: 36,
                         fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                        color: ZipherColors.textPrimary,
                         letterSpacing: -1,
                       ),
                     ),
@@ -640,11 +640,13 @@ class _ConfirmSendSheet extends StatefulWidget {
 
 class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
   bool _loading = true;
+  bool _recalculating = false;
   bool _sending = false;
   String? _error;
   int _fee = 0;
   bool _feeEstimated = false;
   int _sendAmount = 0;
+  bool _priority = false;
 
   String _cleanError(String raw) {
     final s = raw.replaceFirst(RegExp(r'^(Exception|AnyhowException):\s*'), '');
@@ -674,6 +676,7 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
         widget.isMax ? 0 : widget.enteredAmount,
         memo: widget.memo,
         isMax: widget.isMax,
+        priority: _priority,
       );
 
       _sendAmount = result.sendAmount;
@@ -683,6 +686,7 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
       if (!widget.isMax && _sendAmount + _fee > widget.spendable) {
         setState(() {
           _loading = false;
+          _recalculating = false;
           _error =
               'Not enough funds. You need ${amountToString2((_sendAmount + _fee) - widget.spendable)} '
               'ZEC more to cover the network fee.';
@@ -690,13 +694,26 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
         return;
       }
 
-      setState(() => _loading = false);
+      setState(() {
+        _loading = false;
+        _recalculating = false;
+      });
     } catch (e) {
       setState(() {
         _loading = false;
+        _recalculating = false;
         _error = _cleanError(e.toString());
       });
     }
+  }
+
+  void _togglePriority(bool value) {
+    setState(() {
+      _priority = value;
+      _recalculating = true;
+      _error = null;
+    });
+    _calculateFee();
   }
 
   @override
@@ -803,13 +820,45 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
             _row('Amount', '${amountToString2(_sendAmount)} ZEC'),
             _divider(),
             _row('Network fee',
-                '${_feeEstimated ? "~" : ""}${amountToString2(_fee)} ZEC',
+                _recalculating ? 'Recalculating...' : '${_feeEstimated ? "~" : ""}${amountToString2(_fee)} ZEC',
                 valueColor: ZipherColors.text40),
-            if (widget.memo != null && widget.memo!.isNotEmpty) ...[
-              _divider(),
-              _row('Memo', widget.memo!, maxLines: 2),
-            ],
             _divider(),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Priority',
+                          style: TextStyle(fontSize: 13, color: ZipherColors.text40),
+                        ),
+                        const Gap(2),
+                        Text(
+                          'Higher fee, priority during congestion',
+                          style: TextStyle(fontSize: 11, color: ZipherColors.text20),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    height: 28,
+                    child: Switch.adaptive(
+                      value: _priority,
+                      onChanged: _sending ? null : _togglePriority,
+                      activeColor: ZipherColors.cyan,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _divider(),
+            if (widget.memo != null && widget.memo!.isNotEmpty) ...[
+              _row('Memo', widget.memo!, maxLines: 2),
+              _divider(),
+            ],
             _row(
               'Total',
               '${amountToString2(_sendAmount + _fee)} ZEC',
@@ -821,7 +870,7 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
               valueStyle: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: Colors.white,
+                color: ZipherColors.textPrimary,
               ),
             ),
             const Gap(28),
@@ -841,10 +890,11 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
                   : ZipherWidgets.gradientButton(
                       label: 'Confirm & Send',
                       icon: Icons.check_rounded,
-                      onPressed: () async {
+                      enabled: !_recalculating,
+                      onPressed: () {
                         setState(() => _sending = true);
                         Navigator.of(context).pop();
-                        await widget.onConfirmed();
+                        widget.onConfirmed();
                       },
                     ),
             ),

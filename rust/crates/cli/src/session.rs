@@ -52,7 +52,7 @@ pub async fn cmd_session_open(
     }
 
     let (send_amount, fee, _) =
-        zipher_engine::send::propose_send(&pay_to, deposit, Some(memo), false).await?;
+        zipher_engine::send::propose_send(&pay_to, deposit, Some(memo), false, false).await?;
 
     let seed = read_seed(&cfg.data_dir)?;
     let txid = match zipher_engine::send::confirm_send(&seed).await {

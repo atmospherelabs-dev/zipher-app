@@ -63,7 +63,7 @@ pub async fn cmd_send_pczt(
     auto_open(cfg).await?;
 
     let (_send_amount, fee, _) =
-        zipher_engine::send::propose_send(&to, amount, memo, false).await?;
+        zipher_engine::send::propose_send(&to, amount, memo, false, false).await?;
 
     if cfg.human {
         eprintln!("Creating unsigned Zcash transaction (PCZT)...");

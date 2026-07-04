@@ -1001,10 +1001,17 @@ class TransactionState extends State<TransactionPage> {
       appBar: AppBar(
         backgroundColor: ZipherColors.bg,
         elevation: 0,
-        leading: IconButton(
-          onPressed: () => GoRouter.of(context).pop(),
-          icon: const Icon(Icons.arrow_back_rounded, size: 22, color: Colors.white),
+        leading: ZipherWidgets.backButton(context),
+        title: Text(
+          'TRANSACTION',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.5,
+            color: ZipherColors.text60,
+          ),
         ),
+        centerTitle: false,
       ),
       body: SingleChildScrollView(
         child: Padding(
@@ -1066,7 +1073,7 @@ class TransactionState extends State<TransactionPage> {
                                         ? Icons.south_west_rounded
                                         : Icons.north_east_rounded,
                                 size: 13,
-                                color: Colors.white,
+                                color: ZipherColors.textPrimary,
                               ),
                             ),
                           ),
@@ -1098,7 +1105,7 @@ class TransactionState extends State<TransactionPage> {
                       style: const TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                        color: ZipherColors.textPrimary,
                         letterSpacing: -0.5,
                       ),
                     ),

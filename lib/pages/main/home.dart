@@ -429,7 +429,7 @@ class _HomeState extends State<HomePageInner> {
                                       style: TextStyle(
                                         fontSize: 40,
                                         fontWeight: FontWeight.w700,
-                                        color: Colors.white,
+                                        color: ZipherColors.textPrimary,
                                         letterSpacing: 4,
                                       ),
                                     )
@@ -461,7 +461,7 @@ class _HomeState extends State<HomePageInner> {
                                           style: const TextStyle(
                                             fontSize: 38,
                                             fontWeight: FontWeight.w700,
-                                            color: Colors.white,
+                                            color: ZipherColors.textPrimary,
                                             letterSpacing: -1,
                                           ),
                                         ),

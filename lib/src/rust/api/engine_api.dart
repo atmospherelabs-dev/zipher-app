@@ -236,9 +236,10 @@ Future<ProposalResult> engineProposeSend(
         {required String address,
         required BigInt amount,
         String? memo,
-        required bool isMax}) =>
+        required bool isMax,
+        bool priority = false}) =>
     RustLib.instance.api.crateApiEngineApiEngineProposeSend(
-        address: address, amount: amount, memo: memo, isMax: isMax);
+        address: address, amount: amount, memo: memo, isMax: isMax, priority: priority);
 
 /// Create a proved PCZT from the pending proposal.
 ///

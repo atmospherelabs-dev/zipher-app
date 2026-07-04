@@ -20,6 +20,7 @@ import '../appsettings.dart';
 import '../coin/coins.dart';
 import '../services/cipherpay_client.dart';
 import '../services/frost_watch_service.dart';
+import '../services/hitl_watch_service.dart';
 import '../generated/intl/messages.dart';
 import '../init.dart';
 import '../services/wallet_service.dart';
@@ -455,6 +456,12 @@ void handleUri(Uri uri) async {
     if (context == null) return;
     if (aa.id == 0) return;
     await FrostWatchService.instance.openApprovalFromUri(uri);
+    return;
+  }
+
+  // HITL pairing deep link: zipher://pair?channel=...&relay=...
+  if (uri.scheme == 'zipher' && uri.host == 'pair') {
+    await HitlWatchService.instance.pairFromUri(uri);
     return;
   }
 

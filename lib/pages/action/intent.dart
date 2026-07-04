@@ -1,4 +1,4 @@
-enum IntentType { balance, send, swap, evmSwap, shield, marketSearch, marketDiscover, bet, betPolymarket, portfolio, sell, sweep, vote, help, unknown }
+enum IntentType { balance, send, swap, evmSwap, shield, marketSearch, marketDiscover, bet, betPolymarket, portfolio, sell, sweep, vote, history, receive, help, unknown }
 
 class ParsedIntent {
   final IntentType type;
@@ -121,6 +121,10 @@ class ParsedIntent {
         return 'Checking what you can sweep back to ZEC...';
       case IntentType.vote:
         return 'Checking active governance votes...';
+      case IntentType.history:
+        return 'Fetching recent transactions...';
+      case IntentType.receive:
+        return 'Getting your receive address...';
       case IntentType.help:
         return 'Help';
       case IntentType.unknown:
@@ -207,6 +211,14 @@ class IntentParser {
       return ParsedIntent(type: IntentType.help, raw: trimmed);
     }
 
+    if (_isHistory(lower)) {
+      return ParsedIntent(type: IntentType.history, raw: trimmed, query: trimmed);
+    }
+
+    if (_isReceive(lower)) {
+      return ParsedIntent(type: IntentType.receive, raw: trimmed);
+    }
+
     if (_isBalance(lower)) {
       return ParsedIntent(type: IntentType.balance, raw: trimmed);
     }
@@ -260,6 +272,15 @@ class IntentParser {
 
   static bool _isHelp(String s) =>
       s == 'help' || s == '?' || s.startsWith('what can');
+
+  static bool _isHistory(String s) =>
+      s.contains('history') || s.contains('transactions') || s.contains('recent') ||
+      s.contains('last tx') || s.contains('latest') || s.contains('activity') ||
+      s == 'txs' || s == 'tx';
+
+  static bool _isReceive(String s) =>
+      s.contains('receive') || s.contains('my address') || s.contains('show address') ||
+      s.contains('qr') || s.contains('deposit') || s == 'address';
 
   static bool _isBalance(String s) =>
       s.contains('balance') || s == 'bal' || s.contains('how much');

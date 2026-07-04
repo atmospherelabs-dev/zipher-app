@@ -235,27 +235,10 @@ class _MorePageState extends State<MorePage> {
     );
   }
 
-  Widget _sectionLabel(String text) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.5,
-        color: ZipherColors.text40,
-      ),
-    );
-  }
+  Widget _sectionLabel(String text) => ZipherWidgets.sectionLabel(text);
 
   Widget _card(List<_SettingsItem> items) {
-    return Container(
-      decoration: BoxDecoration(
-        color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(
-          color: ZipherColors.borderSubtle,
-        ),
-      ),
+    return ZipherWidgets.card(
       child: Column(
         children: [
           for (int i = 0; i < items.length; i++) ...[

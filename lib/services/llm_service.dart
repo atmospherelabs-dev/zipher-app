@@ -2,13 +2,13 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:logger/logger.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app_log.dart';
 import '../src/rust/api/engine_api.dart' as rust_engine;
 
-final _log = Logger();
+final _log = createLogger();
 
 enum LlmStatus { notDownloaded, downloading, ready, loading, loaded, error }
 

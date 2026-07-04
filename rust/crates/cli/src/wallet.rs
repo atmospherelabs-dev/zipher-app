@@ -429,6 +429,7 @@ pub async fn cmd_send_propose(
     is_max: bool,
     memo: Option<String>,
     context_id: Option<String>,
+    priority: bool,
 ) -> Result<()> {
     sync_if_needed(cfg).await?;
     let policy = zipher_engine::policy::load_policy(&cfg.data_dir);
@@ -459,7 +460,7 @@ pub async fn cmd_send_propose(
     auto_open(cfg).await?;
 
     let (send_amount, fee, _) =
-        zipher_engine::send::propose_send(&to, amount, memo.clone(), is_max).await?;
+        zipher_engine::send::propose_send(&to, amount, memo.clone(), is_max, priority).await?;
 
     let pending = PendingProposal {
         address: to.clone(),
@@ -546,6 +547,7 @@ pub async fn cmd_send_confirm(cfg: &Config) -> Result<()> {
         pending.amount,
         pending.memo.clone(),
         pending.is_max,
+        false,
     )
     .await?;
 
@@ -690,7 +692,7 @@ pub async fn cmd_consolidate(cfg: &Config) -> Result<()> {
         );
     }
 
-    let (send_amount, fee, _) = zipher_engine::send::propose_send(&own_addr, 0, None, true).await?;
+    let (send_amount, fee, _) = zipher_engine::send::propose_send(&own_addr, 0, None, true, false).await?;
 
     if cfg.human {
         eprintln!(

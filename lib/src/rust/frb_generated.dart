@@ -342,7 +342,8 @@ abstract class RustLibApi extends BaseApi {
       {required String address,
       required BigInt amount,
       String? memo,
-      required bool isMax});
+      required bool isMax,
+      required bool priority});
 
   Future<void> crateApiEngineApiEngineRegisterInactiveWallet(
       {required String dataDir});
@@ -2531,7 +2532,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       {required String address,
       required BigInt amount,
       String? memo,
-      required bool isMax}) {
+      required bool isMax,
+      required bool priority}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
@@ -2539,6 +2541,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_u_64(amount, serializer);
         sse_encode_opt_String(memo, serializer);
         sse_encode_bool(isMax, serializer);
+        sse_encode_bool(priority, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
             funcId: 65, port: port_);
       },
@@ -2547,7 +2550,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         decodeErrorData: sse_decode_AnyhowException,
       ),
       constMeta: kCrateApiEngineApiEngineProposeSendConstMeta,
-      argValues: [address, amount, memo, isMax],
+      argValues: [address, amount, memo, isMax, priority],
       apiImpl: this,
     ));
   }
@@ -2555,7 +2558,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiEngineApiEngineProposeSendConstMeta =>
       const TaskConstMeta(
         debugName: "engine_propose_send",
-        argNames: ["address", "amount", "memo", "isMax"],
+        argNames: ["address", "amount", "memo", "isMax", "priority"],
       );
 
   @override

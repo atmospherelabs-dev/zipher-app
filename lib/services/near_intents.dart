@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app_log.dart';
+
 const _baseUrl = 'https://1click.chaindefuser.com/v0';
 const _quoteWaitingTimeMs = 3000;
 const _affiliateAddress = 'cipherscan.near';
@@ -824,6 +826,8 @@ class ContactChainStore {
 // Thin untyped client used by ActionExecutor for raw Map-based flows
 // ---------------------------------------------------------------------------
 
+final _log = createLogger();
+
 class NearIntents {
   NearIntents._();
   static final instance = NearIntents._();
@@ -891,10 +895,14 @@ class NearIntents {
       }),
     );
     if (resp.statusCode >= 300) {
+      _log.e('[NearIntents] quote failed (${resp.statusCode}): '
+          '${resp.body.substring(0, resp.body.length.clamp(0, 200))}');
       throw Exception('NEAR Intents quote failed (${resp.statusCode}): '
           '${resp.body.substring(0, resp.body.length.clamp(0, 200))}');
     }
-    return jsonDecode(resp.body) as Map<String, dynamic>;
+    final parsed = jsonDecode(resp.body) as Map<String, dynamic>;
+    _log.i('[NearIntents] quote ok, keys=${parsed.keys.toList()}');
+    return parsed;
   }
 
   Future<void> submitDeposit(String txHash, String depositAddress) async {
@@ -919,20 +927,20 @@ class NearIntents {
         if (resp.statusCode == 200) {
           final data = jsonDecode(resp.body);
           final status = (data['status'] as String? ?? '').toUpperCase();
-          debugPrint('[NearIntents] poll #$poll status=$status for $depositAddress');
+          _log.i('[NearIntents] poll #$poll status=$status for $depositAddress');
           if (status == 'SUCCESS' || status == 'COMPLETED') return 'success';
           if (status == 'FAILED' || status == 'EXPIRED') return 'failed';
           if (status == 'REFUNDED') return 'refunded';
           if (status == 'INCOMPLETE_DEPOSIT') return 'incomplete';
           // PENDING_DEPOSIT, KNOWN_DEPOSIT_TX, PROCESSING → keep polling
         } else {
-          debugPrint('[NearIntents] poll #$poll HTTP ${resp.statusCode} for $depositAddress');
+          _log.w('[NearIntents] poll #$poll HTTP ${resp.statusCode} for $depositAddress');
         }
       } catch (e) {
-        debugPrint('[NearIntents] poll #$poll error: $e');
+        _log.e('[NearIntents] poll #$poll error: $e');
       }
     }
-    debugPrint('[NearIntents] poll timed out after ${maxWaitSec}s for $depositAddress');
+    _log.w('[NearIntents] poll timed out after ${maxWaitSec}s for $depositAddress');
     return 'timeout';
   }
 

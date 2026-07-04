@@ -5,7 +5,7 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::ServerInfo;
 use rmcp::schemars;
 use rmcp::{tool, tool_handler, tool_router, ServerHandler, ServiceExt};
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -275,6 +275,81 @@ struct CipherpayCheckParams {
     invoice_id: String,
 }
 
+// --- Polymarket params ---
+
+#[derive(Deserialize, JsonSchema)]
+struct PolymarketDiscoverParams {
+    /// Optional keyword to search for (e.g., "bitcoin", "election", "AI")
+    keyword: Option<String>,
+    /// Max number of events to return (default 10)
+    limit: Option<u32>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct PolymarketPositionsParams {
+    /// EVM address to check positions for. Omit to use the wallet's derived address.
+    address: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct PolymarketBetParams {
+    /// Condition ID of the market to bet on
+    condition_id: String,
+    /// Outcome index (0 = YES/first outcome, 1 = NO/second outcome)
+    outcome: u32,
+    /// Amount in USDC (human readable, e.g. 5.0 = $5)
+    amount: f64,
+    /// Minimum fill price (0.0-1.0). Use to set limit orders. Default: market price.
+    min_price: Option<f64>,
+    /// Context identifier for audit trail
+    context_id: Option<String>,
+}
+
+// --- EVM balance/sweep params ---
+
+#[derive(Deserialize, JsonSchema)]
+struct EvmBalancesParams {
+    /// Chain name: polygon, bsc, base, arb, eth, op
+    chain: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct SweepQuoteParams {
+    /// Token symbol to sweep (e.g., USDC, USDT, POL, BNB)
+    token: String,
+    /// Chain to sweep from (e.g., polygon, bsc, base, arb)
+    chain: String,
+}
+
+// --- Voting params ---
+
+#[derive(Deserialize, JsonSchema)]
+struct VoteEligibilityParams {
+    /// Snapshot height for the vote round
+    snapshot_height: u64,
+}
+
+// --- HITL params ---
+
+#[derive(Deserialize, JsonSchema)]
+struct HitlPairParams {
+    /// Device name for the mobile wallet (e.g., "iPhone 15")
+    device_name: String,
+    /// Override relay URL (default: https://relay.atmospherelabs.dev)
+    relay_url: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct HitlDecideParams {
+    /// The approval ID to decide on
+    approval_id: String,
+    /// Whether to approve (true) or reject (false)
+    approved: bool,
+    /// Optional rejection reason
+    reason: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // MCP Server state
 // ---------------------------------------------------------------------------
@@ -444,7 +519,7 @@ impl ZipherMcpServer {
             return err_code_response(code, &violation.to_string());
         }
 
-        match zipher_engine::send::propose_send(&params.address, params.amount, params.memo, false).await {
+        match zipher_engine::send::propose_send(&params.address, params.amount, params.memo, false, false).await {
             Ok((send_amount, fee, _)) => {
                 zipher_engine::audit::log_event(
                     &self.data_dir, "propose_send", Some(&params.address),
@@ -559,7 +634,7 @@ impl ZipherMcpServer {
         let context_id = params.context_id.or(pending.context_id);
 
         match zipher_engine::send::propose_send(
-            &pending.address, pending.amount, pending.memo, false,
+            &pending.address, pending.amount, pending.memo, false, false,
         ).await {
             Ok((send_amount, fee, _)) => {
                 match zipher_engine::send::confirm_send(&seed_str).await {
@@ -839,7 +914,7 @@ impl ZipherMcpServer {
         }
 
         let (send_amount, fee, _) = match zipher_engine::send::propose_send(
-            &quote.deposit_address, params.amount, None, false,
+            &quote.deposit_address, params.amount, None, false, false,
         ).await {
             Ok(r) => r,
             Err(e) => return err_response(&e),
@@ -928,7 +1003,7 @@ impl ZipherMcpServer {
         }
 
         let (send_amount, fee, _) = match zipher_engine::send::propose_send(
-            &params.pay_to, params.deposit, Some(memo), false,
+            &params.pay_to, params.deposit, Some(memo), false, false,
         ).await {
             Ok(r) => r,
             Err(e) => return err_response(&e),
@@ -1153,7 +1228,7 @@ impl ZipherMcpServer {
             return err_code_response(POLICY_EXCEEDED, &violation.to_string());
         }
 
-        let (send_amount, fee, _) = match zipher_engine::send::propose_send(&address, amount, None, false).await {
+        let (send_amount, fee, _) = match zipher_engine::send::propose_send(&address, amount, None, false, false).await {
             Ok(r) => r,
             Err(e) => return err_response(&e),
         };
@@ -1227,6 +1302,344 @@ impl ZipherMcpServer {
         }
     }
 
+    // --- Polymarket tools ---
+
+    #[tool(description = "Discover prediction markets on Polymarket. Returns active events with their markets, prices, and volume. Use to find betting opportunities.")]
+    async fn polymarket_discover(&self, Parameters(params): Parameters<PolymarketDiscoverParams>) -> String {
+        match zipher_engine::polymarket::polymarket_discover(
+            params.keyword.as_deref(),
+            params.limit.unwrap_or(10),
+            false,
+        ).await {
+            Ok(summary) => ok_response(&summary),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Get your Polymarket positions (open bets). Shows condition IDs, outcomes, sizes, and current prices.")]
+    async fn polymarket_positions(&self, Parameters(params): Parameters<PolymarketPositionsParams>) -> String {
+        let address = if let Some(addr) = params.address {
+            addr
+        } else {
+            let seed_guard = self.seed.read().await;
+            match seed_guard.as_ref() {
+                Some(s) => {
+                    match zipher_engine::polymarket::derive_address(s.expose_secret()) {
+                        Ok(a) => a,
+                        Err(e) => return err_response(&e),
+                    }
+                }
+                None => return err_code_response(WALLET_LOCKED, "No seed available — cannot derive EVM address."),
+            }
+        };
+
+        match zipher_engine::polymarket::polymarket_get_positions(&address).await {
+            Ok(positions) => ok_response(&positions),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Place a bet on Polymarket. Requires USDC on Polygon. Specify condition_id, outcome (0=YES, 1=NO), and amount in USDC. Uses the wallet's EVM key for signing. Returns a signed order ready for CLOB submission.")]
+    async fn polymarket_bet(&self, Parameters(params): Parameters<PolymarketBetParams>) -> String {
+        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
+            return err_code_response(WALLET_LOCKED, "Wallet is locked.");
+        }
+
+        let seed_guard = self.seed.read().await;
+        let seed_str = match seed_guard.as_ref() {
+            Some(s) => s.clone(),
+            None => return err_code_response(WALLET_LOCKED, "No seed available."),
+        };
+        drop(seed_guard);
+
+        let seed_phrase = seed_str.expose_secret();
+        let address = match zipher_engine::polymarket::derive_address(seed_phrase) {
+            Ok(a) => a,
+            Err(e) => return err_response(&e),
+        };
+
+        let market = match zipher_engine::polymarket::polymarket_gamma_get_market_by_condition(&params.condition_id).await {
+            Ok(m) => m,
+            Err(e) => return err_code_response(INVALID_PROPOSAL, &format!("Market not found: {e}")),
+        };
+
+        let neg_risk = market.neg_risk_effective();
+        let token_ids = market.clob_token_ids_vec();
+        let token_id = if params.outcome == 0 {
+            token_ids.first().cloned().unwrap_or_default()
+        } else {
+            token_ids.get(1).cloned().unwrap_or_default()
+        };
+
+        if token_id.is_empty() {
+            return err_code_response(INVALID_PROPOSAL, "No token ID found for this outcome.");
+        }
+
+        let price = params.min_price.unwrap_or(if params.outcome == 0 {
+            market.best_ask_f().unwrap_or(0.5)
+        } else {
+            1.0 - market.best_bid_f().unwrap_or(0.5)
+        });
+
+        // USDC has 6 decimals: $5.00 = 5_000_000
+        let maker_amount = ((params.amount * 1_000_000.0) as u128).to_string();
+        // taker_amount = maker_amount / price (shares you get)
+        let taker_amount = ((params.amount / price * 1_000_000.0) as u128).to_string();
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let salt = format!("{}", timestamp * 1000 + (timestamp % 997));
+
+        let order = zipher_engine::polymarket::PolymarketOrder {
+            salt,
+            maker: address.clone(),
+            signer: address.clone(),
+            token_id: token_id.clone(),
+            maker_amount: maker_amount.clone(),
+            taker_amount: taker_amount.clone(),
+            side: 0, // BUY
+            signature_type: 2, // EOA
+            timestamp: timestamp.to_string(),
+            metadata: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            builder: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        };
+
+        let signature = match zipher_engine::polymarket::sign_order(seed_phrase, &order, neg_risk) {
+            Ok(s) => s,
+            Err(e) => return err_response(&e),
+        };
+
+        let usdc_raw = (params.amount * 1_000_000.0) as u64;
+        zipher_engine::audit::log_event(
+            &self.data_dir, "polymarket_bet", Some(&params.condition_id),
+            Some(usdc_raw), None, params.context_id.as_deref(),
+            None, Some(&format!("outcome={} price={:.4}", params.outcome, price)),
+        ).ok();
+
+        ok_response(serde_json::json!({
+            "status": "order_signed",
+            "condition_id": params.condition_id,
+            "token_id": token_id,
+            "outcome": params.outcome,
+            "amount_usdc": params.amount,
+            "price": price,
+            "maker_amount": maker_amount,
+            "taker_amount": taker_amount,
+            "address": address,
+            "signature": signature,
+            "neg_risk": neg_risk,
+            "note": "Order signed. Submit to Polymarket CLOB API to execute.",
+        }))
+    }
+
+    // --- EVM balance / sweep tools ---
+
+    #[tool(description = "Get EVM token balances on a specific chain. Shows native balance and known ERC-20 tokens (USDC, USDT, etc.). Uses wallet's derived EVM address.")]
+    async fn evm_balances(&self, Parameters(params): Parameters<EvmBalancesParams>) -> String {
+        let seed_guard = self.seed.read().await;
+        let seed_str = match seed_guard.as_ref() {
+            Some(s) => s.clone(),
+            None => return err_code_response(WALLET_LOCKED, "No seed available."),
+        };
+        drop(seed_guard);
+
+        let chain = match zipher_engine::evm::chain_by_name(&params.chain) {
+            Some(c) => c,
+            None => return err_code_response(INVALID_PROPOSAL, &format!("Unknown chain '{}'. Use: polygon, bsc, base, arb, eth, op", params.chain)),
+        };
+
+        let address = match zipher_engine::ows::derive_evm_address(seed_str.expose_secret()) {
+            Ok(a) => a,
+            Err(e) => return err_response(&e),
+        };
+
+        let native_bal = zipher_engine::evm::get_native_balance(chain.rpc_url, &address)
+            .await
+            .unwrap_or(0);
+
+        let known = zipher_engine::evm::known_tokens(chain.chain_id);
+        let mut token_balances = Vec::new();
+        for tok in &known {
+            let bal = zipher_engine::evm::get_erc20_balance(chain.rpc_url, &tok.address, &address)
+                .await
+                .unwrap_or(0);
+            if bal > 0 {
+                token_balances.push(serde_json::json!({
+                    "symbol": tok.symbol,
+                    "balance_raw": bal.to_string(),
+                    "balance": zipher_engine::evm::format_token_amount(bal, tok.decimals),
+                    "decimals": tok.decimals,
+                    "contract": tok.address,
+                }));
+            }
+        }
+
+        ok_response(serde_json::json!({
+            "chain": params.chain,
+            "chain_id": chain.chain_id,
+            "address": address,
+            "native_balance_wei": native_bal.to_string(),
+            "native_balance": zipher_engine::evm::format_token_amount(native_bal, 18),
+            "native_symbol": chain.native_symbol,
+            "tokens": token_balances,
+        }))
+    }
+
+    #[tool(description = "Get a quote for sweeping an EVM token back to shielded ZEC via NEAR Intents. Shows expected ZEC output. Does NOT execute — use the sweep flow for that.")]
+    async fn sweep_quote(&self, Parameters(params): Parameters<SweepQuoteParams>) -> String {
+        let seed_guard = self.seed.read().await;
+        let seed_str = match seed_guard.as_ref() {
+            Some(s) => s.clone(),
+            None => return err_code_response(WALLET_LOCKED, "No seed available."),
+        };
+        drop(seed_guard);
+
+        let address = match zipher_engine::ows::derive_evm_address(seed_str.expose_secret()) {
+            Ok(a) => a,
+            Err(e) => return err_response(&e),
+        };
+
+        let tokens = match zipher_engine::swap::get_tokens().await {
+            Ok(t) => t,
+            Err(e) => return err_response(&e),
+        };
+
+        let zec = match zipher_engine::swap::find_zec_token(&tokens) {
+            Some(t) => t,
+            None => return err_code_response(INTERNAL_ERROR, "ZEC not found in token list"),
+        };
+
+        let chain_blockchain = params.chain.to_lowercase();
+        let source_token = tokens.iter().find(|t| {
+            t.symbol.eq_ignore_ascii_case(&params.token)
+                && t.blockchain.eq_ignore_ascii_case(&chain_blockchain)
+        });
+        let source_token = match source_token {
+            Some(t) => t,
+            None => return err_code_response(INVALID_PROPOSAL, &format!("{} on {} not found in swap tokens", params.token, params.chain)),
+        };
+
+        let zec_address = match zipher_engine::query::get_addresses().await {
+            Ok(addrs) => addrs.first().map(|a| a.address.clone()).unwrap_or_default(),
+            Err(e) => return err_response(&e),
+        };
+
+        // Get balance to know how much to sweep
+        let evm_chain = match zipher_engine::evm::chain_by_name(&params.chain) {
+            Some(c) => c,
+            None => return err_code_response(INVALID_PROPOSAL, &format!("Unknown chain '{}'", params.chain)),
+        };
+
+        let balance = if source_token.symbol.eq_ignore_ascii_case(&evm_chain.native_symbol) {
+            zipher_engine::evm::get_native_balance(evm_chain.rpc_url, &address)
+                .await
+                .unwrap_or(0)
+        } else {
+            let contract = zipher_engine::evm_pay::token_contract(&params.token, evm_chain.chain_id)
+                .unwrap_or("");
+            if contract.is_empty() {
+                return err_code_response(INVALID_PROPOSAL, &format!("No known contract for {} on {}", params.token, params.chain));
+            }
+            zipher_engine::evm::get_erc20_balance(evm_chain.rpc_url, contract, &address)
+                .await
+                .unwrap_or(0)
+        };
+
+        if balance == 0 {
+            return ok_response(serde_json::json!({
+                "token": params.token,
+                "chain": params.chain,
+                "balance": "0",
+                "message": "Nothing to sweep — zero balance.",
+            }));
+        }
+
+        match zipher_engine::swap::get_quote(
+            &source_token.asset_id,
+            &zec.asset_id,
+            &balance.to_string(),
+            &zec_address,
+            &address,
+            100,
+        ).await {
+            Ok(quote) => ok_response(serde_json::json!({
+                "token": params.token,
+                "chain": params.chain,
+                "balance_raw": balance.to_string(),
+                "balance": zipher_engine::evm::format_token_amount(balance, source_token.decimals as u8),
+                "estimated_zec_out": quote.amount_out,
+                "deposit_address": quote.deposit_address,
+                "note": "To execute: approve + transfer tokens to deposit_address, then submit deposit to NEAR Intents.",
+            })),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    // --- Voting / governance tools ---
+
+    #[tool(description = "Check voting eligibility for a governance round. Returns total eligible ZEC, number of notes, and number of bundles needed for delegation.")]
+    async fn vote_eligibility(&self, Parameters(_params): Parameters<VoteEligibilityParams>) -> String {
+        err_response(&anyhow::anyhow!("Voting is temporarily disabled during the Ironwood (NU6.3) upgrade. It will return once zcash_voting supports orchard 0.15."))
+    }
+
+    // --- HITL tools ---
+
+    #[tool(description = "Generate a pairing code for connecting this agent to a Zipher mobile wallet. The mobile wallet scans this code to establish a secure approval channel.")]
+    async fn hitl_pair(&self, Parameters(params): Parameters<HitlPairParams>) -> String {
+        let (channel_id, pairing_code) = match zipher_engine::hitl::generate_pairing_code(&self.data_dir) {
+            Ok(r) => r,
+            Err(e) => return err_response(&e),
+        };
+
+        match zipher_engine::hitl::complete_pairing(
+            &self.data_dir,
+            &channel_id,
+            &params.device_name,
+            params.relay_url.as_deref(),
+        ) {
+            Ok(config) => ok_response(serde_json::json!({
+                "channel_id": channel_id,
+                "pairing_code": pairing_code,
+                "relay_url": config.relay_url,
+                "device_name": params.device_name,
+                "instructions": "Show this pairing code to the Zipher mobile app. Scan it in Settings > Agent Pairing.",
+            })),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Check HITL relay status: whether mobile pairing is active, and fetch any pending approval decisions.")]
+    async fn hitl_status(&self) -> String {
+        let config = zipher_engine::hitl::get_config(&self.data_dir);
+        let pending = zipher_engine::policy::get_pending_approval();
+
+        let mut decision = None;
+        if let (Some(ref p), true) = (&pending, config.enabled) {
+            decision = zipher_engine::hitl::poll_decision(&self.data_dir, &p.id)
+                .await
+                .ok()
+                .flatten();
+        }
+
+        ok_response(serde_json::json!({
+            "hitl_enabled": config.enabled,
+            "paired_device": config.pairing.as_ref().map(|p| &p.device_name),
+            "channel_id": config.pairing.as_ref().map(|p| &p.channel_id),
+            "relay_url": config.relay_url,
+            "pending_approval": pending.map(|p| serde_json::json!({
+                "approval_id": p.id,
+                "address": p.address,
+                "amount": p.amount,
+                "amount_zec": p.amount as f64 / 1e8,
+                "expires_in_secs": p.remaining_secs(),
+            })),
+            "decision": decision,
+        }))
+    }
+
     #[tool(description = "Pay an HTTP 402 paywall. Pass the full 402 response body. Returns txid and a PAYMENT-SIGNATURE header value to include when retrying the original request.")]
     async fn pay_x402(&self, Parameters(params): Parameters<PayX402Params>) -> String {
         if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
@@ -1288,7 +1701,7 @@ impl ZipherMcpServer {
             return err_code_response(POLICY_EXCEEDED, &violation.to_string());
         }
 
-        let (send_amount, fee, _) = match zipher_engine::send::propose_send(&address, amount, None, false).await {
+        let (send_amount, fee, _) = match zipher_engine::send::propose_send(&address, amount, None, false, false).await {
             Ok(r) => r,
             Err(e) => {
                 zipher_engine::audit::log_event(
@@ -1358,7 +1771,9 @@ impl ServerHandler for ZipherMcpServer {
                  The operator can lock/unlock the wallet remotely via wallet_lock/wallet_unlock. \
                  Paid APIs: pay_url auto-detects x402/MPP, pays, returns response. \
                  Cross-chain: swap_execute converts ZEC to any asset via Near Intents. \
-                 Prediction markets: market_research for news, then use the Polymarket tools to trade (Polygon / USDC)."
+                 EVM: evm_balances shows token holdings; sweep_quote previews bridging back to ZEC. \
+                 Prediction markets: polymarket_discover finds markets, polymarket_positions shows bets, polymarket_bet places orders. \
+                 Governance: vote_eligibility checks shielded voting power for protocol votes."
             )
     }
 }

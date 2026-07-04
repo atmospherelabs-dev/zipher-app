@@ -1,6 +1,6 @@
 {
   "name": "@cipherpay/zipher-cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Headless Zcash light wallet for AI agents — CLI + MCP server",
   "license": "MIT",
   "repository": {

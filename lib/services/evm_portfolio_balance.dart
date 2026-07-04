@@ -1,13 +1,12 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:logger/logger.dart';
-
+import 'app_log.dart';
 import 'evm_rpc.dart';
 import 'polymarket_client.dart' show polymarketPusd;
 import 'secure_key_store.dart';
 
-final _log = Logger();
+final _log = createLogger();
 
 /// Build-time default (CI / local); never commit real keys. User may override via [SecureKeyStore].
 const String _alchemyApiKeyDefine = String.fromEnvironment(

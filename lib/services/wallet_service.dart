@@ -14,6 +14,7 @@ import '../coin/coins.dart';
 import '../src/rust/api/wallet.dart' as rust_wallet;
 import '../src/rust/api/engine_api.dart' as rust_engine;
 import '../src/rust/frb_generated.dart';
+import '../store2.dart' show isSyncBoosted;
 import 'wallet_registry.dart';
 import 'secure_key_store.dart';
 import 'frost_service.dart';
@@ -886,7 +887,7 @@ class WalletService {
       return engineTxs.map((etx) {
         final v = etx.value.toInt();
         final status = etx.expiredUnmined
-            ? 'expired'
+            ? (isSyncBoosted() && etx.height == 0 ? 'pending' : 'expired')
             : etx.height > 0
                 ? 'confirmed'
                 : 'pending';
@@ -942,17 +943,20 @@ class WalletService {
 
   /// Step 1: Create a proposal and return exact fee info.
   /// When [isMax] is true, [amount] is ignored and the SDK computes the max.
+  /// When [priority] is true, a 4x marginal fee is applied for faster confirmation.
   Future<({int sendAmount, int fee, bool isExact})> proposeSend(
     String address,
     int amount, {
     String? memo,
     bool isMax = false,
+    bool priority = false,
   }) async {
     final result = await rust_engine.engineProposeSend(
       address: address,
       amount: BigInt.from(amount),
       memo: memo,
       isMax: isMax,
+      priority: priority,
     );
     return (
       sendAmount: result.sendAmount.toInt(),

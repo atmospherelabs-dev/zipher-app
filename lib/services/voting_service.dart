@@ -35,7 +35,7 @@ class VoteProposal {
   final List<VoteOption> options;
   VoteProposal({required this.id, required this.title, required this.options});
   factory VoteProposal.fromJson(Map<String, dynamic> json) => VoteProposal(
-        id: json['id'] as int,
+        id: VotingService._toInt(json['id']) ?? 0,
         title: json['title'] as String,
         options: (json['options'] as List)
             .map((o) => VoteOption.fromJson(o))
@@ -48,7 +48,7 @@ class VoteOption {
   final String label;
   VoteOption({required this.index, required this.label});
   factory VoteOption.fromJson(Map<String, dynamic> json) =>
-      VoteOption(index: json['index'] as int? ?? 0, label: json['label'] as String);
+      VoteOption(index: VotingService._toInt(json['index']) ?? 0, label: json['label'] as String);
 }
 
 /// Merged config: dynamic config (servers/PIR) + chain round data.
@@ -220,9 +220,9 @@ class VotingService {
 
       final roundIdB64 = round['vote_round_id'] as String? ?? '';
       final roundIdHex = _b64ToHex(roundIdB64);
-      final status = round['status'] as int? ?? 0;
-      final snapshotHeight = round['snapshot_height'] as int? ?? 0;
-      final voteEndTime = round['vote_end_time'] as int? ?? 0;
+      final status = _toInt(round['status']) ?? 0;
+      final snapshotHeight = _toInt(round['snapshot_height']) ?? 0;
+      final voteEndTime = _toInt(round['vote_end_time']) ?? 0;
       final title = round['title'] as String? ?? 'Governance Vote';
       final description = round['description'] as String? ?? '';
       final proposals = (round['proposals'] as List?)
@@ -398,6 +398,24 @@ class VotingService {
         .timeout(const Duration(seconds: 120));
 
     if (response.statusCode != 200 && response.statusCode != 201) {
+      // If the server says "nullifier already spent" but includes a tx_hash,
+      // the delegation already landed on-chain from a prior attempt.
+      if (response.statusCode == 422) {
+        try {
+          final errJson = jsonDecode(response.body) as Map<String, dynamic>;
+          final existingHash = errJson['tx_hash'] as String? ?? '';
+          final log = errJson['log'] as String? ?? '';
+          if (existingHash.isNotEmpty && log.contains('nullifier already spent')) {
+            _log.i('[VotingService] Delegation already on-chain: $existingHash');
+            final confirmed = await _pollTxConfirmation(serverUrl, existingHash);
+            final vanPosition = _toInt(confirmed?['van_position'])
+                ?? _toInt(confirmed?['commitment_index'])
+                ?? _toInt(confirmed?['van_leaf_index'])
+                ?? _toInt(confirmed?['index']);
+            return DelegationSubmissionResult(txHash: existingHash, vanPosition: vanPosition);
+          }
+        } catch (_) {}
+      }
       throw Exception(
         'Delegation submission failed: ${response.statusCode} ${response.body}',
       );
@@ -408,10 +426,10 @@ class VotingService {
     _log.i('[VotingService] Delegation submitted: $txHash');
 
     final confirmed = await _pollTxConfirmation(serverUrl, txHash);
-    final vanPosition = confirmed?['van_position'] as int?
-        ?? confirmed?['commitment_index'] as int?
-        ?? confirmed?['van_leaf_index'] as int?
-        ?? confirmed?['index'] as int?;
+    final vanPosition = _toInt(confirmed?['van_position'])
+        ?? _toInt(confirmed?['commitment_index'])
+        ?? _toInt(confirmed?['van_leaf_index'])
+        ?? _toInt(confirmed?['index']);
 
     _log.i('[VotingService] Delegation confirmed: hash=$txHash vanPos=$vanPosition');
     return DelegationSubmissionResult(txHash: txHash, vanPosition: vanPosition);
@@ -552,7 +570,7 @@ class VotingService {
         if (response.statusCode == 200) {
           final json = jsonDecode(response.body) as Map<String, dynamic>;
           final confirmed = json['confirmed'] as bool? ?? false;
-          final height = json['height'] as int? ?? 0;
+          final height = _toInt(json['height']) ?? 0;
           if (confirmed && height > 0) {
             _log.i('[VotingService] TX confirmed at height $height');
             return json;
@@ -569,6 +587,14 @@ class VotingService {
   // =========================================================================
   // Helpers
   // =========================================================================
+
+  /// Safely parse an int from a value that might be int, String, or null.
+  static int? _toInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is String) return int.tryParse(v);
+    return null;
+  }
 
   List<int> _hexToBytes(String hex) {
     final clean = hex.startsWith('0x') ? hex.substring(2) : hex;

@@ -1865,15 +1865,13 @@ async fn fetch_and_decrypt_tx(
 
     if raw.data.is_empty() {
         emit_log(&format!(
-            "enhance {}: server returned no transaction data",
+            "enhance {}: server returned no transaction data (not yet on chain)",
             txid_short
         ));
-        // Tx not (yet) on chain — mark as not-in-mempool so we don't keep
-        // requesting it forever.
-        db_data
-            .set_transaction_status(txid, TransactionStatus::TxidNotRecognized)
-            .map_err(|e| anyhow::anyhow!("set_transaction_status: {:?}", e))?;
-        return Ok(());
+        return Err(anyhow::anyhow!(
+            "Transaction {} not yet available from server",
+            txid_short
+        ));
     }
 
     let mined_height = if raw.height == 0 {
@@ -2188,7 +2186,13 @@ async fn fetch_status(
 
     let raw = resp.into_inner();
     let status = if raw.data.is_empty() {
-        TransactionStatus::TxidNotRecognized
+        // Don't immediately mark as unrecognized -- server may be behind.
+        // Return early without changing status; the SDK will re-request on next pass.
+        tracing::debug!(
+            "[sync] fetch_status {}: not yet available from server, deferring",
+            txid
+        );
+        return Ok(());
     } else if raw.height == 0 {
         TransactionStatus::NotInMainChain
     } else {
@@ -3436,8 +3440,14 @@ async fn refresh_transparent_utxos(
             let outpoint = OutPoint::new(txid_arr, index);
             let txout = TxOut::new(value, Script(zcash_script::script::Code(reply.script)));
 
-            if let Some(output) = WalletTransparentOutput::from_parts(outpoint, txout, Some(height))
-            {
+            if let Some(output) = WalletTransparentOutput::from_parts(
+                outpoint,
+                txout,
+                Some(height),
+                Some(account_id),
+                None,
+                None,
+            ) {
                 db_data
                     .put_received_transparent_utxo(&output)
                     .map_err(|e| anyhow::anyhow!("put_received_transparent_utxo: {:?}", e))?;

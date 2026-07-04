@@ -3,11 +3,10 @@
 /// All actual RPC calls go through Rust's `reqwest` client, which avoids
 /// iOS-specific issues with Dart's HTTP stack returning stale zero balances.
 
-import 'package:logger/logger.dart';
-
+import 'app_log.dart';
 import '../src/rust/api/engine_api.dart' as rust_engine;
 
-final _log = Logger();
+final _log = createLogger();
 
 const bscRpc = 'https://bsc-dataseed1.binance.org';
 const polygonRpc = 'https://polygon-bor-rpc.publicnode.com';

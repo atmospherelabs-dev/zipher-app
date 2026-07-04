@@ -23,6 +23,7 @@ class ZipherColors {
   static const Color orange = Color(0xFFFF6B35);
   static const Color orangeDark = Color(0xFFCC5529);
   static const Color red = Color(0xFFEF4444);
+  static const Color blue = Color(0xFF5B9CF6);
 
   // Named text colors (static, for themes)
   static const Color textPrimary = Color(0xFFE5E7EB);
@@ -279,7 +280,7 @@ class ZipherTheme {
           side: const BorderSide(color: ZipherColors.border),
         ),
         behavior: SnackBarBehavior.floating,
-        insetPadding: const EdgeInsets.fromLTRB(15, 5, 15, 100),
+        insetPadding: const EdgeInsets.fromLTRB(16, 5, 16, 16),
       ),
 
       // Divider
@@ -524,13 +525,22 @@ class ZipherWidgets {
     double? width,
     bool enabled = true,
   }) {
-    final color = ZipherColors.cyan;
     return Opacity(
       opacity: enabled ? 1.0 : 0.4,
       child: Container(
         width: width,
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
+          gradient: enabled
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    ZipherColors.cyan.withValues(alpha: 0.14),
+                    ZipherColors.cyan.withValues(alpha: 0.22),
+                  ],
+                )
+              : null,
+          color: enabled ? null : ZipherColors.cyan.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(ZipherRadius.md),
         ),
         child: Material(
@@ -545,13 +555,13 @@ class ZipherWidgets {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   if (icon != null) ...[
-                    Icon(icon, color: color.withValues(alpha: 0.9), size: 20),
+                    Icon(icon, color: ZipherColors.cyan.withValues(alpha: 0.9), size: 20),
                     const SizedBox(width: 8),
                   ],
                   Text(
                     label,
                     style: TextStyle(
-                      color: color.withValues(alpha: 0.9),
+                      color: ZipherColors.cyan.withValues(alpha: 0.9),
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                       fontFamily: 'Inter',

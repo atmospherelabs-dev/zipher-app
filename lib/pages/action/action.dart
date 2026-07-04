@@ -3,8 +3,10 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:gap/gap.dart';
-import 'package:logger/logger.dart';
+import '../../services/app_log.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import '../../accounts.dart';
 import '../../store2.dart';
@@ -32,17 +34,30 @@ import 'widgets/vote_confirmation.dart';
 import '../../services/voting_service.dart';
 import 'widgets/llm_settings_sheet.dart';
 
-final _log = Logger();
+final _log = createLogger();
 
-class ActionPage extends StatefulWidget {
+class ActionPage extends StatelessWidget {
   final String? initialIntent;
   const ActionPage({super.key, this.initialIntent});
 
   @override
-  State<ActionPage> createState() => _ActionPageState();
+  Widget build(BuildContext context) {
+    return Observer(builder: (context) {
+      final key = ValueKey(aaSequence.seqno);
+      return _ActionPageInner(key: key, initialIntent: initialIntent);
+    });
+  }
 }
 
-class _ActionPageState extends State<ActionPage> {
+class _ActionPageInner extends StatefulWidget {
+  final String? initialIntent;
+  const _ActionPageInner({super.key, this.initialIntent});
+
+  @override
+  State<_ActionPageInner> createState() => _ActionPageState();
+}
+
+class _ActionPageState extends State<_ActionPageInner> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   final _focusNode = FocusNode();
@@ -58,16 +73,16 @@ class _ActionPageState extends State<ActionPage> {
   double _llmDownloadProgress = 0;
   StreamSubscription<LlmStatus>? _llmSub;
 
-  bool _balanceLoading = true;
   bool _balanceExpanded = false;
-  double _zecBalanceUsd = 0;
-  double _zecAmount = 0;
   List<EvmTokenBalance> _evmBalances = [];
   double _evmTotalUsd = 0;
 
   /// When a Polymarket bet needs an amount, we store the intent here so the
   /// next user input is treated as a dollar amount, not re-parsed by the LLM.
   ParsedIntent? _pendingAmountIntent;
+
+  /// Guided send flow: accumulates amount/address across multiple inputs.
+  ParsedIntent? _pendingSendIntent;
 
   @override
   void initState() {
@@ -100,23 +115,7 @@ class _ActionPageState extends State<ActionPage> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _fetchAggregatedBalance() async {
-    for (int attempt = 0; attempt < 3; attempt++) {
-      try {
-        final balance = await WalletService.instance.getBalance();
-        final totalZat = (balance.orchard + balance.sapling + balance.transparent).toInt();
-        _zecAmount = totalZat / 1e8;
-        _zecBalanceUsd = _zecAmount * (marketPrice.price ?? 0.0);
-        break;
-      } catch (_) {
-        if (attempt < 2) {
-          await Future.delayed(Duration(milliseconds: 500 * (attempt + 1)));
-        } else {
-          final confirmed = aa.poolBalances.confirmed;
-          _zecAmount = confirmed / 1e8;
-          _zecBalanceUsd = _zecAmount * (marketPrice.price ?? 0.0);
-        }
-      }
-    }
+    await aa.updateBalance();
 
     try {
       final chain = aa.chainAddresses;
@@ -133,10 +132,26 @@ class _ActionPageState extends State<ActionPage> {
       _evmTotalUsd = 0;
     }
 
-    if (mounted) setState(() => _balanceLoading = false);
+    if (mounted) setState(() {});
   }
 
-  double get _totalUsd => _zecBalanceUsd + _evmTotalUsd;
+  double get _zecAmount => aa.poolBalances.confirmed / 1e8;
+  double get _zecBalanceUsd => _zecAmount * (marketPrice.price ?? 0.0);
+
+  String get _inputHint {
+    if (_pendingSendIntent != null) {
+      if (_pendingSendIntent!.amount == null || _pendingSendIntent!.amount! <= 0) {
+        return 'Enter amount (e.g. 0.5 ZEC)...';
+      }
+      if (_pendingSendIntent!.address == null) {
+        return 'Paste recipient address...';
+      }
+    }
+    if (_pendingAmountIntent != null) {
+      return 'Enter dollar amount...';
+    }
+    return _llmStatus == LlmStatus.loaded ? 'Ask me anything...' : 'Type a command...';
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // History & LLM
@@ -215,6 +230,46 @@ class _ActionPageState extends State<ActionPage> {
       _processing = true;
     });
     _scrollToBottom();
+
+    // Guided send flow: collect amount or address step by step
+    final pendingSend = _pendingSendIntent;
+    if (pendingSend != null) {
+      final trimmedInput = text.trim();
+      if (pendingSend.amount == null) {
+        final amount = _extractAmount(trimmedInput);
+        if (amount != null && amount > 0) {
+          _pendingSendIntent = pendingSend.copyWith(amount: amount, amountIsUsd: false);
+          if (pendingSend.address == null) {
+            _addSystemMessage('${amount.toStringAsFixed(8)} ZEC. Now paste the recipient address.');
+          } else {
+            _pendingSendIntent = null;
+            await _executeIntent(pendingSend.copyWith(amount: amount, amountIsUsd: false));
+            final followUp = _buildFollowUpChips(IntentType.send);
+            if (followUp is! SizedBox) _addSystemMessage('', card: followUp);
+          }
+          setState(() => _processing = false);
+          return;
+        }
+      }
+      if (pendingSend.address == null) {
+        final addrMatch = RegExp(r'(u1[a-z0-9]{60,}|zs1[a-z0-9]{60,}|t1[a-zA-Z0-9]{33})', caseSensitive: false).firstMatch(trimmedInput);
+        if (addrMatch != null) {
+          final addr = addrMatch.group(1)!;
+          if (pendingSend.amount == null) {
+            _pendingSendIntent = pendingSend.copyWith(address: addr);
+            _addSystemMessage('Got it, sending to ${ParsedIntent.truncAddr(addr)}. How much ZEC?');
+          } else {
+            _pendingSendIntent = null;
+            await _executeIntent(pendingSend.copyWith(address: addr));
+            final followUp = _buildFollowUpChips(IntentType.send);
+            if (followUp is! SizedBox) _addSystemMessage('', card: followUp);
+          }
+          setState(() => _processing = false);
+          return;
+        }
+      }
+      _pendingSendIntent = null;
+    }
 
     // If a Polymarket bet is waiting for an amount, extract it from the raw text
     final pending = _pendingAmountIntent;
@@ -314,6 +369,10 @@ class _ActionPageState extends State<ActionPage> {
         await _handleSweep();
       case IntentType.vote:
         await _handleVote();
+      case IntentType.history:
+        await _handleHistory();
+      case IntentType.receive:
+        _handleReceive();
       case IntentType.unknown:
         final suggestion = await LlmService.instance.suggestForUnknown(intent.raw);
         _addSystemMessage(
@@ -347,7 +406,7 @@ class _ActionPageState extends State<ActionPage> {
       final zecUsd = total * (marketPrice.price ?? 0);
       _addSystemMessage('', card: _balanceCard(total, shielded, transparent, zecUsd), intentType: IntentType.balance);
     } catch (e) {
-      _addSystemMessage('Failed to get balance.', card: _errorCard(message: '$e', onRetry: _handleBalance));
+      _addSystemMessage('Failed to get balance.', card: _errorCard(message: _friendlyError(e), onRetry: _handleBalance));
     }
   }
 
@@ -372,7 +431,7 @@ class _ActionPageState extends State<ActionPage> {
       }
       _addSystemMessage('', card: _portfolioCard(positions), intentType: IntentType.portfolio);
     } catch (e) {
-      _addSystemMessage('Failed to load portfolio.', card: _errorCard(message: '$e', onRetry: _handlePortfolio));
+      _addSystemMessage('Failed to load portfolio.', card: _errorCard(message: _friendlyError(e), onRetry: _handlePortfolio));
     }
   }
 
@@ -394,7 +453,7 @@ class _ActionPageState extends State<ActionPage> {
       _addSystemMessage('Which position do you want to sell? Tap one:',
           card: _portfolioCard(positions, sellMode: true));
     } catch (e) {
-      _addSystemMessage('Failed to load positions: $e');
+      _addSystemMessage('Failed to load positions.', card: _errorCard(message: _friendlyError(e), onRetry: () => _handleSell(intent)));
     }
   }
 
@@ -417,7 +476,12 @@ class _ActionPageState extends State<ActionPage> {
       shares: shares,
       worstPrice: worstPrice,
       negRisk: negRisk,
-      onResult: (msg) { _addSystemMessage(msg); _fetchAggregatedBalance(); },
+      onResult: (msg) {
+        _addSystemMessage(msg);
+        _fetchAggregatedBalance();
+        final followUp = _buildFollowUpChips(IntentType.sell);
+        if (followUp is! SizedBox) _addSystemMessage('', card: followUp);
+      },
     ));
   }
 
@@ -452,11 +516,13 @@ class _ActionPageState extends State<ActionPage> {
           onResult: (msg) {
             _addSystemMessage(msg);
             _fetchAggregatedBalance();
+            final followUp = _buildFollowUpChips(IntentType.sweep);
+            if (followUp is! SizedBox) _addSystemMessage('', card: followUp);
           },
         ),
       );
     } catch (e) {
-      _addSystemMessage('Failed to scan balances: $e');
+      _addSystemMessage('Failed to scan balances.', card: _errorCard(message: _friendlyError(e), onRetry: _handleSweep));
     }
   }
 
@@ -523,12 +589,147 @@ class _ActionPageState extends State<ActionPage> {
           eligibility: eligibility,
           onResult: (msg) {
             _addSystemMessage(msg);
+            final followUp = _buildFollowUpChips(IntentType.vote);
+            if (followUp is! SizedBox) _addSystemMessage('', card: followUp);
           },
         ),
       );
     } catch (e) {
-      _addSystemMessage('Failed to check voting status: $e');
+      _addSystemMessage('Failed to check voting status.', card: _errorCard(message: _friendlyError(e), onRetry: _handleVote));
     }
+  }
+
+  Future<void> _handleHistory() async {
+    try {
+      final txs = await rust_engine.engineGetTransactions();
+      if (txs.isEmpty) {
+        _addSystemMessage('No transactions yet.');
+        return;
+      }
+      final recent = txs.take(10).toList();
+      _addSystemMessage(
+        '${txs.length} transaction${txs.length == 1 ? '' : 's'} total. Showing the latest:',
+        card: _transactionListCard(recent),
+      );
+    } catch (e) {
+      _addSystemMessage('Failed to load transactions.', card: _errorCard(message: _friendlyError(e), onRetry: _handleHistory));
+    }
+  }
+
+  void _handleReceive() {
+    final address = aa.diversifiedAddress;
+    if (address.isEmpty) {
+      _addSystemMessage('No address available. Make sure your wallet is synced.');
+      return;
+    }
+    _addSystemMessage(
+      'Here\'s your shielded address:',
+      card: _receiveCard(address),
+    );
+    final followUp = _buildFollowUpChips(IntentType.receive);
+    if (followUp is! SizedBox) _addSystemMessage('', card: followUp);
+  }
+
+  Widget _transactionListCard(List<rust_engine.EngineTransactionRecord> txs) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: txs.map((tx) {
+        final isIncoming = tx.value >= 0;
+        final amount = (tx.value.abs() / 1e8).toStringAsFixed(4);
+        final date = tx.timestamp > 0
+            ? timeago.format(DateTime.fromMillisecondsSinceEpoch(tx.timestamp * 1000))
+            : 'pending';
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              Icon(
+                isIncoming ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                color: isIncoming ? ZipherColors.green : ZipherColors.warm,
+                size: 18,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${isIncoming ? '+' : '-'}$amount ZEC',
+                      style: TextStyle(
+                        color: ZipherColors.textPrimary,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text(
+                      date,
+                      style: TextStyle(
+                        color: ZipherColors.textMuted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (tx.memo != null && tx.memo!.isNotEmpty)
+                Icon(Icons.message_outlined, color: ZipherColors.textMuted, size: 14),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _receiveCard(String address) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: QrImage(
+            data: address,
+            size: 200,
+          ),
+        ),
+        const SizedBox(height: 12),
+        GestureDetector(
+          onTap: () {
+            Clipboard.setData(ClipboardData(text: address));
+            _addSystemMessage('Address copied to clipboard.');
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: ZipherColors.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: ZipherColors.border),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    address,
+                    style: TextStyle(
+                      color: ZipherColors.textSecondary,
+                      fontSize: 11,
+                      fontFamily: 'JetBrains Mono',
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(Icons.copy_rounded, size: 16, color: ZipherColors.cyan),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Future<String> _getSeedForAction() async {
@@ -541,19 +742,29 @@ class _ActionPageState extends State<ActionPage> {
   }
 
   void _handleSend(ParsedIntent intent) {
-    if (intent.address == null) { _addSystemMessage('Please provide a destination address.\n\nExample: send 0.5 ZEC to u1abc...'); return; }
-    if (intent.amount == null || intent.amount! <= 0) { _addSystemMessage('Please provide an amount.\n\nExample: send 0.5 ZEC to ${intent.address}'); return; }
+    if (intent.address == null && (intent.amount == null || intent.amount! <= 0)) {
+      _pendingSendIntent = intent;
+      _addSystemMessage('How much ZEC do you want to send?');
+      return;
+    }
+    if (intent.amount == null || intent.amount! <= 0) {
+      _pendingSendIntent = intent;
+      _addSystemMessage('Sending to ${ParsedIntent.truncAddr(intent.address!)}. How much ZEC?');
+      return;
+    }
+    if (intent.address == null) {
+      _pendingSendIntent = intent;
+      _addSystemMessage('${intent.amount!.toStringAsFixed(8)} ZEC. Now paste the recipient address.');
+      return;
+    }
 
     final amountZat = (intent.amount! * 1e8).round();
-    _addSystemMessage(intent.summary, card: _confirmationCard(
-      title: 'Confirm Send',
-      details: [
-        _detailRow('To', ParsedIntent.truncAddr(intent.address!)),
-        _detailRow('Amount', '${intent.amount!.toStringAsFixed(8)} ZEC'),
-        _detailRow('Amount', '$amountZat zatoshis'),
-        if (intent.memo != null) _detailRow('Memo', intent.memo!),
-      ],
-      onConfirm: () async {
+    _addSystemMessage(intent.summary, card: _SendConfirmationCard(
+      address: intent.address!,
+      amount: intent.amount!,
+      amountZat: amountZat,
+      memo: intent.memo,
+      onConfirm: (priority) async {
         final authed = await requireSigningAuthorization(
           context,
           actionSummary:
@@ -563,12 +774,13 @@ class _ActionPageState extends State<ActionPage> {
           _addSystemMessage('Send cancelled.');
           return;
         }
-        _addSystemMessage('Preparing transaction...');
+        _addSystemMessage('Preparing transaction${priority ? ' (priority)' : ''}...');
         try {
           final result = await WalletService.instance.proposeSend(
             intent.address!,
             amountZat,
             memo: intent.memo,
+            priority: priority,
           );
           _addSystemMessage('Signing and broadcasting...');
           final txid = await WalletService.instance.confirmSend();
@@ -578,8 +790,13 @@ class _ActionPageState extends State<ActionPage> {
             'Txid: $txid',
           );
           _fetchAggregatedBalance();
+          final followUp = _buildFollowUpChips(IntentType.send);
+          if (followUp is! SizedBox) _addSystemMessage('', card: followUp);
         } catch (e) {
-          _addSystemMessage('Send failed: $e');
+          _addSystemMessage('Send failed.', card: _errorCard(
+            message: _friendlyError(e),
+            onRetry: () => _handleSend(ParsedIntent(type: IntentType.send, raw: 'send', address: intent.address, amount: intent.amount, memo: intent.memo)),
+          ));
         }
       },
       onCancel: () => _addSystemMessage('Send cancelled.'),
@@ -630,14 +847,16 @@ class _ActionPageState extends State<ActionPage> {
       title: 'Confirm Swap',
       details: [_detailRow('From', '${intent.amount!.toStringAsFixed(4)} $from'), _detailRow('To', to), _detailRow('Via', 'NEAR Intents (cross-chain)')],
       onConfirm: () {
-        _addSystemMessage('Starting cross-chain swap...');
         HapticFeedback.mediumImpact();
-        ActionExecutor.instance.executeSwap(amountZec: intent.amount!, toToken: to).listen((progress) {
-          final icon = progress.isFailed ? 'X' : progress.isComplete ? '+' : '>';
-          _addSystemMessage('[$icon] Step ${progress.step}/${progress.totalSteps}: ${progress.label}\n${progress.detail}');
-          if (progress.isComplete) HapticFeedback.heavyImpact();
-          if (progress.isFailed) HapticFeedback.vibrate();
-        });
+        final stream = ActionExecutor.instance.executeSwap(amountZec: intent.amount!, toToken: to);
+        _addSystemMessage('', card: _CrossChainSwapCard(
+          stream: stream,
+          fromToken: from,
+          toToken: to,
+          amount: intent.amount!,
+          onComplete: () { HapticFeedback.heavyImpact(); _fetchAggregatedBalance(); },
+          onFailed: () => HapticFeedback.vibrate(),
+        ));
       },
       onCancel: () => _addSystemMessage('Swap cancelled.'),
     ), intentType: IntentType.swap);
@@ -746,7 +965,9 @@ class _ActionPageState extends State<ActionPage> {
         try {
           await WalletService.instance.shieldFunds();
           _addSystemMessage('Shielding complete. Transparent funds moved to Orchard pool.');
-        } catch (e) { _addSystemMessage('Shielding failed: $e'); }
+          final followUp = _buildFollowUpChips(IntentType.shield);
+          if (followUp is! SizedBox) _addSystemMessage('', card: followUp);
+        } catch (e) { _addSystemMessage('Shielding failed.', card: _errorCard(message: _friendlyError(e), onRetry: _handleShield)); }
       },
       onCancel: () => _addSystemMessage('Shielding cancelled.'),
     ), intentType: IntentType.shield);
@@ -780,7 +1001,7 @@ class _ActionPageState extends State<ActionPage> {
     } catch (e) {
       _log.e('[Markets] Polymarket search failed: $e');
       setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
-      _addSystemMessage('Polymarket search failed.', card: _errorCard(message: '$e', onRetry: () => _handleMarketSearch(intent)));
+      _addSystemMessage('Polymarket search failed.', card: _errorCard(message: _friendlyError(e), onRetry: () => _handleMarketSearch(intent)));
     }
   }
 
@@ -809,7 +1030,7 @@ class _ActionPageState extends State<ActionPage> {
       );
     } catch (e) {
       setState(() { if (_messages.isNotEmpty && !_messages.last.isUser) _messages.removeLast(); });
-      _addSystemMessage('Could not fetch markets.', card: _errorCard(message: '$e', onRetry: _handleMarketDiscover));
+      _addSystemMessage('Could not fetch markets.', card: _errorCard(message: _friendlyError(e), onRetry: _handleMarketDiscover));
     }
   }
 
@@ -1232,11 +1453,13 @@ class _ActionPageState extends State<ActionPage> {
     final chips = items ?? [
       SuggestionItem(Icons.account_balance_wallet_outlined, 'Balance', 'balance',
           intent: const ParsedIntent(type: IntentType.balance, raw: 'balance')),
+      SuggestionItem(Icons.qr_code_rounded, 'Receive', 'receive',
+          intent: const ParsedIntent(type: IntentType.receive, raw: 'receive')),
       SuggestionItem(Icons.swap_horiz, 'Swap', '_swap_chooser'),
+      SuggestionItem(Icons.history_rounded, 'History', 'history',
+          intent: const ParsedIntent(type: IntentType.history, raw: 'history')),
       SuggestionItem(Icons.trending_up, 'Find markets', 'find promising markets',
           intent: const ParsedIntent(type: IntentType.marketDiscover, raw: 'find promising markets')),
-      SuggestionItem(Icons.pie_chart_outline, 'My bets', 'my bets',
-          intent: const ParsedIntent(type: IntentType.portfolio, raw: 'my bets')),
       SuggestionItem(Icons.help_outline, 'Help', 'help',
           intent: const ParsedIntent(type: IntentType.help, raw: 'help')),
     ];
@@ -1295,6 +1518,41 @@ class _ActionPageState extends State<ActionPage> {
           SuggestionItem(Icons.account_balance_wallet_outlined, 'Balance', 'balance',
               intent: const ParsedIntent(type: IntentType.balance, raw: 'balance')),
           SuggestionItem(Icons.swap_horiz, 'Swap again', '_swap_chooser'),
+        ];
+      case IntentType.send:
+        chips = [
+          SuggestionItem(Icons.account_balance_wallet_outlined, 'Balance', 'balance',
+              intent: const ParsedIntent(type: IntentType.balance, raw: 'balance')),
+          SuggestionItem(Icons.history_rounded, 'History', 'history',
+              intent: const ParsedIntent(type: IntentType.history, raw: 'history')),
+          SuggestionItem(Icons.send_rounded, 'Send again', 'send',
+              intent: const ParsedIntent(type: IntentType.send, raw: 'send')),
+        ];
+      case IntentType.receive:
+        chips = [
+          SuggestionItem(Icons.account_balance_wallet_outlined, 'Balance', 'balance',
+              intent: const ParsedIntent(type: IntentType.balance, raw: 'balance')),
+          SuggestionItem(Icons.send_rounded, 'Send', 'send',
+              intent: const ParsedIntent(type: IntentType.send, raw: 'send')),
+        ];
+      case IntentType.history:
+        chips = [
+          SuggestionItem(Icons.account_balance_wallet_outlined, 'Balance', 'balance',
+              intent: const ParsedIntent(type: IntentType.balance, raw: 'balance')),
+          SuggestionItem(Icons.send_rounded, 'Send', 'send',
+              intent: const ParsedIntent(type: IntentType.send, raw: 'send')),
+        ];
+      case IntentType.shield:
+        chips = [
+          SuggestionItem(Icons.account_balance_wallet_outlined, 'Balance', 'balance',
+              intent: const ParsedIntent(type: IntentType.balance, raw: 'balance')),
+        ];
+      case IntentType.sell:
+        chips = [
+          SuggestionItem(Icons.account_balance_wallet_outlined, 'Balance', 'balance',
+              intent: const ParsedIntent(type: IntentType.balance, raw: 'balance')),
+          SuggestionItem(Icons.pie_chart_outline, 'My bets', 'my bets',
+              intent: const ParsedIntent(type: IntentType.portfolio, raw: 'my bets')),
         ];
       case IntentType.marketDiscover:
       case IntentType.marketSearch:
@@ -1395,7 +1653,7 @@ class _ActionPageState extends State<ActionPage> {
         errorBuilder: (_, __, ___) => Container(width: 16, height: 16,
             decoration: BoxDecoration(color: ZipherColors.text20, shape: BoxShape.circle),
             child: Center(child: Text(symbol.isNotEmpty ? symbol[0] : '?',
-                style: const TextStyle(fontSize: 9, color: Colors.white))))));
+                style: const TextStyle(fontSize: 9, color: ZipherColors.textPrimary))))));
   }
 
   Widget _miniBar(String label, double value, double total, Color color) {
@@ -1568,6 +1826,8 @@ class _ActionPageState extends State<ActionPage> {
       ('balance', 'Your total across all chains'), ('send \$10 to u1...', 'Send money (USD or ZEC)'),
       ('swap \$20 to USDT', 'Cross-chain swap (NEAR Intents)'),
       ('swap 1 POL to USDC.e on polygon', 'Same-chain EVM swap (ParaSwap)'),
+      ('receive', 'Show your shielded address'),
+      ('history', 'Recent transactions'),
       ('markets bitcoin', 'Search prediction markets'),
       ('find promising markets', 'Discover opportunities'),
       ('bet \$5 yes on polymarket 0x…', 'Polymarket bet (Polygon / USDC)'),
@@ -1607,6 +1867,17 @@ class _ActionPageState extends State<ActionPage> {
     );
   }
 
+  String _friendlyError(dynamic e) {
+    var msg = e.toString();
+    if (msg.startsWith('AnyhowException(')) {
+      msg = msg.substring('AnyhowException('.length);
+      if (msg.endsWith(')')) msg = msg.substring(0, msg.length - 1);
+    }
+    if (msg.startsWith('Exception: ')) msg = msg.substring('Exception: '.length);
+    if (msg.length > 120) msg = '${msg.substring(0, 117)}...';
+    return msg;
+  }
+
   Widget _errorCard({required String message, required VoidCallback onRetry}) {
     return Container(
       margin: const EdgeInsets.only(top: 8), padding: const EdgeInsets.all(12),
@@ -1641,9 +1912,10 @@ class _ActionPageState extends State<ActionPage> {
         backgroundColor: ZipherColors.bg,
         appBar: AppBar(
           backgroundColor: ZipherColors.bg, surfaceTintColor: Colors.transparent,
-          title: const Text('Action', style: TextStyle(color: ZipherColors.textPrimary, fontSize: 18, fontWeight: FontWeight.w600)),
           centerTitle: true,
-          leading: IconButton(icon: Icon(Icons.arrow_back, color: ZipherColors.text60), onPressed: () => Navigator.of(context).pop()),
+          leading: Navigator.of(context).canPop()
+              ? IconButton(icon: Icon(Icons.arrow_back, color: ZipherColors.text60), onPressed: () => Navigator.of(context).pop())
+              : null,
           actions: [
             IconButton(
               icon: Icon(_llmStatus == LlmStatus.loaded ? Icons.auto_awesome_rounded : Icons.auto_awesome_outlined, size: 20,
@@ -1666,42 +1938,38 @@ class _ActionPageState extends State<ActionPage> {
   }
 
   Widget _buildBalanceHeader() {
-    if (_balanceLoading) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: ZipherColors.borderSubtle, width: 0.5))),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.5, color: ZipherColors.text20)),
-        ]),
-      );
-    }
+    return Observer(builder: (_) {
+      final zecAmt = _zecAmount;
+      final zecUsd = _zecBalanceUsd;
+      final totalUsd = zecUsd + _evmTotalUsd;
 
-    return GestureDetector(
-      onTap: () => setState(() => _balanceExpanded = !_balanceExpanded),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        decoration: BoxDecoration(color: ZipherColors.bg,
-            border: Border(bottom: BorderSide(color: ZipherColors.borderSubtle, width: 0.5))),
-        child: Column(children: [
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text('\$${_totalUsd.toStringAsFixed(2)}',
-                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: ZipherColors.textPrimary, letterSpacing: -0.5)),
-            const Gap(8),
-            Icon(_balanceExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded, size: 20, color: ZipherColors.text20),
-          ]),
-          if (!_balanceExpanded) Text('Total across all chains', style: TextStyle(fontSize: 11, color: ZipherColors.text20)),
-          if (_balanceExpanded) ...[
-            const Gap(10),
-            _balanceHeaderRow('ZEC', _zecAmount.toStringAsFixed(4), _zecBalanceUsd),
-            for (final t in _evmBalances) ...[
-              const Gap(6),
-              _balanceHeaderRowEvm(t),
+      return GestureDetector(
+        onTap: () => setState(() => _balanceExpanded = !_balanceExpanded),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          decoration: BoxDecoration(color: ZipherColors.bg,
+              border: Border(bottom: BorderSide(color: ZipherColors.borderSubtle, width: 0.5))),
+          child: Column(children: [
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text('\$${totalUsd.toStringAsFixed(2)}',
+                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: ZipherColors.textPrimary, letterSpacing: -0.5)),
+              const Gap(8),
+              Icon(_balanceExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded, size: 20, color: ZipherColors.text20),
+            ]),
+            if (!_balanceExpanded) Text('Total across all chains', style: TextStyle(fontSize: 11, color: ZipherColors.text20)),
+            if (_balanceExpanded) ...[
+              const Gap(10),
+              _balanceHeaderRow('ZEC', zecAmt.toStringAsFixed(4), zecUsd),
+              for (final t in _evmBalances) ...[
+                const Gap(6),
+                _balanceHeaderRowEvm(t),
+              ],
             ],
-          ],
-        ]),
-      ),
-    );
+          ]),
+        ),
+      );
+    });
   }
 
   Widget _balanceHeaderRow(String symbol, String amount, double usd) {
@@ -1796,11 +2064,7 @@ class _ActionPageState extends State<ActionPage> {
   }
 
   Widget _dot(int delayMs) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.3, end: 1.0), duration: const Duration(milliseconds: 600), curve: Curves.easeInOut,
-      builder: (context, value, child) => Opacity(opacity: value,
-          child: Container(width: 6, height: 6, decoration: BoxDecoration(color: ZipherColors.text40, shape: BoxShape.circle))),
-    );
+    return _PulsingDot(delayMs: delayMs);
   }
 
   Widget _buildInputBar() {
@@ -1815,7 +2079,7 @@ class _ActionPageState extends State<ActionPage> {
             textInputAction: TextInputAction.send, onSubmitted: _handleSubmit,
             style: const TextStyle(color: ZipherColors.textPrimary, fontSize: 15),
             decoration: InputDecoration(
-              hintText: _llmStatus == LlmStatus.loaded ? 'Ask me anything...' : 'Type a command...',
+              hintText: _inputHint,
               hintStyle: TextStyle(color: ZipherColors.text20), filled: true, fillColor: ZipherColors.cardBg,
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
@@ -1833,6 +2097,267 @@ class _ActionPageState extends State<ActionPage> {
           ),
         ]),
       )),
+    );
+  }
+}
+
+class _SendConfirmationCard extends StatefulWidget {
+  final String address;
+  final double amount;
+  final int amountZat;
+  final String? memo;
+  final Future<void> Function(bool priority) onConfirm;
+  final VoidCallback onCancel;
+
+  const _SendConfirmationCard({
+    required this.address,
+    required this.amount,
+    required this.amountZat,
+    required this.memo,
+    required this.onConfirm,
+    required this.onCancel,
+  });
+
+  @override
+  State<_SendConfirmationCard> createState() => _SendConfirmationCardState();
+}
+
+class _SendConfirmationCardState extends State<_SendConfirmationCard> {
+  bool _priority = false;
+  bool _confirmed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: ZipherColors.cardBg,
+        borderRadius: BorderRadius.circular(ZipherRadius.md),
+        border: Border.all(color: ZipherColors.borderSubtle),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Confirm Send', style: TextStyle(color: ZipherColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 15)),
+        const Gap(12),
+        _row('To', ParsedIntent.truncAddr(widget.address)),
+        _row('Amount', '${widget.amount.toStringAsFixed(8)} ZEC'),
+        if (widget.memo != null) _row('Memo', widget.memo!),
+        const Gap(8),
+        Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Priority', style: TextStyle(fontSize: 13, color: ZipherColors.text40)),
+              Text('Higher fee, priority during congestion', style: TextStyle(fontSize: 11, color: ZipherColors.text20)),
+            ]),
+          ),
+          SizedBox(
+            height: 28,
+            child: Switch.adaptive(
+              value: _priority,
+              onChanged: _confirmed ? null : (v) => setState(() => _priority = v),
+              activeColor: ZipherColors.cyan,
+            ),
+          ),
+        ]),
+        const Gap(12),
+        if (!_confirmed)
+          Row(children: [
+            Expanded(
+              child: TextButton(
+                onPressed: widget.onCancel,
+                child: Text('Cancel', style: TextStyle(color: ZipherColors.text40)),
+              ),
+            ),
+            const Gap(8),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () {
+                  setState(() => _confirmed = true);
+                  widget.onConfirm(_priority);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: ZipherColors.cyan,
+                  foregroundColor: ZipherColors.textOnBrand,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ZipherRadius.md)),
+                ),
+                child: const Text('Confirm'),
+              ),
+            ),
+          ]),
+      ]),
+    );
+  }
+
+  Widget _row(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(children: [
+        SizedBox(width: 80, child: Text(label, style: TextStyle(color: ZipherColors.text40, fontSize: 13))),
+        Expanded(child: Text(value, style: const TextStyle(color: ZipherColors.textPrimary, fontSize: 13))),
+      ]),
+    );
+  }
+}
+
+class _CrossChainSwapCard extends StatefulWidget {
+  final Stream<ActionProgress> stream;
+  final String fromToken;
+  final String toToken;
+  final double amount;
+  final VoidCallback onComplete;
+  final VoidCallback onFailed;
+
+  const _CrossChainSwapCard({
+    required this.stream,
+    required this.fromToken,
+    required this.toToken,
+    required this.amount,
+    required this.onComplete,
+    required this.onFailed,
+  });
+
+  @override
+  State<_CrossChainSwapCard> createState() => _CrossChainSwapCardState();
+}
+
+class _CrossChainSwapCardState extends State<_CrossChainSwapCard> {
+  final List<ActionProgress> _steps = [];
+  bool _done = false;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.stream.listen((progress) {
+      if (!mounted) return;
+      setState(() {
+        if (_steps.length < progress.step) {
+          _steps.add(progress);
+        } else {
+          _steps[progress.step - 1] = progress;
+        }
+        if (progress.isComplete) {
+          _done = true;
+          widget.onComplete();
+        }
+        if (progress.isFailed) {
+          _failed = true;
+          widget.onFailed();
+        }
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: ZipherColors.cardBg,
+        borderRadius: BorderRadius.circular(ZipherRadius.md),
+        border: Border.all(color: _failed ? Colors.red.withValues(alpha: 0.3) : ZipherColors.text10),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.swap_horiz, color: ZipherColors.cyan, size: 16),
+          const Gap(8),
+          Text(
+            '${widget.amount.toStringAsFixed(4)} ${widget.fromToken} → ${widget.toToken}',
+            style: const TextStyle(color: ZipherColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ]),
+        const Gap(12),
+        if (_steps.isEmpty)
+          Row(children: [
+            SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: ZipherColors.cyan)),
+            const Gap(8),
+            Text('Initializing...', style: TextStyle(color: ZipherColors.text40, fontSize: 12)),
+          ]),
+        ..._steps.map((step) {
+          final IconData icon;
+          final Color color;
+          if (step.isComplete) {
+            icon = Icons.check_circle;
+            color = ZipherColors.green;
+          } else if (step.isFailed) {
+            icon = Icons.cancel;
+            color = Colors.red;
+          } else {
+            icon = Icons.radio_button_unchecked;
+            color = ZipherColors.cyan;
+          }
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              step.status == ActionStatus.running && !step.isComplete && !step.isFailed
+                  ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: ZipherColors.cyan))
+                  : Icon(icon, size: 14, color: color),
+              const Gap(8),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(step.label, style: TextStyle(color: ZipherColors.textPrimary, fontSize: 12)),
+                if (step.detail.isNotEmpty)
+                  Text(step.detail, style: TextStyle(color: ZipherColors.text40, fontSize: 11)),
+              ])),
+            ]),
+          );
+        }),
+        if (_done) ...[
+          const Gap(8),
+          Text('Swap complete', style: TextStyle(color: ZipherColors.green, fontSize: 12, fontWeight: FontWeight.w600)),
+        ],
+        if (_failed) ...[
+          const Gap(8),
+          Text('Swap failed', style: TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.w600)),
+        ],
+      ]),
+    );
+  }
+}
+
+class _PulsingDot extends StatefulWidget {
+  final int delayMs;
+  const _PulsingDot({required this.delayMs});
+
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    _opacity = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.3, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)), weight: 50),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.3).chain(CurveTween(curve: Curves.easeInOut)), weight: 50),
+    ]).animate(_controller);
+    Future.delayed(Duration(milliseconds: widget.delayMs), () {
+      if (mounted) _controller.repeat();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _opacity,
+      builder: (context, child) => Opacity(
+        opacity: _opacity.value,
+        child: child,
+      ),
+      child: Container(width: 6, height: 6, decoration: BoxDecoration(color: ZipherColors.text40, shape: BoxShape.circle)),
     );
   }
 }

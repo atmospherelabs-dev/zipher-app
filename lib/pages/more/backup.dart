@@ -63,6 +63,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   bool _seedWordsVisible = false;
   bool _skRevealed = false;
   bool _tskRevealed = false;
+  bool _uvkRevealed = false;
+  bool _fvkRevealed = false;
   bool _obscured = false;
   int? _birthdayHeight;
   bool _verificationPassed = false;
@@ -531,8 +533,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                           'Reveals every past and future transaction across all pools — including amounts, memos, and counterparties. Anyone you share this with can audit your entire wallet history. They cannot spend funds.',
                       value: backup.uvk!,
                       icon: Icons.visibility_rounded,
-                      // Sensitive: hidden by default, behind reveal toggle.
-                      // Was alwaysVisible: true (audit finding H2).
+                      revealed: _uvkRevealed,
+                      onToggleReveal: () => setState(() => _uvkRevealed = !_uvkRevealed),
                       onShowQR: () => _showQR(context, backup.uvk!,
                           '${s.unifiedViewingKey} of ${backup.name}'),
                     ),
@@ -545,7 +547,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                           'Reveals every shielded (Sapling) transaction — amounts and memos. Anyone you share this with can audit your Sapling wallet history. They cannot spend.',
                       value: backup.fvk!,
                       icon: Icons.visibility_outlined,
-                      // Sensitive: hidden by default, behind reveal toggle.
+                      revealed: _fvkRevealed,
+                      onToggleReveal: () => setState(() => _fvkRevealed = !_fvkRevealed),
                       onShowQR: () => _showQR(context, backup.fvk!,
                           '${s.viewingKey} of ${backup.name}'),
                     ),

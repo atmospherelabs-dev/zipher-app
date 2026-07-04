@@ -356,7 +356,7 @@ pub async fn cmd_frost_spend(
         .unwrap_or(synced as u64) as u32;
     zipher_engine::sync::set_progress(synced, latest).await;
 
-    zipher_engine::send::propose_send(&to, amount, memo, false).await?;
+    zipher_engine::send::propose_send(&to, amount, memo, false, false).await?;
     let pczt = zipher_engine::send::create_pczt().await?;
     let req = zipher_engine::frost::frost_pczt_signing_request(pczt.clone())?;
     if req.orchard_actions.is_empty() {

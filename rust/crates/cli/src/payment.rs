@@ -40,7 +40,7 @@ pub async fn cmd_x402_propose(
     let req = zipher_engine::x402::parse_402_response(&raw, expected_network(cfg))?;
     let amount = zipher_engine::x402::amount_zatoshis(&req)?;
 
-    crate::wallet::cmd_send_propose(cfg, req.pay_to, amount, false, None, context_id).await
+    crate::wallet::cmd_send_propose(cfg, req.pay_to, amount, false, None, context_id, false).await
 }
 
 pub async fn cmd_x402_pay(
@@ -93,7 +93,7 @@ pub async fn cmd_x402_pay(
     auto_open(cfg).await?;
 
     let (send_amount, fee, _) =
-        zipher_engine::send::propose_send(&address, amount, None, false).await?;
+        zipher_engine::send::propose_send(&address, amount, None, false, false).await?;
 
     if cfg.human {
         let zec = send_amount as f64 / 1e8;
@@ -216,7 +216,7 @@ async fn pay_with_zec(
     auto_open(cfg).await?;
 
     let (send_amount, fee, _) =
-        zipher_engine::send::propose_send(&address, amount, None, false).await?;
+        zipher_engine::send::propose_send(&address, amount, None, false, false).await?;
 
     let seed = read_seed(&cfg.data_dir)?;
     let txid = match zipher_engine::send::confirm_send(&seed).await {
@@ -423,7 +423,7 @@ async fn pay_cross_chain(
 
         let deposit_amount: u64 = quote.amount_in.parse().unwrap_or(zec_needed);
         let (send_amount, fee, _) =
-            zipher_engine::send::propose_send(&quote.deposit_address, deposit_amount, None, false)
+            zipher_engine::send::propose_send(&quote.deposit_address, deposit_amount, None, false, false)
                 .await?;
 
         let seed = read_seed(&cfg.data_dir)?;
