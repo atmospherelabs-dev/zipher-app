@@ -1356,12 +1356,15 @@ mixin _$WalletBalance {
   BigInt get transparent => throw _privateConstructorUsedError;
   BigInt get sapling => throw _privateConstructorUsedError;
   BigInt get orchard => throw _privateConstructorUsedError;
+  BigInt get ironwood => throw _privateConstructorUsedError;
   BigInt get unconfirmedSapling => throw _privateConstructorUsedError;
   BigInt get unconfirmedOrchard => throw _privateConstructorUsedError;
+  BigInt get unconfirmedIronwood => throw _privateConstructorUsedError;
   BigInt get unconfirmedTransparent => throw _privateConstructorUsedError;
   BigInt get totalTransparent => throw _privateConstructorUsedError;
   BigInt get totalSapling => throw _privateConstructorUsedError;
   BigInt get totalOrchard => throw _privateConstructorUsedError;
+  BigInt get totalIronwood => throw _privateConstructorUsedError;
 
   @JsonKey(ignore: true)
   $WalletBalanceCopyWith<WalletBalance> get copyWith =>
@@ -1378,12 +1381,15 @@ abstract class $WalletBalanceCopyWith<$Res> {
       {BigInt transparent,
       BigInt sapling,
       BigInt orchard,
+      BigInt ironwood,
       BigInt unconfirmedSapling,
       BigInt unconfirmedOrchard,
+      BigInt unconfirmedIronwood,
       BigInt unconfirmedTransparent,
       BigInt totalTransparent,
       BigInt totalSapling,
-      BigInt totalOrchard});
+      BigInt totalOrchard,
+      BigInt totalIronwood});
 }
 
 /// @nodoc
@@ -1402,12 +1408,15 @@ class _$WalletBalanceCopyWithImpl<$Res, $Val extends WalletBalance>
     Object? transparent = null,
     Object? sapling = null,
     Object? orchard = null,
+    Object? ironwood = null,
     Object? unconfirmedSapling = null,
     Object? unconfirmedOrchard = null,
+    Object? unconfirmedIronwood = null,
     Object? unconfirmedTransparent = null,
     Object? totalTransparent = null,
     Object? totalSapling = null,
     Object? totalOrchard = null,
+    Object? totalIronwood = null,
   }) {
     return _then(_value.copyWith(
       transparent: null == transparent
@@ -1422,6 +1431,10 @@ class _$WalletBalanceCopyWithImpl<$Res, $Val extends WalletBalance>
           ? _value.orchard
           : orchard // ignore: cast_nullable_to_non_nullable
               as BigInt,
+      ironwood: null == ironwood
+          ? _value.ironwood
+          : ironwood // ignore: cast_nullable_to_non_nullable
+              as BigInt,
       unconfirmedSapling: null == unconfirmedSapling
           ? _value.unconfirmedSapling
           : unconfirmedSapling // ignore: cast_nullable_to_non_nullable
@@ -1429,6 +1442,10 @@ class _$WalletBalanceCopyWithImpl<$Res, $Val extends WalletBalance>
       unconfirmedOrchard: null == unconfirmedOrchard
           ? _value.unconfirmedOrchard
           : unconfirmedOrchard // ignore: cast_nullable_to_non_nullable
+              as BigInt,
+      unconfirmedIronwood: null == unconfirmedIronwood
+          ? _value.unconfirmedIronwood
+          : unconfirmedIronwood // ignore: cast_nullable_to_non_nullable
               as BigInt,
       unconfirmedTransparent: null == unconfirmedTransparent
           ? _value.unconfirmedTransparent
@@ -1445,6 +1462,10 @@ class _$WalletBalanceCopyWithImpl<$Res, $Val extends WalletBalance>
       totalOrchard: null == totalOrchard
           ? _value.totalOrchard
           : totalOrchard // ignore: cast_nullable_to_non_nullable
+              as BigInt,
+      totalIronwood: null == totalIronwood
+          ? _value.totalIronwood
+          : totalIronwood // ignore: cast_nullable_to_non_nullable
               as BigInt,
     ) as $Val);
   }
@@ -1462,12 +1483,15 @@ abstract class _$$WalletBalanceImplCopyWith<$Res>
       {BigInt transparent,
       BigInt sapling,
       BigInt orchard,
+      BigInt ironwood,
       BigInt unconfirmedSapling,
       BigInt unconfirmedOrchard,
+      BigInt unconfirmedIronwood,
       BigInt unconfirmedTransparent,
       BigInt totalTransparent,
       BigInt totalSapling,
-      BigInt totalOrchard});
+      BigInt totalOrchard,
+      BigInt totalIronwood});
 }
 
 /// @nodoc
@@ -1484,12 +1508,15 @@ class __$$WalletBalanceImplCopyWithImpl<$Res>
     Object? transparent = null,
     Object? sapling = null,
     Object? orchard = null,
+    Object? ironwood = null,
     Object? unconfirmedSapling = null,
     Object? unconfirmedOrchard = null,
+    Object? unconfirmedIronwood = null,
     Object? unconfirmedTransparent = null,
     Object? totalTransparent = null,
     Object? totalSapling = null,
     Object? totalOrchard = null,
+    Object? totalIronwood = null,
   }) {
     return _then(_$WalletBalanceImpl(
       transparent: null == transparent
@@ -1504,6 +1531,10 @@ class __$$WalletBalanceImplCopyWithImpl<$Res>
           ? _value.orchard
           : orchard // ignore: cast_nullable_to_non_nullable
               as BigInt,
+      ironwood: null == ironwood
+          ? _value.ironwood
+          : ironwood // ignore: cast_nullable_to_non_nullable
+              as BigInt,
       unconfirmedSapling: null == unconfirmedSapling
           ? _value.unconfirmedSapling
           : unconfirmedSapling // ignore: cast_nullable_to_non_nullable
@@ -1511,6 +1542,10 @@ class __$$WalletBalanceImplCopyWithImpl<$Res>
       unconfirmedOrchard: null == unconfirmedOrchard
           ? _value.unconfirmedOrchard
           : unconfirmedOrchard // ignore: cast_nullable_to_non_nullable
+              as BigInt,
+      unconfirmedIronwood: null == unconfirmedIronwood
+          ? _value.unconfirmedIronwood
+          : unconfirmedIronwood // ignore: cast_nullable_to_non_nullable
               as BigInt,
       unconfirmedTransparent: null == unconfirmedTransparent
           ? _value.unconfirmedTransparent
@@ -1528,6 +1563,10 @@ class __$$WalletBalanceImplCopyWithImpl<$Res>
           ? _value.totalOrchard
           : totalOrchard // ignore: cast_nullable_to_non_nullable
               as BigInt,
+      totalIronwood: null == totalIronwood
+          ? _value.totalIronwood
+          : totalIronwood // ignore: cast_nullable_to_non_nullable
+              as BigInt,
     ));
   }
 }
@@ -1539,12 +1578,15 @@ class _$WalletBalanceImpl extends _WalletBalance {
       {required this.transparent,
       required this.sapling,
       required this.orchard,
+      required this.ironwood,
       required this.unconfirmedSapling,
       required this.unconfirmedOrchard,
+      required this.unconfirmedIronwood,
       required this.unconfirmedTransparent,
       required this.totalTransparent,
       required this.totalSapling,
-      required this.totalOrchard})
+      required this.totalOrchard,
+      required this.totalIronwood})
       : super._();
 
   @override
@@ -1554,9 +1596,13 @@ class _$WalletBalanceImpl extends _WalletBalance {
   @override
   final BigInt orchard;
   @override
+  final BigInt ironwood;
+  @override
   final BigInt unconfirmedSapling;
   @override
   final BigInt unconfirmedOrchard;
+  @override
+  final BigInt unconfirmedIronwood;
   @override
   final BigInt unconfirmedTransparent;
   @override
@@ -1565,10 +1611,12 @@ class _$WalletBalanceImpl extends _WalletBalance {
   final BigInt totalSapling;
   @override
   final BigInt totalOrchard;
+  @override
+  final BigInt totalIronwood;
 
   @override
   String toString() {
-    return 'WalletBalance(transparent: $transparent, sapling: $sapling, orchard: $orchard, unconfirmedSapling: $unconfirmedSapling, unconfirmedOrchard: $unconfirmedOrchard, unconfirmedTransparent: $unconfirmedTransparent, totalTransparent: $totalTransparent, totalSapling: $totalSapling, totalOrchard: $totalOrchard)';
+    return 'WalletBalance(transparent: $transparent, sapling: $sapling, orchard: $orchard, ironwood: $ironwood, unconfirmedSapling: $unconfirmedSapling, unconfirmedOrchard: $unconfirmedOrchard, unconfirmedIronwood: $unconfirmedIronwood, unconfirmedTransparent: $unconfirmedTransparent, totalTransparent: $totalTransparent, totalSapling: $totalSapling, totalOrchard: $totalOrchard, totalIronwood: $totalIronwood)';
   }
 
   @override
@@ -1580,10 +1628,13 @@ class _$WalletBalanceImpl extends _WalletBalance {
                 other.transparent == transparent) &&
             (identical(other.sapling, sapling) || other.sapling == sapling) &&
             (identical(other.orchard, orchard) || other.orchard == orchard) &&
+            (identical(other.ironwood, ironwood) || other.ironwood == ironwood) &&
             (identical(other.unconfirmedSapling, unconfirmedSapling) ||
                 other.unconfirmedSapling == unconfirmedSapling) &&
             (identical(other.unconfirmedOrchard, unconfirmedOrchard) ||
                 other.unconfirmedOrchard == unconfirmedOrchard) &&
+            (identical(other.unconfirmedIronwood, unconfirmedIronwood) ||
+                other.unconfirmedIronwood == unconfirmedIronwood) &&
             (identical(other.unconfirmedTransparent, unconfirmedTransparent) ||
                 other.unconfirmedTransparent == unconfirmedTransparent) &&
             (identical(other.totalTransparent, totalTransparent) ||
@@ -1591,7 +1642,9 @@ class _$WalletBalanceImpl extends _WalletBalance {
             (identical(other.totalSapling, totalSapling) ||
                 other.totalSapling == totalSapling) &&
             (identical(other.totalOrchard, totalOrchard) ||
-                other.totalOrchard == totalOrchard));
+                other.totalOrchard == totalOrchard) &&
+            (identical(other.totalIronwood, totalIronwood) ||
+                other.totalIronwood == totalIronwood));
   }
 
   @override
@@ -1600,12 +1653,15 @@ class _$WalletBalanceImpl extends _WalletBalance {
       transparent,
       sapling,
       orchard,
+      ironwood,
       unconfirmedSapling,
       unconfirmedOrchard,
+      unconfirmedIronwood,
       unconfirmedTransparent,
       totalTransparent,
       totalSapling,
-      totalOrchard);
+      totalOrchard,
+      totalIronwood);
 
   @JsonKey(ignore: true)
   @override
@@ -1619,12 +1675,15 @@ abstract class _WalletBalance extends WalletBalance {
       {required final BigInt transparent,
       required final BigInt sapling,
       required final BigInt orchard,
+      required final BigInt ironwood,
       required final BigInt unconfirmedSapling,
       required final BigInt unconfirmedOrchard,
+      required final BigInt unconfirmedIronwood,
       required final BigInt unconfirmedTransparent,
       required final BigInt totalTransparent,
       required final BigInt totalSapling,
-      required final BigInt totalOrchard}) = _$WalletBalanceImpl;
+      required final BigInt totalOrchard,
+      required final BigInt totalIronwood}) = _$WalletBalanceImpl;
   const _WalletBalance._() : super._();
 
   @override
@@ -1634,9 +1693,13 @@ abstract class _WalletBalance extends WalletBalance {
   @override
   BigInt get orchard;
   @override
+  BigInt get ironwood;
+  @override
   BigInt get unconfirmedSapling;
   @override
   BigInt get unconfirmedOrchard;
+  @override
+  BigInt get unconfirmedIronwood;
   @override
   BigInt get unconfirmedTransparent;
   @override
@@ -1645,6 +1708,8 @@ abstract class _WalletBalance extends WalletBalance {
   BigInt get totalSapling;
   @override
   BigInt get totalOrchard;
+  @override
+  BigInt get totalIronwood;
   @override
   @JsonKey(ignore: true)
   _$$WalletBalanceImplCopyWith<_$WalletBalanceImpl> get copyWith =>

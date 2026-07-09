@@ -73,19 +73,20 @@ opt-level = 3
 strip = true
 
 [patch.crates-io]
-# Pin to librustzcash/main post-NU6.3 merge (same rev as Zallet).
-# Includes Ironwood tx builder, v6 format, ZIP 317 Ironwood fees.
-# TODO: switch to crates.io releases once stable versions are published.
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
-zcash_transparent = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
-zcash_address = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
-zcash_encoding = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
-pczt = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
-zip321 = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
-equihash = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
-f4jumble = { git = "https://github.com/zcash/librustzcash.git", rev = "cac64ba2b47545f23d356002e4a9f02aaaabc083" }
+# Pin to librustzcash PR #2539 branch (dw/ironwood-scan-model).
+# Full Ironwood wallet path: scan + store + balance + select + spend + routing.
+# Same rev used by zcash-devtool PR #209 for testnet Ironwood testing.
+# TODO: re-pin to main once PR #2539 merges.
+zcash_client_backend = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+zcash_primitives = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+zcash_proofs = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+zcash_transparent = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+zcash_keys = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+zcash_address = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+zcash_encoding = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+pczt = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+zip321 = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+equihash = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+f4jumble = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }

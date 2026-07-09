@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'wallet.dart';
 
 // These functions are ignored because they are not marked as `pub`: `packages_from_map`, `packages_to_map`, `to_network`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Create a new wallet. Returns the 24-word seed phrase.
 Future<String> engineCreateWallet(
@@ -232,14 +232,19 @@ Future<void> engineClearInactiveWallets() =>
 
 /// Step 1: Create a proposal and return exact fee info.
 /// When `is_max` is true, `amount` is ignored and the SDK computes the max sendable.
+/// When `priority` is true, a 4x marginal fee is applied for faster confirmation.
 Future<ProposalResult> engineProposeSend(
         {required String address,
         required BigInt amount,
         String? memo,
         required bool isMax,
-        bool priority = false}) =>
+        required bool priority}) =>
     RustLib.instance.api.crateApiEngineApiEngineProposeSend(
-        address: address, amount: amount, memo: memo, isMax: isMax, priority: priority);
+        address: address,
+        amount: amount,
+        memo: memo,
+        isMax: isMax,
+        priority: priority);
 
 /// Create a proved PCZT from the pending proposal.
 ///
@@ -582,21 +587,18 @@ Future<Uint8List> engineVoteDeriveSeed({required List<int> walletSeed}) =>
         .crateApiEngineApiEngineVoteDeriveSeed(walletSeed: walletSeed);
 
 /// Derive the voting seed from a BIP-39 mnemonic phrase.
-/// Converts the mnemonic to seed bytes first, then derives the voting seed.
 Future<Uint8List> engineVoteDeriveSeedFromPhrase(
         {required String seedPhrase}) =>
     RustLib.instance.api.crateApiEngineApiEngineVoteDeriveSeedFromPhrase(
         seedPhrase: seedPhrase);
 
 /// Derive a voting hotkey from a 32-byte voting seed.
-/// Returns (secret_key, public_key, address).
 Future<EngineVotingHotkey> engineVoteDeriveHotkey(
         {required List<int> votingSeed}) =>
     RustLib.instance.api
         .crateApiEngineApiEngineVoteDeriveHotkey(votingSeed: votingSeed);
 
 /// Check voting eligibility at a given snapshot height.
-/// Returns (eligible_weight_zatoshi, note_count, bundle_count).
 Future<EngineVotingEligibility> engineVoteCheckEligibility(
         {required BigInt snapshotHeight}) =>
     RustLib.instance.api.crateApiEngineApiEngineVoteCheckEligibility(
@@ -607,8 +609,7 @@ Future<Uint8List> engineVoteProposalsHash({required String proposalsJson}) =>
     RustLib.instance.api
         .crateApiEngineApiEngineVoteProposalsHash(proposalsJson: proposalsJson);
 
-/// Perform full delegation flow: PCZT → sign → PIR → witnesses → ZKP1 proof.
-/// Returns delegation submission data for each bundle.
+/// Perform full delegation flow.
 Future<List<EngineDelegationResult>> engineVoteDelegate(
         {required String seedPhrase,
         required String voteRoundId,
@@ -629,7 +630,6 @@ Future<List<EngineDelegationResult>> engineVoteDelegate(
         networkId: networkId);
 
 /// Build vote commitment (ZKP2) for a single proposal.
-/// voting_seed is the 32-byte deterministic voting seed (from engine_vote_derive_seed).
 Future<EngineVoteCommitment> engineVoteBuildCommitment(
         {required List<int> votingSeed,
         required int networkId,
@@ -660,6 +660,44 @@ Future<EngineVoteCommitment> engineVoteBuildCommitment(
         anchorHeight: anchorHeight,
         proposalAuthority: proposalAuthority,
         singleShare: singleShare);
+
+/// Plan an Orchard -> Ironwood pool transfer per ZIP 318.
+/// Returns a summary with denominations, fees, and duration for user confirmation.
+Future<IronwoodPlan> engineIronwoodPlan(
+        {required BigInt orchardBalanceZat, required int currentHeight}) =>
+    RustLib.instance.api.crateApiEngineApiEngineIronwoodPlan(
+        orchardBalanceZat: orchardBalanceZat, currentHeight: currentHeight);
+
+/// Confirm and create the transfer schedule. Returns serialized schedule JSON.
+Future<String> engineIronwoodConfirm(
+        {required BigInt orchardBalanceZat,
+        required int currentHeight,
+        required bool torEnabled}) =>
+    RustLib.instance.api.crateApiEngineApiEngineIronwoodConfirm(
+        orchardBalanceZat: orchardBalanceZat,
+        currentHeight: currentHeight,
+        torEnabled: torEnabled);
+
+/// Reconcile an in-progress schedule against chain state.
+/// Takes the serialized schedule JSON, returns updated JSON + list of invalidated part IDs.
+Future<IronwoodReconcileResult> engineIronwoodReconcile(
+        {required String scheduleJson,
+        required int currentHeight,
+        required List<String> confirmedTxids}) =>
+    RustLib.instance.api.crateApiEngineApiEngineIronwoodReconcile(
+        scheduleJson: scheduleJson,
+        currentHeight: currentHeight,
+        confirmedTxids: confirmedTxids);
+
+/// Background tick: reconcile + advance schedule. Called from Flutter BGTask or on-foreground.
+Future<IronwoodTickResult> engineIronwoodTick(
+        {required String dataDir,
+        required int currentHeight,
+        required List<String> confirmedTxids}) =>
+    RustLib.instance.api.crateApiEngineApiEngineIronwoodTick(
+        dataDir: dataDir,
+        currentHeight: currentHeight,
+        confirmedTxids: confirmedTxids);
 
 /// Sign a cast-vote transaction using the voting hotkey.
 Future<Uint8List> engineVoteSignCast(
@@ -712,9 +750,6 @@ Future<List<EngineSharePayload>> engineVoteBuildShares(
         singleShare: singleShare);
 
 /// Sync the vote commitment tree and generate VAN witnesses for ZKP2.
-///
-/// Call after delegation TXs are confirmed. `van_positions` contains
-/// the VAN leaf position for each bundle (from the delegation response).
 Future<List<EngineVanWitness>> engineVoteSyncTreeAndWitness(
         {required String nodeUrl,
         required String voteRoundId,
@@ -1796,6 +1831,134 @@ class EvmSwapQuoteResult {
           destDecimals == other.destDecimals &&
           priceRouteJson == other.priceRouteJson &&
           tokenTransferProxy == other.tokenTransferProxy;
+}
+
+class IronwoodDenomGroup {
+  final BigInt denominationZat;
+  final int count;
+  final String label;
+
+  const IronwoodDenomGroup({
+    required this.denominationZat,
+    required this.count,
+    required this.label,
+  });
+
+  @override
+  int get hashCode =>
+      denominationZat.hashCode ^ count.hashCode ^ label.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is IronwoodDenomGroup &&
+          runtimeType == other.runtimeType &&
+          denominationZat == other.denominationZat &&
+          count == other.count &&
+          label == other.label;
+}
+
+class IronwoodPlan {
+  final BigInt orchardBalanceZat;
+  final List<IronwoodDenomGroup> denominations;
+  final int totalParts;
+  final BigInt totalFeeZat;
+  final int estimatedSessions;
+  final double estimatedDurationHours;
+  final BigInt dustRemainingZat;
+
+  const IronwoodPlan({
+    required this.orchardBalanceZat,
+    required this.denominations,
+    required this.totalParts,
+    required this.totalFeeZat,
+    required this.estimatedSessions,
+    required this.estimatedDurationHours,
+    required this.dustRemainingZat,
+  });
+
+  @override
+  int get hashCode =>
+      orchardBalanceZat.hashCode ^
+      denominations.hashCode ^
+      totalParts.hashCode ^
+      totalFeeZat.hashCode ^
+      estimatedSessions.hashCode ^
+      estimatedDurationHours.hashCode ^
+      dustRemainingZat.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is IronwoodPlan &&
+          runtimeType == other.runtimeType &&
+          orchardBalanceZat == other.orchardBalanceZat &&
+          denominations == other.denominations &&
+          totalParts == other.totalParts &&
+          totalFeeZat == other.totalFeeZat &&
+          estimatedSessions == other.estimatedSessions &&
+          estimatedDurationHours == other.estimatedDurationHours &&
+          dustRemainingZat == other.dustRemainingZat;
+}
+
+class IronwoodReconcileResult {
+  final String scheduleJson;
+  final Uint32List invalidatedIds;
+  final bool isComplete;
+
+  const IronwoodReconcileResult({
+    required this.scheduleJson,
+    required this.invalidatedIds,
+    required this.isComplete,
+  });
+
+  @override
+  int get hashCode =>
+      scheduleJson.hashCode ^ invalidatedIds.hashCode ^ isComplete.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is IronwoodReconcileResult &&
+          runtimeType == other.runtimeType &&
+          scheduleJson == other.scheduleJson &&
+          invalidatedIds == other.invalidatedIds &&
+          isComplete == other.isComplete;
+}
+
+class IronwoodTickResult {
+  final int partsBroadcast;
+  final int partsConfirmed;
+  final int partsInvalidated;
+  final bool isComplete;
+  final int? nextBroadcastHeight;
+
+  const IronwoodTickResult({
+    required this.partsBroadcast,
+    required this.partsConfirmed,
+    required this.partsInvalidated,
+    required this.isComplete,
+    this.nextBroadcastHeight,
+  });
+
+  @override
+  int get hashCode =>
+      partsBroadcast.hashCode ^
+      partsConfirmed.hashCode ^
+      partsInvalidated.hashCode ^
+      isComplete.hashCode ^
+      nextBroadcastHeight.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is IronwoodTickResult &&
+          runtimeType == other.runtimeType &&
+          partsBroadcast == other.partsBroadcast &&
+          partsConfirmed == other.partsConfirmed &&
+          partsInvalidated == other.partsInvalidated &&
+          isComplete == other.isComplete &&
+          nextBroadcastHeight == other.nextBroadcastHeight;
 }
 
 class PolymarketAuthResult {

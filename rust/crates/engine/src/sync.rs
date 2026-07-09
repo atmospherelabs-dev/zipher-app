@@ -144,7 +144,7 @@ pub fn known_lightwalletd_servers(params: &Network) -> Vec<String> {
             "https://ap.zec.rocks:443".to_string(),
         ],
         Network::TestNetwork => {
-            vec!["https://lightwalletd.testnet.cipherscan.app:443".to_string()]
+            vec!["https://testnet.zec.rocks:443".to_string()]
         }
     }
 }

@@ -217,6 +217,10 @@ enum Commands {
     #[command(subcommand)]
     Vote(VoteCmd),
 
+    /// Ironwood pool transfer — migrate Orchard funds per ZIP 318
+    #[command(subcommand)]
+    Ironwood(IronwoodCmd),
+
     /// Pair with a Zipher mobile wallet for agent approval relay
     Pair {
         /// Device name for the mobile wallet
@@ -342,6 +346,17 @@ enum WalletCmd {
     /// One-command setup: creates OWS vault + Zcash wallet + default policy.
     /// Prints seed phrase once, then MCP config JSON for Claude/Cursor.
     Init,
+
+    /// Restore wallet from an existing seed phrase
+    Restore {
+        /// 24-word BIP39 seed phrase
+        #[arg(long)]
+        seed: String,
+
+        /// Wallet birthday (block height to scan from)
+        #[arg(long, default_value_t = 419200)]
+        birthday: u32,
+    },
 
     /// Delete wallet data from disk
     Delete {
@@ -634,6 +649,28 @@ enum VoteCmd {
     },
 }
 
+#[derive(Subcommand)]
+enum IronwoodCmd {
+    /// Show the proposed transfer plan (denominations, fees, duration)
+    Plan,
+
+    /// Confirm and start the scheduled pool transfer
+    Confirm {
+        /// Enable Tor for broadcasting migration transactions
+        #[arg(long)]
+        tor: bool,
+    },
+
+    /// Show progress of an active transfer
+    Status,
+
+    /// Pause an active transfer
+    Pause,
+
+    /// Resume a paused transfer
+    Resume,
+}
+
 // ---------------------------------------------------------------------------
 // JSON output helpers
 // ---------------------------------------------------------------------------
@@ -678,7 +715,7 @@ fn print_err(e: &anyhow::Error, human: bool) {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_MAINNET_SERVER: &str = "https://lightwalletd.mainnet.cipherscan.app:443";
-const DEFAULT_TESTNET_SERVER: &str = "https://lightwalletd.testnet.cipherscan.app:443";
+const DEFAULT_TESTNET_SERVER: &str = "https://testnet.zec.rocks:443";
 
 pub struct Config {
     pub data_dir: String,
@@ -755,6 +792,7 @@ async fn main() {
         }
         Commands::Wallet(sub) => match sub {
             WalletCmd::Init => wallet::cmd_wallet_init(&cfg).await,
+            WalletCmd::Restore { seed, birthday } => wallet::cmd_wallet_restore(&cfg, &seed, birthday).await,
             WalletCmd::Delete { confirm } => wallet::cmd_wallet_delete(&cfg, confirm).await,
         },
         Commands::Sync(sub) => match sub {
@@ -958,6 +996,13 @@ async fn main() {
             yes,
             ows_wallet,
         } => evm_swap::cmd_evm_swap(&cfg, chain, from, to, amount, slippage, yes, ows_wallet).await,
+        Commands::Ironwood(sub) => match sub {
+            IronwoodCmd::Plan => wallet::cmd_ironwood_plan(&cfg).await,
+            IronwoodCmd::Confirm { tor } => wallet::cmd_ironwood_confirm(&cfg, tor).await,
+            IronwoodCmd::Status => wallet::cmd_ironwood_status(&cfg).await,
+            IronwoodCmd::Pause => wallet::cmd_ironwood_pause(&cfg).await,
+            IronwoodCmd::Resume => wallet::cmd_ironwood_resume(&cfg).await,
+        },
         Commands::Pair { device_name, relay_url } => {
             match zipher_engine::hitl::generate_pairing_code(&cfg.data_dir) {
                 Ok((channel_id, pairing_code)) => {

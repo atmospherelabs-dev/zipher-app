@@ -22,6 +22,7 @@ pub mod types;
 pub mod vault;
 #[cfg(feature = "voting")]
 pub mod voting;
+pub mod ironwood;
 pub mod wallet;
 pub mod x402;
 

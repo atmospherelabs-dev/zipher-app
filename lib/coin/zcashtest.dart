@@ -14,8 +14,8 @@ class ZcashTestCoin extends CoinBase {
   String? marketTicker = null; // No market data for testnet
   AssetImage image = AssetImage('assets/zcash.png');
   List<LWInstance> lwd = [
+    LWInstance("Zec.rocks Testnet (NU6.3)", "https://testnet.zec.rocks:443"),
     LWInstance("CipherScan Testnet", "https://lightwalletd.testnet.cipherscan.app:443"),
-    LWInstance("Zcash Testnet", "https://testnet.lightwalletd.com:9067"),
   ];
   int defaultAddrMode = 0;
   int defaultUAType = 7; // TSO

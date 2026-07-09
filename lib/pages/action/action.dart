@@ -397,7 +397,7 @@ class _ActionPageState extends State<_ActionPageInner> {
     try {
       _fetchAggregatedBalance();
       final balance = await WalletService.instance.getBalance();
-      final shieldedZat = (balance.orchard + balance.sapling).toInt();
+      final shieldedZat = (balance.orchard + balance.sapling + balance.ironwood).toInt();
       final transparentZat = balance.transparent.toInt();
       final totalZat = shieldedZat + transparentZat;
       final total = totalZat / 1e8;

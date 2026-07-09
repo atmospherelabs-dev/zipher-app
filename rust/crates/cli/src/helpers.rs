@@ -112,9 +112,19 @@ fn read_seed_from_ows() -> Option<SecretString> {
     }
 }
 
-pub fn read_seed(_data_dir: &str) -> Result<SecretString> {
+pub fn read_seed(data_dir: &str) -> Result<SecretString> {
     if let Some(seed) = read_seed_from_ows() {
         return Ok(seed);
+    }
+
+    let seed_file = std::path::Path::new(data_dir).join(".seed");
+    if seed_file.exists() {
+        let contents = std::fs::read_to_string(&seed_file)
+            .map_err(|e| anyhow::anyhow!("Failed to read .seed file: {}", e))?;
+        let trimmed = contents.trim().to_string();
+        if !trimmed.is_empty() {
+            return Ok(SecretString::new(trimmed));
+        }
     }
 
     Err(anyhow::anyhow!(

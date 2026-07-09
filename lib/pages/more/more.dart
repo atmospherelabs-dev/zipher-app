@@ -116,6 +116,14 @@ class _MorePageState extends State<MorePage> {
               _sectionLabel('Security & Tools'),
               const Gap(8),
               _card([
+                // Ironwood transfer: only show after NU6.3 activates
+                if (_isIronwoodActive()) _SettingsItem(
+                  icon: Icons.swap_horiz_rounded,
+                  label: 'Ironwood Transfer',
+                  subtitle: 'Migrate Orchard funds to the new pool (ZIP 318)',
+                  badge: 'NEW',
+                  onTap: () => _nav('/more/ironwood'),
+                ),
                 _SettingsItem(
                   icon: Icons.cleaning_services_outlined,
                   label: s.sweep,
@@ -254,6 +262,19 @@ class _MorePageState extends State<MorePage> {
         ],
       ),
     );
+  }
+
+  /// NU6.3 (Ironwood) activation heights.
+  static const _ironwoodActivation = {
+    'mainnet': 2950000, // TBD — not yet announced
+    'testnet': 4134000, // activated ~July 6 2026
+  };
+
+  bool _isIronwoodActive() {
+    final network = isTestnet ? 'testnet' : 'mainnet';
+    final activationHeight = _ironwoodActivation[network] ?? 0;
+    final currentHeight = syncStatus2.latestHeight ?? 0;
+    return currentHeight >= activationHeight;
   }
 
   void _nav(String url) async {

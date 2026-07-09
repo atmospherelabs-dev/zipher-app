@@ -139,13 +139,13 @@ _InvoiceData? _parseInvoice(String? memo) {
 /// Detect shielding: self-transfer with no destination address,
 /// or our auto-shield memo pattern
 bool _isShielding(Tx tx) =>
-    tx.kind == 'shield' || tx.kind == 'send-to-self';
+    tx.kind == 'shield' || tx.kind == 'send-to-self' || tx.kind == 'shielding';
 
 /// Subtitle parts for activity row: (prefix, value, shouldColorValue)
 ({String prefix, String value, bool colorValue}) _txSubtitleParts(
     Tx tx, bool isReceive, _TxPrivacy privacy) {
   if (_isShielding(tx)) {
-    return (prefix: '', value: 'Transparent → Private', colorValue: true);
+    return (prefix: '', value: 'Pool Transfer', colorValue: true);
   }
   final addr = tx.address ?? '';
   if (isReceive) {

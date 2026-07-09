@@ -19,59 +19,73 @@ class PoolBalance {
   int transparent;
   int sapling;
   int orchard;
+  int ironwood;
   int totalTransparent;
   int totalSapling;
   int totalOrchard;
+  int totalIronwood;
   int unconfirmedTransparent;
   int unconfirmedSapling;
   int unconfirmedOrchard;
+  int unconfirmedIronwood;
 
   PoolBalance({
     this.transparent = 0,
     this.sapling = 0,
     this.orchard = 0,
+    this.ironwood = 0,
     this.totalTransparent = 0,
     this.totalSapling = 0,
     this.totalOrchard = 0,
+    this.totalIronwood = 0,
     this.unconfirmedTransparent = 0,
     this.unconfirmedSapling = 0,
     this.unconfirmedOrchard = 0,
+    this.unconfirmedIronwood = 0,
   });
 
   factory PoolBalance.fromRust(rust_wallet.WalletBalance b) {
     final transparent = b.transparent.toInt();
     final sapling = b.sapling.toInt();
     final orchard = b.orchard.toInt();
+    final ironwood = b.ironwood.toInt();
     final totalTransparent = b.totalTransparent.toInt();
     final totalSapling = b.totalSapling.toInt();
     final totalOrchard = b.totalOrchard.toInt();
+    final totalIronwood = b.totalIronwood.toInt();
     return PoolBalance(
       transparent: transparent,
       sapling: sapling,
       orchard: orchard,
+      ironwood: ironwood,
       totalTransparent: totalTransparent,
       totalSapling: totalSapling,
       totalOrchard: totalOrchard,
+      totalIronwood: totalIronwood,
       unconfirmedTransparent: max(0, totalTransparent - transparent),
       unconfirmedSapling: max(0, totalSapling - sapling),
       unconfirmedOrchard: max(0, totalOrchard - orchard),
+      unconfirmedIronwood: max(0, totalIronwood - ironwood),
     );
   }
 
-  int get confirmed => transparent + sapling + orchard;
-  int get shielded => sapling + orchard;
-  int get totalShielded => totalSapling + totalOrchard;
-  int get unconfirmedShielded => unconfirmedSapling + unconfirmedOrchard;
+  int get confirmed => transparent + sapling + orchard + ironwood;
+  int get shielded => sapling + orchard + ironwood;
+  int get totalShielded => totalSapling + totalOrchard + totalIronwood;
+  int get unconfirmedShielded => unconfirmedSapling + unconfirmedOrchard + unconfirmedIronwood;
   int get unconfirmed =>
-      unconfirmedTransparent + unconfirmedSapling + unconfirmedOrchard;
-  int get total => totalTransparent + totalSapling + totalOrchard;
+      unconfirmedTransparent + unconfirmedSapling + unconfirmedOrchard + unconfirmedIronwood;
+  int get total => totalTransparent + totalSapling + totalOrchard + totalIronwood;
   bool get hasUnconfirmed => unconfirmed > 0;
   bool get hasTransparent => totalTransparent > 0;
   bool get hasSpendableTransparent => transparent > 0;
+  bool get hasIronwood => totalIronwood > 0;
 
   PoolBalance withStableShieldedSpendable(int stableShielded) {
     final stable = max(0, min(stableShielded, totalShielded));
     var remaining = stable;
+    final stableIronwood = min(totalIronwood, remaining);
+    remaining -= stableIronwood;
     final stableOrchard = min(totalOrchard, remaining);
     remaining -= stableOrchard;
     final stableSapling = min(totalSapling, remaining);
@@ -80,12 +94,15 @@ class PoolBalance {
       transparent: transparent,
       sapling: stableSapling,
       orchard: stableOrchard,
+      ironwood: stableIronwood,
       totalTransparent: totalTransparent,
       totalSapling: totalSapling,
       totalOrchard: totalOrchard,
+      totalIronwood: totalIronwood,
       unconfirmedTransparent: max(0, totalTransparent - transparent),
       unconfirmedSapling: max(0, totalSapling - stableSapling),
       unconfirmedOrchard: max(0, totalOrchard - stableOrchard),
+      unconfirmedIronwood: max(0, totalIronwood - stableIronwood),
     );
   }
 }

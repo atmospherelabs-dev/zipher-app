@@ -5,12 +5,15 @@ pub struct WalletBalance {
     pub transparent: u64,
     pub sapling: u64,
     pub orchard: u64,
+    pub ironwood: u64,
     pub unconfirmed_sapling: u64,
     pub unconfirmed_orchard: u64,
+    pub unconfirmed_ironwood: u64,
     pub unconfirmed_transparent: u64,
     pub total_transparent: u64,
     pub total_sapling: u64,
     pub total_orchard: u64,
+    pub total_ironwood: u64,
 }
 
 #[derive(Serialize)]

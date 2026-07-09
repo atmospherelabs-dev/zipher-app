@@ -257,12 +257,15 @@ sealed class WalletBalance with _$WalletBalance {
     required BigInt transparent,
     required BigInt sapling,
     required BigInt orchard,
+    required BigInt ironwood,
     required BigInt unconfirmedSapling,
     required BigInt unconfirmedOrchard,
+    required BigInt unconfirmedIronwood,
     required BigInt unconfirmedTransparent,
     required BigInt totalTransparent,
     required BigInt totalSapling,
     required BigInt totalOrchard,
+    required BigInt totalIronwood,
   }) = _WalletBalance;
   static Future<WalletBalance> default_() =>
       RustLib.instance.api.crateApiWalletWalletBalanceDefault();

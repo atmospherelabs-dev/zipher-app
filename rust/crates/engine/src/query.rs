@@ -133,12 +133,15 @@ pub async fn get_wallet_balance() -> Result<WalletBalance> {
         transparent: u64::from(ab.unshielded_balance().spendable_value()),
         sapling: u64::from(ab.sapling_balance().spendable_value()),
         orchard: u64::from(ab.orchard_balance().spendable_value()),
+        ironwood: u64::from(ab.ironwood_balance().spendable_value()),
         unconfirmed_sapling: u64::from(ab.sapling_balance().value_pending_spendability()),
         unconfirmed_orchard: u64::from(ab.orchard_balance().value_pending_spendability()),
+        unconfirmed_ironwood: u64::from(ab.ironwood_balance().value_pending_spendability()),
         unconfirmed_transparent: u64::from(ab.unshielded_balance().value_pending_spendability()),
         total_transparent: u64::from(ab.unshielded_balance().total()),
         total_sapling: u64::from(ab.sapling_balance().total()),
         total_orchard: u64::from(ab.orchard_balance().total()),
+        total_ironwood: u64::from(ab.ironwood_balance().total()),
     })
 }
 

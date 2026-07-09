@@ -31,6 +31,7 @@ import 'pages/more/more.dart';
 import 'pages/more/sweep.dart';
 import 'pages/more/debug_log.dart';
 import 'pages/more/governance.dart';
+import 'pages/more/ironwood.dart';
 import 'pages/action/action.dart';
 import 'services/frost_service.dart';
 import 'pages/cipherpay/invoice_pay.dart';
@@ -323,6 +324,10 @@ final router = GoRouter(
                   GoRoute(
                     path: 'governance',
                     builder: (context, state) => const GovernancePage(),
+                  ),
+                  GoRoute(
+                    path: 'ironwood',
+                    builder: (context, state) => const IronwoodPage(),
                   ),
                   GoRoute(
                       path: 'about',

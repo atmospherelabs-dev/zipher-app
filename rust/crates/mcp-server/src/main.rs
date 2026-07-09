@@ -329,6 +329,26 @@ struct VoteEligibilityParams {
     snapshot_height: u64,
 }
 
+// --- Ironwood pool transfer params ---
+
+#[derive(Deserialize, JsonSchema)]
+struct IronwoodPlanParams {}
+
+#[derive(Deserialize, JsonSchema)]
+struct IronwoodConfirmParams {
+    /// Enable Tor for broadcasting
+    tor: Option<bool>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct IronwoodStatusParams {}
+
+#[derive(Deserialize, JsonSchema)]
+struct IronwoodPauseParams {}
+
+#[derive(Deserialize, JsonSchema)]
+struct IronwoodResumeParams {}
+
 // --- HITL params ---
 
 #[derive(Deserialize, JsonSchema)]
@@ -1585,6 +1605,117 @@ impl ZipherMcpServer {
         err_response(&anyhow::anyhow!("Voting is temporarily disabled during the Ironwood (NU6.3) upgrade. It will return once zcash_voting supports orchard 0.15."))
     }
 
+    // --- Ironwood pool transfer tools (ZIP 318) ---
+
+    #[tool(description = "Plan an Orchard -> Ironwood pool transfer per ZIP 318. Returns denomination breakdown, fees, number of parts, and estimated duration. Does NOT execute anything.")]
+    async fn ironwood_plan(&self, Parameters(_params): Parameters<IronwoodPlanParams>) -> String {
+        let balance = match zipher_engine::query::get_wallet_balance().await {
+            Ok(b) => b,
+            Err(e) => return err_response(&e),
+        };
+        let orchard_zat = balance.orchard;
+        if orchard_zat == 0 {
+            return err_response(&anyhow::anyhow!("No Orchard balance to transfer"));
+        }
+        let height = zipher_engine::sync::get_progress().await.latest_height;
+        match zipher_engine::ironwood::plan_pool_transfer(orchard_zat, height) {
+            Ok(plan) => serde_json::to_string_pretty(&plan).unwrap_or_else(|e| err_response(&e.into())),
+            Err(e) => err_response(&e),
+        }
+    }
+
+    #[tool(description = "Confirm and create the Ironwood pool transfer schedule. Saves schedule to disk and begins at the next bucket boundary.")]
+    async fn ironwood_confirm(&self, Parameters(params): Parameters<IronwoodConfirmParams>) -> String {
+        let balance = match zipher_engine::query::get_wallet_balance().await {
+            Ok(b) => b,
+            Err(e) => return err_response(&e),
+        };
+        let orchard_zat = balance.orchard;
+        let height = zipher_engine::sync::get_progress().await.latest_height;
+        let tor = params.tor.unwrap_or(false);
+        let schedule = match zipher_engine::ironwood::create_transfer_schedule(orchard_zat, height, tor) {
+            Ok(s) => s,
+            Err(e) => return err_response(&e),
+        };
+        let schedule_json = match serde_json::to_string_pretty(&schedule) {
+            Ok(j) => j,
+            Err(e) => return err_response(&e.into()),
+        };
+        let schedule_path = std::path::Path::new(&self.data_dir).join("ironwood_schedule.json");
+        if let Err(e) = std::fs::write(&schedule_path, &schedule_json) {
+            return err_response(&e.into());
+        }
+        format!("{{\"status\":\"confirmed\",\"total_parts\":{},\"tor\":{}}}", schedule.total_parts(), tor)
+    }
+
+    #[tool(description = "Check the status of an in-progress Ironwood pool transfer. Returns progress, percent complete, and estimated time remaining.")]
+    async fn ironwood_status(&self, Parameters(_params): Parameters<IronwoodStatusParams>) -> String {
+        let schedule_path = std::path::Path::new(&self.data_dir).join("ironwood_schedule.json");
+        if !schedule_path.exists() {
+            return err_response(&anyhow::anyhow!("No active transfer. Use ironwood_plan first."));
+        }
+        let raw = match std::fs::read_to_string(&schedule_path) {
+            Ok(r) => r,
+            Err(e) => return err_response(&e.into()),
+        };
+        let schedule: zipher_engine::ironwood::TransferSchedule = match serde_json::from_str(&raw) {
+            Ok(s) => s,
+            Err(e) => return err_response(&e.into()),
+        };
+        let confirmed = schedule.confirmed_parts();
+        let total = schedule.total_parts();
+        serde_json::json!({
+            "status": format!("{:?}", schedule.status),
+            "confirmed": confirmed,
+            "total": total,
+            "percent": if total > 0 { confirmed * 100 / total } else { 0 },
+            "next_height": schedule.next_broadcast_height(),
+            "estimated_hours_remaining": schedule.estimated_duration_hours(),
+        }).to_string()
+    }
+
+    #[tool(description = "Pause an active Ironwood pool transfer. No further transactions will be broadcast until resumed.")]
+    async fn ironwood_pause(&self, Parameters(_params): Parameters<IronwoodPauseParams>) -> String {
+        let schedule_path = std::path::Path::new(&self.data_dir).join("ironwood_schedule.json");
+        if !schedule_path.exists() {
+            return err_response(&anyhow::anyhow!("No active transfer to pause."));
+        }
+        let raw = match std::fs::read_to_string(&schedule_path) {
+            Ok(r) => r,
+            Err(e) => return err_response(&e.into()),
+        };
+        let mut schedule: zipher_engine::ironwood::TransferSchedule = match serde_json::from_str(&raw) {
+            Ok(s) => s,
+            Err(e) => return err_response(&e.into()),
+        };
+        schedule.status = zipher_engine::ironwood::TransferStatus::Paused;
+        if let Err(e) = std::fs::write(&schedule_path, serde_json::to_string_pretty(&schedule).unwrap()) {
+            return err_response(&e.into());
+        }
+        "{\"status\":\"paused\"}".to_string()
+    }
+
+    #[tool(description = "Resume a paused Ironwood pool transfer.")]
+    async fn ironwood_resume(&self, Parameters(_params): Parameters<IronwoodResumeParams>) -> String {
+        let schedule_path = std::path::Path::new(&self.data_dir).join("ironwood_schedule.json");
+        if !schedule_path.exists() {
+            return err_response(&anyhow::anyhow!("No transfer to resume."));
+        }
+        let raw = match std::fs::read_to_string(&schedule_path) {
+            Ok(r) => r,
+            Err(e) => return err_response(&e.into()),
+        };
+        let mut schedule: zipher_engine::ironwood::TransferSchedule = match serde_json::from_str(&raw) {
+            Ok(s) => s,
+            Err(e) => return err_response(&e.into()),
+        };
+        schedule.status = zipher_engine::ironwood::TransferStatus::Active;
+        if let Err(e) = std::fs::write(&schedule_path, serde_json::to_string_pretty(&schedule).unwrap()) {
+            return err_response(&e.into());
+        }
+        "{\"status\":\"active\"}".to_string()
+    }
+
     // --- HITL tools ---
 
     #[tool(description = "Generate a pairing code for connecting this agent to a Zipher mobile wallet. The mobile wallet scans this code to establish a secure approval channel.")]
@@ -1816,7 +1947,7 @@ fn find_dest_token<'a>(
 // ---------------------------------------------------------------------------
 
 const DEFAULT_MAINNET_SERVER: &str = "https://lightwalletd.mainnet.cipherscan.app:443";
-const DEFAULT_TESTNET_SERVER: &str = "https://lightwalletd.testnet.cipherscan.app:443";
+const DEFAULT_TESTNET_SERVER: &str = "https://testnet.zec.rocks:443";
 
 // ---------------------------------------------------------------------------
 // Main

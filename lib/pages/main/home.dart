@@ -547,8 +547,42 @@ class _HomeState extends State<HomePageInner> {
                                   shieldableTransparentBal,
                               shieldingInProgress: shieldingInProgress,
                               onShield: () => _shield(shieldableTransparentBal),
+                              orchardBal: aa.poolBalances.totalOrchard,
+                              ironwoodBal: aa.poolBalances.totalIronwood,
                             );
                           }),
+                        ),
+                      ),
+
+                    // Ironwood migration nudge — show when Orchard has funds post-NU6.3
+                    if (aa.poolBalances.totalOrchard > 0 && _isIronwoodActive())
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                          child: GestureDetector(
+                            onTap: () => GoRouter.of(context).push('/more/ironwood'),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: ZipherColors.cyan.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: ZipherColors.cyan.withValues(alpha: 0.2)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.swap_horiz_rounded, color: ZipherColors.cyan, size: 18),
+                                  const Gap(10),
+                                  Expanded(
+                                    child: Text(
+                                      'Migrate Orchard funds to Ironwood',
+                                      style: TextStyle(color: ZipherColors.textPrimary, fontSize: 13),
+                                    ),
+                                  ),
+                                  Icon(Icons.chevron_right, color: ZipherColors.text40, size: 18),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       ),
 
@@ -665,6 +699,18 @@ class _HomeState extends State<HomePageInner> {
     GoRouter.of(context).push('/account/quick_send?custom=$c');
   }
 
+  static const _ironwoodActivation = {
+    'mainnet': 2950000,
+    'testnet': 4134000,
+  };
+
+  bool _isIronwoodActive() {
+    final network = isTestnet ? 'testnet' : 'mainnet';
+    final activationHeight = _ironwoodActivation[network] ?? 0;
+    final currentHeight = syncStatus2.latestHeight ?? 0;
+    return currentHeight >= activationHeight;
+  }
+
   void _shield(int transparentBal) async {
     final protectSend = appSettings.protectSend;
     if (protectSend) {
@@ -707,6 +753,8 @@ class _BalanceBreakdown extends StatelessWidget {
   final int shieldableTransparentBal;
   final bool shieldingInProgress;
   final VoidCallback onShield;
+  final int orchardBal;
+  final int ironwoodBal;
 
   const _BalanceBreakdown({
     required this.shieldedBal,
@@ -716,6 +764,8 @@ class _BalanceBreakdown extends StatelessWidget {
     required this.shieldableTransparentBal,
     required this.shieldingInProgress,
     required this.onShield,
+    this.orchardBal = 0,
+    this.ironwoodBal = 0,
   });
 
   @override
@@ -784,6 +834,20 @@ class _BalanceBreakdown extends StatelessWidget {
                     ),
                   ],
                 ),
+
+                // Per-pool breakdown (Orchard / Ironwood) when both exist
+                if (ironwoodBal > 0 && orchardBal > 0) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(left: 23, top: 8),
+                    child: Column(
+                      children: [
+                        _poolRow('Ironwood', ironwoodBal, ZipherColors.cyan),
+                        const Gap(4),
+                        _poolRow('Orchard', orchardBal, ZipherColors.purple.withValues(alpha: 0.6)),
+                      ],
+                    ),
+                  ),
+                ],
 
                 if (!isFullyShielded) ...[
                   Padding(
@@ -937,6 +1001,37 @@ class _BalanceBreakdown extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _poolRow(String label, int amount, Color color) {
+    return Row(
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const Gap(8),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: ZipherColors.text40,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          '${amountToString2(amount)} ZEC',
+          style: TextStyle(
+            fontSize: 11,
+            color: ZipherColors.text40,
+          ),
+        ),
+      ],
     );
   }
 }

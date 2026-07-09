@@ -23,12 +23,15 @@ pub struct WalletBalance {
     pub transparent: u64,
     pub sapling: u64,
     pub orchard: u64,
+    pub ironwood: u64,
     pub unconfirmed_sapling: u64,
     pub unconfirmed_orchard: u64,
+    pub unconfirmed_ironwood: u64,
     pub unconfirmed_transparent: u64,
     pub total_transparent: u64,
     pub total_sapling: u64,
     pub total_orchard: u64,
+    pub total_ironwood: u64,
 }
 
 #[frb(dart_metadata=("freezed"))]
@@ -94,12 +97,15 @@ impl From<zipher_engine::types::WalletBalance> for WalletBalance {
             transparent: b.transparent,
             sapling: b.sapling,
             orchard: b.orchard,
+            ironwood: b.ironwood,
             unconfirmed_sapling: b.unconfirmed_sapling,
             unconfirmed_orchard: b.unconfirmed_orchard,
+            unconfirmed_ironwood: b.unconfirmed_ironwood,
             unconfirmed_transparent: b.unconfirmed_transparent,
             total_transparent: b.total_transparent,
             total_sapling: b.total_sapling,
             total_orchard: b.total_orchard,
+            total_ironwood: b.total_ironwood,
         }
     }
 }

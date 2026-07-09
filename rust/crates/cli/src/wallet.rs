@@ -189,6 +189,53 @@ pub async fn cmd_wallet_init(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+pub async fn cmd_wallet_restore(cfg: &Config, seed: &str, birthday: u32) -> Result<()> {
+    ensure_data_dir(&cfg.data_dir)?;
+    ensure_sapling_params(&cfg.data_dir).await?;
+
+    let db_path = std::path::PathBuf::from(&cfg.data_dir).join("zipher-data.sqlite");
+    if db_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Wallet already exists in {}. Use `wallet delete --confirm` first.",
+            cfg.data_dir,
+        ));
+    }
+
+    eprintln!("Restoring wallet from seed (birthday={})...", birthday);
+
+    zipher_engine::wallet::restore(
+        &cfg.data_dir,
+        &cfg.server_url,
+        cfg.network,
+        seed,
+        birthday,
+        None,
+        None,
+    )
+    .await?;
+
+    let addresses = zipher_engine::query::get_addresses()
+        .await
+        .unwrap_or_default();
+    let address = addresses
+        .first()
+        .map(|a| a.address.clone())
+        .unwrap_or_default();
+
+    zipher_engine::wallet::close().await;
+
+    // Store seed in a local file for send confirm (OWS not used for restore)
+    let seed_path = std::path::PathBuf::from(&cfg.data_dir).join(".seed");
+    std::fs::write(&seed_path, seed)?;
+
+    eprintln!("Wallet restored.");
+    eprintln!("  Address:  {}", address);
+    eprintln!("  Birthday: {}", birthday);
+    eprintln!("  Data dir: {}", cfg.data_dir);
+
+    Ok(())
+}
+
 pub async fn cmd_wallet_delete(cfg: &Config, confirm: bool) -> Result<()> {
     if !confirm {
         return Err(anyhow::anyhow!(
@@ -757,5 +804,159 @@ pub async fn cmd_store_signed_pczt(cfg: &Config, pczt_hex: String) -> Result<()>
     });
 
     zipher_engine::wallet::close().await;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Ironwood pool transfer (ZIP 318)
+// ---------------------------------------------------------------------------
+
+pub async fn cmd_ironwood_plan(cfg: &Config) -> Result<()> {
+    sync_if_needed(cfg).await?;
+    let balance = zipher_engine::query::get_wallet_balance().await?;
+    let orchard_zat = balance.orchard;
+
+    if orchard_zat == 0 {
+        zipher_engine::wallet::close().await;
+        return Err(anyhow::anyhow!("No Orchard balance to transfer to Ironwood"));
+    }
+
+    let height = zipher_engine::sync::get_progress().await.latest_height;
+    let plan = zipher_engine::ironwood::plan_pool_transfer(orchard_zat, height)?;
+
+    print_ok(&plan, cfg.human, |p| {
+        println!("Ironwood Pool Transfer Plan (ZIP 318)");
+        println!("======================================");
+        println!();
+        println!("  Orchard balance:  {:.8} ZEC ({} zat)", p.orchard_balance_zat as f64 / 1e8, p.orchard_balance_zat);
+        println!();
+        println!("  Denominations:");
+        for g in &p.denominations {
+            println!("    {}", g.label);
+        }
+        println!();
+        println!("  Total parts:      {}", p.total_parts);
+        println!("  Total fees:       {:.8} ZEC ({} zat)", p.total_fee_zat as f64 / 1e8, p.total_fee_zat);
+        println!("  Sessions:         ~{}", p.estimated_sessions);
+        println!("  Duration:         ~{:.1} hours", p.estimated_duration_hours);
+        if p.dust_remaining_zat > 0 {
+            println!("  Dust (unmigrated): {} zat", p.dust_remaining_zat);
+        }
+        println!();
+        println!("Run `zipher-cli ironwood confirm` to begin the transfer.");
+    });
+
+    zipher_engine::wallet::close().await;
+    Ok(())
+}
+
+pub async fn cmd_ironwood_confirm(cfg: &Config, tor: bool) -> Result<()> {
+    sync_if_needed(cfg).await?;
+    let balance = zipher_engine::query::get_wallet_balance().await?;
+    let orchard_zat = balance.orchard;
+    let height = zipher_engine::sync::get_progress().await.latest_height;
+
+    let schedule = zipher_engine::ironwood::create_transfer_schedule(orchard_zat, height, tor)?;
+    let schedule_json = serde_json::to_string_pretty(&schedule)?;
+
+    let schedule_path = std::path::Path::new(&cfg.data_dir).join("ironwood_schedule.json");
+    std::fs::write(&schedule_path, &schedule_json)?;
+
+    print_ok(
+        serde_json::json!({
+            "status": "confirmed",
+            "total_parts": schedule.total_parts(),
+            "schedule_file": schedule_path.display().to_string(),
+            "tor_enabled": tor,
+        }),
+        cfg.human,
+        |_| {
+            println!("Transfer schedule confirmed and saved.");
+            println!();
+            println!("  Parts:  {}", schedule.total_parts());
+            println!("  Tor:    {}", if tor { "enabled" } else { "disabled" });
+            println!("  File:   {}", schedule_path.display());
+            println!();
+            println!("The transfer will begin at the next bucket boundary.");
+            println!("Run `zipher-cli ironwood status` to check progress.");
+        },
+    );
+
+    zipher_engine::wallet::close().await;
+    Ok(())
+}
+
+pub async fn cmd_ironwood_status(cfg: &Config) -> Result<()> {
+    let schedule_path = std::path::Path::new(&cfg.data_dir).join("ironwood_schedule.json");
+    if !schedule_path.exists() {
+        return Err(anyhow::anyhow!(
+            "No active transfer. Run `zipher-cli ironwood plan` first."
+        ));
+    }
+
+    let raw = std::fs::read_to_string(&schedule_path)?;
+    let schedule: zipher_engine::ironwood::TransferSchedule = serde_json::from_str(&raw)?;
+
+    let confirmed = schedule.confirmed_parts();
+    let total = schedule.total_parts();
+    let pct = if total > 0 { confirmed * 100 / total } else { 0 };
+
+    print_ok(
+        serde_json::json!({
+            "status": format!("{:?}", schedule.status),
+            "confirmed": confirmed,
+            "total": total,
+            "percent": pct,
+            "next_height": schedule.next_broadcast_height(),
+            "estimated_hours_remaining": schedule.estimated_duration_hours(),
+        }),
+        cfg.human,
+        |_| {
+            println!("Ironwood Transfer Status");
+            println!("========================");
+            println!();
+            println!("  Status:     {:?}", schedule.status);
+            println!("  Progress:   {}/{} ({}%)", confirmed, total, pct);
+            if let Some(h) = schedule.next_broadcast_height() {
+                println!("  Next at:    block {}", h);
+            }
+            println!("  Est. left:  {:.1} hours", schedule.estimated_duration_hours());
+        },
+    );
+
+    Ok(())
+}
+
+pub async fn cmd_ironwood_pause(cfg: &Config) -> Result<()> {
+    let schedule_path = std::path::Path::new(&cfg.data_dir).join("ironwood_schedule.json");
+    if !schedule_path.exists() {
+        return Err(anyhow::anyhow!("No active transfer to pause."));
+    }
+
+    let raw = std::fs::read_to_string(&schedule_path)?;
+    let mut schedule: zipher_engine::ironwood::TransferSchedule = serde_json::from_str(&raw)?;
+    schedule.status = zipher_engine::ironwood::TransferStatus::Paused;
+    std::fs::write(&schedule_path, serde_json::to_string_pretty(&schedule)?)?;
+
+    print_ok(serde_json::json!({"status": "paused"}), cfg.human, |_| {
+        println!("Transfer paused. Run `zipher-cli ironwood resume` to continue.");
+    });
+    Ok(())
+}
+
+pub async fn cmd_ironwood_resume(cfg: &Config) -> Result<()> {
+    let schedule_path = std::path::Path::new(&cfg.data_dir).join("ironwood_schedule.json");
+    if !schedule_path.exists() {
+        return Err(anyhow::anyhow!("No transfer to resume."));
+    }
+
+    let raw = std::fs::read_to_string(&schedule_path)?;
+    let mut schedule: zipher_engine::ironwood::TransferSchedule = serde_json::from_str(&raw)?;
+    schedule.status = zipher_engine::ironwood::TransferStatus::Active;
+    std::fs::write(&schedule_path, serde_json::to_string_pretty(&schedule)?)?;
+
+    print_ok(serde_json::json!({"status": "active"}), cfg.human, |_| {
+        println!("Transfer resumed.");
+    });
     Ok(())
 }

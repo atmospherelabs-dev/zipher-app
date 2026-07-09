@@ -1442,6 +1442,111 @@ pub struct EngineEncryptedShare {
     pub share_index: u32,
 }
 
+// ---------------------------------------------------------------------------
+// Ironwood pool transfer (ZIP 318)
+// ---------------------------------------------------------------------------
+
+/// Plan an Orchard -> Ironwood pool transfer per ZIP 318.
+/// Returns a summary with denominations, fees, and duration for user confirmation.
+pub fn engine_ironwood_plan(orchard_balance_zat: u64, current_height: u32) -> Result<IronwoodPlan> {
+    let plan = engine::ironwood::plan_pool_transfer(orchard_balance_zat, current_height)?;
+    Ok(IronwoodPlan {
+        orchard_balance_zat: plan.orchard_balance_zat,
+        denominations: plan.denominations.into_iter().map(|g| IronwoodDenomGroup {
+            denomination_zat: g.denomination_zat,
+            count: g.count as u32,
+            label: g.label,
+        }).collect(),
+        total_parts: plan.total_parts as u32,
+        total_fee_zat: plan.total_fee_zat,
+        estimated_sessions: plan.estimated_sessions as u32,
+        estimated_duration_hours: plan.estimated_duration_hours,
+        dust_remaining_zat: plan.dust_remaining_zat,
+    })
+}
+
+/// Confirm and create the transfer schedule. Returns serialized schedule JSON.
+pub fn engine_ironwood_confirm(
+    orchard_balance_zat: u64,
+    current_height: u32,
+    tor_enabled: bool,
+) -> Result<String> {
+    let schedule = engine::ironwood::create_transfer_schedule(
+        orchard_balance_zat,
+        current_height,
+        tor_enabled,
+    )?;
+    serde_json::to_string(&schedule).map_err(|e| anyhow::anyhow!("Serialize: {}", e))
+}
+
+/// Reconcile an in-progress schedule against chain state.
+/// Takes the serialized schedule JSON, returns updated JSON + list of invalidated part IDs.
+pub fn engine_ironwood_reconcile(
+    schedule_json: String,
+    current_height: u32,
+    confirmed_txids: Vec<String>,
+) -> Result<IronwoodReconcileResult> {
+    let mut schedule: engine::ironwood::TransferSchedule =
+        serde_json::from_str(&schedule_json).map_err(|e| anyhow::anyhow!("Parse: {}", e))?;
+    let invalidated = engine::ironwood::reconcile_schedule(&mut schedule, current_height, &confirmed_txids);
+    let updated_json = serde_json::to_string(&schedule).map_err(|e| anyhow::anyhow!("Serialize: {}", e))?;
+    Ok(IronwoodReconcileResult {
+        schedule_json: updated_json,
+        invalidated_ids: invalidated,
+        is_complete: schedule.status == engine::ironwood::TransferStatus::Complete,
+    })
+}
+
+/// Background tick: reconcile + advance schedule. Called from Flutter BGTask or on-foreground.
+pub fn engine_ironwood_tick(
+    data_dir: String,
+    current_height: u32,
+    confirmed_txids: Vec<String>,
+) -> Result<IronwoodTickResult> {
+    let result = engine::ironwood::tick(&data_dir, current_height, &confirmed_txids)?;
+    Ok(IronwoodTickResult {
+        parts_broadcast: result.parts_broadcast,
+        parts_confirmed: result.parts_confirmed,
+        parts_invalidated: result.parts_invalidated,
+        is_complete: result.is_complete,
+        next_broadcast_height: result.next_broadcast_height,
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct IronwoodTickResult {
+    pub parts_broadcast: u32,
+    pub parts_confirmed: u32,
+    pub parts_invalidated: u32,
+    pub is_complete: bool,
+    pub next_broadcast_height: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IronwoodPlan {
+    pub orchard_balance_zat: u64,
+    pub denominations: Vec<IronwoodDenomGroup>,
+    pub total_parts: u32,
+    pub total_fee_zat: u64,
+    pub estimated_sessions: u32,
+    pub estimated_duration_hours: f64,
+    pub dust_remaining_zat: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct IronwoodDenomGroup {
+    pub denomination_zat: u64,
+    pub count: u32,
+    pub label: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct IronwoodReconcileResult {
+    pub schedule_json: String,
+    pub invalidated_ids: Vec<u32>,
+    pub is_complete: bool,
+}
+
 /// Sign a cast-vote transaction using the voting hotkey.
 pub fn engine_vote_sign_cast(
     _voting_seed: Vec<u8>,
