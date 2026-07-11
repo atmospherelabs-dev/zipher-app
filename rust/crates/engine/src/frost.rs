@@ -4,16 +4,12 @@ use std::sync::Mutex as StdMutex;
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use frost_core::{
-    frost::{
-        self,
-        keys::{
-            dkg, KeyPackage, PublicKeyPackage, SigningShare, VerifyingShare,
-        },
-        round1::{NonceCommitment, SigningCommitments, SigningNonces},
-        round2::SignatureShare,
-        Identifier, SigningPackage,
+    keys::{
+        dkg, KeyPackage, PublicKeyPackage, SigningShare, VerifyingShare,
     },
-    Ciphersuite, Field, Group, Scalar, Signature, VerifyingKey,
+    round1::{self, NonceCommitment, SigningCommitments, SigningNonces},
+    round2::SignatureShare,
+    Ciphersuite, Field, Group, Identifier, Scalar, Signature, SigningPackage, VerifyingKey,
 };
 use frost_rerandomized::RandomizedParams;
 use rand::{rngs::OsRng, RngCore};
@@ -191,16 +187,15 @@ fn id_from_u16(id: u16) -> Result<FrostIdentifier> {
 
 fn id_to_u16(id: &FrostIdentifier) -> Result<u16> {
     let bytes = id.serialize();
-    let raw: &[u8] = bytes.as_ref();
-    if raw.len() < 2 || raw[2..].iter().any(|b| *b != 0) {
+    if bytes.len() < 2 || bytes[2..].iter().any(|b| *b != 0) {
         return Err(anyhow!("Participant id is not representable as u16"));
     }
-    Ok(u16::from_le_bytes([raw[0], raw[1]]))
+    Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
 fn scalar_to_hex(s: &Scalar<FrostSuite>) -> String {
-    let bytes = <<FrostSuite as Ciphersuite>::Group as Group>::Field::serialize(s);
-    hex::encode(bytes.as_ref() as &[u8])
+    let bytes: [u8; 32] = <<FrostSuite as Ciphersuite>::Group as Group>::Field::serialize(s);
+    hex::encode(bytes)
 }
 
 fn scalar_from_hex(hex_value: &str) -> Result<Scalar<FrostSuite>> {
@@ -213,12 +208,13 @@ fn scalar_from_hex(hex_value: &str) -> Result<Scalar<FrostSuite>> {
 }
 
 fn element_to_hex(e: &FrostElement) -> String {
-    let bytes = <FrostSuite as Ciphersuite>::Group::serialize(e);
-    hex::encode(bytes.as_ref() as &[u8])
+    let bytes = <FrostSuite as Ciphersuite>::Group::serialize(e)
+        .expect("element serialization should not fail");
+    hex::encode(&bytes)
 }
 
 fn normalize_key_package(key: FrostKeyPackage) -> Result<FrostKeyPackage> {
-    let group_hex = verifying_key_to_hex(key.group_public());
+    let group_hex = verifying_key_to_hex(key.verifying_key());
     let needs_negation = hex::decode(&group_hex)
         .map_err(|e| anyhow!("invalid group key hex: {e}"))?
         .last()
@@ -228,29 +224,29 @@ fn normalize_key_package(key: FrostKeyPackage) -> Result<FrostKeyPackage> {
         return Ok(key);
     }
 
-    let secret = scalar_from_hex(&signing_share_to_hex(key.secret_share()))?;
+    let secret = scalar_from_hex(&signing_share_to_hex(key.signing_share()))?;
     let neg_secret = <<FrostSuite as Ciphersuite>::Group as Group>::Field::zero() - secret;
-    let secret_share = SigningShare::<FrostSuite>::deserialize(
-        <<FrostSuite as Ciphersuite>::Group as Group>::Field::serialize(&neg_secret),
-    )
-    .map_err(|e| anyhow!("failed to normalize secret share: {:?}", e))?;
+    let neg_ser: [u8; 32] = <<FrostSuite as Ciphersuite>::Group as Group>::Field::serialize(&neg_secret);
+    let secret_share = SigningShare::<FrostSuite>::deserialize(&neg_ser)
+        .map_err(|e| anyhow!("failed to normalize secret share: {:?}", e))?;
     let public = VerifyingShare::<FrostSuite>::from(secret_share);
     let group_element = element_from_hex(&group_hex)?;
     let neg_group = <FrostSuite as Ciphersuite>::Group::identity() - group_element;
-    let group_public = VerifyingKey::<FrostSuite>::deserialize(
-        <FrostSuite as Ciphersuite>::Group::serialize(&neg_group),
-    )
-    .map_err(|e| anyhow!("failed to normalize group public key: {:?}", e))?;
+    let neg_group_ser = <FrostSuite as Ciphersuite>::Group::serialize(&neg_group)
+        .map_err(|e| anyhow!("failed to serialize negated group point: {:?}", e))?;
+    let group_public = VerifyingKey::<FrostSuite>::deserialize(&neg_group_ser)
+        .map_err(|e| anyhow!("failed to normalize group public key: {:?}", e))?;
     Ok(FrostKeyPackage::new(
         *key.identifier(),
         secret_share,
         public,
         group_public,
+        *key.min_signers(),
     ))
 }
 
 fn normalize_public_key_package(public: FrostPublicKeyPackage) -> Result<FrostPublicKeyPackage> {
-    let group_hex = verifying_key_to_hex(public.group_public());
+    let group_hex = verifying_key_to_hex(public.verifying_key());
     let needs_negation = hex::decode(&group_hex)
         .map_err(|e| anyhow!("invalid group key hex: {e}"))?
         .last()
@@ -260,23 +256,23 @@ fn normalize_public_key_package(public: FrostPublicKeyPackage) -> Result<FrostPu
         return Ok(public);
     }
 
-    let mut signer_pubkeys = HashMap::new();
-    for (id, share) in public.signer_pubkeys() {
+    let mut signer_pubkeys = BTreeMap::new();
+    for (id, share) in public.verifying_shares() {
         let element = element_from_hex(&verifying_share_to_hex(share))?;
         let neg = <FrostSuite as Ciphersuite>::Group::identity() - element;
-        let normalized = VerifyingShare::<FrostSuite>::deserialize(
-            <FrostSuite as Ciphersuite>::Group::serialize(&neg),
-        )
-        .map_err(|e| anyhow!("failed to normalize verifying share: {:?}", e))?;
+        let neg_ser = <FrostSuite as Ciphersuite>::Group::serialize(&neg)
+            .map_err(|e| anyhow!("failed to serialize negated share: {:?}", e))?;
+        let normalized = VerifyingShare::<FrostSuite>::deserialize(&neg_ser)
+            .map_err(|e| anyhow!("failed to normalize verifying share: {:?}", e))?;
         signer_pubkeys.insert(*id, normalized);
     }
     let group_element = element_from_hex(&group_hex)?;
     let neg_group = <FrostSuite as Ciphersuite>::Group::identity() - group_element;
-    let group_public = VerifyingKey::<FrostSuite>::deserialize(
-        <FrostSuite as Ciphersuite>::Group::serialize(&neg_group),
-    )
-    .map_err(|e| anyhow!("failed to normalize group public key: {:?}", e))?;
-    Ok(FrostPublicKeyPackage::new(signer_pubkeys, group_public))
+    let neg_group_ser = <FrostSuite as Ciphersuite>::Group::serialize(&neg_group)
+        .map_err(|e| anyhow!("failed to serialize negated group point: {:?}", e))?;
+    let group_public = VerifyingKey::<FrostSuite>::deserialize(&neg_group_ser)
+        .map_err(|e| anyhow!("failed to normalize group public key: {:?}", e))?;
+    Ok(FrostPublicKeyPackage::new(signer_pubkeys, group_public, public.min_signers()))
 }
 
 fn element_from_hex(hex_value: &str) -> Result<FrostElement> {
@@ -289,58 +285,46 @@ fn element_from_hex(hex_value: &str) -> Result<FrostElement> {
 }
 
 fn signing_share_to_hex(s: &SigningShare<FrostSuite>) -> String {
-    let bytes = s.serialize();
-    hex::encode(bytes.as_ref() as &[u8])
+    hex::encode(s.serialize())
 }
 
 fn signing_share_from_hex(hex_value: &str) -> Result<SigningShare<FrostSuite>> {
     let bytes = hex::decode(hex_value).map_err(|e| anyhow!("Invalid signing share hex: {e}"))?;
-    let ser = bytes
-        .try_into()
-        .map_err(|_| anyhow!("Invalid signing share byte length"))?;
-    SigningShare::<FrostSuite>::deserialize(ser)
+    SigningShare::<FrostSuite>::deserialize(&bytes)
         .map_err(|e| anyhow!("Invalid signing share: {:?}", e))
 }
 
 fn verifying_share_to_hex(v: &VerifyingShare<FrostSuite>) -> String {
-    let bytes = v.serialize();
-    hex::encode(bytes.as_ref() as &[u8])
+    let bytes = v.serialize().expect("verifying share serialization should not fail");
+    hex::encode(&bytes)
 }
 
 fn verifying_share_from_hex(hex_value: &str) -> Result<VerifyingShare<FrostSuite>> {
     let bytes = hex::decode(hex_value).map_err(|e| anyhow!("Invalid verifying share hex: {e}"))?;
-    let ser = bytes
-        .try_into()
-        .map_err(|_| anyhow!("Invalid verifying share byte length"))?;
-    VerifyingShare::<FrostSuite>::deserialize(ser)
+    VerifyingShare::<FrostSuite>::deserialize(&bytes)
         .map_err(|e| anyhow!("Invalid verifying share: {:?}", e))
 }
 
 fn verifying_key_to_hex(v: &VerifyingKey<FrostSuite>) -> String {
-    let bytes = v.serialize();
-    hex::encode(bytes.as_ref() as &[u8])
+    let bytes = v.serialize().expect("verifying key serialization should not fail");
+    hex::encode(&bytes)
 }
 
 fn verifying_key_from_hex(hex_value: &str) -> Result<VerifyingKey<FrostSuite>> {
     let bytes = hex::decode(hex_value).map_err(|e| anyhow!("Invalid verifying key hex: {e}"))?;
-    let ser = bytes
-        .try_into()
-        .map_err(|_| anyhow!("Invalid verifying key byte length"))?;
-    VerifyingKey::<FrostSuite>::deserialize(ser)
+    VerifyingKey::<FrostSuite>::deserialize(&bytes)
         .map_err(|e| anyhow!("Invalid verifying key: {:?}", e))
 }
 
 fn round1_to_wire(package: &FrostRound1Package) -> Result<String> {
-    let commitments = package
-        .commitment()
-        .serialize()
-        .iter()
-        .map(|c| hex::encode(c.as_ref() as &[u8]))
-        .collect();
-    let proof = package.proof_of_knowledge().serialize();
+    let ser = package.commitment().serialize()
+        .map_err(|e| anyhow!("Failed to serialize VSS commitment: {:?}", e))?;
+    let commitments: Vec<String> = ser.iter().map(|c| hex::encode(c)).collect();
+    let proof = package.proof_of_knowledge().serialize()
+        .map_err(|e| anyhow!("Failed to serialize proof: {:?}", e))?;
     encode_json(&EncodedRound1Package {
         commitments,
-        proof: hex::encode(proof.as_ref() as &[u8]),
+        proof: hex::encode(&proof),
     })
 }
 
@@ -349,26 +333,21 @@ fn round1_from_wire(encoded: &str) -> Result<FrostRound1Package> {
     let mut commitments = Vec::with_capacity(wire.commitments.len());
     for c in wire.commitments {
         let bytes = hex::decode(c).map_err(|e| anyhow!("Invalid commitment hex: {e}"))?;
-        commitments.push(
-            bytes
-                .try_into()
-                .map_err(|_| anyhow!("Invalid commitment byte length"))?,
-        );
+        commitments.push(bytes);
     }
-    let commitment = frost_core::frost::keys::VerifiableSecretSharingCommitment::<FrostSuite>::deserialize(commitments)
-        .map_err(|e| anyhow!("Invalid VSS commitment: {:?}", e))?;
+    let commitment = frost_core::keys::VerifiableSecretSharingCommitment::<FrostSuite>::deserialize(
+        commitments.iter().map(|c| c.as_slice()).collect::<Vec<_>>(),
+    )
+    .map_err(|e| anyhow!("Invalid VSS commitment: {:?}", e))?;
     let sig_bytes = hex::decode(wire.proof).map_err(|e| anyhow!("Invalid proof hex: {e}"))?;
-    let sig_ser = sig_bytes
-        .try_into()
-        .map_err(|_| anyhow!("Invalid proof byte length"))?;
-    let proof = Signature::<FrostSuite>::deserialize(sig_ser)
+    let proof = Signature::<FrostSuite>::deserialize(&sig_bytes)
         .map_err(|e| anyhow!("Invalid DKG proof: {:?}", e))?;
     Ok(FrostRound1Package::new(commitment, proof))
 }
 
 fn round2_to_wire(package: &FrostRound2Package) -> Result<String> {
     encode_json(&EncodedRound2Package {
-        secret_share: signing_share_to_hex(package.secret_share()),
+        secret_share: signing_share_to_hex(package.signing_share()),
     })
 }
 
@@ -380,11 +359,13 @@ fn round2_from_wire(encoded: &str) -> Result<FrostRound2Package> {
 }
 
 fn commitments_to_wire(commitments: &FrostSigningCommitments) -> Result<String> {
-    let hiding = commitments.hiding().serialize();
-    let binding = commitments.binding().serialize();
+    let hiding = commitments.hiding().serialize()
+        .map_err(|e| anyhow!("Failed to serialize hiding commitment: {:?}", e))?;
+    let binding = commitments.binding().serialize()
+        .map_err(|e| anyhow!("Failed to serialize binding commitment: {:?}", e))?;
     encode_json(&EncodedSigningCommitments {
-        hiding: hex::encode(hiding.as_ref() as &[u8]),
-        binding: hex::encode(binding.as_ref() as &[u8]),
+        hiding: hex::encode(&hiding),
+        binding: hex::encode(&binding),
     })
 }
 
@@ -392,22 +373,14 @@ fn commitments_from_wire(encoded: &str) -> Result<FrostSigningCommitments> {
     let wire: EncodedSigningCommitments = decode_json(encoded)?;
     let hiding = {
         let bytes = hex::decode(wire.hiding).map_err(|e| anyhow!("Invalid hiding commitment: {e}"))?;
-        NonceCommitment::<FrostSuite>::deserialize(
-            bytes
-                .try_into()
-                .map_err(|_| anyhow!("Invalid hiding commitment length"))?,
-        )
-        .map_err(|e| anyhow!("Invalid hiding commitment: {:?}", e))?
+        NonceCommitment::<FrostSuite>::deserialize(&bytes)
+            .map_err(|e| anyhow!("Invalid hiding commitment: {:?}", e))?
     };
     let binding = {
         let bytes =
             hex::decode(wire.binding).map_err(|e| anyhow!("Invalid binding commitment: {e}"))?;
-        NonceCommitment::<FrostSuite>::deserialize(
-            bytes
-                .try_into()
-                .map_err(|_| anyhow!("Invalid binding commitment length"))?,
-        )
-        .map_err(|e| anyhow!("Invalid binding commitment: {:?}", e))?
+        NonceCommitment::<FrostSuite>::deserialize(&bytes)
+            .map_err(|e| anyhow!("Invalid binding commitment: {:?}", e))?
     };
     Ok(FrostSigningCommitments::new(hiding, binding))
 }
@@ -415,9 +388,9 @@ fn commitments_from_wire(encoded: &str) -> Result<FrostSigningCommitments> {
 fn key_package_to_wire(key: &FrostKeyPackage) -> Result<String> {
     encode_json(&EncodedKeyPackage {
         participant_id: id_to_u16(key.identifier())?,
-        secret_share: signing_share_to_hex(key.secret_share()),
-        public_share: verifying_share_to_hex(key.public()),
-        group_public: verifying_key_to_hex(key.group_public()),
+        secret_share: signing_share_to_hex(key.signing_share()),
+        public_share: verifying_share_to_hex(key.verifying_share()),
+        group_public: verifying_key_to_hex(key.verifying_key()),
     })
 }
 
@@ -428,29 +401,31 @@ fn key_package_from_wire(encoded: &str) -> Result<FrostKeyPackage> {
         signing_share_from_hex(&wire.secret_share)?,
         verifying_share_from_hex(&wire.public_share)?,
         verifying_key_from_hex(&wire.group_public)?,
+        2,
     ))
 }
 
 fn public_key_package_to_wire(public: &FrostPublicKeyPackage) -> Result<String> {
     let mut signer_pubkeys = BTreeMap::new();
-    for (id, share) in public.signer_pubkeys() {
+    for (id, share) in public.verifying_shares() {
         signer_pubkeys.insert(id_to_u16(id)?, verifying_share_to_hex(share));
     }
     encode_json(&EncodedPublicKeyPackage {
         signer_pubkeys,
-        group_public: verifying_key_to_hex(public.group_public()),
+        group_public: verifying_key_to_hex(public.verifying_key()),
     })
 }
 
 fn public_key_package_from_wire(encoded: &str) -> Result<FrostPublicKeyPackage> {
     let wire: EncodedPublicKeyPackage = decode_json(encoded)?;
-    let mut signer_pubkeys = HashMap::with_capacity(wire.signer_pubkeys.len());
+    let mut signer_pubkeys = BTreeMap::new();
     for (id, share) in wire.signer_pubkeys {
         signer_pubkeys.insert(id_from_u16(id)?, verifying_share_from_hex(&share)?);
     }
     Ok(FrostPublicKeyPackage::new(
         signer_pubkeys,
         verifying_key_from_hex(&wire.group_public)?,
+        None,
     ))
 }
 
@@ -485,7 +460,7 @@ pub fn frost_dkg_round2(
         .unwrap()
         .remove(&secret_package)
         .ok_or_else(|| anyhow!("Unknown or expired DKG round 1 secret handle"))?;
-    let mut packages = HashMap::with_capacity(round1_packages.len());
+    let mut packages = BTreeMap::new();
     for (id, package) in round1_packages {
         packages.insert(id_from_u16(id)?, round1_from_wire(&package)?);
     }
@@ -521,12 +496,12 @@ pub fn frost_dkg_round3(
         .remove(&secret_package)
         .ok_or_else(|| anyhow!("Unknown or expired DKG round 2 secret handle"))?;
 
-    let mut r1 = HashMap::with_capacity(round1_packages.len());
+    let mut r1 = BTreeMap::new();
     for (id, package) in round1_packages {
         r1.insert(id_from_u16(id)?, round1_from_wire(&package)?);
     }
 
-    let mut r2 = HashMap::with_capacity(round2_packages.len());
+    let mut r2 = BTreeMap::new();
     for (id, package) in round2_packages {
         r2.insert(id_from_u16(id)?, round2_from_wire(&package)?);
     }
@@ -535,7 +510,7 @@ pub fn frost_dkg_round3(
         .map_err(|e| anyhow!("FROST DKG round 3 failed: {:?}", e))?;
     let key_package = normalize_key_package(key_package)?;
     let public_key_package = normalize_public_key_package(public_key_package)?;
-    let group_public_key_hex = verifying_key_to_hex(public_key_package.group_public());
+    let group_public_key_hex = verifying_key_to_hex(public_key_package.verifying_key());
 
     Ok(FrostDkgCompleteResult {
         participant_id,
@@ -547,7 +522,7 @@ pub fn frost_dkg_round3(
 
 pub fn frost_sign_round1(key_package: String) -> Result<FrostSigningRound1Result> {
     let key_package = key_package_from_wire(&key_package)?;
-    let (nonces, commitments) = frost::round1::commit(key_package.secret_share(), &mut OsRng);
+    let (nonces, commitments) = round1::commit(key_package.signing_share(), &mut OsRng);
     let handle = token("fn");
     SIGNING_NONCES.lock().unwrap().insert(handle.clone(), nonces);
     Ok(FrostSigningRound1Result {
@@ -605,11 +580,13 @@ fn signing_package_from_wire(encoded: &str) -> Result<FrostSigningPackage> {
 }
 
 pub fn frost_create_randomizer(public_key_package: String) -> Result<FrostRandomizerResult> {
-    let public_key_package = public_key_package_from_wire(&public_key_package)?;
-    let params = RandomizedParams::<FrostSuite>::new(&public_key_package, OsRng);
+    let _public_key_package = public_key_package_from_wire(&public_key_package)?;
+    let random_scalar = <<FrostSuite as Ciphersuite>::Group as Group>::Field::random(&mut OsRng);
+    let randomizer = frost_rerandomized::Randomizer::<FrostSuite>::from_scalar(random_scalar);
+    let randomizer_point = <FrostSuite as Ciphersuite>::Group::generator() * random_scalar;
     Ok(FrostRandomizerResult {
-        randomizer_hex: scalar_to_hex(params.randomizer()),
-        randomizer_point_hex: element_to_hex(params.randomizer_point()),
+        randomizer_hex: scalar_to_hex(&random_scalar),
+        randomizer_point_hex: element_to_hex(&randomizer_point),
     })
 }
 
@@ -626,12 +603,13 @@ pub fn frost_sign_round2(
         .remove(&signing_nonces)
         .ok_or_else(|| anyhow!("Unknown or already-used signing nonce handle"))?;
     let key_package = key_package_from_wire(&key_package)?;
-    let randomizer_point = element_from_hex(&randomizer_point_hex)?;
+    let randomizer_scalar = scalar_from_hex(&randomizer_point_hex)?;
+    let randomizer = frost_rerandomized::Randomizer::<FrostSuite>::from_scalar(randomizer_scalar);
+    #[allow(deprecated)]
     let share =
-        frost_rerandomized::sign(&signing_package, &signing_nonces, &key_package, &randomizer_point)
+        frost_rerandomized::sign(&signing_package, &signing_nonces, &key_package, randomizer)
             .map_err(|e| anyhow!("FROST signing failed: {:?}", e))?;
-    let bytes = share.serialize();
-    Ok(hex::encode(bytes.as_ref() as &[u8]))
+    Ok(hex::encode(share.serialize()))
 }
 
 pub fn frost_aggregate(
@@ -642,18 +620,18 @@ pub fn frost_aggregate(
 ) -> Result<FrostAggregateResult> {
     let signing_package = signing_package_from_wire(&signing_package)?;
     let public_key_package = public_key_package_from_wire(&public_key_package)?;
-    let randomizer = scalar_from_hex(&randomizer_hex)?;
-    let randomized_params =
-        RandomizedParams::<FrostSuite>::from_randomizer(&public_key_package, randomizer);
+    let randomizer_scalar = scalar_from_hex(&randomizer_hex)?;
+    let randomizer = frost_rerandomized::Randomizer::<FrostSuite>::from_scalar(randomizer_scalar);
+    let randomized_params = frost_rerandomized::RandomizedParams::<FrostSuite>::from_randomizer(
+        public_key_package.verifying_key(),
+        randomizer,
+    );
 
-    let mut shares = HashMap::with_capacity(signature_shares.len());
+    let mut shares = BTreeMap::new();
     for (id, share_hex) in signature_shares {
         let bytes =
             hex::decode(share_hex).map_err(|e| anyhow!("Invalid signature share hex: {e}"))?;
-        let ser = bytes
-            .try_into()
-            .map_err(|_| anyhow!("Invalid signature share byte length"))?;
-        let share = FrostSignatureShare::deserialize(ser)
+        let share = FrostSignatureShare::deserialize(&bytes)
             .map_err(|e| anyhow!("Invalid signature share: {:?}", e))?;
         shares.insert(id_from_u16(id)?, share);
     }
@@ -666,8 +644,10 @@ pub fn frost_aggregate(
     )
     .map_err(|e| anyhow!("FROST aggregate failed: {:?}", e))?;
 
+    let sig_bytes = sig.serialize()
+        .map_err(|e| anyhow!("Failed to serialize signature: {:?}", e))?;
     Ok(FrostAggregateResult {
-        signature_hex: hex::encode(sig.serialize().as_ref() as &[u8]),
+        signature_hex: hex::encode(&sig_bytes),
     })
 }
 

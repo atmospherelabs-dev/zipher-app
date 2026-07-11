@@ -16,6 +16,7 @@ import 'router.dart';
 import 'sent_memos_db.dart';
 import 'services/frost_watch_service.dart';
 import 'services/hitl_watch_service.dart';
+import 'services/ironwood_watch_service.dart';
 import 'zipher_theme.dart';
 
 Future<void> initCoins() async {
@@ -59,12 +60,14 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     HitlWatchService.instance.init().then((_) {
       HitlWatchService.instance.start();
     });
+    IronwoodWatchService.instance.start();
   }
 
   @override
   void dispose() {
     FrostWatchService.instance.stop();
     HitlWatchService.instance.stop();
+    IronwoodWatchService.instance.stop();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -74,6 +77,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       FrostWatchService.instance.onAppResumed();
       HitlWatchService.instance.onAppResumed();
+      IronwoodWatchService.instance.onAppResumed();
     }
   }
 

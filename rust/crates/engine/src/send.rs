@@ -17,7 +17,7 @@ use zcash_client_backend::data_api::wallet::{
     propose_standard_transfer_to_address,
     ConfirmationsPolicy, SpendingKeys,
 };
-use zcash_client_backend::data_api::{CoinbaseFilter, InputSource, MaxSpendMode, WalletRead};
+use zcash_client_backend::data_api::{Account as _, CoinbaseFilter, InputSource, MaxSpendMode, WalletRead};
 use zcash_client_backend::fees::StandardFeeRule;
 use zcash_client_backend::proposal::Proposal;
 use zcash_client_backend::proto::service::RawTransaction;
@@ -32,8 +32,8 @@ use zcash_protocol::consensus::Network;
 use zcash_protocol::value::Zatoshis;
 use zcash_protocol::ShieldedProtocol;
 
-type DbType = WalletDb<rusqlite::Connection, Network, SystemClock, rand::rngs::OsRng>;
-type ProposalType = Proposal<StandardFeeRule, ReceivedNoteId>;
+pub(crate) type DbType = WalletDb<rusqlite::Connection, Network, SystemClock, rand::rngs::OsRng>;
+pub(crate) type ProposalType = Proposal<StandardFeeRule, ReceivedNoteId>;
 
 use zcash_client_sqlite::util::SystemClock;
 
@@ -49,7 +49,7 @@ const PRIORITY_MARGINAL_FEE: u64 = 20_000;
 // Pending proposal state
 // ---------------------------------------------------------------------------
 
-static PENDING_SEND: StdMutex<Option<ProposalType>> = StdMutex::new(None);
+pub(crate) static PENDING_SEND: StdMutex<Option<ProposalType>> = StdMutex::new(None);
 
 // ---------------------------------------------------------------------------
 // Multi-server broadcast
@@ -295,6 +295,7 @@ pub async fn propose_send(
                     memo_bytes.clone(),
                     None,
                     ShieldedProtocol::Orchard,
+                    None,
                 );
                 match attempt {
                     Ok(proposal) => {
@@ -362,6 +363,7 @@ pub async fn propose_send(
             memo_bytes,
             None,
             ShieldedProtocol::Orchard,
+            None,
         )
         .map_err(|e| {
             if priority {
@@ -534,6 +536,8 @@ pub async fn create_pczt() -> Result<Vec<u8>> {
         account_id,
         OvkPolicy::Sender,
         &proposal,
+        None,
+        orchard::builder::BundleType::DEFAULT,
     )
     .map_err(|e| anyhow::anyhow!("PCZT creation failed: {:?}", e))?;
 
@@ -716,6 +720,7 @@ pub async fn get_max_sendable(address: &str) -> Result<u64> {
                 None,
                 None,
                 ShieldedProtocol::Orchard,
+                None,
             );
             if attempt.is_ok() {
                 return Ok(target);
@@ -784,6 +789,7 @@ fn propose_and_create_send(
         memo,
         None,
         ShieldedProtocol::Orchard,
+        None,
     )
     .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))?;
 
@@ -916,6 +922,8 @@ pub async fn create_shield_pczt() -> Result<Vec<u8>> {
         account_id,
         OvkPolicy::Sender,
         &proposal,
+        None,
+        orchard::builder::BundleType::DEFAULT,
     )
     .map_err(|e| anyhow::anyhow!("Shield PCZT creation failed: {:?}", e))?;
 
@@ -1127,4 +1135,151 @@ pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
     }
     super::sync::emit_transaction_event(txid.to_string(), "pending");
     Ok(txid.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Ironwood pool transfer (SpendPolicy-restricted to Orchard inputs)
+// ---------------------------------------------------------------------------
+
+use zcash_client_backend::data_api::wallet::{
+    propose_transfer,
+    input_selection::{GreedyInputSelector, SpendPolicy},
+};
+use zcash_client_backend::fees::zip317::SingleOutputChangeStrategy;
+use zcash_client_backend::fees::DustOutputPolicy;
+use zcash_primitives::transaction::TxVersion;
+use zcash_client_backend::zip321;
+
+/// Propose a pool transfer: spends only Orchard notes, sends to own
+/// unified address (routed to Ironwood post-NU6.3).
+///
+/// Stores the proposal in PENDING_SEND for subsequent confirm_send.
+/// Returns (amount_zat, fee_zat).
+pub async fn propose_pool_transfer(
+    amount_zat: u64,
+    is_max: bool,
+) -> Result<(u64, u64)> {
+    super::sync::ensure_synced().await?;
+
+    let engine_guard = ENGINE.lock().await;
+    let engine = engine_guard
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
+
+    let db_data_path = engine.db_data_path.clone();
+    let params = engine.params;
+    let db_cipher_key = engine.db_cipher_key.clone();
+    drop(engine_guard);
+
+    let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
+    check_pczt_lock(&db_data_path)?;
+
+    let account_id = db_data
+        .get_account_ids()
+        .map_err(|e| anyhow::anyhow!("{:?}", e))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No accounts"))?;
+
+    let account = db_data
+        .get_account(account_id)
+        .map_err(|e| anyhow::anyhow!("{:?}", e))?
+        .ok_or_else(|| anyhow::anyhow!("Account not found"))?;
+
+    let ufvk = account
+        .ufvk()
+        .ok_or_else(|| anyhow::anyhow!("No UFVK for account"))?;
+
+    let (ua, _) = ufvk
+        .default_address(zcash_keys::keys::UnifiedAddressRequest::ORCHARD)
+        .map_err(|e| anyhow::anyhow!("Address derivation failed: {:?}", e))?;
+
+    let zaddr: ZcashAddress = ua.encode(&params)
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Invalid self-address: {:?}", e))?;
+
+    info!(
+        "[PoolTransfer] Proposing Orchard->Ironwood: {} zat, max={}",
+        amount_zat, is_max
+    );
+
+    if is_max {
+        let proposal = propose_send_max_transfer::<_, _, _, std::convert::Infallible>(
+            &mut db_data,
+            &params,
+            account_id,
+            &[ShieldedProtocol::Orchard],
+            &StandardFeeRule::Zip317,
+            zaddr,
+            None,
+            MaxSpendMode::MaxSpendable,
+            ConfirmationsPolicy::MIN,
+        )
+        .map_err(|e| anyhow::anyhow!("Pool transfer max proposal failed: {:?}", e))?;
+
+        let fee = u64::from(proposal.steps().first().balance().fee_required());
+        let send_amount = {
+            let balance = proposal.steps().first().balance();
+            let total_in: u64 = u64::from(balance.total());
+            let fee: u64 = u64::from(balance.fee_required());
+            total_in.saturating_sub(fee)
+        };
+
+        info!(
+            "[PoolTransfer] Max: {:.8} ZEC + {:.8} ZEC fee",
+            send_amount as f64 / 1e8,
+            fee as f64 / 1e8
+        );
+
+        *PENDING_SEND.lock().unwrap() = Some(proposal);
+        Ok((send_amount, fee))
+    } else {
+        let send_zat = Zatoshis::from_u64(amount_zat)
+            .map_err(|_| anyhow::anyhow!("Invalid amount"))?;
+
+        let request = zip321::TransactionRequest::new(vec![
+            zip321::Payment::new(
+                zaddr,
+                Some(send_zat),
+                None,
+                None,
+                None,
+                vec![],
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to create payment: {:?}", e))?,
+        ])
+        .map_err(|e| anyhow::anyhow!("TransactionRequest: {:?}", e))?;
+
+        let input_selector = GreedyInputSelector::new();
+        let change_strategy = SingleOutputChangeStrategy::new(
+            StandardFeeRule::Zip317,
+            None,
+            ShieldedProtocol::Orchard,
+            DustOutputPolicy::default(),
+        );
+        let spend_policy = SpendPolicy::shielded_pools([ShieldedProtocol::Orchard]);
+
+        let proposal = propose_transfer::<_, _, _, _, std::convert::Infallible>(
+            &mut db_data,
+            &params,
+            account_id,
+            &input_selector,
+            &change_strategy,
+            request,
+            ConfirmationsPolicy::MIN,
+            &spend_policy,
+            Some(TxVersion::V6),
+        )
+        .map_err(|e| anyhow::anyhow!("Pool transfer proposal failed: {:?}", e))?;
+
+        let fee = u64::from(proposal.steps().first().balance().fee_required());
+        info!(
+            "[PoolTransfer] {:.8} ZEC + {:.8} ZEC fee",
+            amount_zat as f64 / 1e8,
+            fee as f64 / 1e8
+        );
+
+        *PENDING_SEND.lock().unwrap() = Some(proposal);
+        Ok((amount_zat, fee))
+    }
 }

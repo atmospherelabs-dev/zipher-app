@@ -24,19 +24,19 @@ rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"]
 bip0039 = { version = "0.14", features = ["rand"] }
 
 # Zcash crates (NU6.3 / Ironwood — orchard 0.15 / v6 tx format)
-zcash_protocol = "0.10.0-pre.0"
-zcash_address = "0.13.0-pre.0"
+zcash_protocol = "0.10.0"
+zcash_address = "0.13.0"
 zcash_client_backend = { version = "0.23", features = ["lightwalletd-tonic", "transparent-inputs", "pczt", "non-standard-fees"] }
 pczt = { version = "0.7", features = ["prover", "signer", "sapling", "orchard"] }
 zcash_client_sqlite = { version = "0.21", features = ["orchard", "transparent-inputs", "serde"] }
-zcash_keys = { version = "0.15.0-pre.0", features = ["orchard", "sapling", "unstable-frost"] }
-zcash_primitives = "0.29.0-pre.0"
-zcash_proofs = "0.29.0-pre.0"
-zcash_transparent = "0.9.0-pre.0"
+zcash_keys = { version = "0.15.0", features = ["orchard", "sapling", "unstable-frost"] }
+zcash_primitives = "0.29.0"
+zcash_proofs = "0.29.0"
+zcash_transparent = "0.9.0"
 zcash_script = "0.4"
 zip32 = "0.2"
 sapling-crypto = { version = "0.7", package = "sapling-crypto" }
-orchard = "0.15.0-pre.1"
+orchard = "0.15.0"
 incrementalmerkletree = "0.8"
 # Shielded voting — DISABLED for Ironwood: zcash_voting pins orchard 0.14
 # which conflicts with the NU6.3 orchard 0.15.0-pre.1. Re-enable once
@@ -51,8 +51,8 @@ voting-circuits = { version = "0.8", optional = true }
 rustls = { version = "0.23", features = ["ring"] }
 reqwest = { version = "0.13", features = ["json"] }
 reddsa = { version = "0.5", features = ["frost", "serde"] }
-frost-rerandomized = "0.6"
-frost-core = { version = "0.6", features = ["serde"] }
+frost-rerandomized = "3.0"
+frost-core = { version = "3.0", features = ["serde"] }
 xeddsa = "1.0.2"
 snow = "0.9.6"
 uuid = "1"

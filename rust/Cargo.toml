@@ -23,11 +23,11 @@ tokio = { version = "1", features = ["full"] }
 rand = "0.8"
 
 # Zcash crates (NU6.3 / Ironwood — orchard 0.15 / v6 tx format)
-zcash_protocol = "0.10.0-pre.0"
-zcash_address = "0.13.0-pre.0"
+zcash_protocol = "0.10.0"
+zcash_address = "0.13.0"
 zcash_client_backend = { version = "0.23", features = ["lightwalletd-tonic", "transparent-inputs"] }
 zip32 = "0.2"
-zcash_keys = { version = "0.15.0-pre.0", features = ["orchard", "sapling", "unstable-frost"] }
+zcash_keys = { version = "0.15.0", features = ["orchard", "sapling", "unstable-frost"] }
 bip0039 = { version = "0.14", features = ["rand"] }
 xeddsa = "1.0.2"
 snow = "0.9.6"
@@ -41,11 +41,11 @@ futures-util = "0.3"
 rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
 zeroize = "1"
 sapling-crypto = { version = "0.7", package = "sapling-crypto" }
-orchard = "0.15.0-pre.1"
+orchard = "0.15.0"
 incrementalmerkletree = "0.8"
-zcash_primitives = "0.29.0-pre.0"
-zcash_proofs = "0.29.0-pre.0"
-zcash_transparent = "0.9.0-pre.0"
+zcash_primitives = "0.29.0"
+zcash_proofs = "0.29.0"
+zcash_transparent = "0.9.0"
 zcash_script = "0.4"
 zip321 = "0.8"
 
@@ -73,20 +73,19 @@ opt-level = 3
 strip = true
 
 [patch.crates-io]
-# Pin to librustzcash PR #2539 branch (dw/ironwood-scan-model).
-# Full Ironwood wallet path: scan + store + balance + select + spend + routing.
-# Same rev used by zcash-devtool PR #209 for testnet Ironwood testing.
-# TODO: re-pin to main once PR #2539 merges.
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
-zcash_transparent = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
-zcash_address = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
-zcash_encoding = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
-pczt = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
-zip321 = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
-equihash = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
-f4jumble = { git = "https://github.com/zcash/librustzcash.git", rev = "70bdaeef" }
+# Pin to librustzcash main post-NU6.3 release.
+# Includes: Ironwood scanning/spending, PCZT v2 deferred anchors, SpendPolicy,
+# batch signing, Ironwood witness generation, Orchard turnstile enforcement.
+zcash_client_backend = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }
+zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }
+zcash_primitives = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }
+zcash_proofs = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }
+zcash_transparent = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }
+zcash_keys = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }
+zcash_address = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }
+zcash_encoding = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }
+pczt = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }
+zip321 = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }
+equihash = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }
+f4jumble = { git = "https://github.com/zcash/librustzcash.git", rev = "292e7584" }

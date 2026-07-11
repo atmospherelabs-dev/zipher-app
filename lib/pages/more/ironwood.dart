@@ -53,16 +53,9 @@ class _IronwoodState extends State<IronwoodPage> {
     });
 
     try {
-      final addresses = await engine.engineGetAddresses();
-      if (addresses.isEmpty) throw Exception('No wallet address available');
-      final ownAddress = addresses.first.address;
-
-      final proposal = await engine.engineProposeSend(
-        address: ownAddress,
+      final proposal = await engine.engineProposePoolTransfer(
         amount: BigInt.from(amountZat),
-        memo: null,
         isMax: false,
-        priority: false,
       );
 
       setState(() {
@@ -331,19 +324,13 @@ class _IronwoodState extends State<IronwoodPage> {
     });
 
     try {
-      final addresses = await engine.engineGetAddresses();
-      if (addresses.isEmpty) throw Exception('No wallet address available');
-      final ownAddress = addresses.first.address;
-
-      final proposal = await engine.engineProposeSend(
-        address: ownAddress,
+      final proposal = await engine.engineProposePoolTransfer(
         amount: BigInt.from(_orchardBalance),
-        memo: null,
         isMax: true,
-        priority: false,
       );
 
       setState(() {
+        _selectedAmountZat = proposal.sendAmount.toInt();
         _fee = proposal.fee.toInt();
         _phase = _Phase.confirming;
       });

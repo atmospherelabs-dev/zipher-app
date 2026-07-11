@@ -1628,7 +1628,8 @@ class _$WalletBalanceImpl extends _WalletBalance {
                 other.transparent == transparent) &&
             (identical(other.sapling, sapling) || other.sapling == sapling) &&
             (identical(other.orchard, orchard) || other.orchard == orchard) &&
-            (identical(other.ironwood, ironwood) || other.ironwood == ironwood) &&
+            (identical(other.ironwood, ironwood) ||
+                other.ironwood == ironwood) &&
             (identical(other.unconfirmedSapling, unconfirmedSapling) ||
                 other.unconfirmedSapling == unconfirmedSapling) &&
             (identical(other.unconfirmedOrchard, unconfirmedOrchard) ||

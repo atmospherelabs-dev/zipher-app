@@ -1446,6 +1446,17 @@ pub struct EngineEncryptedShare {
 // Ironwood pool transfer (ZIP 318)
 // ---------------------------------------------------------------------------
 
+/// Propose an Orchard -> Ironwood pool transfer with SpendPolicy restriction.
+/// Only spends Orchard notes. Sends to own UA (routed to Ironwood post-NU6.3).
+/// Returns (send_amount, fee). Use engine_confirm_send to finalize.
+pub async fn engine_propose_pool_transfer(
+    amount: u64,
+    is_max: bool,
+) -> Result<ProposalResult> {
+    let (amount_zat, fee_zat) = engine::send::propose_pool_transfer(amount, is_max).await?;
+    Ok(ProposalResult { send_amount: amount_zat, fee: fee_zat, is_exact: !is_max })
+}
+
 /// Plan an Orchard -> Ironwood pool transfer per ZIP 318.
 /// Returns a summary with denominations, fees, and duration for user confirmation.
 pub fn engine_ironwood_plan(orchard_balance_zat: u64, current_height: u32) -> Result<IronwoodPlan> {

@@ -661,6 +661,14 @@ Future<EngineVoteCommitment> engineVoteBuildCommitment(
         proposalAuthority: proposalAuthority,
         singleShare: singleShare);
 
+/// Propose an Orchard -> Ironwood pool transfer with SpendPolicy restriction.
+/// Only spends Orchard notes. Sends to own UA (routed to Ironwood post-NU6.3).
+/// Returns (send_amount, fee). Use engine_confirm_send to finalize.
+Future<ProposalResult> engineProposePoolTransfer(
+        {required BigInt amount, required bool isMax}) =>
+    RustLib.instance.api.crateApiEngineApiEngineProposePoolTransfer(
+        amount: amount, isMax: isMax);
+
 /// Plan an Orchard -> Ironwood pool transfer per ZIP 318.
 /// Returns a summary with denominations, fees, and duration for user confirmation.
 Future<IronwoodPlan> engineIronwoodPlan(
