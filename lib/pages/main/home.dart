@@ -700,7 +700,7 @@ class _HomeState extends State<HomePageInner> {
   }
 
   static const _ironwoodActivation = {
-    'mainnet': 2950000,
+    'mainnet': 3428143,
     'testnet': 4134000,
   };
 

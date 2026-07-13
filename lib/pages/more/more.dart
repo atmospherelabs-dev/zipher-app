@@ -266,8 +266,8 @@ class _MorePageState extends State<MorePage> {
 
   /// NU6.3 (Ironwood) activation heights.
   static const _ironwoodActivation = {
-    'mainnet': 2950000, // TBD — not yet announced
-    'testnet': 4134000, // activated ~July 6 2026
+    'mainnet': 3428143, // July 28, 2026 ~8AM EST
+    'testnet': 4134000,
   };
 
   bool _isIronwoodActive() {
