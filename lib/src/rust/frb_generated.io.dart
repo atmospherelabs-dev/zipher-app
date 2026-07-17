@@ -237,6 +237,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ValueTransferRecord> dco_decode_list_value_transfer_record(dynamic raw);
 
   @protected
+  MigrationProgress dco_decode_migration_progress(dynamic raw);
+
+  @protected
+  MigrationRoundResult dco_decode_migration_round_result(dynamic raw);
+
+  @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
@@ -528,6 +534,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ValueTransferRecord> sse_decode_list_value_transfer_record(
+      SseDeserializer deserializer);
+
+  @protected
+  MigrationProgress sse_decode_migration_progress(SseDeserializer deserializer);
+
+  @protected
+  MigrationRoundResult sse_decode_migration_round_result(
       SseDeserializer deserializer);
 
   @protected
@@ -830,6 +843,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_value_transfer_record(
       List<ValueTransferRecord> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_migration_progress(
+      MigrationProgress self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_migration_round_result(
+      MigrationRoundResult self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);

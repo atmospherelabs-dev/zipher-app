@@ -8,7 +8,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'wallet.dart';
 
 // These functions are ignored because they are not marked as `pub`: `packages_from_map`, `packages_to_map`, `to_network`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Create a new wallet. Returns the 24-word seed phrase.
 Future<String> engineCreateWallet(
@@ -668,6 +668,35 @@ Future<ProposalResult> engineProposePoolTransfer(
         {required BigInt amount, required bool isMax}) =>
     RustLib.instance.api.crateApiEngineApiEngineProposePoolTransfer(
         amount: amount, isMax: isMax);
+
+/// Determine the next migration round action per the Shielded Labs algorithm.
+///
+/// Returns the action type ("migrate", "consolidate", or "done"),
+/// the amount to migrate (if applicable), and consolidation note count.
+///
+/// Callers: pass the wallet's largest single Orchard note value and total note count.
+Future<MigrationRoundResult> engineMigrationNextRound(
+        {required BigInt orchardBalanceZat,
+        required BigInt largestNoteZat,
+        required int noteCount}) =>
+    RustLib.instance.api.crateApiEngineApiEngineMigrationNextRound(
+        orchardBalanceZat: orchardBalanceZat,
+        largestNoteZat: largestNoteZat,
+        noteCount: noteCount);
+
+/// Generate a cryptographically random delay (in seconds) for the next round.
+/// Uses exponential distribution: D = -600 * log2(U), median = 10 minutes.
+Future<double> engineMigrationRandomDelay() =>
+    RustLib.instance.api.crateApiEngineApiEngineMigrationRandomDelay();
+
+/// Record a completed migration round to persistent state.
+Future<MigrationProgress> engineMigrationRecordRound(
+        {required String dataDir,
+        required BigInt amountZat,
+        required BigInt feeZat,
+        required int height}) =>
+    RustLib.instance.api.crateApiEngineApiEngineMigrationRecordRound(
+        dataDir: dataDir, amountZat: amountZat, feeZat: feeZat, height: height);
 
 /// Plan an Orchard -> Ironwood pool transfer per ZIP 318.
 /// Returns a summary with denominations, fees, and duration for user confirmation.
@@ -1967,6 +1996,58 @@ class IronwoodTickResult {
           partsInvalidated == other.partsInvalidated &&
           isComplete == other.isComplete &&
           nextBroadcastHeight == other.nextBroadcastHeight;
+}
+
+class MigrationProgress {
+  final int roundsCompleted;
+  final BigInt totalMigratedZat;
+  final BigInt totalFeesZat;
+
+  const MigrationProgress({
+    required this.roundsCompleted,
+    required this.totalMigratedZat,
+    required this.totalFeesZat,
+  });
+
+  @override
+  int get hashCode =>
+      roundsCompleted.hashCode ^
+      totalMigratedZat.hashCode ^
+      totalFeesZat.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MigrationProgress &&
+          runtimeType == other.runtimeType &&
+          roundsCompleted == other.roundsCompleted &&
+          totalMigratedZat == other.totalMigratedZat &&
+          totalFeesZat == other.totalFeesZat;
+}
+
+class MigrationRoundResult {
+  final String action;
+  final BigInt amountZat;
+  final int consolidateCount;
+
+  const MigrationRoundResult({
+    required this.action,
+    required this.amountZat,
+    required this.consolidateCount,
+  });
+
+  @override
+  int get hashCode =>
+      action.hashCode ^ amountZat.hashCode ^ consolidateCount.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MigrationRoundResult &&
+          runtimeType == other.runtimeType &&
+          action == other.action &&
+          amountZat == other.amountZat &&
+          consolidateCount == other.consolidateCount;
 }
 
 class PolymarketAuthResult {

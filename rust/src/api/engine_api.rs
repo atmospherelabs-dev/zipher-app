@@ -1457,6 +1457,69 @@ pub async fn engine_propose_pool_transfer(
     Ok(ProposalResult { send_amount: amount_zat, fee: fee_zat, is_exact: !is_max })
 }
 
+/// Determine the next migration round action per the Shielded Labs algorithm.
+///
+/// Returns the action type ("migrate", "consolidate", or "done"),
+/// the amount to migrate (if applicable), and consolidation note count.
+///
+/// Callers: pass the wallet's largest single Orchard note value and total note count.
+pub fn engine_migration_next_round(
+    orchard_balance_zat: u64,
+    largest_note_zat: u64,
+    note_count: u32,
+) -> Result<MigrationRoundResult> {
+    let round = engine::ironwood::plan_next_round(
+        orchard_balance_zat,
+        largest_note_zat,
+        note_count as usize,
+    );
+    let action = match round.action {
+        engine::ironwood::RoundAction::Migrate => "migrate".to_string(),
+        engine::ironwood::RoundAction::Consolidate => "consolidate".to_string(),
+        engine::ironwood::RoundAction::Done => "done".to_string(),
+    };
+    Ok(MigrationRoundResult {
+        action,
+        amount_zat: round.amount_zat,
+        consolidate_count: round.consolidate_count as u32,
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct MigrationRoundResult {
+    pub action: String,
+    pub amount_zat: u64,
+    pub consolidate_count: u32,
+}
+
+/// Generate a cryptographically random delay (in seconds) for the next round.
+/// Uses exponential distribution: D = -600 * log2(U), median = 10 minutes.
+pub fn engine_migration_random_delay() -> f64 {
+    engine::ironwood::random_delay_seconds()
+}
+
+/// Record a completed migration round to persistent state.
+pub fn engine_migration_record_round(
+    data_dir: String,
+    amount_zat: u64,
+    fee_zat: u64,
+    height: u32,
+) -> Result<MigrationProgress> {
+    let state = engine::ironwood::record_round(&data_dir, amount_zat, fee_zat, height)?;
+    Ok(MigrationProgress {
+        rounds_completed: state.rounds_completed,
+        total_migrated_zat: state.total_migrated_zat,
+        total_fees_zat: state.total_fees_zat,
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct MigrationProgress {
+    pub rounds_completed: u32,
+    pub total_migrated_zat: u64,
+    pub total_fees_zat: u64,
+}
+
 /// Plan an Orchard -> Ironwood pool transfer per ZIP 318.
 /// Returns a summary with denominations, fees, and duration for user confirmation.
 pub fn engine_ironwood_plan(orchard_balance_zat: u64, current_height: u32) -> Result<IronwoodPlan> {

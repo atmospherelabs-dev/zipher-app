@@ -1,120 +1,274 @@
 use anyhow::{anyhow, Result};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
 // ---------------------------------------------------------------------------
-// Constants (provisional per ZIP 318, pending ratification)
+// Constants (per Shielded Labs "Security issues in migrating user funds"
+// by Zooko Wilcox and Taylor Hornby, 2026-07-15)
 // ---------------------------------------------------------------------------
 
-/// Maximum denomination: 100 ZEC (10_000_000_000 zatoshis).
-const _DENOM_CAP_ZAT: u64 = 100 * 100_000_000;
+/// Per-note marginal fee: 50 μZEC (5000 zatoshis).
+const NOTE_FEE_ZAT: u64 = 5_000;
 
-/// Minimum denomination below which funds are left unmigrated.
-const DUST_FLOOR_ZAT: u64 = 1_000; // 0.00001 ZEC
+/// Per-transaction base fee: 100 μZEC (10000 zatoshis).
+const TX_FEE_ZAT: u64 = 10_000;
 
-/// Anchor-height bucket modulus (~5.3h at 75s/block).
-pub const BUCKET_MODULUS: u32 = 256;
+/// Total fee for a single-note migration: note fee + tx fee = 150 μZEC.
+const MIGRATION_FEE_ZAT: u64 = NOTE_FEE_ZAT + TX_FEE_ZAT;
 
-/// Maximum parts a single wallet contributes to one cohort.
-const K_MAX: usize = 8;
+/// Abandon residual balance below this threshold (0.001 ZEC).
+const ABANDON_THRESHOLD_ZAT: u64 = 100_000;
 
-/// Target signing sessions for typical balances.
-const TARGET_SESSIONS: usize = 6;
+/// Maximum notes to consolidate in one round.
+const MAX_CONSOLIDATION_NOTES: usize = 60;
+
+// ---------------------------------------------------------------------------
+// Bucket system: {1, 2, 5} × 10^k for k >= -3
+// ---------------------------------------------------------------------------
+
+/// All migration buckets in descending order (in zatoshis).
+/// {1,2,5} × 10^k ZEC for k = 4,3,2,1,0,-1,-2,-3
+const BUCKETS: &[u64] = &[
+    500_000_000_000, // 5000 ZEC
+    200_000_000_000, // 2000 ZEC
+    100_000_000_000, // 1000 ZEC
+    50_000_000_000,  // 500 ZEC
+    20_000_000_000,  // 200 ZEC
+    10_000_000_000,  // 100 ZEC
+    5_000_000_000,   // 50 ZEC
+    2_000_000_000,   // 20 ZEC
+    1_000_000_000,   // 10 ZEC
+    500_000_000,     // 5 ZEC
+    200_000_000,     // 2 ZEC
+    100_000_000,     // 1 ZEC
+    50_000_000,      // 0.5 ZEC
+    20_000_000,      // 0.2 ZEC
+    10_000_000,      // 0.1 ZEC
+    5_000_000,       // 0.05 ZEC
+    2_000_000,       // 0.02 ZEC
+    1_000_000,       // 0.01 ZEC
+    500_000,         // 0.005 ZEC
+    200_000,         // 0.002 ZEC
+    100_000,         // 0.001 ZEC
+];
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/// A canonical power-of-ten denomination in zatoshis.
+/// The type of action to perform in one migration round.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Denomination(pub u64);
+pub enum RoundAction {
+    /// Migrate `amount_zat` through the turnstile (1 Orchard spend → 1 Ironwood output + 1 Orchard change).
+    Migrate,
+    /// Consolidate notes without migrating (send-to-self in Orchard to combine notes).
+    Consolidate,
+    /// Migration complete — balance below abandon threshold.
+    Done,
+}
 
-impl Denomination {
-    pub fn zec_str(&self) -> String {
-        let zec = self.0 as f64 / 100_000_000.0;
-        if zec >= 1.0 {
-            format!("{} ZEC", zec as u64)
-        } else {
-            format!("{:.8} ZEC", zec).trim_end_matches('0').trim_end_matches('.').to_string()
+/// Result of selecting the next migration round.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrationRound {
+    pub action: RoundAction,
+    /// Amount to migrate (only meaningful for Migrate action).
+    pub amount_zat: u64,
+    /// Number of notes to consolidate (only meaningful for Consolidate action).
+    pub consolidate_count: usize,
+}
+
+/// Persistent migration state saved to disk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrationState {
+    pub started: bool,
+    pub rounds_completed: u32,
+    pub total_migrated_zat: u64,
+    pub total_fees_zat: u64,
+    pub last_round_height: Option<u32>,
+    pub tor_enabled: bool,
+}
+
+impl Default for MigrationState {
+    fn default() -> Self {
+        Self {
+            started: false,
+            rounds_completed: 0,
+            total_migrated_zat: 0,
+            total_fees_zat: 0,
+            last_round_height: None,
+            tor_enabled: false,
         }
     }
 }
 
-/// Status of a single migration part.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PartStatus {
-    Pending,
-    Signed,
-    Broadcast,
-    Confirmed,
-    Invalidated,
+// ---------------------------------------------------------------------------
+// Core algorithm (Shielded Labs spec)
+// ---------------------------------------------------------------------------
+
+/// Compute the effective current_balance available for migration.
+///
+/// For each note: effective_value = max(0, note_value - NOTE_FEE_ZAT)
+/// Then subtract TX_FEE_ZAT for the migration transaction itself.
+///
+/// For simplicity when we don't have per-note granularity, we approximate:
+/// current_balance = total_orchard_balance - MIGRATION_FEE_ZAT
+pub fn effective_balance(orchard_balance_zat: u64) -> u64 {
+    orchard_balance_zat.saturating_sub(MIGRATION_FEE_ZAT)
 }
 
-/// A single migration transaction in the schedule.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MigrationPart {
-    pub id: u32,
-    pub denomination: Denomination,
-    pub bucket_height: u32,
-    pub status: PartStatus,
-    pub tx_bytes: Option<Vec<u8>>,
-    pub txid: Option<String>,
+/// Find the largest bucket <= the given balance.
+/// Returns the index into BUCKETS, or None if balance < smallest bucket.
+fn largest_bucket_index(balance_zat: u64) -> Option<usize> {
+    BUCKETS.iter().position(|&b| b <= balance_zat)
 }
 
-/// Overall status of the pool transfer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TransferStatus {
-    Proposed,
-    Splitting,
-    Active,
-    Complete,
-    Paused,
+/// Select the migration amount using the coin-flip algorithm.
+///
+/// Start at the largest bucket <= current_balance.
+/// Flip fair coins: heads = step down one bucket, tails = stop.
+/// If we reach the smallest bucket, stop.
+///
+/// Uses OsRng (CSPRNG) as required by the spec.
+pub fn select_migration_amount(current_balance_zat: u64) -> Option<u64> {
+    if current_balance_zat < ABANDON_THRESHOLD_ZAT {
+        return None;
+    }
+
+    let start_idx = largest_bucket_index(current_balance_zat)?;
+    let mut rng = rand::rngs::OsRng;
+    let mut idx = start_idx;
+
+    loop {
+        // Flip: tails (true) = stop, heads (false) = step down
+        if rng.gen_bool(0.5) {
+            break;
+        }
+        // Step down
+        if idx + 1 >= BUCKETS.len() {
+            break; // Already at smallest bucket
+        }
+        idx += 1;
+    }
+
+    Some(BUCKETS[idx])
 }
 
-/// The full pool transfer schedule (Orchard -> Ironwood).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransferSchedule {
-    pub status: TransferStatus,
-    pub parts: Vec<MigrationPart>,
-    pub created_at_height: u32,
-    pub tor_enabled: bool,
+/// Determine what the next migration round should do.
+///
+/// - If balance < ABANDON_THRESHOLD: Done
+/// - If there's a single note >= largest_bucket + fee: Migrate (with coin-flip amount)
+/// - Otherwise: Consolidate (combine notes so next round can migrate)
+///
+/// `largest_note_zat`: the value of the largest single Orchard note in the wallet.
+/// `note_count`: total number of Orchard notes.
+/// `orchard_balance_zat`: total Orchard balance.
+pub fn plan_next_round(
+    orchard_balance_zat: u64,
+    largest_note_zat: u64,
+    note_count: usize,
+) -> MigrationRound {
+    let current_balance = effective_balance(orchard_balance_zat);
+
+    if current_balance < ABANDON_THRESHOLD_ZAT {
+        return MigrationRound {
+            action: RoundAction::Done,
+            amount_zat: 0,
+            consolidate_count: 0,
+        };
+    }
+
+    // Check if we can migrate: need a single note >= amount + fee
+    let note_available = largest_note_zat.saturating_sub(MIGRATION_FEE_ZAT);
+
+    if let Some(amount) = select_migration_amount(note_available) {
+        MigrationRound {
+            action: RoundAction::Migrate,
+            amount_zat: amount,
+            consolidate_count: 0,
+        }
+    } else if note_count > 1 {
+        // Can't migrate with any single note — consolidate
+        let consolidate_count = note_count.min(MAX_CONSOLIDATION_NOTES);
+        MigrationRound {
+            action: RoundAction::Consolidate,
+            amount_zat: 0,
+            consolidate_count,
+        }
+    } else {
+        // Single note but too small to hit any bucket — we're done
+        MigrationRound {
+            action: RoundAction::Done,
+            amount_zat: 0,
+            consolidate_count: 0,
+        }
+    }
 }
 
-impl TransferSchedule {
-    pub fn total_parts(&self) -> usize {
-        self.parts.len()
-    }
-
-    pub fn confirmed_parts(&self) -> usize {
-        self.parts.iter().filter(|p| p.status == PartStatus::Confirmed).count()
-    }
-
-    pub fn pending_parts(&self) -> Vec<&MigrationPart> {
-        self.parts.iter().filter(|p| matches!(p.status, PartStatus::Pending | PartStatus::Signed)).collect()
-    }
-
-    pub fn next_broadcast_height(&self) -> Option<u32> {
-        self.parts
-            .iter()
-            .filter(|p| matches!(p.status, PartStatus::Pending | PartStatus::Signed))
-            .map(|p| p.bucket_height)
-            .min()
-    }
-
-    pub fn total_fee_zat(&self) -> u64 {
-        self.parts.len() as u64 * 10_000
-    }
-
-    pub fn estimated_duration_hours(&self) -> f64 {
-        let num_buckets = self.parts.iter()
-            .map(|p| p.bucket_height)
-            .collect::<std::collections::HashSet<_>>()
-            .len();
-        num_buckets as f64 * (BUCKET_MODULUS as f64 * 75.0 / 3600.0)
-    }
+/// Generate the random delay (in seconds) for the next migration round.
+///
+/// D = -600 × log₂(U) where U is uniform in (0, 1].
+/// Median delay = 10 minutes. ~12.5% chance of triggering within 2 minutes.
+///
+/// Uses OsRng (CSPRNG) as required by the spec.
+pub fn random_delay_seconds() -> f64 {
+    let mut rng = rand::rngs::OsRng;
+    let u: f64 = rng.gen_range(f64::MIN_POSITIVE..=1.0);
+    -600.0 * u.log2()
 }
 
-/// Summary returned to UI/CLI for display before confirmation.
+// ---------------------------------------------------------------------------
+// State persistence
+// ---------------------------------------------------------------------------
+
+/// Load migration state from disk.
+pub fn load_state(data_dir: &str) -> Result<MigrationState> {
+    let path = std::path::Path::new(data_dir).join("ironwood_migration.json");
+    if !path.exists() {
+        return Ok(MigrationState::default());
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let state: MigrationState =
+        serde_json::from_str(&raw).map_err(|e| anyhow!("Parse migration state: {}", e))?;
+    Ok(state)
+}
+
+/// Save migration state to disk.
+pub fn save_state(data_dir: &str, state: &MigrationState) -> Result<()> {
+    let path = std::path::Path::new(data_dir).join("ironwood_migration.json");
+    let json =
+        serde_json::to_string_pretty(state).map_err(|e| anyhow!("Serialize state: {}", e))?;
+    std::fs::write(&path, json)?;
+    Ok(())
+}
+
+/// Record a completed migration round.
+pub fn record_round(
+    data_dir: &str,
+    amount_zat: u64,
+    fee_zat: u64,
+    height: u32,
+) -> Result<MigrationState> {
+    let mut state = load_state(data_dir)?;
+    state.rounds_completed += 1;
+    state.total_migrated_zat += amount_zat;
+    state.total_fees_zat += fee_zat;
+    state.last_round_height = Some(height);
+    save_state(data_dir, &state)?;
+    info!(
+        "[Ironwood] Round {} complete: migrated {:.8} ZEC (total {:.8} ZEC across {} rounds)",
+        state.rounds_completed,
+        amount_zat as f64 / 1e8,
+        state.total_migrated_zat as f64 / 1e8,
+        state.rounds_completed,
+    );
+    Ok(state)
+}
+
+// ---------------------------------------------------------------------------
+// Legacy API compatibility (kept for existing FFI bindings)
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferPlan {
     pub orchard_balance_zat: u64,
@@ -126,7 +280,6 @@ pub struct TransferPlan {
     pub dust_remaining_zat: u64,
 }
 
-/// Grouped denominations for display (e.g. "4x 0.1 ZEC").
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DenominationGroup {
     pub denomination_zat: u64,
@@ -134,197 +287,163 @@ pub struct DenominationGroup {
     pub label: String,
 }
 
-// ---------------------------------------------------------------------------
-// Core logic
-// ---------------------------------------------------------------------------
-
-/// Decompose a balance (in zatoshis) into canonical power-of-ten denominations.
-///
-/// Per ZIP 318: decimal digit expansion, capped at DENOM_CAP, down to DUST_FLOOR.
-pub fn decompose_balance(balance_zat: u64) -> (Vec<Denomination>, u64) {
-    if balance_zat < DUST_FLOOR_ZAT {
-        return (vec![], balance_zat);
-    }
-
-    let mut remaining = balance_zat;
-    let mut parts = Vec::new();
-
-    let denominations: Vec<u64> = vec![
-        10_000_000_000, // 100 ZEC
-        1_000_000_000,  // 10 ZEC
-        100_000_000,    // 1 ZEC
-        10_000_000,     // 0.1 ZEC
-        1_000_000,      // 0.01 ZEC
-        100_000,        // 0.001 ZEC
-        10_000,         // 0.0001 ZEC
-        1_000,          // 0.00001 ZEC (DUST_FLOOR)
-    ];
-
-    for denom in &denominations {
-        while remaining >= *denom {
-            parts.push(Denomination(*denom));
-            remaining -= denom;
-        }
-    }
-
-    (parts, remaining)
-}
-
-/// Assign denominations to anchor-height buckets, respecting K_MAX per cohort.
-pub fn assign_buckets(parts: &[Denomination], current_height: u32) -> Vec<u32> {
-    let next_boundary = ((current_height / BUCKET_MODULUS) + 1) * BUCKET_MODULUS;
-
-    let mut assignments = Vec::with_capacity(parts.len());
-    let mut bucket = next_boundary;
-    let mut count_in_bucket = 0;
-
-    for _ in parts {
-        if count_in_bucket >= K_MAX {
-            bucket += BUCKET_MODULUS;
-            count_in_bucket = 0;
-        }
-        assignments.push(bucket);
-        count_in_bucket += 1;
-    }
-
-    assignments
-}
-
-/// Build the full transfer plan for user confirmation.
-pub fn plan_pool_transfer(orchard_balance_zat: u64, current_height: u32) -> Result<TransferPlan> {
+/// Legacy plan function — now estimates based on the new algorithm.
+pub fn plan_pool_transfer(orchard_balance_zat: u64, _current_height: u32) -> Result<TransferPlan> {
     if orchard_balance_zat == 0 {
         return Err(anyhow!("No Orchard balance to transfer"));
     }
 
-    let (denominations, dust) = decompose_balance(orchard_balance_zat);
-
-    if denominations.is_empty() {
+    let current_balance = effective_balance(orchard_balance_zat);
+    if current_balance < ABANDON_THRESHOLD_ZAT {
         return Err(anyhow!(
-            "Balance {} zat is below dust floor ({} zat)",
+            "Balance {} zat is below abandon threshold ({} zat)",
             orchard_balance_zat,
-            DUST_FLOOR_ZAT
+            ABANDON_THRESHOLD_ZAT
         ));
     }
 
-    let buckets = assign_buckets(&denominations, current_height);
-    let num_distinct_buckets = buckets.iter().collect::<std::collections::HashSet<_>>().len();
-    let estimated_sessions = num_distinct_buckets.min(TARGET_SESSIONS).max(1);
-
-    let mut group_map: std::collections::BTreeMap<u64, usize> = std::collections::BTreeMap::new();
-    for d in &denominations {
-        *group_map.entry(d.0).or_insert(0) += 1;
-    }
-    let groups: Vec<DenominationGroup> = group_map
-        .into_iter()
-        .rev()
-        .map(|(zat, count)| {
-            let d = Denomination(zat);
-            DenominationGroup {
-                denomination_zat: zat,
-                count,
-                label: format!("{}x {}", count, d.zec_str()),
-            }
-        })
-        .collect();
+    // Estimate ~25 rounds for a typical balance (per the Shielded Labs example)
+    let estimated_rounds = estimate_rounds(current_balance);
+    let estimated_fees = estimated_rounds as u64 * MIGRATION_FEE_ZAT;
 
     Ok(TransferPlan {
         orchard_balance_zat,
-        denominations: groups,
-        total_parts: denominations.len(),
-        total_fee_zat: denominations.len() as u64 * 10_000,
-        estimated_sessions,
-        estimated_duration_hours: num_distinct_buckets as f64 * (BUCKET_MODULUS as f64 * 75.0 / 3600.0),
-        dust_remaining_zat: dust,
+        denominations: vec![],
+        total_parts: estimated_rounds,
+        total_fee_zat: estimated_fees,
+        estimated_sessions: 1,
+        estimated_duration_hours: estimate_duration_hours(estimated_rounds),
+        dust_remaining_zat: orchard_balance_zat.min(ABANDON_THRESHOLD_ZAT),
     })
 }
 
-/// Create the full transfer schedule (called after user confirms the plan).
-pub fn create_transfer_schedule(
-    orchard_balance_zat: u64,
-    current_height: u32,
-    tor_enabled: bool,
-) -> Result<TransferSchedule> {
-    let (denominations, _dust) = decompose_balance(orchard_balance_zat);
-
-    if denominations.is_empty() {
-        return Err(anyhow!("Nothing to transfer"));
+/// Rough estimate of how many rounds a balance will need.
+fn estimate_rounds(balance_zat: u64) -> usize {
+    if balance_zat == 0 {
+        return 0;
     }
-
-    let buckets = assign_buckets(&denominations, current_height);
-
-    let parts: Vec<MigrationPart> = denominations
-        .iter()
-        .zip(buckets.iter())
-        .enumerate()
-        .map(|(i, (denom, bucket))| MigrationPart {
-            id: i as u32,
-            denomination: *denom,
-            bucket_height: *bucket,
-            status: PartStatus::Pending,
-            tx_bytes: None,
-            txid: None,
-        })
-        .collect();
-
-    info!(
-        "[PoolTransfer] Schedule created: {} parts across {} buckets, tor={}",
-        parts.len(),
-        buckets.iter().collect::<std::collections::HashSet<_>>().len(),
-        tor_enabled,
-    );
-
-    Ok(TransferSchedule {
-        status: TransferStatus::Proposed,
-        parts,
-        created_at_height: current_height,
-        tor_enabled,
-    })
+    // Each round migrates on average ~half the remaining balance (geometric decrease).
+    // log2(balance / abandon_threshold) gives a rough upper bound.
+    let ratio = balance_zat as f64 / ABANDON_THRESHOLD_ZAT as f64;
+    (ratio.log2().ceil() as usize).max(1).min(50)
 }
 
-/// Reconcile a schedule against current chain state.
-pub fn reconcile_schedule(
-    schedule: &mut TransferSchedule,
-    current_height: u32,
-    confirmed_txids: &[String],
-) -> Vec<u32> {
-    let mut invalidated = Vec::new();
+/// Estimate total duration assuming median 10-min delays between rounds.
+fn estimate_duration_hours(rounds: usize) -> f64 {
+    rounds as f64 * 10.0 / 60.0
+}
 
-    for part in &mut schedule.parts {
-        match part.status {
-            PartStatus::Broadcast => {
-                if let Some(ref txid) = part.txid {
-                    if confirmed_txids.contains(txid) {
-                        part.status = PartStatus::Confirmed;
-                    }
-                }
-            }
-            PartStatus::Signed | PartStatus::Pending => {
-                if current_height > part.bucket_height + BUCKET_MODULUS {
-                    part.status = PartStatus::Invalidated;
-                    invalidated.push(part.id);
-                }
-            }
-            _ => {}
+// ---------------------------------------------------------------------------
+// Legacy types kept for FFI compatibility
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TransferStatus {
+    Proposed,
+    Splitting,
+    Active,
+    Complete,
+    Paused,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransferSchedule {
+    pub status: TransferStatus,
+    pub parts: Vec<MigrationPart>,
+    pub created_at_height: u32,
+    pub tor_enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PartStatus {
+    Pending,
+    Signed,
+    Broadcast,
+    Confirmed,
+    Invalidated,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrationPart {
+    pub id: u32,
+    pub denomination: Denomination,
+    pub bucket_height: u32,
+    pub status: PartStatus,
+    pub tx_bytes: Option<Vec<u8>>,
+    pub txid: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Denomination(pub u64);
+
+impl Denomination {
+    pub fn zec_str(&self) -> String {
+        let zec = self.0 as f64 / 100_000_000.0;
+        if zec >= 1.0 {
+            format!("{} ZEC", zec as u64)
+        } else {
+            format!("{:.8} ZEC", zec)
+                .trim_end_matches('0')
+                .trim_end_matches('.')
+                .to_string()
         }
     }
-
-    if schedule.parts.iter().all(|p| p.status == PartStatus::Confirmed) {
-        schedule.status = TransferStatus::Complete;
-    }
-
-    invalidated
 }
 
-/// Get parts that are due for broadcast (their bucket has arrived).
-pub fn due_for_broadcast(schedule: &TransferSchedule, current_height: u32) -> Vec<&MigrationPart> {
-    schedule
-        .parts
-        .iter()
-        .filter(|p| {
-            matches!(p.status, PartStatus::Signed)
-                && current_height >= p.bucket_height
-        })
-        .collect()
+pub fn create_transfer_schedule(
+    orchard_balance_zat: u64,
+    _current_height: u32,
+    tor_enabled: bool,
+) -> Result<TransferSchedule> {
+    if orchard_balance_zat < ABANDON_THRESHOLD_ZAT {
+        return Err(anyhow!("Nothing to transfer"));
+    }
+    Ok(TransferSchedule {
+        status: TransferStatus::Active,
+        parts: vec![],
+        created_at_height: _current_height,
+        tor_enabled,
+    })
+}
+
+pub fn reconcile_schedule(
+    schedule: &mut TransferSchedule,
+    _current_height: u32,
+    _confirmed_txids: &[String],
+) -> Vec<u32> {
+    vec![]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TickResult {
+    pub parts_broadcast: u32,
+    pub parts_confirmed: u32,
+    pub parts_invalidated: u32,
+    pub is_complete: bool,
+    pub next_broadcast_height: Option<u32>,
+}
+
+pub fn tick(
+    data_dir: &str,
+    _current_height: u32,
+    _confirmed_txids: &[String],
+) -> Result<TickResult> {
+    let state = load_state(data_dir)?;
+    Ok(TickResult {
+        parts_broadcast: 0,
+        parts_confirmed: state.rounds_completed,
+        parts_invalidated: 0,
+        is_complete: !state.started,
+        next_broadcast_height: None,
+    })
+}
+
+pub fn load_schedule(_data_dir: &str) -> Result<Option<TransferSchedule>> {
+    Ok(None)
+}
+
+pub fn save_schedule(_data_dir: &str, _schedule: &TransferSchedule) -> Result<()> {
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -336,160 +455,69 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_decompose_123_45_zec() {
-        let (parts, dust) = decompose_balance(12_345_000_000);
-        let values: Vec<u64> = parts.iter().map(|d| d.0).collect();
-        assert_eq!(values.iter().sum::<u64>(), 12_345_000_000);
-        assert_eq!(dust, 0);
-        assert_eq!(values[0], 10_000_000_000);
-    }
-
-    #[test]
-    fn test_decompose_small() {
-        let (parts, dust) = decompose_balance(500_000);
-        let total: u64 = parts.iter().map(|d| d.0).sum();
-        assert_eq!(total + dust, 500_000);
-    }
-
-    #[test]
-    fn test_decompose_below_dust() {
-        let (parts, dust) = decompose_balance(500);
-        assert!(parts.is_empty());
-        assert_eq!(dust, 500);
-    }
-
-    #[test]
-    fn test_decompose_540_zec() {
-        let (parts, _dust) = decompose_balance(540 * 100_000_000);
-        assert_eq!(parts.iter().filter(|d| d.0 == 10_000_000_000).count(), 5);
-        assert_eq!(parts.iter().filter(|d| d.0 == 1_000_000_000).count(), 4);
-    }
-
-    #[test]
-    fn test_bucket_assignment_k_max() {
-        let parts = vec![Denomination(10_000_000_000); 20];
-        let buckets = assign_buckets(&parts, 4_131_700);
-        let next_boundary = ((4_131_700 / 256) + 1) * 256;
-        assert_eq!(buckets[0], next_boundary);
-        assert_eq!(buckets[7], next_boundary);
-        assert_eq!(buckets[8], next_boundary + 256);
-        assert_eq!(buckets[16], next_boundary + 512);
-    }
-
-    #[test]
-    fn test_plan_50_zec() {
-        let plan = plan_pool_transfer(5_000_000_000, 4_131_700).unwrap();
-        assert_eq!(plan.orchard_balance_zat, 5_000_000_000);
-        assert_eq!(plan.total_parts, 5);
-        assert_eq!(plan.dust_remaining_zat, 0);
-    }
-
-    #[test]
-    fn test_plan_1_zec() {
-        let plan = plan_pool_transfer(100_000_000, 4_131_700).unwrap();
-        assert_eq!(plan.total_parts, 1);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Background tick — called periodically by scheduler (Flutter/CLI/MCP)
-// ---------------------------------------------------------------------------
-
-/// Result of a single background tick.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TickResult {
-    pub parts_broadcast: u32,
-    pub parts_confirmed: u32,
-    pub parts_invalidated: u32,
-    pub is_complete: bool,
-    pub next_broadcast_height: Option<u32>,
-}
-
-/// Perform one scheduling tick.
-///
-/// Reads the schedule from disk, reconciles against chain state, broadcasts
-/// any due parts, and persists the updated schedule. Designed to be called
-/// from BGTaskScheduler (iOS), WorkManager (Android), a CLI daemon loop,
-/// or on app foreground.
-pub fn tick(
-    data_dir: &str,
-    current_height: u32,
-    confirmed_txids: &[String],
-) -> Result<TickResult> {
-    let schedule_path = std::path::Path::new(data_dir).join("ironwood_schedule.json");
-    if !schedule_path.exists() {
-        return Err(anyhow!("No active transfer schedule"));
-    }
-
-    let raw = std::fs::read_to_string(&schedule_path)?;
-    let mut schedule: TransferSchedule = serde_json::from_str(&raw)
-        .map_err(|e| anyhow!("Parse schedule: {}", e))?;
-
-    if schedule.status == TransferStatus::Paused || schedule.status == TransferStatus::Complete {
-        return Ok(TickResult {
-            parts_broadcast: 0,
-            parts_confirmed: 0,
-            parts_invalidated: 0,
-            is_complete: schedule.status == TransferStatus::Complete,
-            next_broadcast_height: None,
-        });
-    }
-
-    let invalidated = reconcile_schedule(&mut schedule, current_height, confirmed_txids);
-    let parts_confirmed = schedule.parts.iter()
-        .filter(|p| p.status == PartStatus::Confirmed)
-        .count() as u32;
-
-    let ready_count = schedule.parts.iter()
-        .filter(|p| p.status == PartStatus::Signed && current_height >= p.bucket_height)
-        .count() as u32;
-
-    // Mark pending parts as signable when their bucket arrives
-    let mut newly_signable = 0u32;
-    for part in &mut schedule.parts {
-        if part.status == PartStatus::Pending && current_height >= part.bucket_height {
-            part.status = PartStatus::Signed;
-            newly_signable += 1;
+    fn test_buckets_descending() {
+        for i in 1..BUCKETS.len() {
+            assert!(BUCKETS[i - 1] > BUCKETS[i], "Buckets must be descending");
         }
     }
 
-    if schedule.parts.iter().all(|p| p.status == PartStatus::Confirmed) {
-        schedule.status = TransferStatus::Complete;
-        info!("[PoolTransfer] All parts confirmed — transfer complete!");
-    } else if schedule.status == TransferStatus::Proposed {
-        schedule.status = TransferStatus::Active;
+    #[test]
+    fn test_largest_bucket_index() {
+        assert_eq!(largest_bucket_index(200_000_000_000), Some(1)); // 2000 ZEC
+        assert_eq!(largest_bucket_index(100_000), Some(20)); // 0.001 ZEC
+        assert_eq!(largest_bucket_index(50_000), None); // Below smallest bucket
     }
 
-    let updated_json = serde_json::to_string_pretty(&schedule)
-        .map_err(|e| anyhow!("Serialize: {}", e))?;
-    std::fs::write(&schedule_path, updated_json)?;
-
-    Ok(TickResult {
-        parts_broadcast: ready_count + newly_signable,
-        parts_confirmed,
-        parts_invalidated: invalidated.len() as u32,
-        is_complete: schedule.status == TransferStatus::Complete,
-        next_broadcast_height: schedule.next_broadcast_height(),
-    })
-}
-
-/// Load the current schedule from disk (if any).
-pub fn load_schedule(data_dir: &str) -> Result<Option<TransferSchedule>> {
-    let schedule_path = std::path::Path::new(data_dir).join("ironwood_schedule.json");
-    if !schedule_path.exists() {
-        return Ok(None);
+    #[test]
+    fn test_select_amount_always_valid() {
+        for _ in 0..100 {
+            let amount = select_migration_amount(5_000_000_000); // 50 ZEC balance
+            if let Some(a) = amount {
+                assert!(a <= 5_000_000_000);
+                assert!(BUCKETS.contains(&a));
+            }
+        }
     }
-    let raw = std::fs::read_to_string(&schedule_path)?;
-    let schedule: TransferSchedule = serde_json::from_str(&raw)
-        .map_err(|e| anyhow!("Parse schedule: {}", e))?;
-    Ok(Some(schedule))
-}
 
-/// Save the schedule back to disk.
-pub fn save_schedule(data_dir: &str, schedule: &TransferSchedule) -> Result<()> {
-    let schedule_path = std::path::Path::new(data_dir).join("ironwood_schedule.json");
-    let json = serde_json::to_string_pretty(schedule)
-        .map_err(|e| anyhow!("Serialize: {}", e))?;
-    std::fs::write(&schedule_path, json)?;
-    Ok(())
+    #[test]
+    fn test_select_amount_below_threshold() {
+        assert_eq!(select_migration_amount(50_000), None);
+    }
+
+    #[test]
+    fn test_plan_next_round_done() {
+        let round = plan_next_round(50_000, 50_000, 1);
+        assert_eq!(round.action, RoundAction::Done);
+    }
+
+    #[test]
+    fn test_plan_next_round_consolidate() {
+        // Many small notes, none big enough for any bucket
+        let round = plan_next_round(1_000_000, 50_000, 20);
+        assert_eq!(round.action, RoundAction::Consolidate);
+        assert!(round.consolidate_count <= MAX_CONSOLIDATION_NOTES);
+    }
+
+    #[test]
+    fn test_plan_next_round_migrate() {
+        // Single large note
+        let round = plan_next_round(10_000_000_000, 10_000_000_000, 1);
+        assert_eq!(round.action, RoundAction::Migrate);
+        assert!(round.amount_zat > 0);
+        assert!(BUCKETS.contains(&round.amount_zat));
+    }
+
+    #[test]
+    fn test_random_delay_positive() {
+        for _ in 0..100 {
+            let d = random_delay_seconds();
+            assert!(d > 0.0);
+        }
+    }
+
+    #[test]
+    fn test_effective_balance() {
+        assert_eq!(effective_balance(1_000_000), 1_000_000 - MIGRATION_FEE_ZAT);
+        assert_eq!(effective_balance(10_000), 0); // Less than fee
+    }
 }
