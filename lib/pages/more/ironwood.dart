@@ -184,23 +184,56 @@ class _IronwoodState extends State<IronwoodPage> {
               'coin-flip stepping to conceal your total balance.',
         ),
         const Gap(24),
+
+        // Prominent Tor/Nym prompt
         Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: ZipherColors.cyan.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: ZipherColors.cyan.withValues(alpha: 0.2)),
+            color: ZipherColors.warm.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: ZipherColors.warm.withValues(alpha: 0.4)),
           ),
-          child: Row(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.info_outline, color: ZipherColors.cyan, size: 16),
+              Row(
+                children: [
+                  Icon(Icons.vpn_lock_rounded, color: ZipherColors.warm, size: 22),
+                  const Gap(10),
+                  Expanded(
+                    child: Text(
+                      'Connect to Tor or Nym Before Migrating',
+                      style: TextStyle(
+                        color: ZipherColors.warm,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               const Gap(10),
-              Expanded(
-                child: Text(
-                  'For maximum privacy, use Tor when migrating. '
-                  'This prevents your lightwalletd from linking amounts to your IP.',
-                  style: TextStyle(color: ZipherColors.text60, fontSize: 12.5),
+              Text(
+                'To protect your IP address from being linked to your '
+                'migration amounts, connect to a network privacy layer '
+                'before proceeding:',
+                style: TextStyle(color: ZipherColors.text60, fontSize: 13),
+              ),
+              const Gap(10),
+              _torStep('1', 'Enable Tor (e.g. Orbot app) or a Nym mixnet client'),
+              const Gap(6),
+              _torStep('2', 'Verify your connection is routed through Tor/Nym'),
+              const Gap(6),
+              _torStep('3', 'Then return here and start the migration'),
+              const Gap(12),
+              Text(
+                'Without this, your lightwalletd server can see both your '
+                'IP address and each migration amount — effectively revealing '
+                'your balance to the server operator.',
+                style: TextStyle(
+                  color: ZipherColors.text40,
+                  fontSize: 11.5,
+                  fontStyle: FontStyle.italic,
                 ),
               ),
             ],
@@ -233,6 +266,34 @@ class _IronwoodState extends State<IronwoodPage> {
           ),
         ),
         const Gap(40),
+      ],
+    );
+  }
+
+  Widget _torStep(String number, String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 20,
+          height: 20,
+          decoration: BoxDecoration(
+            color: ZipherColors.warm.withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Text(number,
+                style: TextStyle(
+                    color: ZipherColors.warm,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ),
+        const Gap(8),
+        Expanded(
+          child: Text(text,
+              style: TextStyle(color: ZipherColors.textPrimary, fontSize: 13)),
+        ),
       ],
     );
   }
