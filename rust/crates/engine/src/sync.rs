@@ -1925,7 +1925,7 @@ async fn scan_address_transactions(
 ) -> Result<usize> {
     use zcash_client_backend::proto::service::RawTransaction;
 
-    let address_encoded = request.address().encode(params);
+    let address_encoded = request.address().to_zcash_address(params.network_type()).encode();
     let start = u32::from(request.block_range_start());
     // `block_range_end` is end-exclusive per the SDK contract. lightwalletd
     // treats the gRPC range as inclusive of both endpoints, so we query up to
@@ -3394,7 +3394,7 @@ async fn refresh_transparent_utxos(
 
         let addresses: Vec<String> = receivers
             .into_keys()
-            .map(|addr| addr.encode(params))
+            .map(|addr| addr.to_zcash_address(params.network_type()).encode())
             .collect();
 
         if addresses.is_empty() {

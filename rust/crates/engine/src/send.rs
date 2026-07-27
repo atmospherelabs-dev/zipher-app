@@ -17,6 +17,7 @@ use zcash_client_backend::data_api::wallet::{
     propose_standard_transfer_to_address,
     ConfirmationsPolicy, SpendingKeys,
 };
+use zcash_client_backend::data_api::wallet::input_selection::LockedInputPolicy;
 use zcash_client_backend::data_api::{Account as _, CoinbaseFilter, InputSource, MaxSpendMode, WalletRead};
 use zcash_client_backend::fees::StandardFeeRule;
 use zcash_client_backend::proposal::Proposal;
@@ -27,6 +28,7 @@ use zcash_client_sqlite::WalletDb;
 use zcash_keys::address::Address;
 use zcash_keys::keys::UnifiedSpendingKey;
 use orchard::circuit::OrchardCircuitVersion;
+use zcash_primitives::transaction::builder::BundlePadding;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::consensus::Network;
 use zcash_protocol::value::Zatoshis;
@@ -296,6 +298,7 @@ pub async fn propose_send(
                     None,
                     ShieldedProtocol::Orchard,
                     None,
+                    None,
                 );
                 match attempt {
                     Ok(proposal) => {
@@ -329,6 +332,8 @@ pub async fn propose_send(
             memo_bytes,
             MaxSpendMode::MaxSpendable,
             confirmations,
+            &LockedInputPolicy::default(),
+            None,
         )
         .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))?;
 
@@ -363,6 +368,7 @@ pub async fn propose_send(
             memo_bytes,
             None,
             ShieldedProtocol::Orchard,
+            None,
             None,
         )
         .map_err(|e| {
@@ -441,6 +447,7 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
         &spending_keys,
         OvkPolicy::Sender,
         &pending,
+        None,
     )
     .map_err(|e| {
         error!("Transaction creation failed: {:?}", e);
@@ -537,7 +544,7 @@ pub async fn create_pczt() -> Result<Vec<u8>> {
         OvkPolicy::Sender,
         &proposal,
         None,
-        orchard::builder::BundleType::DEFAULT,
+        BundlePadding::DEFAULT,
     )
     .map_err(|e| anyhow::anyhow!("PCZT creation failed: {:?}", e))?;
 
@@ -721,6 +728,7 @@ pub async fn get_max_sendable(address: &str) -> Result<u64> {
                 None,
                 ShieldedProtocol::Orchard,
                 None,
+                None,
             );
             if attempt.is_ok() {
                 return Ok(target);
@@ -739,6 +747,8 @@ pub async fn get_max_sendable(address: &str) -> Result<u64> {
         None,
         MaxSpendMode::MaxSpendable,
         confirmations,
+        &LockedInputPolicy::default(),
+        None,
     );
 
     match proposal_result {
@@ -790,6 +800,7 @@ fn propose_and_create_send(
         None,
         ShieldedProtocol::Orchard,
         None,
+        None,
     )
     .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))?;
 
@@ -803,6 +814,7 @@ fn propose_and_create_send(
         &spending_keys,
         OvkPolicy::Sender,
         &proposal,
+        None,
     )
     .map_err(|e| anyhow::anyhow!("Create tx failed: {:?}", e))
 }
@@ -834,6 +846,7 @@ fn propose_and_create_shielding(
         to_account,
         ConfirmationsPolicy::MIN,
         CoinbaseFilter::AllTransparentOutputs,
+        None,
     )
     .map_err(|e| anyhow::anyhow!("Shielding proposal failed: {:?}", e))?;
 
@@ -847,6 +860,7 @@ fn propose_and_create_shielding(
         &spending_keys,
         OvkPolicy::Sender,
         &proposal,
+        None,
     )
     .map_err(|e| anyhow::anyhow!("Create shielding tx failed: {:?}", e))
 }
@@ -906,6 +920,7 @@ pub async fn create_shield_pczt() -> Result<Vec<u8>> {
         account_id,
         ConfirmationsPolicy::MIN,
         CoinbaseFilter::AllTransparentOutputs,
+        None,
     )
     .map_err(|e| anyhow::anyhow!("Shielding proposal failed: {:?}", e))?;
 
@@ -923,7 +938,7 @@ pub async fn create_shield_pczt() -> Result<Vec<u8>> {
         OvkPolicy::Sender,
         &proposal,
         None,
-        orchard::builder::BundleType::DEFAULT,
+        BundlePadding::DEFAULT,
     )
     .map_err(|e| anyhow::anyhow!("Shield PCZT creation failed: {:?}", e))?;
 
@@ -1214,6 +1229,8 @@ pub async fn propose_pool_transfer(
             None,
             MaxSpendMode::MaxSpendable,
             ConfirmationsPolicy::MIN,
+            &LockedInputPolicy::default(),
+            None,
         )
         .map_err(|e| anyhow::anyhow!("Pool transfer max proposal failed: {:?}", e))?;
 
@@ -1268,6 +1285,7 @@ pub async fn propose_pool_transfer(
             request,
             ConfirmationsPolicy::MIN,
             &spend_policy,
+            None,
             Some(TxVersion::V6),
         )
         .map_err(|e| anyhow::anyhow!("Pool transfer proposal failed: {:?}", e))?;
