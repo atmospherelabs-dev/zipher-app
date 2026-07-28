@@ -7,8 +7,23 @@ use tracing::{debug, error, info, warn};
 use zeroize::Zeroize;
 
 use super::sync::known_lightwalletd_servers;
-use super::wallet::connect_lwd;
+use super::wallet::{connect_lwd, connect_lwd_tor};
 use super::{open_wallet_db, ENGINE};
+
+/// Connect to lightwalletd, routing through Tor if enabled.
+async fn connect_lwd_maybe_tor(
+    server_url: &str,
+) -> Result<CompactTxStreamerClient<tonic::transport::Channel>> {
+    let tor = {
+        let guard = ENGINE.lock().await;
+        guard.as_ref().and_then(|e| e.tor_client.clone())
+    };
+    if let Some(ref client) = tor {
+        connect_lwd_tor(client, server_url).await
+    } else {
+        connect_lwd(server_url).await
+    }
+}
 use zcash_address::ZcashAddress;
 use zcash_client_backend::data_api::wallet::{
     create_pczt_from_proposal,
@@ -22,6 +37,7 @@ use zcash_client_backend::data_api::{Account as _, CoinbaseFilter, InputSource, 
 use zcash_client_backend::fees::StandardFeeRule;
 use zcash_client_backend::proposal::Proposal;
 use zcash_client_backend::proto::service::RawTransaction;
+use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
 use zcash_client_backend::wallet::OvkPolicy;
 use zcash_client_sqlite::ReceivedNoteId;
 use zcash_client_sqlite::WalletDb;
@@ -69,7 +85,7 @@ async fn broadcast_multi(
     let is_known_primary = known.iter().any(|s| s == primary_url);
 
     if !is_known_primary || known.len() <= 1 {
-        let mut lwd = connect_lwd(primary_url).await?;
+        let mut lwd = connect_lwd_maybe_tor(primary_url).await?;
         let resp = lwd
             .send_transaction(RawTransaction { data: tx_bytes, height: 0 })
             .await
@@ -90,7 +106,7 @@ async fn broadcast_multi(
         let url = server.clone();
         let data = tx_bytes.clone();
         handles.push(tokio::spawn(async move {
-            let client = connect_lwd(&url).await;
+            let client = connect_lwd_maybe_tor(&url).await;
             match client {
                 Ok(mut lwd) => {
                     match lwd.send_transaction(RawTransaction { data, height: 0 }).await {

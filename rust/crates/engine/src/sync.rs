@@ -36,8 +36,23 @@ use zcash_transparent::bundle::{OutPoint, TxOut};
 use zcash_primitives::merkle_tree::HashSer;
 
 use super::pending;
-use super::wallet::connect_lwd;
+use super::wallet::{connect_lwd, connect_lwd_tor};
 use super::{open_cipher_conn, open_wallet_db, ENGINE};
+
+/// Connect to a lightwalletd server, routing through Tor if enabled.
+async fn connect_lwd_maybe_tor(
+    server_url: &str,
+) -> Result<CompactTxStreamerClient<tonic::transport::Channel>> {
+    let tor = {
+        let guard = ENGINE.lock().await;
+        guard.as_ref().and_then(|e| e.tor_client.clone())
+    };
+    if let Some(ref client) = tor {
+        connect_lwd_tor(client, server_url).await
+    } else {
+        connect_lwd(server_url).await
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Sync state
@@ -527,7 +542,7 @@ pub async fn enhance_transaction(txid_hex: &str) -> Result<()> {
     drop(engine_guard);
 
     let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
-    let mut lwd = connect_lwd(&server_url).await?;
+    let mut lwd = connect_lwd_maybe_tor(&server_url).await?;
     fetch_and_decrypt_tx(
         &mut db_data,
         &params,
@@ -814,7 +829,7 @@ async fn mempool_forever(
         }
 
         let latest = { SYNC_PROGRESS.lock().await.latest_height };
-        if let Ok(mut lwd) = connect_lwd(&server_url).await {
+        if let Ok(mut lwd) = connect_lwd_maybe_tor(&server_url).await {
             if let Ok(mut db_data) = open_wallet_db(&db_data_path, params, &db_cipher_key) {
                 if let Err(e) = scan_mempool_once(
                     &mut lwd,
@@ -867,7 +882,7 @@ async fn sync_once(
         p.phase = SYNC_PHASE_CONNECTING.to_string();
     }
     emit_progress_event("phase_changed", None, None).await;
-    let mut lwd = connect_lwd(server_url).await?;
+    let mut lwd = connect_lwd_maybe_tor(server_url).await?;
 
     // Verify the lightwalletd server is on the correct network/consensus branch.
     {
@@ -1419,7 +1434,7 @@ async fn sync_once(
         let p = SYNC_PROGRESS.lock().await;
         p.latest_height.max(fsh)
     };
-    match connect_lwd(server_url).await {
+    match connect_lwd_maybe_tor(server_url).await {
         Ok(mut maintenance_lwd) => {
             if let Err(e) = enhance_transactions(
                 &mut db_data,
@@ -2507,13 +2522,13 @@ async fn fetch_prefetched_ranges(
         String,
         CompactTxStreamerClient<tonic::transport::Channel>,
     > = std::collections::HashMap::new();
-    let primary_client = connect_lwd(&primary_server_url).await?;
+    let primary_client = connect_lwd_maybe_tor(&primary_server_url).await?;
     clients.insert(primary_server_url.clone(), primary_client);
     for server in &servers {
         if clients.contains_key(server) {
             continue;
         }
-        match connect_lwd(server).await {
+        match connect_lwd_maybe_tor(server).await {
             Ok(client) => {
                 clients.insert(server.clone(), client);
             }

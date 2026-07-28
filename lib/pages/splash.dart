@@ -21,6 +21,7 @@ import '../coin/coins.dart';
 import '../services/cipherpay_client.dart';
 import '../services/frost_watch_service.dart';
 import '../services/hitl_watch_service.dart';
+import '../services/ironwood_watch_service.dart';
 import '../generated/intl/messages.dart';
 import '../init.dart';
 import '../services/wallet_service.dart';
@@ -119,7 +120,29 @@ class _SplashState extends State<SplashPage> {
 
             _setProgress(0.5, 'Opening wallet...');
             logger.d('opening wallet...');
-            await wallet.openWalletById(activeId);
+            try {
+              await wallet.openWalletById(activeId);
+            } catch (e) {
+              logger.e('Failed to open wallet: $e');
+              if (e.toString().contains('no such table') ||
+                  e.toString().contains('migration') ||
+                  e.toString().contains('database')) {
+                if (mounted) {
+                  final shouldReset = await _showDbCorruptDialog();
+                  if (shouldReset) {
+                    await _resetWalletDb(wallet, activeId);
+                    // Retry open after reset
+                    await wallet.openWalletById(activeId);
+                  } else {
+                    appStore.initialized = true;
+                    GoRouter.of(context).go('/welcome');
+                    return;
+                  }
+                }
+              } else {
+                rethrow;
+              }
+            }
             logger.d('wallet opened');
 
             _setProgress(0.7, 'Loading wallet data...');
@@ -255,28 +278,82 @@ class _SplashState extends State<SplashPage> {
     progressKey.currentState?.setValue(progress, message);
   }
 
+  Future<bool> _showDbCorruptDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: const Text('Wallet Database Upgrade Required',
+            style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'Your wallet database needs to be rebuilt for the Ironwood network upgrade. '
+          'Your funds are safe — you will need to re-sync from your seed phrase.\n\n'
+          'This will delete the local cache and re-sync. No funds will be lost.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Rebuild Wallet',
+                style: TextStyle(color: Color(0xFFE8C48D))),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<void> _resetWalletDb(WalletService wallet, String walletId) async {
+    final dir = await wallet.walletDir(walletId: walletId);
+    final filesToDelete = [
+      'zipher-data.sqlite',
+      'zipher-data.sqlite-wal',
+      'zipher-data.sqlite-shm',
+      'zipher-cache.sqlite',
+      'zipher-cache.sqlite-wal',
+      'zipher-cache.sqlite-shm',
+    ];
+    for (final name in filesToDelete) {
+      final f = File('$dir/$name');
+      if (await f.exists()) {
+        logger.i('[Splash] deleting: ${f.path}');
+        await f.delete();
+      }
+    }
+  }
+
   Future<void> _initBackgroundSync() async {
-    // Workmanager periodic tasks are Android-only. Calling registerPeriodicTask
-    // on iOS throws PlatformException("unhandledMethod"), which prevented the
-    // rest of splash init (including starting auto-sync) from running cleanly.
-    if (!Platform.isAndroid) return;
     try {
       logger.d('${appSettings.backgroundSync}');
       await Workmanager().initialize(
         backgroundSyncDispatcher,
       );
-      if (appSettings.backgroundSync != 0)
-        await Workmanager().registerPeriodicTask(
-          'sync',
-          'background-sync',
-          constraints: Constraints(
-            networkType: appSettings.backgroundSync == 1
-                ? NetworkType.unmetered
-                : NetworkType.connected,
-          ),
+      if (Platform.isAndroid) {
+        if (appSettings.backgroundSync != 0)
+          await Workmanager().registerPeriodicTask(
+            'sync',
+            'background-sync',
+            constraints: Constraints(
+              networkType: appSettings.backgroundSync == 1
+                  ? NetworkType.unmetered
+                  : NetworkType.connected,
+            ),
+          );
+        else
+          await Workmanager().cancelAll();
+      } else if (Platform.isIOS) {
+        // iOS: register a one-off processing task; re-register after each execution
+        await Workmanager().registerProcessingTask(
+          'ironwood-migration',
+          'ironwood-migration',
+          constraints: Constraints(networkType: NetworkType.connected),
         );
-      else
-        await Workmanager().cancelAll();
+      }
     } catch (e) {
       logger.e('Background sync init failed: $e');
     }
@@ -531,6 +608,21 @@ void backgroundSyncDispatcher() {
     try {
       logger.i("Native called background task: $task");
       await syncStatus2.sync();
+
+      // If auto-migration is active, perform a round in the background
+      if (IronwoodWatchService.instance.isAutoMigrationActive) {
+        logger.i("Background: triggering Ironwood migration step");
+        IronwoodWatchService.instance.onAppResumed();
+      }
+
+      // On iOS, re-register the processing task for next execution
+      if (Platform.isIOS && task == 'ironwood-migration') {
+        await Workmanager().registerProcessingTask(
+          'ironwood-migration',
+          'ironwood-migration',
+          constraints: Constraints(networkType: NetworkType.connected),
+        );
+      }
     } catch (e) {
       logger.e('Background sync error: $e');
     }

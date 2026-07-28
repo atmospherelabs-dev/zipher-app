@@ -79,6 +79,12 @@
 		<key>BGTaskSchedulerPermittedIdentifiers</key>
 		<array>
 			<string>background-sync</string>
+			<string>ironwood-migration</string>
+		</array>
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>fetch</string>
+			<string>processing</string>
 		</array>
 	</dict>
 </plist>

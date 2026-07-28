@@ -51,6 +51,7 @@ pub struct ZipherEngine {
     pub(crate) server_url: String,
     pub(crate) birthday: BlockHeight,
     pub(crate) db_cipher_key: Option<String>,
+    pub(crate) tor_client: Option<zcash_client_backend::tor::Client>,
 }
 
 pub(crate) fn db_paths(data_dir: &str) -> (PathBuf, PathBuf) {

@@ -564,13 +564,13 @@ class _HomeState extends State<HomePageInner> {
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                               decoration: BoxDecoration(
-                                color: ZipherColors.cyan.withValues(alpha: 0.08),
+                                color: ZipherColors.warm.withValues(alpha: 0.08),
                                 borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: ZipherColors.cyan.withValues(alpha: 0.2)),
+                                border: Border.all(color: ZipherColors.warm.withValues(alpha: 0.2)),
                               ),
                               child: Row(
                                 children: [
-                                  Icon(Icons.swap_horiz_rounded, color: ZipherColors.cyan, size: 18),
+                                  Icon(Icons.swap_horiz_rounded, color: ZipherColors.warm, size: 18),
                                   const Gap(10),
                                   Expanded(
                                     child: Text(
@@ -841,7 +841,7 @@ class _BalanceBreakdown extends StatelessWidget {
                     padding: const EdgeInsets.only(left: 23, top: 8),
                     child: Column(
                       children: [
-                        _poolRow('Ironwood', ironwoodBal, ZipherColors.cyan),
+                        _poolRow('Ironwood', ironwoodBal, ZipherColors.warm),
                         const Gap(4),
                         _poolRow('Orchard', orchardBal, ZipherColors.purple.withValues(alpha: 0.6)),
                       ],

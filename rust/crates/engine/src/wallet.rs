@@ -29,6 +29,23 @@ pub(crate) async fn connect_lwd(
     Ok(CompactTxStreamerClient::new(channel))
 }
 
+/// Connect to lightwalletd through the Tor network.
+/// Requires `tor_client` to be initialized via `enable_tor`.
+pub(crate) async fn connect_lwd_tor(
+    tor_client: &zcash_client_backend::tor::Client,
+    server_url: &str,
+) -> Result<CompactTxStreamerClient<tonic::transport::Channel>> {
+    let uri: tonic::transport::Uri = server_url
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid server URL: {}", e))?;
+    let is_onion = uri.host().map_or(false, |h| h.ends_with(".onion"));
+    let client = tor_client
+        .connect_to_lightwalletd(uri, is_onion)
+        .await
+        .map_err(|e| anyhow::anyhow!("Tor connection failed: {}", e))?;
+    Ok(client)
+}
+
 pub(crate) async fn fetch_tree_state(
     server_url: &str,
     height: u64,
@@ -51,6 +68,79 @@ pub async fn fetch_latest_height(server_url: &str) -> Result<u64> {
         .await
         .map_err(|e| anyhow::anyhow!("get_latest_block failed: {:?}", e))?;
     Ok(resp.into_inner().height)
+}
+
+// ---------------------------------------------------------------------------
+// Tor lifecycle
+// ---------------------------------------------------------------------------
+
+/// Bootstrap the Tor client and store it in the engine state.
+/// `data_dir` is the app's data directory — a `tor/` subdirectory will be
+/// created inside it for Arti's persistent data and cache.
+pub async fn enable_tor(data_dir: &str) -> Result<()> {
+    let tor_dir = std::path::PathBuf::from(data_dir).join("tor");
+    tokio::fs::create_dir_all(&tor_dir).await?;
+
+    tracing::info!("Bootstrapping Tor client from {:?}", tor_dir);
+    let client = zcash_client_backend::tor::Client::create(&tor_dir, |perms| {
+        perms.ignore_prefix(&tor_dir);
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Tor bootstrap failed: {}", e))?;
+    tracing::info!("Tor bootstrapped successfully");
+
+    let mut guard = ENGINE.lock().await;
+    if let Some(ref mut engine) = *guard {
+        engine.tor_client = Some(client);
+    }
+    Ok(())
+}
+
+/// Shut down Tor and revert to direct connections.
+pub async fn disable_tor() {
+    let mut guard = ENGINE.lock().await;
+    if let Some(ref mut engine) = *guard {
+        if let Some(ref client) = engine.tor_client {
+            client.set_dormant(zcash_client_backend::tor::DormantMode::Soft);
+        }
+        engine.tor_client = None;
+    }
+}
+
+/// Returns whether Tor is currently active.
+pub async fn is_tor_enabled() -> bool {
+    let guard = ENGINE.lock().await;
+    guard
+        .as_ref()
+        .map_or(false, |e| e.tor_client.is_some())
+}
+
+/// Verify Tor is working by fetching the chain tip through the Tor circuit.
+/// Returns the block height if successful, proving traffic actually routes through Tor.
+pub async fn verify_tor_connection() -> Result<u64> {
+    use zcash_client_backend::proto::service::ChainSpec;
+
+    let (tor, server_url) = {
+        let guard = ENGINE.lock().await;
+        let engine = guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("engine not initialized"))?;
+        let tor = engine
+            .tor_client
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("Tor is not enabled"))?;
+        (tor, engine.server_url.clone())
+    };
+
+    tracing::info!("Verifying Tor connection to {}", server_url);
+    let mut client = connect_lwd_tor(&tor, &server_url).await?;
+    let resp = client
+        .get_latest_block(ChainSpec {})
+        .await
+        .map_err(|e| anyhow::anyhow!("Tor verification failed: {:?}", e))?;
+    let height = resp.into_inner().height;
+    tracing::info!("Tor verified — fetched block {} via Tor", height);
+    Ok(height)
 }
 
 /// Resolve a caller-supplied height: 0 means "use chain tip".
@@ -100,6 +190,7 @@ async fn activate_engine(
         server_url: server_url.to_string(),
         birthday: BlockHeight::from_u32(birthday_height as u32),
         db_cipher_key,
+        tor_client: None,
     });
 }
 
@@ -268,6 +359,7 @@ pub async fn open(
         server_url: server_url.to_string(),
         birthday,
         db_cipher_key,
+        tor_client: None,
     });
 
     Ok(())

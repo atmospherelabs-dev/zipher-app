@@ -26,7 +26,7 @@ bip0039 = { version = "0.14", features = ["rand"] }
 # Zcash crates (NU6.3 / Ironwood — 0.24 rc series, pool migration, tor)
 zcash_protocol = "0.10.0"
 zcash_address = "0.13.0"
-zcash_client_backend = { version = "0.24.0-rc.4", features = ["lightwalletd-tonic", "transparent-inputs", "pczt", "non-standard-fees", "tor"] }
+zcash_client_backend = { version = "0.24.0-rc.4", features = ["lightwalletd-tonic", "lightwalletd-tonic-tls-webpki-roots", "transparent-inputs", "pczt", "non-standard-fees", "tor"] }
 pczt = "0.9"
 zcash_client_sqlite = { version = "0.22.0-rc.4", features = ["orchard", "transparent-inputs", "serde"] }
 zcash_pool_migration = "0.1.0-rc.3"

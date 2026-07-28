@@ -54,31 +54,391 @@ const BUCKETS: &[u64] = &[
 ];
 
 // ---------------------------------------------------------------------------
-// Types
+// Two-stage migration state machine
 // ---------------------------------------------------------------------------
 
-/// The type of action to perform in one migration round.
+/// The overall phase of the automatic migration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MigrationPhase {
+    /// Not started or cancelled.
+    Idle,
+    /// Phase 1: Splitting Orchard balance into standard denomination notes.
+    Splitting,
+    /// Phase 1 complete, waiting to start broadcasting.
+    SplitsDone,
+    /// Phase 2: Broadcasting pre-split notes from Orchard to Ironwood.
+    Migrating,
+    /// All done.
+    Complete,
+    /// Paused by user.
+    Paused,
+}
+
+/// A single denomination target produced during the split planning phase.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SplitTarget {
+    pub denomination_zat: u64,
+    pub status: SplitStatus,
+    /// txid of the split transaction that created this note (once broadcast).
+    pub split_txid: Option<String>,
+    /// txid of the migration transaction (once broadcast).
+    pub migration_txid: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SplitStatus {
+    /// Waiting to be split from the main balance.
+    Planned,
+    /// Split transaction broadcast, awaiting confirmation.
+    SplitBroadcast,
+    /// Split confirmed — note is ready to migrate.
+    SplitConfirmed,
+    /// Migration transaction broadcast, awaiting confirmation.
+    MigrationBroadcast,
+    /// Migration confirmed — this denomination is in Ironwood.
+    MigrationConfirmed,
+}
+
+/// The full durable state of an automatic migration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoMigrationState {
+    pub phase: MigrationPhase,
+    /// The original Orchard balance when migration was started.
+    pub original_balance_zat: u64,
+    /// The list of denomination targets.
+    pub targets: Vec<SplitTarget>,
+    /// Randomized broadcast schedule: delays in seconds between each migration broadcast.
+    pub broadcast_delays: Vec<f64>,
+    /// Index of the next migration broadcast to execute.
+    pub next_broadcast_idx: usize,
+    /// Timestamp (unix epoch seconds) when the next broadcast should fire.
+    pub next_broadcast_at: Option<u64>,
+    /// Whether Tor was enabled at start.
+    pub tor_enabled: bool,
+    /// Total fees paid so far.
+    pub total_fees_zat: u64,
+    /// Created timestamp.
+    pub created_at: u64,
+}
+
+impl Default for AutoMigrationState {
+    fn default() -> Self {
+        Self {
+            phase: MigrationPhase::Idle,
+            original_balance_zat: 0,
+            targets: vec![],
+            broadcast_delays: vec![],
+            next_broadcast_idx: 0,
+            next_broadcast_at: None,
+            tor_enabled: false,
+            total_fees_zat: 0,
+            created_at: 0,
+        }
+    }
+}
+
+impl AutoMigrationState {
+    /// Number of splits planned.
+    pub fn total_splits(&self) -> usize {
+        self.targets.len()
+    }
+
+    /// Number of splits confirmed (ready to migrate).
+    pub fn splits_confirmed(&self) -> usize {
+        self.targets.iter().filter(|t| matches!(t.status,
+            SplitStatus::SplitConfirmed |
+            SplitStatus::MigrationBroadcast |
+            SplitStatus::MigrationConfirmed
+        )).count()
+    }
+
+    /// Number of splits broadcast but not yet confirmed.
+    pub fn splits_pending(&self) -> usize {
+        self.targets.iter().filter(|t| t.status == SplitStatus::SplitBroadcast).count()
+    }
+
+    /// Number of migrations confirmed.
+    pub fn migrations_confirmed(&self) -> usize {
+        self.targets.iter().filter(|t| t.status == SplitStatus::MigrationConfirmed).count()
+    }
+
+    /// Number of migrations broadcast but not yet confirmed.
+    pub fn migrations_pending(&self) -> usize {
+        self.targets.iter().filter(|t| t.status == SplitStatus::MigrationBroadcast).count()
+    }
+
+    /// Total amount planned for migration (sum of all denominations).
+    pub fn total_planned_zat(&self) -> u64 {
+        self.targets.iter().map(|t| t.denomination_zat).sum()
+    }
+
+    /// Total amount confirmed in Ironwood.
+    pub fn total_migrated_zat(&self) -> u64 {
+        self.targets.iter()
+            .filter(|t| t.status == SplitStatus::MigrationConfirmed)
+            .map(|t| t.denomination_zat)
+            .sum()
+    }
+
+    /// Whether there are still splits to execute.
+    pub fn has_pending_splits(&self) -> bool {
+        self.targets.iter().any(|t| t.status == SplitStatus::Planned)
+    }
+
+    /// Whether all splits are confirmed and ready to migrate.
+    pub fn all_splits_confirmed(&self) -> bool {
+        !self.targets.is_empty() && self.targets.iter().all(|t| matches!(t.status,
+            SplitStatus::SplitConfirmed |
+            SplitStatus::MigrationBroadcast |
+            SplitStatus::MigrationConfirmed
+        ))
+    }
+
+    /// The next target that needs a split transaction.
+    pub fn next_split_target(&self) -> Option<usize> {
+        self.targets.iter().position(|t| t.status == SplitStatus::Planned)
+    }
+
+    /// The next target that is ready to be migrated.
+    pub fn next_migration_target(&self) -> Option<usize> {
+        self.targets.iter().position(|t| t.status == SplitStatus::SplitConfirmed)
+    }
+
+    /// Is migration complete?
+    pub fn is_complete(&self) -> bool {
+        !self.targets.is_empty() && self.targets.iter().all(|t| t.status == SplitStatus::MigrationConfirmed)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Split planning: decompose balance into standard denominations
+// ---------------------------------------------------------------------------
+
+/// Plan how to split the Orchard balance into standard denominations.
+///
+/// Uses a greedy approach: repeatedly pick the largest bucket that fits,
+/// accounting for fees at each step.
+pub fn plan_splits(orchard_balance_zat: u64) -> Vec<u64> {
+    let mut remaining = orchard_balance_zat;
+    let mut denominations = Vec::new();
+
+    loop {
+        // Need at least: denomination + fee for the split tx + fee for eventual migration tx
+        let usable = remaining.saturating_sub(MIGRATION_FEE_ZAT);
+        if usable < ABANDON_THRESHOLD_ZAT {
+            break;
+        }
+
+        // Find largest bucket that fits
+        let bucket = match BUCKETS.iter().find(|&&b| b <= usable) {
+            Some(&b) => b,
+            None => break,
+        };
+
+        denominations.push(bucket);
+        // Deduct the denomination plus the fee for the migration tx
+        remaining = remaining.saturating_sub(bucket + MIGRATION_FEE_ZAT);
+    }
+
+    denominations
+}
+
+/// Generate the randomized broadcast schedule for the migration phase.
+/// Returns a vector of delays in seconds (one per migration broadcast).
+pub fn generate_broadcast_schedule(count: usize) -> Vec<f64> {
+    let mut rng = rand::rngs::OsRng;
+    (0..count)
+        .map(|_| {
+            let u: f64 = rng.gen_range(f64::MIN_POSITIVE..=1.0);
+            -600.0 * u.log2() // Median 10 minutes
+        })
+        .collect()
+}
+
+/// Create a new automatic migration plan from the current Orchard balance.
+pub fn create_auto_migration(orchard_balance_zat: u64, tor_enabled: bool) -> Result<AutoMigrationState> {
+    if orchard_balance_zat < ABANDON_THRESHOLD_ZAT + MIGRATION_FEE_ZAT {
+        return Err(anyhow!("Balance too low to migrate"));
+    }
+
+    let denominations = plan_splits(orchard_balance_zat);
+    if denominations.is_empty() {
+        return Err(anyhow!("Balance too small to produce any standard denomination"));
+    }
+
+    let targets: Vec<SplitTarget> = denominations.iter().map(|&d| SplitTarget {
+        denomination_zat: d,
+        status: SplitStatus::Planned,
+        split_txid: None,
+        migration_txid: None,
+    }).collect();
+
+    let broadcast_delays = generate_broadcast_schedule(targets.len());
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    Ok(AutoMigrationState {
+        phase: MigrationPhase::Splitting,
+        original_balance_zat: orchard_balance_zat,
+        targets,
+        broadcast_delays,
+        next_broadcast_idx: 0,
+        next_broadcast_at: None,
+        tor_enabled,
+        total_fees_zat: 0,
+        created_at: now,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// State persistence
+// ---------------------------------------------------------------------------
+
+const STATE_FILE: &str = "ironwood_auto_migration.json";
+
+/// Load automatic migration state from disk.
+pub fn load_auto_state(data_dir: &str) -> Result<AutoMigrationState> {
+    let path = std::path::Path::new(data_dir).join(STATE_FILE);
+    if !path.exists() {
+        return Ok(AutoMigrationState::default());
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let state: AutoMigrationState =
+        serde_json::from_str(&raw).map_err(|e| anyhow!("Parse auto migration state: {}", e))?;
+    Ok(state)
+}
+
+/// Save automatic migration state to disk.
+pub fn save_auto_state(data_dir: &str, state: &AutoMigrationState) -> Result<()> {
+    let path = std::path::Path::new(data_dir).join(STATE_FILE);
+    let json = serde_json::to_string_pretty(state)
+        .map_err(|e| anyhow!("Serialize auto state: {}", e))?;
+    std::fs::write(&path, json)?;
+    Ok(())
+}
+
+/// Cancel an in-progress migration.
+pub fn cancel_auto_migration(data_dir: &str) -> Result<()> {
+    let path = std::path::Path::new(data_dir).join(STATE_FILE);
+    if path.exists() {
+        std::fs::remove_file(&path)?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Core algorithm functions (used by both manual and auto modes)
+// ---------------------------------------------------------------------------
+
+/// Compute the effective balance available for migration.
+pub fn effective_balance(orchard_balance_zat: u64) -> u64 {
+    orchard_balance_zat.saturating_sub(MIGRATION_FEE_ZAT)
+}
+
+/// Find the largest bucket <= the given balance.
+fn largest_bucket_index(balance_zat: u64) -> Option<usize> {
+    BUCKETS.iter().position(|&b| b <= balance_zat)
+}
+
+/// Select a migration amount using the coin-flip algorithm (for manual mode).
+///
+/// Start at the largest bucket <= current_balance.
+/// Flip fair coins: heads = step down one bucket, tails = stop.
+pub fn select_migration_amount(current_balance_zat: u64) -> Option<u64> {
+    if current_balance_zat < ABANDON_THRESHOLD_ZAT {
+        return None;
+    }
+
+    let start_idx = largest_bucket_index(current_balance_zat)?;
+    let mut rng = rand::rngs::OsRng;
+    let mut idx = start_idx;
+
+    loop {
+        if rng.gen_bool(0.5) {
+            break;
+        }
+        if idx + 1 >= BUCKETS.len() {
+            break;
+        }
+        idx += 1;
+    }
+
+    Some(BUCKETS[idx])
+}
+
+/// Determine what the next manual migration round should do.
+pub fn plan_next_round(
+    orchard_balance_zat: u64,
+    largest_note_zat: u64,
+    note_count: usize,
+) -> MigrationRound {
+    let current_balance = effective_balance(orchard_balance_zat);
+
+    if current_balance < ABANDON_THRESHOLD_ZAT {
+        return MigrationRound {
+            action: RoundAction::Done,
+            amount_zat: 0,
+            consolidate_count: 0,
+        };
+    }
+
+    let note_available = largest_note_zat.saturating_sub(MIGRATION_FEE_ZAT);
+
+    if let Some(amount) = select_migration_amount(note_available) {
+        MigrationRound {
+            action: RoundAction::Migrate,
+            amount_zat: amount,
+            consolidate_count: 0,
+        }
+    } else if note_count > 1 {
+        let consolidate_count = note_count.min(MAX_CONSOLIDATION_NOTES);
+        MigrationRound {
+            action: RoundAction::Consolidate,
+            amount_zat: 0,
+            consolidate_count,
+        }
+    } else {
+        MigrationRound {
+            action: RoundAction::Done,
+            amount_zat: 0,
+            consolidate_count: 0,
+        }
+    }
+}
+
+/// Generate the random delay (in seconds) for the next migration round.
+/// D = -600 × log₂(U) where U is uniform in (0, 1].
+pub fn random_delay_seconds() -> f64 {
+    let mut rng = rand::rngs::OsRng;
+    let u: f64 = rng.gen_range(f64::MIN_POSITIVE..=1.0);
+    -600.0 * u.log2()
+}
+
+// ---------------------------------------------------------------------------
+// Types (manual mode)
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RoundAction {
-    /// Migrate `amount_zat` through the turnstile (1 Orchard spend → 1 Ironwood output + 1 Orchard change).
     Migrate,
-    /// Consolidate notes without migrating (send-to-self in Orchard to combine notes).
     Consolidate,
-    /// Migration complete — balance below abandon threshold.
     Done,
 }
 
-/// Result of selecting the next migration round.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationRound {
     pub action: RoundAction,
-    /// Amount to migrate (only meaningful for Migrate action).
     pub amount_zat: u64,
-    /// Number of notes to consolidate (only meaningful for Consolidate action).
     pub consolidate_count: usize,
 }
 
-/// Persistent migration state saved to disk.
+// ---------------------------------------------------------------------------
+// Legacy state persistence (for manual mode tracking)
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationState {
     pub started: bool,
@@ -102,126 +462,6 @@ impl Default for MigrationState {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Core algorithm (Shielded Labs spec)
-// ---------------------------------------------------------------------------
-
-/// Compute the effective current_balance available for migration.
-///
-/// For each note: effective_value = max(0, note_value - NOTE_FEE_ZAT)
-/// Then subtract TX_FEE_ZAT for the migration transaction itself.
-///
-/// For simplicity when we don't have per-note granularity, we approximate:
-/// current_balance = total_orchard_balance - MIGRATION_FEE_ZAT
-pub fn effective_balance(orchard_balance_zat: u64) -> u64 {
-    orchard_balance_zat.saturating_sub(MIGRATION_FEE_ZAT)
-}
-
-/// Find the largest bucket <= the given balance.
-/// Returns the index into BUCKETS, or None if balance < smallest bucket.
-fn largest_bucket_index(balance_zat: u64) -> Option<usize> {
-    BUCKETS.iter().position(|&b| b <= balance_zat)
-}
-
-/// Select the migration amount using the coin-flip algorithm.
-///
-/// Start at the largest bucket <= current_balance.
-/// Flip fair coins: heads = step down one bucket, tails = stop.
-/// If we reach the smallest bucket, stop.
-///
-/// Uses OsRng (CSPRNG) as required by the spec.
-pub fn select_migration_amount(current_balance_zat: u64) -> Option<u64> {
-    if current_balance_zat < ABANDON_THRESHOLD_ZAT {
-        return None;
-    }
-
-    let start_idx = largest_bucket_index(current_balance_zat)?;
-    let mut rng = rand::rngs::OsRng;
-    let mut idx = start_idx;
-
-    loop {
-        // Flip: tails (true) = stop, heads (false) = step down
-        if rng.gen_bool(0.5) {
-            break;
-        }
-        // Step down
-        if idx + 1 >= BUCKETS.len() {
-            break; // Already at smallest bucket
-        }
-        idx += 1;
-    }
-
-    Some(BUCKETS[idx])
-}
-
-/// Determine what the next migration round should do.
-///
-/// - If balance < ABANDON_THRESHOLD: Done
-/// - If there's a single note >= largest_bucket + fee: Migrate (with coin-flip amount)
-/// - Otherwise: Consolidate (combine notes so next round can migrate)
-///
-/// `largest_note_zat`: the value of the largest single Orchard note in the wallet.
-/// `note_count`: total number of Orchard notes.
-/// `orchard_balance_zat`: total Orchard balance.
-pub fn plan_next_round(
-    orchard_balance_zat: u64,
-    largest_note_zat: u64,
-    note_count: usize,
-) -> MigrationRound {
-    let current_balance = effective_balance(orchard_balance_zat);
-
-    if current_balance < ABANDON_THRESHOLD_ZAT {
-        return MigrationRound {
-            action: RoundAction::Done,
-            amount_zat: 0,
-            consolidate_count: 0,
-        };
-    }
-
-    // Check if we can migrate: need a single note >= amount + fee
-    let note_available = largest_note_zat.saturating_sub(MIGRATION_FEE_ZAT);
-
-    if let Some(amount) = select_migration_amount(note_available) {
-        MigrationRound {
-            action: RoundAction::Migrate,
-            amount_zat: amount,
-            consolidate_count: 0,
-        }
-    } else if note_count > 1 {
-        // Can't migrate with any single note — consolidate
-        let consolidate_count = note_count.min(MAX_CONSOLIDATION_NOTES);
-        MigrationRound {
-            action: RoundAction::Consolidate,
-            amount_zat: 0,
-            consolidate_count,
-        }
-    } else {
-        // Single note but too small to hit any bucket — we're done
-        MigrationRound {
-            action: RoundAction::Done,
-            amount_zat: 0,
-            consolidate_count: 0,
-        }
-    }
-}
-
-/// Generate the random delay (in seconds) for the next migration round.
-///
-/// D = -600 × log₂(U) where U is uniform in (0, 1].
-/// Median delay = 10 minutes. ~12.5% chance of triggering within 2 minutes.
-///
-/// Uses OsRng (CSPRNG) as required by the spec.
-pub fn random_delay_seconds() -> f64 {
-    let mut rng = rand::rngs::OsRng;
-    let u: f64 = rng.gen_range(f64::MIN_POSITIVE..=1.0);
-    -600.0 * u.log2()
-}
-
-// ---------------------------------------------------------------------------
-// State persistence
-// ---------------------------------------------------------------------------
-
-/// Load migration state from disk.
 pub fn load_state(data_dir: &str) -> Result<MigrationState> {
     let path = std::path::Path::new(data_dir).join("ironwood_migration.json");
     if !path.exists() {
@@ -233,7 +473,6 @@ pub fn load_state(data_dir: &str) -> Result<MigrationState> {
     Ok(state)
 }
 
-/// Save migration state to disk.
 pub fn save_state(data_dir: &str, state: &MigrationState) -> Result<()> {
     let path = std::path::Path::new(data_dir).join("ironwood_migration.json");
     let json =
@@ -242,7 +481,6 @@ pub fn save_state(data_dir: &str, state: &MigrationState) -> Result<()> {
     Ok(())
 }
 
-/// Record a completed migration round.
 pub fn record_round(
     data_dir: &str,
     amount_zat: u64,
@@ -263,187 +501,6 @@ pub fn record_round(
         state.rounds_completed,
     );
     Ok(state)
-}
-
-// ---------------------------------------------------------------------------
-// Legacy API compatibility (kept for existing FFI bindings)
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransferPlan {
-    pub orchard_balance_zat: u64,
-    pub denominations: Vec<DenominationGroup>,
-    pub total_parts: usize,
-    pub total_fee_zat: u64,
-    pub estimated_sessions: usize,
-    pub estimated_duration_hours: f64,
-    pub dust_remaining_zat: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DenominationGroup {
-    pub denomination_zat: u64,
-    pub count: usize,
-    pub label: String,
-}
-
-/// Legacy plan function — now estimates based on the new algorithm.
-pub fn plan_pool_transfer(orchard_balance_zat: u64, _current_height: u32) -> Result<TransferPlan> {
-    if orchard_balance_zat == 0 {
-        return Err(anyhow!("No Orchard balance to transfer"));
-    }
-
-    let current_balance = effective_balance(orchard_balance_zat);
-    if current_balance < ABANDON_THRESHOLD_ZAT {
-        return Err(anyhow!(
-            "Balance {} zat is below abandon threshold ({} zat)",
-            orchard_balance_zat,
-            ABANDON_THRESHOLD_ZAT
-        ));
-    }
-
-    // Estimate ~25 rounds for a typical balance (per the Shielded Labs example)
-    let estimated_rounds = estimate_rounds(current_balance);
-    let estimated_fees = estimated_rounds as u64 * MIGRATION_FEE_ZAT;
-
-    Ok(TransferPlan {
-        orchard_balance_zat,
-        denominations: vec![],
-        total_parts: estimated_rounds,
-        total_fee_zat: estimated_fees,
-        estimated_sessions: 1,
-        estimated_duration_hours: estimate_duration_hours(estimated_rounds),
-        dust_remaining_zat: orchard_balance_zat.min(ABANDON_THRESHOLD_ZAT),
-    })
-}
-
-/// Rough estimate of how many rounds a balance will need.
-fn estimate_rounds(balance_zat: u64) -> usize {
-    if balance_zat == 0 {
-        return 0;
-    }
-    // Each round migrates on average ~half the remaining balance (geometric decrease).
-    // log2(balance / abandon_threshold) gives a rough upper bound.
-    let ratio = balance_zat as f64 / ABANDON_THRESHOLD_ZAT as f64;
-    (ratio.log2().ceil() as usize).max(1).min(50)
-}
-
-/// Estimate total duration assuming median 10-min delays between rounds.
-fn estimate_duration_hours(rounds: usize) -> f64 {
-    rounds as f64 * 10.0 / 60.0
-}
-
-// ---------------------------------------------------------------------------
-// Legacy types kept for FFI compatibility
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TransferStatus {
-    Proposed,
-    Splitting,
-    Active,
-    Complete,
-    Paused,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransferSchedule {
-    pub status: TransferStatus,
-    pub parts: Vec<MigrationPart>,
-    pub created_at_height: u32,
-    pub tor_enabled: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PartStatus {
-    Pending,
-    Signed,
-    Broadcast,
-    Confirmed,
-    Invalidated,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MigrationPart {
-    pub id: u32,
-    pub denomination: Denomination,
-    pub bucket_height: u32,
-    pub status: PartStatus,
-    pub tx_bytes: Option<Vec<u8>>,
-    pub txid: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Denomination(pub u64);
-
-impl Denomination {
-    pub fn zec_str(&self) -> String {
-        let zec = self.0 as f64 / 100_000_000.0;
-        if zec >= 1.0 {
-            format!("{} ZEC", zec as u64)
-        } else {
-            format!("{:.8} ZEC", zec)
-                .trim_end_matches('0')
-                .trim_end_matches('.')
-                .to_string()
-        }
-    }
-}
-
-pub fn create_transfer_schedule(
-    orchard_balance_zat: u64,
-    _current_height: u32,
-    tor_enabled: bool,
-) -> Result<TransferSchedule> {
-    if orchard_balance_zat < ABANDON_THRESHOLD_ZAT {
-        return Err(anyhow!("Nothing to transfer"));
-    }
-    Ok(TransferSchedule {
-        status: TransferStatus::Active,
-        parts: vec![],
-        created_at_height: _current_height,
-        tor_enabled,
-    })
-}
-
-pub fn reconcile_schedule(
-    schedule: &mut TransferSchedule,
-    _current_height: u32,
-    _confirmed_txids: &[String],
-) -> Vec<u32> {
-    vec![]
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TickResult {
-    pub parts_broadcast: u32,
-    pub parts_confirmed: u32,
-    pub parts_invalidated: u32,
-    pub is_complete: bool,
-    pub next_broadcast_height: Option<u32>,
-}
-
-pub fn tick(
-    data_dir: &str,
-    _current_height: u32,
-    _confirmed_txids: &[String],
-) -> Result<TickResult> {
-    let state = load_state(data_dir)?;
-    Ok(TickResult {
-        parts_broadcast: 0,
-        parts_confirmed: state.rounds_completed,
-        parts_invalidated: 0,
-        is_complete: !state.started,
-        next_broadcast_height: None,
-    })
-}
-
-pub fn load_schedule(_data_dir: &str) -> Result<Option<TransferSchedule>> {
-    Ok(None)
-}
-
-pub fn save_schedule(_data_dir: &str, _schedule: &TransferSchedule) -> Result<()> {
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -492,7 +549,6 @@ mod tests {
 
     #[test]
     fn test_plan_next_round_consolidate() {
-        // Many small notes, none big enough for any bucket
         let round = plan_next_round(1_000_000, 50_000, 20);
         assert_eq!(round.action, RoundAction::Consolidate);
         assert!(round.consolidate_count <= MAX_CONSOLIDATION_NOTES);
@@ -500,7 +556,6 @@ mod tests {
 
     #[test]
     fn test_plan_next_round_migrate() {
-        // Single large note
         let round = plan_next_round(10_000_000_000, 10_000_000_000, 1);
         assert_eq!(round.action, RoundAction::Migrate);
         assert!(round.amount_zat > 0);
@@ -518,6 +573,56 @@ mod tests {
     #[test]
     fn test_effective_balance() {
         assert_eq!(effective_balance(1_000_000), 1_000_000 - MIGRATION_FEE_ZAT);
-        assert_eq!(effective_balance(10_000), 0); // Less than fee
+        assert_eq!(effective_balance(10_000), 0);
+    }
+
+    #[test]
+    fn test_plan_splits_basic() {
+        // 1 ZEC = 100_000_000 zat
+        let splits = plan_splits(100_000_000);
+        assert!(!splits.is_empty());
+        // All splits should be standard denominations
+        for &s in &splits {
+            assert!(BUCKETS.contains(&s));
+        }
+        // Total should not exceed balance minus fees
+        let total: u64 = splits.iter().sum();
+        assert!(total <= 100_000_000);
+    }
+
+    #[test]
+    fn test_plan_splits_small_balance() {
+        // Just above threshold
+        let splits = plan_splits(200_000);
+        assert_eq!(splits.len(), 1);
+        assert_eq!(splits[0], 100_000); // 0.001 ZEC
+    }
+
+    #[test]
+    fn test_plan_splits_below_threshold() {
+        let splits = plan_splits(50_000);
+        assert!(splits.is_empty());
+    }
+
+    #[test]
+    fn test_create_auto_migration() {
+        let state = create_auto_migration(500_000_000, false).unwrap(); // 5 ZEC
+        assert_eq!(state.phase, MigrationPhase::Splitting);
+        assert!(!state.targets.is_empty());
+        assert_eq!(state.broadcast_delays.len(), state.targets.len());
+        // All targets should be planned
+        for t in &state.targets {
+            assert_eq!(t.status, SplitStatus::Planned);
+            assert!(BUCKETS.contains(&t.denomination_zat));
+        }
+    }
+
+    #[test]
+    fn test_generate_broadcast_schedule() {
+        let delays = generate_broadcast_schedule(10);
+        assert_eq!(delays.len(), 10);
+        for d in &delays {
+            assert!(*d > 0.0);
+        }
     }
 }

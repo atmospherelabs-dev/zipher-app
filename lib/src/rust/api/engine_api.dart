@@ -698,6 +698,25 @@ Future<MigrationProgress> engineMigrationRecordRound(
     RustLib.instance.api.crateApiEngineApiEngineMigrationRecordRound(
         dataDir: dataDir, amountZat: amountZat, feeZat: feeZat, height: height);
 
+/// Bootstrap the Tor client. All subsequent lightwalletd connections
+/// will be routed through the Tor network until `engine_disable_tor` is called.
+/// `data_dir` is the wallet data directory (a `tor/` subfolder is used for Arti state).
+Future<void> engineEnableTor({required String dataDir}) =>
+    RustLib.instance.api.crateApiEngineApiEngineEnableTor(dataDir: dataDir);
+
+/// Disable Tor and revert to direct connections.
+Future<void> engineDisableTor() =>
+    RustLib.instance.api.crateApiEngineApiEngineDisableTor();
+
+/// Returns true if Tor is currently active.
+Future<bool> engineIsTorEnabled() =>
+    RustLib.instance.api.crateApiEngineApiEngineIsTorEnabled();
+
+/// Verify Tor by fetching the chain tip through the Tor circuit.
+/// Returns the block height, proving end-to-end that traffic routes through Tor.
+Future<BigInt> engineVerifyTor() =>
+    RustLib.instance.api.crateApiEngineApiEngineVerifyTor();
+
 /// Plan an Orchard -> Ironwood pool transfer per ZIP 318.
 /// Returns a summary with denominations, fees, and duration for user confirmation.
 Future<IronwoodPlan> engineIronwoodPlan(

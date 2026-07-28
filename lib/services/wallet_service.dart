@@ -15,6 +15,7 @@ import '../src/rust/api/wallet.dart' as rust_wallet;
 import '../src/rust/api/engine_api.dart' as rust_engine;
 import '../src/rust/frb_generated.dart';
 import '../store2.dart' show isSyncBoosted;
+import 'ironwood_watch_service.dart';
 import 'wallet_registry.dart';
 import 'secure_key_store.dart';
 import 'frost_service.dart';
@@ -378,6 +379,8 @@ class WalletService {
     await WalletRegistry.instance.setActive(walletId);
     if (!useNewEngine) await rust_wallet.startSaveTask();
     _log.i('[WS] openWalletById complete');
+    // Notify Ironwood service that engine is ready (deferred Tor + migration start)
+    IronwoodWatchService.instance.onWalletReady();
   }
 
   /// Switch from the current wallet to another.
@@ -626,6 +629,7 @@ class WalletService {
     }
     _walletOpen = true;
     if (!useNewEngine) await rust_wallet.startSaveTask();
+    IronwoodWatchService.instance.onWalletReady();
   }
 
   Future<void> closeWallet() async {

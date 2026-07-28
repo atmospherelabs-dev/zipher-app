@@ -1520,70 +1520,284 @@ pub struct MigrationProgress {
     pub total_fees_zat: u64,
 }
 
+// ---------------------------------------------------------------------------
+// Automatic migration (two-stage: split then migrate)
+// ---------------------------------------------------------------------------
+
+/// Create a new automatic migration plan. Returns the plan summary.
+/// This decomposes the Orchard balance into standard denominations and generates
+/// a randomized broadcast schedule.
+pub fn engine_auto_migration_create(
+    data_dir: String,
+    orchard_balance_zat: u64,
+    tor_enabled: bool,
+) -> Result<AutoMigrationStatus> {
+    let state = engine::ironwood::create_auto_migration(orchard_balance_zat, tor_enabled)?;
+    engine::ironwood::save_auto_state(&data_dir, &state)?;
+    Ok(auto_state_to_status(&state))
+}
+
+/// Load the current automatic migration status.
+pub fn engine_auto_migration_status(data_dir: String) -> Result<AutoMigrationStatus> {
+    let state = engine::ironwood::load_auto_state(&data_dir)?;
+    Ok(auto_state_to_status(&state))
+}
+
+/// Mark a split as broadcast. Called after the Flutter layer sends the split tx.
+pub fn engine_auto_migration_split_broadcast(
+    data_dir: String,
+    target_idx: u32,
+    txid: String,
+) -> Result<AutoMigrationStatus> {
+    let mut state = engine::ironwood::load_auto_state(&data_dir)?;
+    let idx = target_idx as usize;
+    if idx >= state.targets.len() {
+        return Err(anyhow::anyhow!("Target index out of range"));
+    }
+    state.targets[idx].status = engine::ironwood::SplitStatus::SplitBroadcast;
+    state.targets[idx].split_txid = Some(txid);
+    engine::ironwood::save_auto_state(&data_dir, &state)?;
+    Ok(auto_state_to_status(&state))
+}
+
+/// Mark a split as confirmed. Called when the split tx reaches sufficient depth.
+pub fn engine_auto_migration_split_confirmed(
+    data_dir: String,
+    target_idx: u32,
+) -> Result<AutoMigrationStatus> {
+    let mut state = engine::ironwood::load_auto_state(&data_dir)?;
+    let idx = target_idx as usize;
+    if idx >= state.targets.len() {
+        return Err(anyhow::anyhow!("Target index out of range"));
+    }
+    state.targets[idx].status = engine::ironwood::SplitStatus::SplitConfirmed;
+
+    // Transition to SplitsDone if all splits are confirmed
+    if state.all_splits_confirmed() && state.phase == engine::ironwood::MigrationPhase::Splitting {
+        state.phase = engine::ironwood::MigrationPhase::SplitsDone;
+    }
+    engine::ironwood::save_auto_state(&data_dir, &state)?;
+    Ok(auto_state_to_status(&state))
+}
+
+/// Mark a migration as broadcast.
+pub fn engine_auto_migration_migrate_broadcast(
+    data_dir: String,
+    target_idx: u32,
+    txid: String,
+    fee_zat: u64,
+) -> Result<AutoMigrationStatus> {
+    let mut state = engine::ironwood::load_auto_state(&data_dir)?;
+    let idx = target_idx as usize;
+    if idx >= state.targets.len() {
+        return Err(anyhow::anyhow!("Target index out of range"));
+    }
+    state.targets[idx].status = engine::ironwood::SplitStatus::MigrationBroadcast;
+    state.targets[idx].migration_txid = Some(txid);
+    state.total_fees_zat += fee_zat;
+
+    if state.phase == engine::ironwood::MigrationPhase::SplitsDone {
+        state.phase = engine::ironwood::MigrationPhase::Migrating;
+    }
+    state.next_broadcast_idx += 1;
+
+    // Compute next broadcast time
+    if state.next_broadcast_idx < state.broadcast_delays.len() {
+        let delay = state.broadcast_delays[state.next_broadcast_idx];
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        state.next_broadcast_at = Some(now + delay as u64);
+    }
+
+    engine::ironwood::save_auto_state(&data_dir, &state)?;
+    Ok(auto_state_to_status(&state))
+}
+
+/// Mark a migration as confirmed.
+pub fn engine_auto_migration_migrate_confirmed(
+    data_dir: String,
+    target_idx: u32,
+) -> Result<AutoMigrationStatus> {
+    let mut state = engine::ironwood::load_auto_state(&data_dir)?;
+    let idx = target_idx as usize;
+    if idx >= state.targets.len() {
+        return Err(anyhow::anyhow!("Target index out of range"));
+    }
+    state.targets[idx].status = engine::ironwood::SplitStatus::MigrationConfirmed;
+
+    if state.is_complete() {
+        state.phase = engine::ironwood::MigrationPhase::Complete;
+    }
+    engine::ironwood::save_auto_state(&data_dir, &state)?;
+    Ok(auto_state_to_status(&state))
+}
+
+/// Cancel the automatic migration.
+pub fn engine_auto_migration_cancel(data_dir: String) -> Result<()> {
+    engine::ironwood::cancel_auto_migration(&data_dir)
+}
+
+/// Get the denomination for the next split target (for propose_pool_transfer).
+pub fn engine_auto_migration_next_split_amount(data_dir: String) -> Result<Option<u64>> {
+    let state = engine::ironwood::load_auto_state(&data_dir)?;
+    match state.next_split_target() {
+        Some(idx) => Ok(Some(state.targets[idx].denomination_zat)),
+        None => Ok(None),
+    }
+}
+
+/// Get the index and denomination of the next migration target.
+pub fn engine_auto_migration_next_migrate_target(data_dir: String) -> Result<MigrateTarget> {
+    let state = engine::ironwood::load_auto_state(&data_dir)?;
+    match state.next_migration_target() {
+        Some(idx) => Ok(MigrateTarget {
+            index: idx as u32,
+            denomination_zat: state.targets[idx].denomination_zat,
+            has_target: true,
+        }),
+        None => Ok(MigrateTarget {
+            index: 0,
+            denomination_zat: 0,
+            has_target: false,
+        }),
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MigrateTarget {
+    pub index: u32,
+    pub denomination_zat: u64,
+    pub has_target: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct AutoMigrationStatus {
+    pub phase: String,
+    pub total_targets: u32,
+    pub splits_confirmed: u32,
+    pub splits_pending: u32,
+    pub migrations_confirmed: u32,
+    pub migrations_pending: u32,
+    pub total_planned_zat: u64,
+    pub total_migrated_zat: u64,
+    pub total_fees_zat: u64,
+    pub next_broadcast_at: u64,
+    pub has_pending_splits: bool,
+    pub denominations: Vec<u64>,
+}
+
+fn auto_state_to_status(state: &engine::ironwood::AutoMigrationState) -> AutoMigrationStatus {
+    AutoMigrationStatus {
+        phase: match state.phase {
+            engine::ironwood::MigrationPhase::Idle => "idle".to_string(),
+            engine::ironwood::MigrationPhase::Splitting => "splitting".to_string(),
+            engine::ironwood::MigrationPhase::SplitsDone => "splits_done".to_string(),
+            engine::ironwood::MigrationPhase::Migrating => "migrating".to_string(),
+            engine::ironwood::MigrationPhase::Complete => "complete".to_string(),
+            engine::ironwood::MigrationPhase::Paused => "paused".to_string(),
+        },
+        total_targets: state.total_splits() as u32,
+        splits_confirmed: state.splits_confirmed() as u32,
+        splits_pending: state.splits_pending() as u32,
+        migrations_confirmed: state.migrations_confirmed() as u32,
+        migrations_pending: state.migrations_pending() as u32,
+        total_planned_zat: state.total_planned_zat(),
+        total_migrated_zat: state.total_migrated_zat(),
+        total_fees_zat: state.total_fees_zat,
+        next_broadcast_at: state.next_broadcast_at.unwrap_or(0),
+        has_pending_splits: state.has_pending_splits(),
+        denominations: state.targets.iter().map(|t| t.denomination_zat).collect(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tor
+// ---------------------------------------------------------------------------
+
+/// Bootstrap the Tor client. All subsequent lightwalletd connections
+/// will be routed through the Tor network until `engine_disable_tor` is called.
+/// `data_dir` is the wallet data directory (a `tor/` subfolder is used for Arti state).
+pub async fn engine_enable_tor(data_dir: String) -> Result<()> {
+    engine::wallet::enable_tor(&data_dir).await
+}
+
+/// Disable Tor and revert to direct connections.
+pub async fn engine_disable_tor() -> Result<()> {
+    engine::wallet::disable_tor().await;
+    Ok(())
+}
+
+/// Returns true if Tor is currently active.
+pub async fn engine_is_tor_enabled() -> bool {
+    engine::wallet::is_tor_enabled().await
+}
+
+/// Verify Tor by fetching the chain tip through the Tor circuit.
+/// Returns the block height, proving end-to-end that traffic routes through Tor.
+pub async fn engine_verify_tor() -> Result<u64> {
+    engine::wallet::verify_tor_connection().await
+}
+
 /// Plan an Orchard -> Ironwood pool transfer per ZIP 318.
 /// Returns a summary with denominations, fees, and duration for user confirmation.
-pub fn engine_ironwood_plan(orchard_balance_zat: u64, current_height: u32) -> Result<IronwoodPlan> {
-    let plan = engine::ironwood::plan_pool_transfer(orchard_balance_zat, current_height)?;
+/// DEPRECATED: Use engine_auto_migration_create for the two-stage approach.
+pub fn engine_ironwood_plan(orchard_balance_zat: u64, _current_height: u32) -> Result<IronwoodPlan> {
+    let denominations = engine::ironwood::plan_splits(orchard_balance_zat);
+    let total_parts = denominations.len();
+    let total_fee_zat = total_parts as u64 * 15_000; // ~15000 zat per round
+
     Ok(IronwoodPlan {
-        orchard_balance_zat: plan.orchard_balance_zat,
-        denominations: plan.denominations.into_iter().map(|g| IronwoodDenomGroup {
-            denomination_zat: g.denomination_zat,
-            count: g.count as u32,
-            label: g.label,
-        }).collect(),
-        total_parts: plan.total_parts as u32,
-        total_fee_zat: plan.total_fee_zat,
-        estimated_sessions: plan.estimated_sessions as u32,
-        estimated_duration_hours: plan.estimated_duration_hours,
-        dust_remaining_zat: plan.dust_remaining_zat,
+        orchard_balance_zat,
+        denominations: vec![], // No longer broken down by group
+        total_parts: total_parts as u32,
+        total_fee_zat,
+        estimated_sessions: 1,
+        estimated_duration_hours: total_parts as f64 * 10.0 / 60.0,
+        dust_remaining_zat: 0,
     })
 }
 
-/// Confirm and create the transfer schedule. Returns serialized schedule JSON.
+/// Confirm and create the transfer schedule.
+/// DEPRECATED: Use engine_auto_migration_create instead.
 pub fn engine_ironwood_confirm(
     orchard_balance_zat: u64,
-    current_height: u32,
+    _current_height: u32,
     tor_enabled: bool,
 ) -> Result<String> {
-    let schedule = engine::ironwood::create_transfer_schedule(
-        orchard_balance_zat,
-        current_height,
-        tor_enabled,
-    )?;
-    serde_json::to_string(&schedule).map_err(|e| anyhow::anyhow!("Serialize: {}", e))
+    let state = engine::ironwood::create_auto_migration(orchard_balance_zat, tor_enabled)?;
+    serde_json::to_string(&state).map_err(|e| anyhow::anyhow!("Serialize: {}", e))
 }
 
 /// Reconcile an in-progress schedule against chain state.
-/// Takes the serialized schedule JSON, returns updated JSON + list of invalidated part IDs.
+/// DEPRECATED: Use engine_auto_migration_* functions instead.
 pub fn engine_ironwood_reconcile(
-    schedule_json: String,
-    current_height: u32,
-    confirmed_txids: Vec<String>,
+    _schedule_json: String,
+    _current_height: u32,
+    _confirmed_txids: Vec<String>,
 ) -> Result<IronwoodReconcileResult> {
-    let mut schedule: engine::ironwood::TransferSchedule =
-        serde_json::from_str(&schedule_json).map_err(|e| anyhow::anyhow!("Parse: {}", e))?;
-    let invalidated = engine::ironwood::reconcile_schedule(&mut schedule, current_height, &confirmed_txids);
-    let updated_json = serde_json::to_string(&schedule).map_err(|e| anyhow::anyhow!("Serialize: {}", e))?;
     Ok(IronwoodReconcileResult {
-        schedule_json: updated_json,
-        invalidated_ids: invalidated,
-        is_complete: schedule.status == engine::ironwood::TransferStatus::Complete,
+        schedule_json: "{}".to_string(),
+        invalidated_ids: vec![],
+        is_complete: false,
     })
 }
 
-/// Background tick: reconcile + advance schedule. Called from Flutter BGTask or on-foreground.
+/// Background tick: reconcile + advance schedule.
+/// DEPRECATED: Use engine_auto_migration_status instead.
 pub fn engine_ironwood_tick(
     data_dir: String,
-    current_height: u32,
-    confirmed_txids: Vec<String>,
+    _current_height: u32,
+    _confirmed_txids: Vec<String>,
 ) -> Result<IronwoodTickResult> {
-    let result = engine::ironwood::tick(&data_dir, current_height, &confirmed_txids)?;
+    let state = engine::ironwood::load_auto_state(&data_dir)?;
     Ok(IronwoodTickResult {
-        parts_broadcast: result.parts_broadcast,
-        parts_confirmed: result.parts_confirmed,
-        parts_invalidated: result.parts_invalidated,
-        is_complete: result.is_complete,
-        next_broadcast_height: result.next_broadcast_height,
+        parts_broadcast: 0,
+        parts_confirmed: state.migrations_confirmed() as u32,
+        parts_invalidated: 0,
+        is_complete: state.is_complete(),
+        next_broadcast_height: None,
     })
 }
 
