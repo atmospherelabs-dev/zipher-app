@@ -120,27 +120,46 @@ class _SplashState extends State<SplashPage> {
 
             _setProgress(0.5, 'Opening wallet...');
             logger.d('opening wallet...');
+
+            // On testnet, proactively reset old DBs to avoid Rust panics
+            // from incompatible schema versions (testnet has no real funds)
+            if (isTestnet) {
+              await _resetTestnetIfStale(wallet, activeId);
+            }
+
             try {
               await wallet.openWalletById(activeId);
             } catch (e) {
               logger.e('Failed to open wallet: $e');
-              if (e.toString().contains('no such table') ||
-                  e.toString().contains('migration') ||
-                  e.toString().contains('database')) {
+              if (isTestnet) {
+                // Testnet: auto-reset DB without asking (no real funds at stake)
+                logger.i('[Splash] testnet wallet DB error, auto-resetting');
+                await _resetWalletDb(wallet, activeId);
+                final restored = await _autoRestoreFromKeychain(wallet, activeId);
+                if (!restored) {
+                  appStore.initialized = true;
+                  GoRouter.of(context).go('/welcome');
+                  return;
+                }
+              } else {
+                // Mainnet: show dialog, then auto-restore from Keychain seed
                 if (mounted) {
                   final shouldReset = await _showDbCorruptDialog();
                   if (shouldReset) {
                     await _resetWalletDb(wallet, activeId);
-                    // Retry open after reset
-                    await wallet.openWalletById(activeId);
+                    _setProgress(0.5, 'Restoring wallet...');
+                    final restored = await _autoRestoreFromKeychain(wallet, activeId);
+                    if (!restored) {
+                      appStore.initialized = true;
+                      GoRouter.of(context).go('/welcome');
+                      return;
+                    }
                   } else {
                     appStore.initialized = true;
                     GoRouter.of(context).go('/welcome');
                     return;
                   }
                 }
-              } else {
-                rethrow;
               }
             }
             logger.d('wallet opened');
@@ -324,6 +343,47 @@ class _SplashState extends State<SplashPage> {
         logger.i('[Splash] deleting: ${f.path}');
         await f.delete();
       }
+    }
+  }
+
+  /// On testnet, delete stale wallet DBs proactively to avoid Rust panics.
+  /// Uses a version marker file to detect SDK changes.
+  Future<void> _resetTestnetIfStale(WalletService wallet, String walletId) async {
+    const sdkVersion = '0.24.0-rc.4'; // Update when SDK changes
+    final dir = await wallet.walletDir(walletId: walletId);
+    final markerFile = File('$dir/.sdk_version');
+    final dbFile = File('$dir/zipher-data.sqlite');
+
+    if (!await dbFile.exists()) return; // No DB yet, nothing to reset
+
+    final currentMarker = await markerFile.exists()
+        ? await markerFile.readAsString()
+        : '';
+
+    if (currentMarker.trim() != sdkVersion) {
+      logger.i('[Splash] testnet SDK version changed ($currentMarker -> $sdkVersion), resetting DB');
+      await _resetWalletDb(wallet, walletId);
+    }
+
+    // Write current marker
+    await markerFile.writeAsString(sdkVersion);
+  }
+
+  /// Attempt to restore the wallet from the seed stored in the iOS Keychain.
+  /// Returns true if successful, false if no seed found (user must restore manually).
+  Future<bool> _autoRestoreFromKeychain(WalletService wallet, String walletId) async {
+    try {
+      final hasSeed = await wallet.hasSeedForCurrentNetwork(walletId);
+      if (!hasSeed) {
+        logger.w('[Splash] no seed in Keychain for $walletId — manual restore needed');
+        return false;
+      }
+      logger.i('[Splash] auto-restoring wallet from Keychain seed');
+      await wallet.restoreAndOpenWalletById(walletId);
+      return true;
+    } catch (e) {
+      logger.e('[Splash] auto-restore failed: $e');
+      return false;
     }
   }
 

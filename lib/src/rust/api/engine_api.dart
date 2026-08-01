@@ -7,8 +7,8 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'wallet.dart';
 
-// These functions are ignored because they are not marked as `pub`: `packages_from_map`, `packages_to_map`, `to_network`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These functions are ignored because they are not marked as `pub`: `auto_state_to_status`, `packages_from_map`, `packages_to_map`, `report_to_ffi`, `to_network`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Create a new wallet. Returns the 24-word seed phrase.
 Future<String> engineCreateWallet(
@@ -661,14 +661,6 @@ Future<EngineVoteCommitment> engineVoteBuildCommitment(
         proposalAuthority: proposalAuthority,
         singleShare: singleShare);
 
-/// Propose an Orchard -> Ironwood pool transfer with SpendPolicy restriction.
-/// Only spends Orchard notes. Sends to own UA (routed to Ironwood post-NU6.3).
-/// Returns (send_amount, fee). Use engine_confirm_send to finalize.
-Future<ProposalResult> engineProposePoolTransfer(
-        {required BigInt amount, required bool isMax}) =>
-    RustLib.instance.api.crateApiEngineApiEngineProposePoolTransfer(
-        amount: amount, isMax: isMax);
-
 /// Determine the next migration round action per the Shielded Labs algorithm.
 ///
 /// Returns the action type ("migrate", "consolidate", or "done"),
@@ -698,6 +690,69 @@ Future<MigrationProgress> engineMigrationRecordRound(
     RustLib.instance.api.crateApiEngineApiEngineMigrationRecordRound(
         dataDir: dataDir, amountZat: amountZat, feeZat: feeZat, height: height);
 
+/// Create a new automatic migration plan. Returns the plan summary.
+/// This decomposes the Orchard balance into standard denominations and generates
+/// a randomized broadcast schedule.
+Future<AutoMigrationStatus> engineAutoMigrationCreate(
+        {required String dataDir,
+        required BigInt orchardBalanceZat,
+        required bool torEnabled}) =>
+    RustLib.instance.api.crateApiEngineApiEngineAutoMigrationCreate(
+        dataDir: dataDir,
+        orchardBalanceZat: orchardBalanceZat,
+        torEnabled: torEnabled);
+
+/// Load the current automatic migration status.
+Future<AutoMigrationStatus> engineAutoMigrationStatus(
+        {required String dataDir}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineAutoMigrationStatus(dataDir: dataDir);
+
+/// Mark a split as broadcast. Called after the Flutter layer sends the split tx.
+Future<AutoMigrationStatus> engineAutoMigrationSplitBroadcast(
+        {required String dataDir,
+        required int targetIdx,
+        required String txid}) =>
+    RustLib.instance.api.crateApiEngineApiEngineAutoMigrationSplitBroadcast(
+        dataDir: dataDir, targetIdx: targetIdx, txid: txid);
+
+/// Mark a split as confirmed. Called when the split tx reaches sufficient depth.
+Future<AutoMigrationStatus> engineAutoMigrationSplitConfirmed(
+        {required String dataDir, required int targetIdx}) =>
+    RustLib.instance.api.crateApiEngineApiEngineAutoMigrationSplitConfirmed(
+        dataDir: dataDir, targetIdx: targetIdx);
+
+/// Mark a migration as broadcast.
+Future<AutoMigrationStatus> engineAutoMigrationMigrateBroadcast(
+        {required String dataDir,
+        required int targetIdx,
+        required String txid,
+        required BigInt feeZat}) =>
+    RustLib.instance.api.crateApiEngineApiEngineAutoMigrationMigrateBroadcast(
+        dataDir: dataDir, targetIdx: targetIdx, txid: txid, feeZat: feeZat);
+
+/// Mark a migration as confirmed.
+Future<AutoMigrationStatus> engineAutoMigrationMigrateConfirmed(
+        {required String dataDir, required int targetIdx}) =>
+    RustLib.instance.api.crateApiEngineApiEngineAutoMigrationMigrateConfirmed(
+        dataDir: dataDir, targetIdx: targetIdx);
+
+/// Cancel the automatic migration.
+Future<void> engineAutoMigrationCancel({required String dataDir}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineAutoMigrationCancel(dataDir: dataDir);
+
+/// Get the denomination for the next split target (legacy auto-migration state).
+Future<BigInt?> engineAutoMigrationNextSplitAmount({required String dataDir}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineAutoMigrationNextSplitAmount(dataDir: dataDir);
+
+/// Get the index and denomination of the next migration target.
+Future<MigrateTarget> engineAutoMigrationNextMigrateTarget(
+        {required String dataDir}) =>
+    RustLib.instance.api.crateApiEngineApiEngineAutoMigrationNextMigrateTarget(
+        dataDir: dataDir);
+
 /// Bootstrap the Tor client. All subsequent lightwalletd connections
 /// will be routed through the Tor network until `engine_disable_tor` is called.
 /// `data_dir` is the wallet data directory (a `tor/` subfolder is used for Arti state).
@@ -719,12 +774,14 @@ Future<BigInt> engineVerifyTor() =>
 
 /// Plan an Orchard -> Ironwood pool transfer per ZIP 318.
 /// Returns a summary with denominations, fees, and duration for user confirmation.
+/// DEPRECATED: Use engine_auto_migration_create for the two-stage approach.
 Future<IronwoodPlan> engineIronwoodPlan(
         {required BigInt orchardBalanceZat, required int currentHeight}) =>
     RustLib.instance.api.crateApiEngineApiEngineIronwoodPlan(
         orchardBalanceZat: orchardBalanceZat, currentHeight: currentHeight);
 
-/// Confirm and create the transfer schedule. Returns serialized schedule JSON.
+/// Confirm and create the transfer schedule.
+/// DEPRECATED: Use engine_auto_migration_create instead.
 Future<String> engineIronwoodConfirm(
         {required BigInt orchardBalanceZat,
         required int currentHeight,
@@ -735,7 +792,7 @@ Future<String> engineIronwoodConfirm(
         torEnabled: torEnabled);
 
 /// Reconcile an in-progress schedule against chain state.
-/// Takes the serialized schedule JSON, returns updated JSON + list of invalidated part IDs.
+/// DEPRECATED: Use engine_auto_migration_* functions instead.
 Future<IronwoodReconcileResult> engineIronwoodReconcile(
         {required String scheduleJson,
         required int currentHeight,
@@ -745,7 +802,8 @@ Future<IronwoodReconcileResult> engineIronwoodReconcile(
         currentHeight: currentHeight,
         confirmedTxids: confirmedTxids);
 
-/// Background tick: reconcile + advance schedule. Called from Flutter BGTask or on-foreground.
+/// Background tick: reconcile + advance schedule.
+/// DEPRECATED: Use engine_auto_migration_status instead.
 Future<IronwoodTickResult> engineIronwoodTick(
         {required String dataDir,
         required int currentHeight,
@@ -822,6 +880,97 @@ Future<List<EngineVanWitness>> engineVoteSyncTreeAndWitness(
         ncRoot: ncRoot,
         nfImtRoot: nfImtRoot,
         vanPositions: vanPositions);
+
+/// Plan an Ironwood migration using the official SDK.
+/// Returns denomination breakdown and cost estimate. Does NOT persist.
+Future<IronwoodSdkPlan> engineIronwoodSdkPlan({required String seedPhrase}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineIronwoodSdkPlan(seedPhrase: seedPhrase);
+
+/// Commit: plan, build and sign all PCZTs. Persisted in wallet DB.
+/// Call tick() periodically after this to prove + broadcast each tx.
+Future<IronwoodSdkProgress> engineIronwoodSdkCommit(
+        {required String seedPhrase}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineIronwoodSdkCommit(seedPhrase: seedPhrase);
+
+/// Tick: prove and broadcast the next due transaction.
+/// Call periodically (e.g., every sync cycle or every ~75s).
+Future<IronwoodSdkProgress> engineIronwoodSdkTick(
+        {required String seedPhrase}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineIronwoodSdkTick(seedPhrase: seedPhrase);
+
+/// Read-only: current migration progress.
+Future<IronwoodSdkProgress> engineIronwoodSdkStatus() =>
+    RustLib.instance.api.crateApiEngineApiEngineIronwoodSdkStatus();
+
+/// Cancel an in-progress SDK migration.
+Future<void> engineIronwoodSdkCancel() =>
+    RustLib.instance.api.crateApiEngineApiEngineIronwoodSdkCancel();
+
+class AutoMigrationStatus {
+  final String phase;
+  final int totalTargets;
+  final int splitsConfirmed;
+  final int splitsPending;
+  final int migrationsConfirmed;
+  final int migrationsPending;
+  final BigInt totalPlannedZat;
+  final BigInt totalMigratedZat;
+  final BigInt totalFeesZat;
+  final BigInt nextBroadcastAt;
+  final bool hasPendingSplits;
+  final Uint64List denominations;
+
+  const AutoMigrationStatus({
+    required this.phase,
+    required this.totalTargets,
+    required this.splitsConfirmed,
+    required this.splitsPending,
+    required this.migrationsConfirmed,
+    required this.migrationsPending,
+    required this.totalPlannedZat,
+    required this.totalMigratedZat,
+    required this.totalFeesZat,
+    required this.nextBroadcastAt,
+    required this.hasPendingSplits,
+    required this.denominations,
+  });
+
+  @override
+  int get hashCode =>
+      phase.hashCode ^
+      totalTargets.hashCode ^
+      splitsConfirmed.hashCode ^
+      splitsPending.hashCode ^
+      migrationsConfirmed.hashCode ^
+      migrationsPending.hashCode ^
+      totalPlannedZat.hashCode ^
+      totalMigratedZat.hashCode ^
+      totalFeesZat.hashCode ^
+      nextBroadcastAt.hashCode ^
+      hasPendingSplits.hashCode ^
+      denominations.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AutoMigrationStatus &&
+          runtimeType == other.runtimeType &&
+          phase == other.phase &&
+          totalTargets == other.totalTargets &&
+          splitsConfirmed == other.splitsConfirmed &&
+          splitsPending == other.splitsPending &&
+          migrationsConfirmed == other.migrationsConfirmed &&
+          migrationsPending == other.migrationsPending &&
+          totalPlannedZat == other.totalPlannedZat &&
+          totalMigratedZat == other.totalMigratedZat &&
+          totalFeesZat == other.totalFeesZat &&
+          nextBroadcastAt == other.nextBroadcastAt &&
+          hasPendingSplits == other.hasPendingSplits &&
+          denominations == other.denominations;
+}
 
 class EngineDelegationResult {
   final Uint8List proof;
@@ -1982,6 +2131,100 @@ class IronwoodReconcileResult {
           isComplete == other.isComplete;
 }
 
+class IronwoodSdkPlan {
+  final Uint64List crossingValues;
+  final BigInt totalMigratingZat;
+  final BigInt estimatedTotalFeeZat;
+  final int prepTxCount;
+  final int transferTxCount;
+  final int totalTxCount;
+  final int prepLayers;
+
+  const IronwoodSdkPlan({
+    required this.crossingValues,
+    required this.totalMigratingZat,
+    required this.estimatedTotalFeeZat,
+    required this.prepTxCount,
+    required this.transferTxCount,
+    required this.totalTxCount,
+    required this.prepLayers,
+  });
+
+  @override
+  int get hashCode =>
+      crossingValues.hashCode ^
+      totalMigratingZat.hashCode ^
+      estimatedTotalFeeZat.hashCode ^
+      prepTxCount.hashCode ^
+      transferTxCount.hashCode ^
+      totalTxCount.hashCode ^
+      prepLayers.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is IronwoodSdkPlan &&
+          runtimeType == other.runtimeType &&
+          crossingValues == other.crossingValues &&
+          totalMigratingZat == other.totalMigratingZat &&
+          estimatedTotalFeeZat == other.estimatedTotalFeeZat &&
+          prepTxCount == other.prepTxCount &&
+          transferTxCount == other.transferTxCount &&
+          totalTxCount == other.totalTxCount &&
+          prepLayers == other.prepLayers;
+}
+
+class IronwoodSdkProgress {
+  final String status;
+  final Uint64List crossingValues;
+  final BigInt totalPlannedZat;
+  final BigInt totalConfirmedZat;
+  final int broadcastCount;
+  final int confirmedCount;
+  final int totalTxCount;
+  final int nextDueHeight;
+  final BigInt feesPaidZat;
+
+  const IronwoodSdkProgress({
+    required this.status,
+    required this.crossingValues,
+    required this.totalPlannedZat,
+    required this.totalConfirmedZat,
+    required this.broadcastCount,
+    required this.confirmedCount,
+    required this.totalTxCount,
+    required this.nextDueHeight,
+    required this.feesPaidZat,
+  });
+
+  @override
+  int get hashCode =>
+      status.hashCode ^
+      crossingValues.hashCode ^
+      totalPlannedZat.hashCode ^
+      totalConfirmedZat.hashCode ^
+      broadcastCount.hashCode ^
+      confirmedCount.hashCode ^
+      totalTxCount.hashCode ^
+      nextDueHeight.hashCode ^
+      feesPaidZat.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is IronwoodSdkProgress &&
+          runtimeType == other.runtimeType &&
+          status == other.status &&
+          crossingValues == other.crossingValues &&
+          totalPlannedZat == other.totalPlannedZat &&
+          totalConfirmedZat == other.totalConfirmedZat &&
+          broadcastCount == other.broadcastCount &&
+          confirmedCount == other.confirmedCount &&
+          totalTxCount == other.totalTxCount &&
+          nextDueHeight == other.nextDueHeight &&
+          feesPaidZat == other.feesPaidZat;
+}
+
 class IronwoodTickResult {
   final int partsBroadcast;
   final int partsConfirmed;
@@ -2015,6 +2258,31 @@ class IronwoodTickResult {
           partsInvalidated == other.partsInvalidated &&
           isComplete == other.isComplete &&
           nextBroadcastHeight == other.nextBroadcastHeight;
+}
+
+class MigrateTarget {
+  final int index;
+  final BigInt denominationZat;
+  final bool hasTarget;
+
+  const MigrateTarget({
+    required this.index,
+    required this.denominationZat,
+    required this.hasTarget,
+  });
+
+  @override
+  int get hashCode =>
+      index.hashCode ^ denominationZat.hashCode ^ hasTarget.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MigrateTarget &&
+          runtimeType == other.runtimeType &&
+          index == other.index &&
+          denominationZat == other.denominationZat &&
+          hasTarget == other.hasTarget;
 }
 
 class MigrationProgress {

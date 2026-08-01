@@ -36,6 +36,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AddressValidation dco_decode_address_validation(dynamic raw);
 
   @protected
+  AutoMigrationStatus dco_decode_auto_migration_status(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
@@ -171,6 +174,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   IronwoodReconcileResult dco_decode_ironwood_reconcile_result(dynamic raw);
 
   @protected
+  IronwoodSdkPlan dco_decode_ironwood_sdk_plan(dynamic raw);
+
+  @protected
+  IronwoodSdkProgress dco_decode_ironwood_sdk_progress(dynamic raw);
+
+  @protected
   IronwoodTickResult dco_decode_ironwood_tick_result(dynamic raw);
 
   @protected
@@ -225,6 +234,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint32List dco_decode_list_prim_u_32_strict(dynamic raw);
 
   @protected
+  Uint64List dco_decode_list_prim_u_64_strict(dynamic raw);
+
+  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
 
   @protected
@@ -235,6 +247,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ValueTransferRecord> dco_decode_list_value_transfer_record(dynamic raw);
+
+  @protected
+  MigrateTarget dco_decode_migrate_target(dynamic raw);
 
   @protected
   MigrationProgress dco_decode_migration_progress(dynamic raw);
@@ -308,6 +323,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AddressValidation sse_decode_address_validation(SseDeserializer deserializer);
+
+  @protected
+  AutoMigrationStatus sse_decode_auto_migration_status(
+      SseDeserializer deserializer);
 
   @protected
   bool sse_decode_bool(SseDeserializer deserializer);
@@ -460,6 +479,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  IronwoodSdkPlan sse_decode_ironwood_sdk_plan(SseDeserializer deserializer);
+
+  @protected
+  IronwoodSdkProgress sse_decode_ironwood_sdk_progress(
+      SseDeserializer deserializer);
+
+  @protected
   IronwoodTickResult sse_decode_ironwood_tick_result(
       SseDeserializer deserializer);
 
@@ -523,6 +549,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint32List sse_decode_list_prim_u_32_strict(SseDeserializer deserializer);
 
   @protected
+  Uint64List sse_decode_list_prim_u_64_strict(SseDeserializer deserializer);
+
+  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
 
   @protected
@@ -535,6 +564,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   List<ValueTransferRecord> sse_decode_list_value_transfer_record(
       SseDeserializer deserializer);
+
+  @protected
+  MigrateTarget sse_decode_migrate_target(SseDeserializer deserializer);
 
   @protected
   MigrationProgress sse_decode_migration_progress(SseDeserializer deserializer);
@@ -613,6 +645,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_address_validation(
       AddressValidation self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_auto_migration_status(
+      AutoMigrationStatus self, SseSerializer serializer);
 
   @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
@@ -767,6 +803,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       IronwoodReconcileResult self, SseSerializer serializer);
 
   @protected
+  void sse_encode_ironwood_sdk_plan(
+      IronwoodSdkPlan self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_ironwood_sdk_progress(
+      IronwoodSdkProgress self, SseSerializer serializer);
+
+  @protected
   void sse_encode_ironwood_tick_result(
       IronwoodTickResult self, SseSerializer serializer);
 
@@ -830,6 +874,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       Uint32List self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_prim_u_64_strict(
+      Uint64List self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
 
   @protected
@@ -843,6 +891,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_value_transfer_record(
       List<ValueTransferRecord> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_migrate_target(MigrateTarget self, SseSerializer serializer);
 
   @protected
   void sse_encode_migration_progress(

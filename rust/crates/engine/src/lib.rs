@@ -23,6 +23,7 @@ pub mod vault;
 #[cfg(feature = "voting")]
 pub mod voting;
 pub mod ironwood;
+pub mod ironwood_v2;
 pub mod wallet;
 pub mod x402;
 

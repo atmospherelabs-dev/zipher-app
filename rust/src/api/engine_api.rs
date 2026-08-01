@@ -1446,16 +1446,9 @@ pub struct EngineEncryptedShare {
 // Ironwood pool transfer (ZIP 318)
 // ---------------------------------------------------------------------------
 
-/// Propose an Orchard -> Ironwood pool transfer with SpendPolicy restriction.
-/// Only spends Orchard notes. Sends to own UA (routed to Ironwood post-NU6.3).
-/// Returns (send_amount, fee). Use engine_confirm_send to finalize.
-pub async fn engine_propose_pool_transfer(
-    amount: u64,
-    is_max: bool,
-) -> Result<ProposalResult> {
-    let (amount_zat, fee_zat) = engine::send::propose_pool_transfer(amount, is_max).await?;
-    Ok(ProposalResult { send_amount: amount_zat, fee: fee_zat, is_exact: !is_max })
-}
+// NOTE: engine_propose_pool_transfer was removed. All Ironwood migrations
+// now go through the SDK path (engine_ironwood_sdk_commit / tick) for
+// ZIP-318 compliance (canonical denominations, boundary anchors, O:2 I:1).
 
 /// Determine the next migration round action per the Shielded Labs algorithm.
 ///
@@ -1639,7 +1632,7 @@ pub fn engine_auto_migration_cancel(data_dir: String) -> Result<()> {
     engine::ironwood::cancel_auto_migration(&data_dir)
 }
 
-/// Get the denomination for the next split target (for propose_pool_transfer).
+/// Get the denomination for the next split target (legacy auto-migration state).
 pub fn engine_auto_migration_next_split_amount(data_dir: String) -> Result<Option<u64>> {
     let state = engine::ironwood::load_auto_state(&data_dir)?;
     match state.next_split_target() {
@@ -1898,4 +1891,95 @@ pub struct EngineVanWitness {
     pub auth_path: Vec<Vec<u8>>,
     pub position: u32,
     pub anchor_height: u32,
+}
+
+// ---------------------------------------------------------------------------
+// Ironwood SDK Migration (zcash_pool_migration)
+// ---------------------------------------------------------------------------
+
+/// Plan an Ironwood migration using the official SDK.
+/// Returns denomination breakdown and cost estimate. Does NOT persist.
+pub async fn engine_ironwood_sdk_plan(
+    seed_phrase: String,
+) -> Result<IronwoodSdkPlan> {
+    let secret = secrecy::SecretString::from(seed_phrase);
+    let summary = engine::ironwood_v2::plan(&secret).await?;
+    Ok(IronwoodSdkPlan {
+        crossing_values: summary.crossing_values,
+        total_migrating_zat: summary.total_migrating_zat,
+        estimated_total_fee_zat: summary.estimated_total_fee_zat,
+        prep_tx_count: summary.prep_tx_count as u32,
+        transfer_tx_count: summary.transfer_tx_count as u32,
+        total_tx_count: summary.total_tx_count as u32,
+        prep_layers: summary.prep_layers as u32,
+    })
+}
+
+/// Commit: plan, build and sign all PCZTs. Persisted in wallet DB.
+/// Call tick() periodically after this to prove + broadcast each tx.
+pub async fn engine_ironwood_sdk_commit(
+    seed_phrase: String,
+) -> Result<IronwoodSdkProgress> {
+    let secret = secrecy::SecretString::from(seed_phrase);
+    let report = engine::ironwood_v2::commit(&secret).await?;
+    Ok(report_to_ffi(report))
+}
+
+/// Tick: prove and broadcast the next due transaction.
+/// Call periodically (e.g., every sync cycle or every ~75s).
+pub async fn engine_ironwood_sdk_tick(
+    seed_phrase: String,
+) -> Result<IronwoodSdkProgress> {
+    let secret = secrecy::SecretString::from(seed_phrase);
+    let report = engine::ironwood_v2::tick(&secret).await?;
+    Ok(report_to_ffi(report))
+}
+
+/// Read-only: current migration progress.
+pub async fn engine_ironwood_sdk_status() -> Result<IronwoodSdkProgress> {
+    let report = engine::ironwood_v2::status().await?;
+    Ok(report_to_ffi(report))
+}
+
+/// Cancel an in-progress SDK migration.
+pub async fn engine_ironwood_sdk_cancel() -> Result<()> {
+    engine::ironwood_v2::cancel().await
+}
+
+#[derive(Debug, Clone)]
+pub struct IronwoodSdkPlan {
+    pub crossing_values: Vec<u64>,
+    pub total_migrating_zat: u64,
+    pub estimated_total_fee_zat: u64,
+    pub prep_tx_count: u32,
+    pub transfer_tx_count: u32,
+    pub total_tx_count: u32,
+    pub prep_layers: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct IronwoodSdkProgress {
+    pub status: String,
+    pub crossing_values: Vec<u64>,
+    pub total_planned_zat: u64,
+    pub total_confirmed_zat: u64,
+    pub broadcast_count: u32,
+    pub confirmed_count: u32,
+    pub total_tx_count: u32,
+    pub next_due_height: u32,
+    pub fees_paid_zat: u64,
+}
+
+fn report_to_ffi(r: engine::ironwood_v2::ProgressReport) -> IronwoodSdkProgress {
+    IronwoodSdkProgress {
+        status: r.status,
+        crossing_values: r.crossing_values,
+        total_planned_zat: r.total_planned_zat,
+        total_confirmed_zat: r.total_confirmed_zat,
+        broadcast_count: r.broadcast_count,
+        confirmed_count: r.confirmed_count,
+        total_tx_count: r.total_tx_count,
+        next_due_height: r.next_due_height,
+        fees_paid_zat: r.fees_paid_zat,
+    }
 }

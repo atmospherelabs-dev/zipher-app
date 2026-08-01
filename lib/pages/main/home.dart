@@ -774,8 +774,12 @@ class _BalanceBreakdown extends StatelessWidget {
     final isFullyShielded = transparentBal == 0;
     final pct = totalBal > 0 ? (shieldedBal / totalBal).clamp(0.0, 1.0) : 1.0;
 
-    // Consistent purple for bar, button, and shield icons
-    const barColor = ZipherColors.purple;
+    // Pool color: gold for Ironwood, purple for Orchard, blend when mixed
+    final barColor = orchardBal == 0
+        ? ZipherColors.warm
+        : ironwoodBal == 0
+            ? ZipherColors.purple
+            : ZipherColors.warm;
 
     return Container(
       clipBehavior: Clip.antiAlias,
@@ -798,7 +802,7 @@ class _BalanceBreakdown extends StatelessWidget {
                     Icon(
                       Icons.shield_rounded,
                       size: 15,
-                      color: ZipherColors.purple.withValues(alpha: 0.85),
+                      color: barColor.withValues(alpha: 0.85),
                     ),
                     const Gap(8),
                     Column(
@@ -828,7 +832,7 @@ class _BalanceBreakdown extends StatelessWidget {
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: isFullyShielded
-                            ? ZipherColors.purple
+                            ? barColor
                             : ZipherColors.text60,
                       ),
                     ),
@@ -881,7 +885,7 @@ class _BalanceBreakdown extends StatelessWidget {
                           height: 12,
                           child: CircularProgressIndicator(
                             strokeWidth: 1.5,
-                            color: ZipherColors.purple,
+                            color: barColor,
                           ),
                         ),
                         const Gap(8),
@@ -890,7 +894,7 @@ class _BalanceBreakdown extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
-                            color: ZipherColors.purple,
+                            color: barColor,
                           ),
                         ),
                       ] else ...[
@@ -919,7 +923,7 @@ class _BalanceBreakdown extends StatelessWidget {
                                 Icon(
                                   Icons.shield_rounded,
                                   size: 12,
-                                  color: ZipherColors.purple
+                                  color: barColor
                                       .withValues(alpha: 0.85),
                                 ),
                                 const Gap(5),
@@ -951,7 +955,7 @@ class _BalanceBreakdown extends StatelessWidget {
                         Icon(
                           Icons.check_circle_outline_rounded,
                           size: 13,
-                          color: ZipherColors.purple.withValues(alpha: 0.85),
+                          color: barColor.withValues(alpha: 0.85),
                         ),
                         const Gap(6),
                         Text(
@@ -1164,6 +1168,8 @@ class _TxRowState extends State<_TxRow> {
     final isShielding =
         !isSwapDeposit && (tx.kind == 'shield' || tx.kind == 'send-to-self');
 
+    final isMigration = tx.kind == 'migration';
+
     // Check for message content: raw memo or outgoing cache
     final bool isMessage = !isSwapDeposit &&
         (memo.startsWith('\u{1F6E1}') ||
@@ -1192,6 +1198,9 @@ class _TxRowState extends State<_TxRow> {
       }
     } else if (isShielding) {
       label = 'Shielded';
+      swapStatusLabel = null;
+    } else if (isMigration) {
+      label = 'Migrated to Ironwood';
       swapStatusLabel = null;
     } else if (isMessage && messageBody != null && messageBody.isNotEmpty) {
       label = messageBody;
@@ -1228,9 +1237,11 @@ class _TxRowState extends State<_TxRow> {
 
     final amountColor = isIncoming
         ? ZipherColors.green
-        : isSwapDeposit
-            ? ZipherColors.text90
-            : ZipherColors.text60;
+        : isMigration
+            ? ZipherColors.warm
+            : isSwapDeposit
+                ? ZipherColors.text90
+                : ZipherColors.text60;
 
     // Fiat
     final price = marketPrice.price;
@@ -1282,33 +1293,39 @@ class _TxRowState extends State<_TxRow> {
                   decoration: BoxDecoration(
                     color: isSwapDeposit
                         ? ZipherColors.cyan.withValues(alpha: 0.10)
-                        : isShielding
-                            ? ZipherColors.purple.withValues(alpha: 0.10)
-                            : isMessage
-                                ? ZipherColors.purple.withValues(alpha: 0.08)
-                                : ZipherColors.cardBgElevated,
+                        : isMigration
+                            ? ZipherColors.warm.withValues(alpha: 0.10)
+                            : isShielding
+                                ? ZipherColors.purple.withValues(alpha: 0.10)
+                                : isMessage
+                                    ? ZipherColors.purple.withValues(alpha: 0.08)
+                                    : ZipherColors.cardBgElevated,
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     isSwapDeposit
                         ? Icons.swap_horiz_rounded
-                        : isShielding
-                            ? Icons.shield_rounded
-                            : isMessage
-                                ? (isIncoming
-                                    ? Icons.chat_bubble_rounded
-                                    : Icons.send_rounded)
-                                : isIncoming
-                                    ? Icons.south_west_rounded
-                                    : Icons.north_east_rounded,
+                        : isMigration
+                            ? Icons.swap_horiz_rounded
+                            : isShielding
+                                ? Icons.shield_rounded
+                                : isMessage
+                                    ? (isIncoming
+                                        ? Icons.chat_bubble_rounded
+                                        : Icons.send_rounded)
+                                    : isIncoming
+                                        ? Icons.south_west_rounded
+                                        : Icons.north_east_rounded,
                     size: 16,
                     color: isSwapDeposit
                         ? ZipherColors.cyan.withValues(alpha: 0.7)
-                        : isShielding
-                            ? ZipherColors.purple.withValues(alpha: 0.85)
-                            : isMessage
+                        : isMigration
+                            ? ZipherColors.warm.withValues(alpha: 0.85)
+                            : isShielding
                                 ? ZipherColors.purple.withValues(alpha: 0.85)
-                                : ZipherColors.text40,
+                                : isMessage
+                                    ? ZipherColors.purple.withValues(alpha: 0.85)
+                                    : ZipherColors.text40,
                   ),
                 ),
                 const Gap(12),

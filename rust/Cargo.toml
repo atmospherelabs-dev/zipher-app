@@ -22,19 +22,19 @@ serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 rand = "0.8"
 
-# Zcash crates (NU6.3 / Ironwood — 0.24.x rc series, pool migration, tor)
-zcash_protocol = "0.10.0"
+# Zcash crates (NU6.3 / Ironwood — 0.24 rc.6 series, pool migration rc.5)
+zcash_protocol = "0.10.3"
 zcash_address = "0.13.0"
-zcash_client_backend = { version = "0.24.0-rc.4", features = ["lightwalletd-tonic", "transparent-inputs", "tor"] }
+zcash_client_backend = { version = "0.24.0-rc.6", features = ["lightwalletd-tonic", "transparent-inputs", "tor"] }
 zip32 = "0.2"
-zcash_keys = { version = "0.16.0", features = ["orchard", "sapling", "unstable-frost"] }
+zcash_keys = { version = "0.16.1", features = ["orchard", "sapling", "unstable-frost"] }
 bip0039 = { version = "0.14", features = ["rand"] }
 xeddsa = "1.0.2"
 snow = "0.9.6"
 uuid = "1"
 
-zcash_client_sqlite = { version = "0.22.0-rc.4", features = ["orchard", "transparent-inputs"] }
-zcash_pool_migration = "0.1.0-rc.3"
+zcash_client_sqlite = { version = "0.22.0-rc.6", features = ["orchard", "transparent-inputs"] }
+zcash_pool_migration = "0.1.0-rc.5"
 secrecy = "0.8"
 tonic = { version = "0.14", features = ["channel", "tls-ring", "tls-webpki-roots"] }
 prost = "0.14"
@@ -74,20 +74,21 @@ opt-level = 3
 strip = true
 
 [patch.crates-io]
-# Pin to librustzcash main (2026-07-27) — post 0.24.0-rc.4.
-# Includes: zcash_pool_migration, Tor support, PCZT v9, Ironwood turnstile,
-# Orchard-pool payment rejection, non-exhaustive errors.
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-zcash_transparent = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-zcash_address = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-zcash_encoding = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-pczt = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-zip321 = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-equihash = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-f4jumble = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
-zcash_pool_migration = { git = "https://github.com/zcash/librustzcash.git", rev = "6d0cae86" }
+# Pin to librustzcash tag zcash_client_sqlite-0.22.0-rc.6 (2026-07-30).
+# Includes: unpadded Ironwood bundles (PR #2540), boundary anchor fixes,
+# revised ZIP-318 timing, anchor_computable, DummyOutputCounts,
+# anchor_bucket_interval migration fix, pool_crossing_value view.
+zcash_client_backend = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+zcash_primitives = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+zcash_proofs = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+zcash_transparent = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+zcash_keys = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+zcash_address = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+zcash_encoding = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+pczt = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+zip321 = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+equihash = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+f4jumble = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+zcash_pool_migration = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }

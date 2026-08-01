@@ -20,17 +20,14 @@ enum _Phase { warning, ready, roundInProgress, success, error }
 
 class _IronwoodState extends State<IronwoodPage> {
   static const _prefTor = 'ironwood_tor_enabled';
-  static const _prefAuto = 'ironwood_auto_migration';
 
   _Phase _phase = _Phase.warning;
   String? _error;
-  String? _txid;
-  int? _lastAmount;
-  int? _lastFee;
   bool _autoMode = false;
   bool _torEnabled = false;
   bool _torBootstrapping = false;
   int? _torVerifiedHeight;
+  engine.IronwoodSdkProgress? _sdkProgress;
 
   int get _orchardBalance => aa.poolBalances.totalOrchard;
 
@@ -43,21 +40,23 @@ class _IronwoodState extends State<IronwoodPage> {
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     final savedTor = prefs.getBool(_prefTor) ?? false;
-    final savedAuto = prefs.getBool(_prefAuto) ?? false;
 
-    if (IronwoodWatchService.instance.isAutoMigrationActive || savedAuto) {
-      _phase = _Phase.ready;
-      _autoMode = true;
-    }
+    // Check if SDK migration is in progress
+    try {
+      final progress = await IronwoodWatchService.instance.refreshStatus();
+      _sdkProgress = progress;
+      if (progress.status == 'committed' || progress.status == 'in_progress') {
+        _phase = _Phase.ready;
+        _autoMode = true;
+      }
+    } catch (_) {}
 
-    // Show in-progress state if a round is currently executing
     if (IronwoodWatchService.instance.isRoundInProgress) {
       _phase = _Phase.roundInProgress;
     }
 
     if (mounted) setState(() {});
 
-    // Re-enable Tor from saved preference
     if (savedTor) {
       await _toggleTor(true);
     } else {
@@ -108,10 +107,11 @@ class _IronwoodState extends State<IronwoodPage> {
     }
   }
 
-  Future<void> _doSingleRound() async {
+  /// Manually trigger the next SDK tick (prove + broadcast the next due tx).
+  Future<void> _triggerTick() async {
     if (IronwoodWatchService.instance.isRoundInProgress) {
       setState(() {
-        _error = 'A migration round is already in progress. Please wait for it to complete.';
+        _error = 'A migration round is already in progress. Please wait.';
         _phase = _Phase.error;
       });
       return;
@@ -120,59 +120,26 @@ class _IronwoodState extends State<IronwoodPage> {
     setState(() {
       _phase = _Phase.roundInProgress;
       _error = null;
-      _txid = null;
-      _lastAmount = null;
-      _lastFee = null;
     });
 
     IronwoodWatchService.instance.markRoundStarted();
     try {
-      final round = await engine.engineMigrationNextRound(
-        orchardBalanceZat: BigInt.from(_orchardBalance),
-        largestNoteZat: BigInt.from(_orchardBalance),
-        noteCount: 1,
-      );
-
-      if (round.action == 'done') {
-        setState(() => _phase = _Phase.success);
-        return;
-      }
-
-      if (round.action == 'consolidate') {
-        setState(() {
-          _error = 'Consolidation needed — notes are too small. Try again after syncing.';
-          _phase = _Phase.error;
-        });
-        return;
-      }
-
-      final proposal = await engine.engineProposePoolTransfer(
-        amount: round.amountZat,
-        isMax: false,
-      );
-
-      setState(() {
-        _lastAmount = proposal.sendAmount.toInt();
-        _lastFee = proposal.fee.toInt();
-      });
-
       final seed = await WalletService.instance.getSeedPhrase();
       if (seed == null) throw Exception('Could not access wallet seed');
 
-      final txid = await engine.engineConfirmSend(seedPhrase: seed);
+      final result = await engine.engineIronwoodSdkTick(seedPhrase: seed);
+      _sdkProgress = result;
 
-      setState(() {
-        _txid = txid;
-        _phase = _Phase.success;
-      });
+      if (result.status == 'complete') {
+        setState(() => _phase = _Phase.success);
+      } else {
+        setState(() => _phase = _Phase.ready);
+      }
     } catch (e) {
       final msg = e.toString();
       String userMessage;
-      if (msg.contains('InsufficientFunds') || msg.contains('insufficient')) {
-        userMessage = 'Previous transaction hasn\'t confirmed yet. '
-            'Wait ~75 seconds for the next block and try again.';
-      } else if (msg.contains('Pool transfer proposal failed')) {
-        userMessage = msg.replaceAll(RegExp(r'Stack backtrace:.*', dotAll: true), '').trim();
+      if (msg.contains('No transfer in progress')) {
+        userMessage = 'No migration in progress. Start automatic migration first.';
       } else {
         userMessage = msg.length > 200 ? '${msg.substring(0, 200)}...' : msg;
       }
@@ -186,14 +153,17 @@ class _IronwoodState extends State<IronwoodPage> {
   }
 
   Future<void> _startAutoMigration() async {
+    setState(() {
+      _phase = _Phase.roundInProgress;
+      _error = null;
+    });
     try {
-      await IronwoodWatchService.instance.startAutoMigration(
-        orchardBalanceZat: _orchardBalance,
-        torEnabled: _torEnabled,
-      );
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_prefAuto, true);
-      setState(() => _autoMode = true);
+      final progress = await IronwoodWatchService.instance.commitMigration();
+      _sdkProgress = progress;
+      setState(() {
+        _autoMode = true;
+        _phase = _Phase.ready;
+      });
     } catch (e) {
       setState(() {
         _error = e.toString();
@@ -203,27 +173,29 @@ class _IronwoodState extends State<IronwoodPage> {
   }
 
   Future<void> _stopAutoMigration() async {
-    await IronwoodWatchService.instance.cancelAutoMigration();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefAuto, false);
-    setState(() => _autoMode = false);
+    try {
+      await IronwoodWatchService.instance.cancelMigration();
+    } catch (_) {}
+    setState(() {
+      _autoMode = false;
+      _sdkProgress = null;
+    });
   }
 
   String _autoMigrationSubtitle() {
-    final state = IronwoodWatchService.instance.state;
-    if (state == null) return 'Starting...';
+    final p = _sdkProgress ?? IronwoodWatchService.instance.progress;
+    if (p == null) return 'Starting...';
 
-    final done = state.migrationsConfirmed + state.migrationsBroadcast;
-    final total = state.targets.length;
-    final remaining = state.timeUntilNextBroadcast;
+    if (p.status == 'complete') return 'Complete — all funds in Ironwood';
 
-    if (state.phase == AutoPhase.complete) return 'Complete — all funds in Ironwood';
-    if (remaining.inSeconds > 0) {
-      final min = remaining.inMinutes;
-      final sec = remaining.inSeconds % 60;
-      return '$done/$total rounds — next in ${min}m ${sec}s';
+    final confirmed = p.confirmedCount;
+    final total = p.totalTxCount;
+    final broadcast = p.broadcastCount;
+
+    if (broadcast > confirmed) {
+      return '$confirmed/$total confirmed ($broadcast broadcast)';
     }
-    return '$done/$total rounds — broadcasting...';
+    return '$confirmed/$total transactions confirmed';
   }
 
   @override
@@ -577,7 +549,33 @@ class _IronwoodState extends State<IronwoodPage> {
           const Gap(16),
         ],
 
-        // Migration mode explanation
+        // ZIP-318 compliance badge
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: ZipherColors.green.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: ZipherColors.green.withValues(alpha: 0.3)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.verified_outlined, color: ZipherColors.green, size: 16),
+              const Gap(6),
+              Text(
+                'ZIP-318 Compliant',
+                style: TextStyle(
+                  color: ZipherColors.green,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Gap(16),
+
+        // How it works
         Text(
           'How Migration Works',
           style: TextStyle(
@@ -588,14 +586,16 @@ class _IronwoodState extends State<IronwoodPage> {
         ),
         const Gap(8),
         Text(
-          'Funds are migrated in randomized rounds using amounts from a '
-          'fixed set of buckets (0.001 to 5000 ZEC). Each round is separated '
-          'by a random delay (median 10 minutes) to blend with other users.',
+          'The SDK decomposes your balance into standard denominations '
+          '(1-2-5 series), selects boundary-aligned anchors shared with '
+          'other wallets, and builds unpadded Ironwood bundles. Each '
+          'transaction is pre-signed and broadcast as its scheduled block '
+          'height arrives.',
           style: TextStyle(color: ZipherColors.text60, fontSize: 13),
         ),
         const Gap(24),
 
-        // Auto migration toggle
+        // Migration toggle
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -615,7 +615,7 @@ class _IronwoodState extends State<IronwoodPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Automatic Migration',
+                    Text(_autoMode ? 'Migration Active' : 'Start Migration',
                         style: TextStyle(
                           color: ZipherColors.textPrimary,
                           fontSize: 14,
@@ -625,7 +625,7 @@ class _IronwoodState extends State<IronwoodPage> {
                     Text(
                       _autoMode
                           ? _autoMigrationSubtitle()
-                          : 'Resumes each time you open the app',
+                          : 'Plans, signs, and broadcasts automatically',
                       style: TextStyle(color: ZipherColors.text40, fontSize: 12),
                     ),
                   ],
@@ -715,39 +715,43 @@ class _IronwoodState extends State<IronwoodPage> {
         ),
         const Gap(16),
 
-        // Manual trigger button
-        SizedBox(
-          width: double.infinity,
-          height: 52,
-          child: ElevatedButton.icon(
-            onPressed: _doSingleRound,
-            icon: const Icon(Icons.send_rounded, size: 18),
-            label: const Text(
-              'Migrate Now',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: ZipherColors.warm,
-              foregroundColor: ZipherColors.bg,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+        // Process next (only when migration is active)
+        if (_autoMode) ...[
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: _triggerTick,
+              icon: const Icon(Icons.fast_forward_rounded, size: 18),
+              label: const Text(
+                'Process Next Transaction',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: ZipherColors.warm.withValues(alpha: 0.12),
+                foregroundColor: ZipherColors.warm,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
               ),
             ),
           ),
-        ),
-        const Gap(8),
-        Center(
-          child: Text(
-            'Executes one round immediately (user-triggered)',
-            style: TextStyle(color: ZipherColors.text40, fontSize: 11),
+          const Gap(8),
+          Center(
+            child: Text(
+              'Prove and broadcast the next due transaction now',
+              style: TextStyle(color: ZipherColors.text40, fontSize: 11),
+            ),
           ),
-        ),
+        ],
         const Gap(32),
       ],
     );
   }
 
   Widget _buildProgressView() {
+    final p = _sdkProgress;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -762,31 +766,24 @@ class _IronwoodState extends State<IronwoodPage> {
           ),
           const Gap(24),
           Text(
-            'Migration Round in Progress',
+            'Processing Migration',
             style: TextStyle(color: ZipherColors.textPrimary, fontSize: 16),
           ),
           const Gap(8),
           Text(
-            'Selecting amount, generating proof, broadcasting...',
+            'Generating ZK proof and broadcasting...',
             style: TextStyle(color: ZipherColors.text40, fontSize: 13),
             textAlign: TextAlign.center,
           ),
-          if (_lastAmount != null) ...[
+          if (p != null) ...[
             const Gap(12),
             Text(
-              'Amount: ${amountToString2(_lastAmount!)} ZEC',
+              '${p.confirmedCount}/${p.totalTxCount} confirmed',
               style: TextStyle(
                 color: ZipherColors.textPrimary,
                 fontSize: 14,
                 fontFamily: 'JetBrains Mono',
               ),
-            ),
-          ],
-          if (_lastFee != null) ...[
-            const Gap(4),
-            Text(
-              'Fee: ${amountToString2(_lastFee!)} ZEC',
-              style: TextStyle(color: ZipherColors.text40, fontSize: 12),
             ),
           ],
         ],
@@ -795,7 +792,8 @@ class _IronwoodState extends State<IronwoodPage> {
   }
 
   Widget _buildSuccessView() {
-    final isDone = _orchardBalance == 0;
+    final p = _sdkProgress;
+    final isDone = _orchardBalance == 0 || (p != null && p.status == 'complete');
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -807,7 +805,7 @@ class _IronwoodState extends State<IronwoodPage> {
           ),
           const Gap(24),
           Text(
-            isDone ? 'Migration Complete' : 'Round Complete',
+            isDone ? 'Migration Complete' : 'Migration In Progress',
             style: TextStyle(
               color: ZipherColors.textPrimary,
               fontSize: 20,
@@ -815,26 +813,23 @@ class _IronwoodState extends State<IronwoodPage> {
             ),
           ),
           const Gap(12),
-          if (_lastAmount != null)
+          if (p != null) ...[
             Text(
-              '${amountToString2(_lastAmount!)} ZEC moved to Ironwood',
+              '${p.confirmedCount}/${p.totalTxCount} transactions confirmed',
               style: TextStyle(color: ZipherColors.text60, fontSize: 14),
             ),
-          if (_txid != null) ...[
-            const Gap(8),
-            Text(
-              'txid: ${_txid!.substring(0, 16)}...',
-              style: TextStyle(
-                color: ZipherColors.text40,
-                fontSize: 11,
-                fontFamily: 'JetBrains Mono',
+            if (p.totalPlannedZat > BigInt.zero) ...[
+              const Gap(4),
+              Text(
+                '${amountToString2(p.totalPlannedZat.toInt())} ZEC planned',
+                style: TextStyle(color: ZipherColors.text40, fontSize: 12),
               ),
-            ),
+            ],
           ],
-          if (!isDone) ...[
+          if (!isDone && _orchardBalance > 0) ...[
             const Gap(8),
             Text(
-              'Remaining: ${amountToString2(_orchardBalance)} ZEC',
+              'Remaining in Orchard: ${amountToString2(_orchardBalance)} ZEC',
               style: TextStyle(color: ZipherColors.text60, fontSize: 13),
             ),
           ],
@@ -847,12 +842,9 @@ class _IronwoodState extends State<IronwoodPage> {
                   onPressed: () {
                     setState(() {
                       _phase = _Phase.ready;
-                      _txid = null;
-                      _lastAmount = null;
-                      _lastFee = null;
                     });
                   },
-                  child: Text('Continue',
+                  child: Text('Back',
                       style: TextStyle(color: ZipherColors.warm)),
                 ),
               const Gap(16),

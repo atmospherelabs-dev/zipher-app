@@ -512,6 +512,9 @@ class _TxRowState extends State<_TxRow> {
     } else if (isShielding) {
       label = 'Shielded';
       swapStatusLabel = null;
+    } else if (tx.kind == 'migration') {
+      label = 'Migrated to Ironwood';
+      swapStatusLabel = null;
     } else if (isMessage) {
       label = isReceive ? 'Message received' : 'Message sent';
       swapStatusLabel = null;
@@ -1085,15 +1088,19 @@ class TransactionState extends State<TransactionPage> {
 
                     // "You Received" / "You Sent" label
                     Text(
-                      isSelfTransfer
-                          ? 'You Shielded'
-                          : isReceive
-                              ? 'You Received'
-                              : 'You Sent',
+                      tx.kind == 'migration'
+                          ? 'Migrated to Ironwood'
+                          : isSelfTransfer
+                              ? 'You Shielded'
+                              : isReceive
+                                  ? 'You Received'
+                                  : 'You Sent',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w500,
-                        color: ZipherColors.text40,
+                        color: tx.kind == 'migration'
+                            ? ZipherColors.warm
+                            : ZipherColors.text40,
                       ),
                     ),
 

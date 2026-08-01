@@ -269,6 +269,10 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
 
         let kind = if is_shielding {
             "shielding"
+        } else if sent_count > 0 && received_count > 0 && fee_paid.is_some()
+            && delta.abs() == fee_paid.unwrap().abs()
+        {
+            "migration"
         } else if sent_count > 0 && has_change {
             "sent"
         } else if received_count > 0 && sent_count == 0 {

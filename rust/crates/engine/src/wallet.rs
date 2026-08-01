@@ -338,7 +338,25 @@ pub async fn open(
     }
 
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
-    init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db error: {:?}", e))?;
+
+    // Catch panics from init_wallet_db (schema migrations can panic on
+    // incompatible old databases). Return a clean error instead of aborting.
+    let init_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        init_wallet_db(&mut db, None)
+    }));
+
+    match init_result {
+        Ok(Ok(_)) => {},
+        Ok(Err(e)) => {
+            return Err(anyhow::anyhow!("database schema migration failed: {:?}", e));
+        },
+        Err(_panic) => {
+            return Err(anyhow::anyhow!(
+                "database schema migration panicked — the wallet database is incompatible with this version. \
+                 Delete and restore from seed to fix."
+            ));
+        },
+    }
 
     let account_ids = db
         .get_account_ids()

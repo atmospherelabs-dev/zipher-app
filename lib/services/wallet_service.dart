@@ -441,6 +441,29 @@ class WalletService {
     }
   }
 
+  /// Restore a wallet by ID using its seed from the Keychain, then open it.
+  /// Used for DB recovery after schema migration failures.
+  Future<void> restoreAndOpenWalletById(String walletId) async {
+    final seed = await SecureKeyStore.getSeedForWallet(networkSeedKey(walletId));
+    if (seed == null || seed.isEmpty) {
+      throw Exception('No seed found in Keychain for wallet $walletId');
+    }
+    final dir = await walletDir(walletId: walletId);
+    final dbKey = await _getDbCipherKey();
+    final birthday = await getLatestBlockHeight();
+    _log.i('[WS] restoreAndOpen: restoring at height $birthday');
+    await rust_engine.engineRestoreFromSeed(
+      dataDir: dir,
+      serverUrl: serverUrl,
+      chainType: _chainType,
+      seedPhrase: seed,
+      birthday: birthday,
+      dbCipherKey: dbKey,
+    );
+    await rust_engine.engineCloseWallet();
+    await _openWalletByIdInternal(walletId);
+  }
+
   /// Delete a wallet: close if active, remove files, remove from registry.
   Future<void> deleteWalletById(String walletId) async {
     _checkBusy();
@@ -678,8 +701,11 @@ class WalletService {
   /// Returns the SecureKeyStore key for the active network's seed.
   /// Mainnet uses the wallet UUID directly; testnet appends '_testnet'
   /// so the two seeds are never confused.
-  String _networkSeedKey(String walletId) =>
+  String networkSeedKey(String walletId) =>
       isTestnet ? '${walletId}_testnet' : walletId;
+
+  // Internal alias for backward compat within this file
+  String _networkSeedKey(String walletId) => networkSeedKey(walletId);
 
   /// One-time migration check: scan all registered wallets and detect any
   /// where the mainnet and testnet seed slots contain identical seeds.

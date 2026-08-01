@@ -33,7 +33,7 @@ use zcash_client_backend::data_api::wallet::{
     ConfirmationsPolicy, SpendingKeys,
 };
 use zcash_client_backend::data_api::wallet::input_selection::LockedInputPolicy;
-use zcash_client_backend::data_api::{Account as _, CoinbaseFilter, InputSource, MaxSpendMode, WalletRead};
+use zcash_client_backend::data_api::{Account as _, CoinbaseFilter, InputSource, MaxSpendMode, OutputLockStore, WalletRead, WalletWrite};
 use zcash_client_backend::fees::StandardFeeRule;
 use zcash_client_backend::proposal::Proposal;
 use zcash_client_backend::proto::service::RawTransaction;
@@ -76,7 +76,7 @@ pub(crate) static PENDING_SEND: StdMutex<Option<ProposalType>> = StdMutex::new(N
 /// Broadcast a raw transaction to all known lightwalletd servers concurrently.
 /// Returns success if at least one server accepts. Falls back to single-server
 /// if the primary is not in our known list (e.g. self-hosted node).
-async fn broadcast_multi(
+pub(crate) async fn broadcast_multi(
     primary_url: &str,
     params: &Network,
     tx_bytes: Vec<u8>,
@@ -198,6 +198,31 @@ pub fn clear_pczt_lock(data_dir: &str) {
     std::fs::remove_file(&lock).ok();
 }
 
+/// Release stale note locks in the wallet DB if no proposal is in-flight.
+/// The SDK locks selected notes during `propose_transfer` to prevent double-spend.
+/// If the app exits/crashes before confirm, those locks persist and block future proposals.
+fn clear_stale_note_locks(db_data: &mut DbType, db_data_path: &Path) {
+    let has_pending = PENDING_SEND.lock().unwrap().is_some();
+    let pczt_exists = pczt_lock_path(db_data_path).exists();
+
+    if has_pending || pczt_exists {
+        return;
+    }
+
+    let account_id = match db_data.get_account_ids() {
+        Ok(ids) => ids.into_iter().next(),
+        Err(_) => None,
+    };
+
+    if let Some(id) = account_id {
+        match db_data.clear_locked_outputs(id) {
+            Ok(0) => {},
+            Ok(n) => info!("Cleared {} stale note lock(s)", n),
+            Err(e) => warn!("Failed to clear note locks: {:?}", e),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Propose / confirm (two-step send flow)
 // ---------------------------------------------------------------------------
@@ -235,6 +260,7 @@ pub async fn propose_send(
     let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
 
     check_pczt_lock(&db_data_path)?;
+    clear_stale_note_locks(&mut db_data, &db_data_path);
 
     let account_id = db_data
         .get_account_ids()
@@ -1168,152 +1194,7 @@ pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
     Ok(txid.to_string())
 }
 
-// ---------------------------------------------------------------------------
-// Ironwood pool transfer (SpendPolicy-restricted to Orchard inputs)
-// ---------------------------------------------------------------------------
-
-use zcash_client_backend::data_api::wallet::{
-    propose_transfer,
-    input_selection::{GreedyInputSelector, SpendPolicy},
-};
-use zcash_client_backend::fees::zip317::SingleOutputChangeStrategy;
-use zcash_client_backend::fees::DustOutputPolicy;
-use zcash_primitives::transaction::TxVersion;
-use zcash_client_backend::zip321;
-
-/// Propose a pool transfer: spends only Orchard notes, sends to own
-/// unified address (routed to Ironwood post-NU6.3).
-///
-/// Stores the proposal in PENDING_SEND for subsequent confirm_send.
-/// Returns (amount_zat, fee_zat).
-pub async fn propose_pool_transfer(
-    amount_zat: u64,
-    is_max: bool,
-) -> Result<(u64, u64)> {
-    super::sync::ensure_synced().await?;
-
-    let engine_guard = ENGINE.lock().await;
-    let engine = engine_guard
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
-
-    let db_data_path = engine.db_data_path.clone();
-    let params = engine.params;
-    let db_cipher_key = engine.db_cipher_key.clone();
-    drop(engine_guard);
-
-    let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
-    check_pczt_lock(&db_data_path)?;
-
-    let account_id = db_data
-        .get_account_ids()
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("No accounts"))?;
-
-    let account = db_data
-        .get_account(account_id)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?
-        .ok_or_else(|| anyhow::anyhow!("Account not found"))?;
-
-    let ufvk = account
-        .ufvk()
-        .ok_or_else(|| anyhow::anyhow!("No UFVK for account"))?;
-
-    let (ua, _) = ufvk
-        .default_address(zcash_keys::keys::UnifiedAddressRequest::ORCHARD)
-        .map_err(|e| anyhow::anyhow!("Address derivation failed: {:?}", e))?;
-
-    let zaddr: ZcashAddress = ua.encode(&params)
-        .parse()
-        .map_err(|e| anyhow::anyhow!("Invalid self-address: {:?}", e))?;
-
-    info!(
-        "[PoolTransfer] Proposing Orchard->Ironwood: {} zat, max={}",
-        amount_zat, is_max
-    );
-
-    if is_max {
-        let proposal = propose_send_max_transfer::<_, _, _, std::convert::Infallible>(
-            &mut db_data,
-            &params,
-            account_id,
-            &[ShieldedProtocol::Orchard],
-            &StandardFeeRule::Zip317,
-            zaddr,
-            None,
-            MaxSpendMode::MaxSpendable,
-            ConfirmationsPolicy::MIN,
-            &LockedInputPolicy::default(),
-            None,
-        )
-        .map_err(|e| anyhow::anyhow!("Pool transfer max proposal failed: {:?}", e))?;
-
-        let fee = u64::from(proposal.steps().first().balance().fee_required());
-        let send_amount = {
-            let balance = proposal.steps().first().balance();
-            let total_in: u64 = u64::from(balance.total());
-            let fee: u64 = u64::from(balance.fee_required());
-            total_in.saturating_sub(fee)
-        };
-
-        info!(
-            "[PoolTransfer] Max: {:.8} ZEC + {:.8} ZEC fee",
-            send_amount as f64 / 1e8,
-            fee as f64 / 1e8
-        );
-
-        *PENDING_SEND.lock().unwrap() = Some(proposal);
-        Ok((send_amount, fee))
-    } else {
-        let send_zat = Zatoshis::from_u64(amount_zat)
-            .map_err(|_| anyhow::anyhow!("Invalid amount"))?;
-
-        let request = zip321::TransactionRequest::new(vec![
-            zip321::Payment::new(
-                zaddr,
-                Some(send_zat),
-                None,
-                None,
-                None,
-                vec![],
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to create payment: {:?}", e))?,
-        ])
-        .map_err(|e| anyhow::anyhow!("TransactionRequest: {:?}", e))?;
-
-        let input_selector = GreedyInputSelector::new();
-        let change_strategy = SingleOutputChangeStrategy::new(
-            StandardFeeRule::Zip317,
-            None,
-            ShieldedProtocol::Orchard,
-            DustOutputPolicy::default(),
-        );
-        let spend_policy = SpendPolicy::shielded_pools([ShieldedProtocol::Orchard]);
-
-        let proposal = propose_transfer::<_, _, _, _, std::convert::Infallible>(
-            &mut db_data,
-            &params,
-            account_id,
-            &input_selector,
-            &change_strategy,
-            request,
-            ConfirmationsPolicy::MIN,
-            &spend_policy,
-            None,
-            Some(TxVersion::V6),
-        )
-        .map_err(|e| anyhow::anyhow!("Pool transfer proposal failed: {:?}", e))?;
-
-        let fee = u64::from(proposal.steps().first().balance().fee_required());
-        info!(
-            "[PoolTransfer] {:.8} ZEC + {:.8} ZEC fee",
-            amount_zat as f64 / 1e8,
-            fee as f64 / 1e8
-        );
-
-        *PENDING_SEND.lock().unwrap() = Some(proposal);
-        Ok((amount_zat, fee))
-    }
-}
+// NOTE: The former `propose_pool_transfer` (manual Orchard → Ironwood path)
+// was removed for ZIP-318 compliance. All migrations now go through
+// `zcash_pool_migration` in ironwood_v2.rs, which handles canonical
+// denominations, boundary-aligned anchors, and unpadded Ironwood bundles.

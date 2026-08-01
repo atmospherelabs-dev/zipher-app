@@ -14,6 +14,7 @@ import workmanager_apple
         UNUserNotificationCenter.current().delegate = self as? UNUserNotificationCenterDelegate
     }
     WorkmanagerPlugin.registerBGProcessingTask(withIdentifier: "background-sync")
+    WorkmanagerPlugin.registerBGProcessingTask(withIdentifier: "ironwood-migration")
 
     protectWalletDirectory()
 
