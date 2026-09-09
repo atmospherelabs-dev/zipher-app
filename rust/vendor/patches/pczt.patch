@@ -1,0 +1,198 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -140,15 +140,17 @@
+ default-features = false
+ 
+ [dependencies.bls12_381]
+-version = "0.8"
+-optional = true
++version = "=1.2.0"
++optional = true
++
++package = "zakura-bls12-381"
+ 
+ [dependencies.document-features]
+ version = "0.2"
+ optional = true
+ 
+ [dependencies.ff]
+-version = "0.13"
++version = "0.14"
+ optional = true
+ default-features = false
+ 
+@@ -156,8 +158,10 @@
+ version = "0.1"
+ 
+ [dependencies.jubjub]
+-version = "0.10"
+-optional = true
++version = "=1.2.0"
++optional = true
++
++package = "zakura-jubjub"
+ 
+ [dependencies.nonempty]
+ version = "0.11"
+@@ -165,13 +169,17 @@
+ default-features = false
+ 
+ [dependencies.orchard]
+-version = "0.15.0"
+-optional = true
+-default-features = false
++version = "=1.2.0"
++optional = true
++default-features = false
++
++package = "zakura-orchard"
+ 
+ [dependencies.pasta_curves]
+-version = "0.5"
+-optional = true
++version = "=1.2.0"
++optional = true
++
++package = "zakura-pasta-curves"
+ 
+ [dependencies.postcard]
+ version = "1"
+@@ -184,15 +192,18 @@
+ default-features = false
+ 
+ [dependencies.redjubjub]
+-version = "0.8"
+-optional = true
+-default-features = false
++version = "=1.2.0"
++optional = true
++default-features = false
++
++package = "zakura-redjubjub"
+ 
+ [dependencies.sapling]
+-version = "0.7"
+-optional = true
+-default-features = false
+-package = "sapling-crypto"
++version = "=1.2.0"
++optional = true
++default-features = false
++
++package = "zakura-sapling-crypto"
+ 
+ [dependencies.secp256k1]
+ version = "0.29"
+@@ -224,9 +235,11 @@
+ optional = true
+ 
+ [dependencies.zcash_primitives]
+-version = "0.30.0"
+-optional = true
+-default-features = false
++version = "=1.2.0"
++optional = true
++default-features = false
++
++package = "zakura-primitives"
+ 
+ [dependencies.zcash_protocol]
+ version = "0.10.4"
+@@ -272,17 +285,21 @@
+ version = "0.7"
+ 
+ [dev-dependencies.zcash_primitives]
+-version = "0.30.0"
++version = "=1.2.0"
+ features = [
+     "test-dependencies",
+     "transparent-inputs",
+ ]
+ default-features = false
+ 
++package = "zakura-primitives"
++
+ [dev-dependencies.zcash_proofs]
+-version = "0.30.0"
++version = "=1.2.0"
+ features = ["bundled-prover"]
+ default-features = false
++
++package = "zakura-proofs"
+ 
+ [dev-dependencies.zcash_protocol]
+ version = "0.10.4"
+@@ -301,3 +318,6 @@
+     'cfg(zcash_unstable, values("nu7"))',
+     "cfg(live_network_tests)",
+ ]
++
++[dependencies.zipher-rng-compat]
++path = "../../crates/rng-compat"
+--- a/src/roles/io_finalizer/mod.rs
++++ b/src/roles/io_finalizer/mod.rs
+@@ -3,7 +3,7 @@
+ //! - Sets the appropriate bits in `Global.tx_modifiable` to 0.
+ //! - Updates the various bsk values using the rcv information from spends and outputs.
+ 
+-use rand_core::OsRng;
++use zipher_rng_compat::OS_RNG as OsRng;
+ use zcash_primitives::transaction::{sighash::SignableInput, txid::TxIdDigester};
+ 
+ use crate::{
+--- a/src/roles/prover/orchard.rs
++++ b/src/roles/prover/orchard.rs
+@@ -1,5 +1,5 @@
+ use orchard::circuit::ProvingKey;
+-use rand_core::OsRng;
++use zipher_rng_compat::OS_RNG as OsRng;
+ 
+ use crate::{Pczt, common::AnchorRequirement};
+ 
+--- a/src/roles/prover/sapling.rs
++++ b/src/roles/prover/sapling.rs
+@@ -1,4 +1,4 @@
+-use rand_core::OsRng;
++use zipher_rng_compat::OS_RNG as OsRng;
+ use sapling::prover::{OutputProver, SpendProver};
+ 
+ use crate::{Pczt, common::AnchorRequirement};
+--- a/src/roles/signer/mod.rs
++++ b/src/roles/signer/mod.rs
+@@ -17,7 +17,7 @@
+ 
+ use blake2b_simd::Hash as Blake2bHash;
+ use orchard::primitives::redpallas;
+-use rand_core::OsRng;
++use zipher_rng_compat::OS_RNG as OsRng;
+ 
+ use ::transparent::sighash::{SIGHASH_ANYONECANPAY, SIGHASH_NONE, SIGHASH_SINGLE};
+ use zcash_primitives::transaction::{
+--- a/src/roles/tx_extractor/mod.rs
++++ b/src/roles/tx_extractor/mod.rs
+@@ -3,7 +3,7 @@
+ //! - Creates bindingSig and extracts the final transaction.
+ 
+ use core::marker::PhantomData;
+-use rand_core::OsRng;
++use zipher_rng_compat::OS_RNG as OsRng;
+ 
+ use zcash_primitives::transaction::{
+     Authorization, Transaction,
+--- a/src/roles/tx_extractor/orchard.rs
++++ b/src/roles/tx_extractor/orchard.rs
+@@ -1,5 +1,5 @@
+ use orchard::{Bundle, bundle::Authorized, circuit::VerifyingKey};
+-use rand_core::OsRng;
++use zipher_rng_compat::OS_RNG as OsRng;
+ use zcash_protocol::value::ZatBalance;
+ 
+ pub(super) fn verify_bundle(
+--- a/src/roles/tx_extractor/sapling.rs
++++ b/src/roles/tx_extractor/sapling.rs
+@@ -1,4 +1,4 @@
+-use rand_core::OsRng;
++use zipher_rng_compat::OS_RNG as OsRng;
+ use sapling::{
+     BatchValidator, Bundle,
+     bundle::Authorized,

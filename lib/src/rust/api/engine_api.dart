@@ -303,16 +303,17 @@ Future<EngineFrostRandomizerResult> engineFrostCreateRandomizer(
     RustLib.instance.api.crateApiEngineApiEngineFrostCreateRandomizer(
         publicKeyPackage: publicKeyPackage);
 
+/// Sign using the scalar randomizer exchanged over the encrypted signing channel.
 Future<String> engineFrostSignRound2(
         {required String signingPackage,
         required String signingNonces,
         required String keyPackage,
-        required String randomizerPointHex}) =>
+        required String randomizerHex}) =>
     RustLib.instance.api.crateApiEngineApiEngineFrostSignRound2(
         signingPackage: signingPackage,
         signingNonces: signingNonces,
         keyPackage: keyPackage,
-        randomizerPointHex: randomizerPointHex);
+        randomizerHex: randomizerHex);
 
 Future<EngineFrostAggregateResult> engineFrostAggregate(
         {required String signingPackage,
@@ -428,39 +429,6 @@ Future<String> engineSignAndBroadcastEvmTx(
         required String rpcUrl}) =>
     RustLib.instance.api.crateApiEngineApiEngineSignAndBroadcastEvmTx(
         seedPhrase: seedPhrase, unsignedTxHex: unsignedTxHex, rpcUrl: rpcUrl);
-
-/// Load a GGUF model and tokenizer from the given file paths.
-/// Must be called before `engine_llm_infer`. Blocks while loading (~1-5s).
-Future<void> engineLlmLoad(
-        {required String modelPath, required String tokenizerPath}) =>
-    RustLib.instance.api.crateApiEngineApiEngineLlmLoad(
-        modelPath: modelPath, tokenizerPath: tokenizerPath);
-
-/// Unload the LLM from memory.
-Future<void> engineLlmUnload() =>
-    RustLib.instance.api.crateApiEngineApiEngineLlmUnload();
-
-/// Check if an LLM model is currently loaded.
-Future<bool> engineLlmIsLoaded() =>
-    RustLib.instance.api.crateApiEngineApiEngineLlmIsLoaded();
-
-/// Run LLM inference on a raw prompt. Returns the generated text.
-Future<String> engineLlmInfer(
-        {required String prompt,
-        required int maxTokens,
-        required double temperature}) =>
-    RustLib.instance.api.crateApiEngineApiEngineLlmInfer(
-        prompt: prompt, maxTokens: maxTokens, temperature: temperature);
-
-/// Build an intent-classification prompt from the user's natural language input.
-/// The returned prompt is ready to pass to `engine_llm_infer`.
-Future<String> engineLlmBuildIntentPrompt({required String userInput}) =>
-    RustLib.instance.api
-        .crateApiEngineApiEngineLlmBuildIntentPrompt(userInput: userInput);
-
-/// Get the recommended model filename, display name, and expected size in bytes.
-Future<EngineLlmModelInfo> engineLlmRecommendedModel() =>
-    RustLib.instance.api.crateApiEngineApiEngineLlmRecommendedModel();
 
 /// Sign the CLOB L1 auth message to derive API credentials.
 /// Returns (polygon_address, eip712_signature_hex).
@@ -1449,32 +1417,6 @@ class EngineInvoice {
           expiresAt == other.expiresAt &&
           createdAt == other.createdAt &&
           productName == other.productName;
-}
-
-/// Info about the recommended LLM model.
-class EngineLlmModelInfo {
-  final String filename;
-  final String displayName;
-  final BigInt sizeBytes;
-
-  const EngineLlmModelInfo({
-    required this.filename,
-    required this.displayName,
-    required this.sizeBytes,
-  });
-
-  @override
-  int get hashCode =>
-      filename.hashCode ^ displayName.hashCode ^ sizeBytes.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is EngineLlmModelInfo &&
-          runtimeType == other.runtimeType &&
-          filename == other.filename &&
-          displayName == other.displayName &&
-          sizeBytes == other.sizeBytes;
 }
 
 /// Multi-chain addresses returned to Dart.

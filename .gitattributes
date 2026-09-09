@@ -1,0 +1,7 @@
+# Preserve the exact imported SDK sources and make their adapters easy to review.
+rust/vendor/pczt/** linguist-vendored -whitespace
+rust/vendor/zcash_client_backend/** linguist-vendored -whitespace
+rust/vendor/zcash_client_sqlite/** linguist-vendored -whitespace
+rust/vendor/zcash_pool_migration/** linguist-vendored -whitespace
+# Unified diffs use a single space for blank context lines.
+rust/vendor/patches/*.patch -whitespace

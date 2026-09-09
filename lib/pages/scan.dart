@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
@@ -207,51 +205,6 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
   _ok() {
     if (formKey.currentState!.validate()) {
       _handleCode(controller.text);
-    }
-  }
-}
-
-class MultiQRReader extends StatefulWidget {
-  final void Function(String?)? onChanged;
-  MultiQRReader({this.onChanged});
-  @override
-  State<StatefulWidget> createState() => _MultiQRReaderState();
-}
-
-class _MultiQRReaderState extends State<MultiQRReader> {
-  final Set<String> fragments = {};
-  double value = 0.0;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        LinearProgressIndicator(
-          value: value,
-          minHeight: 4,
-          backgroundColor: ZipherColors.cardBg,
-          valueColor: AlwaysStoppedAnimation<Color>(ZipherColors.cyan),
-        ),
-        Expanded(
-          child: MobileScanner(
-            onDetect: _onScan,
-          ),
-        ),
-      ],
-    );
-  }
-
-  _onScan(BarcodeCapture capture) {
-    final List<Barcode> barcodes = capture.barcodes;
-    for (final barcode in barcodes) {
-      final text = barcode.rawValue;
-      if (text == null) return;
-      if (!fragments.contains(text)) {
-        fragments.add(text);
-        // TODO: migrate to WalletService - multi-QR merge not yet available
-        setState(() => value = 1.0);
-        widget.onChanged?.call(text);
-      }
     }
   }
 }

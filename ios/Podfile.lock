@@ -1,8 +1,6 @@
 PODS:
   - app_links (0.0.1):
     - Flutter
-  - connectivity_plus (0.0.1):
-    - Flutter
   - DKImagePickerController/Core (4.3.9):
     - DKImagePickerController/ImageDataManager
     - DKImagePickerController/Resource
@@ -50,8 +48,6 @@ PODS:
   - mobile_scanner (7.0.0):
     - Flutter
     - FlutterMacOS
-  - network_info_plus (0.0.1):
-    - Flutter
   - path_provider_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
@@ -84,7 +80,6 @@ PODS:
 
 DEPENDENCIES:
   - app_links (from `.symlinks/plugins/app_links/ios`)
-  - connectivity_plus (from `.symlinks/plugins/connectivity_plus/ios`)
   - DKImagePickerController/PhotoGallery (from `https://github.com/zhangao0086/DKImagePickerController.git`, commit `0bdfeacefa308545adde07bef86e349186335915`)
   - file_picker (from `.symlinks/plugins/file_picker/ios`)
   - Flutter (from `Flutter`)
@@ -93,7 +88,6 @@ DEPENDENCIES:
   - flutter_secure_storage (from `.symlinks/plugins/flutter_secure_storage/ios`)
   - local_auth_darwin (from `.symlinks/plugins/local_auth_darwin/darwin`)
   - mobile_scanner (from `.symlinks/plugins/mobile_scanner/darwin`)
-  - network_info_plus (from `.symlinks/plugins/network_info_plus/ios`)
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
   - quick_actions_ios (from `.symlinks/plugins/quick_actions_ios/ios`)
   - rust_lib_zipher (from `.symlinks/plugins/rust_lib_zipher/ios`)
@@ -115,8 +109,6 @@ SPEC REPOS:
 EXTERNAL SOURCES:
   app_links:
     :path: ".symlinks/plugins/app_links/ios"
-  connectivity_plus:
-    :path: ".symlinks/plugins/connectivity_plus/ios"
   DKImagePickerController:
     :commit: 0bdfeacefa308545adde07bef86e349186335915
     :git: https://github.com/zhangao0086/DKImagePickerController.git
@@ -134,8 +126,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/local_auth_darwin/darwin"
   mobile_scanner:
     :path: ".symlinks/plugins/mobile_scanner/darwin"
-  network_info_plus:
-    :path: ".symlinks/plugins/network_info_plus/ios"
   path_provider_foundation:
     :path: ".symlinks/plugins/path_provider_foundation/darwin"
   quick_actions_ios:
@@ -164,7 +154,6 @@ CHECKOUT OPTIONS:
 
 SPEC CHECKSUMS:
   app_links: e70ca16b4b0f88253b3b3660200d4a10b4ea9795
-  connectivity_plus: 2a701ffec2c0ae28a48cf7540e279787e77c447d
   DKImagePickerController: 946cec48c7873164274ecc4624d19e3da4c1ef3c
   DKPhotoGallery: b3834fecb755ee09a593d7c9e389d8b5d6deed60
   file_picker: b159e0c068aef54932bb15dc9fd1571818edaf49
@@ -174,7 +163,6 @@ SPEC CHECKSUMS:
   flutter_secure_storage: d33dac7ae2ea08509be337e775f6b59f1ff45f12
   local_auth_darwin: 66e40372f1c29f383a314c738c7446e2f7fdadc3
   mobile_scanner: 77265f3dc8d580810e91849d4a0811a90467ed5e
-  network_info_plus: 6d0c3eb8367b8164fa3fb0c19875e3f59d49697f
   path_provider_foundation: 2b6b4c569c0fb62ec74538f866245ac84301af46
   quick_actions_ios: 56f3cbaa71e94f212838d1f9fe354bd0734779bf
   rust_lib_zipher: fc7af29efbfe680a644a7715796c5283661c4f9d

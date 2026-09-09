@@ -25,6 +25,19 @@ This isn't a privacy wrapper on top of a transparent chain. It's the real thing 
 
 ---
 
+## Mobile home
+
+Home keeps the Z page's chat interface and routes commands locally without an AI
+model. It supports guided ZEC sends, receive-address selection with QR/copy,
+ZEC-out swap reviews, history and Zcash plus tracked EVM balances. See
+[chat support and verification](docs/chat-home.md) for the exact boundaries.
+
+The shared engine now uses stable wallet libraries adapted to Zakura Common 1.2.0,
+including Ironwood migration storage. The app calls this engine through FFI;
+it does not run the CLI. See the [stack audit](docs/cli-engine-stack-audit.md) for
+the compatibility patches and the [code audit](docs/code-audit-2026-09-09.md) for
+local verification and remaining release acceptance work.
+
 ## zipher-cli
 
 Headless, local-first Zcash light wallet for AI agents. No full node. No cloud custody. Keys never leave the machine.
@@ -35,7 +48,7 @@ zipher-cli --human balance
 zipher-cli --human polymarket list --keyword bitcoin
 ```
 
-- **Light client** — syncs in minutes, runs on a $5 VPS or Raspberry Pi
+- **Light client** — bounded prefetch and adaptive scanning without running a full node; restore time depends on wallet history and hardware
 - **Two-step send** — propose (no seed) then confirm (seed required), safe for agent workflows
 - **Cross-chain swaps** — ZEC to any asset via NEAR Intents (BTC, ETH, SOL, USDT, BNB, 140+ tokens)
 - **Prediction markets** — Polymarket discovery, position lookup, and alpha trade tooling
@@ -64,7 +77,7 @@ The server holds the seed in memory — tools never accept seed as an argument. 
 
 ## Prediction Markets — Polymarket
 
-Polymarket (Polygon, CLOB, USDC) is the active prediction-market venue. Discovery, position lookup, and alpha bet/sell tooling run in the mobile app's Action Wallet and via `zipher-cli polymarket`.
+Polymarket (Polygon, CLOB, USDC) is the active prediction-market venue. Discovery, position lookup, and alpha bet/sell tooling remain in `zipher-cli polymarket`. They are not part of the mobile home chat; its unused legacy market-action executor was removed.
 
 - **Discovery** — Gamma API event listing with quality filters (volume, spread, distinct outcome prices).
 - **Research** — `market_research` (Firecrawl) for news context; supplies the LLM with a probability-estimate grounding.

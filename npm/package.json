@@ -1,7 +1,7 @@
 {
   "name": "@cipherpay/zipher-cli",
   "version": "0.3.0",
-  "description": "Headless Zcash light wallet for AI agents — CLI + MCP server",
+  "description": "Headless Zcash light wallet for AI agents \u2014 CLI + MCP server",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -24,10 +24,13 @@
     "zipher-mcp-server": "./bin/zipher-mcp-server"
   },
   "scripts": {
-    "postinstall": "node install.js"
+    "postinstall": "node install.js",
+    "test": "node --test test/*.test.js"
   },
   "files": [
     "bin/",
+    "native/",
+    "run.js",
     "install.js",
     "mcp.json"
   ],

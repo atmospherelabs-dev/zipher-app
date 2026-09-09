@@ -20,7 +20,7 @@ tracing-subscriber = { version = "0.3", features = ["fmt"] }
 dirs = "6"
 ctrlc = "3"
 anyhow = "1"
-zcash_protocol = "0.10.0-pre.0"
+zcash_protocol = { workspace = true }
 zeroize = "1"
 toml = "0.8"
 sha2 = "0.10.9"

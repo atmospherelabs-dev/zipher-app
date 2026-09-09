@@ -1,3 +1,4 @@
+import 'pages/unavailable.dart';
 import 'package:flutter/foundation.dart';
 import 'package:showcaseview/showcaseview.dart';
 
@@ -19,20 +20,15 @@ import 'pages/accounts/rescan.dart';
 import 'pages/accounts/send.dart';
 import 'pages/accounts/split.dart';
 import 'pages/accounts/submit.dart';
-import 'pages/accounts/txplan.dart';
 import 'pages/main/home.dart';
 import 'pages/more/about.dart';
 import 'pages/more/backup.dart';
-import 'pages/more/batch.dart';
 import 'pages/more/contacts.dart';
-import 'pages/more/keytool.dart';
 import 'pages/more/memos.dart';
 import 'pages/more/more.dart';
-import 'pages/more/sweep.dart';
 import 'pages/more/debug_log.dart';
-import 'pages/more/governance.dart';
 import 'pages/more/ironwood.dart';
-import 'pages/action/action.dart';
+import 'pages/action/wallet_chat.dart';
 import 'services/frost_service.dart';
 import 'pages/cipherpay/invoice_pay.dart';
 import 'pages/cipherpay/invoice_status.dart';
@@ -111,6 +107,15 @@ final router = GoRouter(
   observers: [_UnfocusOnNavigation()],
   routes: [
     GoRoute(path: '/', redirect: (context, state) => '/account'),
+    GoRoute(
+      path: '/ask',
+      redirect: (context, state) => Uri(
+              path: '/account',
+              queryParameters: state.uri.queryParameters.isEmpty
+                  ? null
+                  : state.uri.queryParameters)
+          .toString(),
+    ),
     StatefulShellRoute.indexedStack(
       builder: (context, state, shell) => ScaffoldBar(shell: shell),
       branches: [
@@ -119,12 +124,18 @@ final router = GoRouter(
           routes: [
             GoRoute(
               path: '/account',
-              builder: (context, state) => HomePage(),
+              builder: (context, state) => WalletChatPage(
+                initialIntent: state.uri.queryParameters['intent'],
+              ),
               redirect: (context, state) {
                 if (aa.id == 0) return '/welcome';
                 return null;
               },
               routes: [
+                GoRoute(
+                  path: 'overview',
+                  builder: (context, state) => HomePage(),
+                ),
                 GoRoute(
                   path: 'swap',
                   builder: (context, state) => NearSwapPage(),
@@ -137,26 +148,22 @@ final router = GoRouter(
                 ),
                 GoRoute(
                   path: 'txplan',
-                  builder: (context, state) => TxPlanPage(
-                    state.extra as String,
-                    tab: state.uri.queryParameters['tab']!,
-                    signOnly: state.uri.queryParameters['sign'] != null,
-                    isShield: state.uri.queryParameters['shield'] != null,
-                  ),
+                  builder: (context, state) =>
+                      const UnavailablePage('Legacy transaction signing'),
                 ),
                 GoRoute(
                   path: 'submit_tx',
                   builder: (context, state) {
                     if (state.extra == null) {
-                      return SubmitTxPage(useConfirmSend: true);
+                      return const SubmitTxPage();
                     }
-                    return SubmitTxPage(txPlan: state.extra as String);
+                    return const UnavailablePage('Legacy transaction signing');
                   },
                 ),
                 GoRoute(
                   path: 'broadcast_tx',
                   builder: (context, state) =>
-                      SubmitTxPage(txBin: state.extra as String),
+                      const UnavailablePage('Legacy transaction broadcast'),
                 ),
                 GoRoute(
                   path: 'export_raw_tx',
@@ -171,11 +178,13 @@ final router = GoRouter(
                   path: 'quick_send',
                   pageBuilder: (context, state) {
                     bool custom = state.uri.queryParameters['custom'] == '1';
-                    return _slideUpPage(QuickSendPage(
-                      custom: custom,
-                      single: true,
-                      sendContext: state.extra as SendContext?,
-                    ), state);
+                    return _slideUpPage(
+                        QuickSendPage(
+                          custom: custom,
+                          single: true,
+                          sendContext: state.extra as SendContext?,
+                        ),
+                        state);
                   },
                   routes: [
                     GoRoute(
@@ -195,9 +204,13 @@ final router = GoRouter(
                 ),
                 GoRoute(
                   path: 'action',
-                  builder: (context, state) {
+                  redirect: (context, state) {
                     final intent = state.uri.queryParameters['intent'];
-                    return ActionPage(initialIntent: intent);
+                    return Uri(
+                            path: '/account',
+                            queryParameters:
+                                intent == null ? null : {'intent': intent})
+                        .toString();
                   },
                 ),
                 GoRoute(
@@ -244,17 +257,6 @@ final router = GoRouter(
         StatefulShellBranch(
           routes: [
             GoRoute(
-              path: '/ask',
-              builder: (context, state) {
-                final intent = state.uri.queryParameters['intent'];
-                return ActionPage(initialIntent: intent);
-              },
-            ),
-          ],
-        ),
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
                 path: '/more',
                 builder: (context, state) => MorePage(),
                 routes: [
@@ -275,7 +277,8 @@ final router = GoRouter(
                       routes: [
                         GoRoute(
                           path: 'sign',
-                          builder: (context, state) => ColdSignPage(),
+                          builder: (context, state) => const UnavailablePage(
+                              'Legacy transaction signing'),
                         ),
                         GoRoute(
                           path: 'signed',
@@ -284,12 +287,14 @@ final router = GoRouter(
                         ),
                         GoRoute(
                           path: 'broadcast',
-                          builder: (context, state) => BroadcastTxPage(),
+                          builder: (context, state) => const UnavailablePage(
+                              'Legacy transaction broadcast'),
                         ),
                       ]),
                   GoRoute(
                     path: 'batch_backup',
-                    builder: (context, state) => BatchBackupPage(),
+                    builder: (context, state) =>
+                        const UnavailablePage('App data backup'),
                   ),
                   GoRoute(
                     path: 'backup',
@@ -297,7 +302,8 @@ final router = GoRouter(
                     routes: [
                       GoRoute(
                         path: 'keygen',
-                        builder: (context, state) => KeygenPage(),
+                        builder: (context, state) =>
+                            const UnavailablePage('Backup key generation'),
                       ),
                     ],
                   ),
@@ -307,15 +313,17 @@ final router = GoRouter(
                   ),
                   GoRoute(
                     path: 'rewind',
-                    builder: (context, state) => RewindPage(),
+                    builder: (context, state) => RescanPage(),
                   ),
                   GoRoute(
                     path: 'keytool',
-                    builder: (context, state) => KeyToolPage(),
+                    builder: (context, state) =>
+                        const UnavailablePage('Key derivation tool'),
                   ),
                   GoRoute(
                     path: 'sweep',
-                    builder: (context, state) => SweepPage(),
+                    builder: (context, state) =>
+                        const UnavailablePage('Private key sweep'),
                   ),
                   GoRoute(
                     path: 'debug_log',
@@ -323,7 +331,8 @@ final router = GoRouter(
                   ),
                   GoRoute(
                     path: 'governance',
-                    builder: (context, state) => const GovernancePage(),
+                    builder: (context, state) =>
+                        const UnavailablePage('Governance voting'),
                   ),
                   GoRoute(
                     path: 'ironwood',
@@ -336,7 +345,7 @@ final router = GoRouter(
                   GoRoute(
                     path: 'submit_tx',
                     builder: (context, state) =>
-                        SubmitTxPage(txPlan: state.extra as String),
+                        const UnavailablePage('Legacy transaction signing'),
                   ),
                   GoRoute(
                     path: 'memos',
@@ -369,7 +378,7 @@ final router = GoRouter(
                       GoRoute(
                         path: 'submit_tx',
                         builder: (context, state) =>
-                            SubmitTxPage(txPlan: state.extra as String),
+                            const UnavailablePage('Legacy transaction signing'),
                       ),
                     ],
                   ),
@@ -409,7 +418,8 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/scan',
-      pageBuilder: (context, state) => _slideUpPage(ScanQRCodePage(state.extra as ScanQRContext), state),
+      pageBuilder: (context, state) =>
+          _slideUpPage(ScanQRCodePage(state.extra as ScanQRContext), state),
     ),
     GoRoute(
       path: '/showqr',
@@ -421,28 +431,33 @@ final router = GoRouter(
       path: '/invoice/pay',
       pageBuilder: (context, state) {
         final ref = state.extra as InvoicePayArgs;
-        return _slideUpPage(InvoicePayPage(
-          invoiceRef: ref.invoiceRef,
-          prefetched: ref.prefetched,
-        ), state);
+        return _slideUpPage(
+            InvoicePayPage(
+              invoiceRef: ref.invoiceRef,
+              prefetched: ref.prefetched,
+            ),
+            state);
       },
     ),
     GoRoute(
       path: '/invoice/status',
-      pageBuilder: (context, state) =>
-          _slideUpPage(InvoiceStatusPage(args: state.extra as InvoiceStatusArgs), state),
+      pageBuilder: (context, state) => _slideUpPage(
+          InvoiceStatusPage(args: state.extra as InvoiceStatusArgs), state),
     ),
     GoRoute(
       path: '/wallet/frost',
-      pageBuilder: (context, state) => _slideUpPage(const FrostHubPage(), state),
+      pageBuilder: (context, state) =>
+          _slideUpPage(const FrostHubPage(), state),
     ),
     GoRoute(
       path: '/wallet/create/frost',
-      pageBuilder: (context, state) => _slideUpPage(const FrostCreatePage(), state),
+      pageBuilder: (context, state) =>
+          _slideUpPage(const FrostCreatePage(), state),
     ),
     GoRoute(
       path: '/wallet/join',
-      pageBuilder: (context, state) => _slideUpPage(const FrostJoinPage(), state),
+      pageBuilder: (context, state) =>
+          _slideUpPage(const FrostJoinPage(), state),
     ),
     GoRoute(
       path: '/frost/approve',
@@ -453,16 +468,18 @@ final router = GoRouter(
         }
         final request =
             FrostApprovalRequest.fromPayload(state.uri.queryParameters);
-        return _slideUpPage(FrostApprovePage(
-          args: FrostApprovalArgs(
-            sessionId: request.sessionId,
-            walletName: request.walletLabel,
-            destination: request.destination,
-            zatoshis: request.zatoshis,
-            feeZec: request.feeZec,
-            memoPreview: request.memoPreview,
-          ),
-        ), state);
+        return _slideUpPage(
+            FrostApprovePage(
+              args: FrostApprovalArgs(
+                sessionId: request.sessionId,
+                walletName: request.walletLabel,
+                destination: request.destination,
+                zatoshis: request.zatoshis,
+                feeZec: request.feeZec,
+                memoPreview: request.memoPreview,
+              ),
+            ),
+            state);
       },
     ),
     GoRoute(
@@ -477,14 +494,18 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/frost/recovery',
-      pageBuilder: (context, state) => _slideUpPage(FrostRecoveryPage(
-        walletId: state.uri.queryParameters['walletId'] ?? '',
-      ), state),
+      pageBuilder: (context, state) => _slideUpPage(
+          FrostRecoveryPage(
+            walletId: state.uri.queryParameters['walletId'] ?? '',
+          ),
+          state),
     ),
     GoRoute(
       path: '/frost/sign',
-      pageBuilder: (context, state) => _slideUpPage(FrostSignCoordinatorPage(
-          args: state.extra as FrostSignCoordinatorArgs), state),
+      pageBuilder: (context, state) => _slideUpPage(
+          FrostSignCoordinatorPage(
+              args: state.extra as FrostSignCoordinatorArgs),
+          state),
     ),
   ],
 );
@@ -506,7 +527,8 @@ class ScaffoldBar extends StatefulWidget {
   State<ScaffoldBar> createState() => _ScaffoldBar();
 }
 
-class _ScaffoldBar extends State<ScaffoldBar> with SingleTickerProviderStateMixin {
+class _ScaffoldBar extends State<ScaffoldBar>
+    with SingleTickerProviderStateMixin {
   int _knownCoin = aa.coin;
   int _knownId = aa.id;
   bool _knownTestnet = isTestnet;
@@ -537,11 +559,11 @@ class _ScaffoldBar extends State<ScaffoldBar> with SingleTickerProviderStateMixi
     if (aa.coin != _knownCoin || aa.id != _knownId) {
       _knownCoin = aa.coin;
       _knownId = aa.id;
-      _staleTabs.addAll([0, 1, 2, 3]);
+      _staleTabs.addAll([0, 1, 2]);
     }
     if (isTestnet != _knownTestnet) {
       _knownTestnet = isTestnet;
-      _staleTabs.addAll([0, 1, 2, 3]);
+      _staleTabs.addAll([0, 1, 2]);
     }
     final isCurrentTab = i == widget.shell.currentIndex;
     final isStale = _staleTabs.remove(i);
@@ -578,141 +600,145 @@ class _ScaffoldBar extends State<ScaffoldBar> with SingleTickerProviderStateMixi
               ),
             ),
             child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: List.generate(4, (i) {
-                        final isActive = widget.shell.currentIndex == i;
-                        final isZButton = i == 2;
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [0, 1, 2].map((i) {
+                    final isActive = widget.shell.currentIndex == i;
+                    final isZButton = i == 0;
 
-                        if (isZButton) {
-                          final zActive = isActive;
-                          return Expanded(
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () {
-                                _zBounce.forward(from: 0);
-                                _goToBranch(i);
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  ScaleTransition(
-                                    scale: _zScale,
-                                    child: Container(
-                                      width: 42,
-                                      height: 42,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: zActive
-                                            ? ZipherColors.surfaceLight
-                                            : ZipherColors.surface,
-                                        border: Border.all(
-                                          color: zActive
-                                              ? ZipherColors.cyan.withValues(alpha: 0.4)
-                                              : ZipherColors.border,
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: Center(
-                                        child: AnimatedDefaultTextStyle(
-                                          duration: const Duration(milliseconds: 200),
-                                          style: TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.w800,
-                                            fontFamily: 'JetBrains Mono',
-                                            color: zActive
-                                                ? ZipherColors.textPrimary
-                                                : ZipherColors.text40,
-                                          ),
-                                          child: const Text('Z'),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              ),
-                            ),
-                          );
-                        }
-
-                        final navIndex = i < 2 ? i : i - 1;
-                        final icons = [
-                          Icons.home_outlined,
-                          isTestnet
-                              ? Icons.water_drop_outlined
-                              : Icons.swap_horiz_outlined,
-                          Icons.more_horiz_rounded,
-                        ];
-                        final activeIcons = [
-                          Icons.home_rounded,
-                          isTestnet
-                              ? Icons.water_drop_rounded
-                              : Icons.swap_horiz_rounded,
-                          Icons.more_horiz_rounded,
-                        ];
-                        final labels = [
-                          'Home',
-                          isTestnet ? 'Faucet' : 'Swap',
-                          'More'
-                        ];
-                        return Expanded(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () => _goToBranch(i),
-                            child: Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  AnimatedContainer(
-                                    duration: const Duration(milliseconds: 200),
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 16, vertical: 6),
+                    if (isZButton) {
+                      final zActive = widget.shell.currentIndex == 0;
+                      return Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            _zBounce.forward(from: 0);
+                            _goToBranch(0);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ScaleTransition(
+                                  scale: _zScale,
+                                  child: Container(
+                                    width: 42,
+                                    height: 42,
                                     decoration: BoxDecoration(
-                                      color: isActive
-                                          ? ZipherColors.cyan
-                                              .withValues(alpha: 0.10)
-                                          : Colors.transparent,
-                                      borderRadius:
-                                          BorderRadius.circular(ZipherRadius.md),
+                                      shape: BoxShape.circle,
+                                      color: zActive
+                                          ? ZipherColors.surfaceLight
+                                          : ZipherColors.surface,
+                                      border: Border.all(
+                                        color: zActive
+                                            ? ZipherColors.cyan
+                                                .withValues(alpha: 0.4)
+                                            : ZipherColors.border,
+                                        width: 1,
+                                      ),
                                     ),
-                                    child: Icon(
-                                      isActive ? activeIcons[navIndex] : icons[navIndex],
-                                      size: 24,
-                                      color: isActive
-                                          ? ZipherColors.cyan
-                                          : ZipherColors.text20,
+                                    child: Center(
+                                      child: AnimatedDefaultTextStyle(
+                                        duration:
+                                            const Duration(milliseconds: 200),
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w800,
+                                          fontFamily: 'JetBrains Mono',
+                                          color: zActive
+                                              ? ZipherColors.textPrimary
+                                              : ZipherColors.text40,
+                                        ),
+                                        child: const Text('Z'),
+                                      ),
                                     ),
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    labels[navIndex],
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: isActive
-                                          ? FontWeight.w600
-                                          : FontWeight.w400,
-                                      color: isActive
-                                          ? ZipherColors.cyan
-                                          : ZipherColors.text20,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
-                        );
-                      }),
-                    ),
-                  ),
+                        ),
+                      );
+                    }
+
+                    final navIndex = i;
+                    final icons = [
+                      Icons.home_outlined,
+                      isTestnet
+                          ? Icons.water_drop_outlined
+                          : Icons.swap_horiz_outlined,
+                      Icons.more_horiz_rounded,
+                    ];
+                    final activeIcons = [
+                      Icons.home_rounded,
+                      isTestnet
+                          ? Icons.water_drop_rounded
+                          : Icons.swap_horiz_rounded,
+                      Icons.more_horiz_rounded,
+                    ];
+                    final labels = [
+                      'Home',
+                      isTestnet ? 'Faucet' : 'Swap',
+                      'More'
+                    ];
+                    return Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _goToBranch(i),
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: isActive
+                                      ? ZipherColors.cyan
+                                          .withValues(alpha: 0.10)
+                                      : Colors.transparent,
+                                  borderRadius:
+                                      BorderRadius.circular(ZipherRadius.md),
+                                ),
+                                child: Icon(
+                                  isActive
+                                      ? activeIcons[navIndex]
+                                      : icons[navIndex],
+                                  size: 24,
+                                  color: isActive
+                                      ? ZipherColors.cyan
+                                      : ZipherColors.text20,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                labels[navIndex],
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: isActive
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: isActive
+                                      ? ZipherColors.cyan
+                                      : ZipherColors.text20,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
                 ),
               ),
+            ),
+          ),
           body: ShowCaseWidget(builder: (context) => widget.shell),
         ));
   }

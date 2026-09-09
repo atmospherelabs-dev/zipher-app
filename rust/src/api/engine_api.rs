@@ -792,17 +792,18 @@ pub fn engine_frost_create_randomizer(
     Ok(zipher_engine::frost::frost_create_randomizer(public_key_package)?.into())
 }
 
+/// Sign using the scalar randomizer exchanged over the encrypted signing channel.
 pub fn engine_frost_sign_round2(
     signing_package: String,
     signing_nonces: String,
     key_package: String,
-    randomizer_point_hex: String,
+    randomizer_hex: String,
 ) -> Result<String> {
     zipher_engine::frost::frost_sign_round2(
         signing_package,
         signing_nonces,
         key_package,
-        randomizer_point_hex,
+        randomizer_hex,
     )
 }
 
@@ -1006,54 +1007,6 @@ pub async fn engine_sign_and_broadcast_evm_tx(
     let unsigned_bytes =
         hex::decode(&unsigned_tx_hex).map_err(|e| anyhow::anyhow!("Invalid hex: {}", e))?;
     zipher_engine::ows::sign_and_broadcast_evm_tx(&seed_phrase, &unsigned_bytes, &rpc_url).await
-}
-
-// ---------------------------------------------------------------------------
-// On-device LLM — candle-based GGUF inference
-// ---------------------------------------------------------------------------
-
-/// Load a GGUF model and tokenizer from the given file paths.
-/// Must be called before `engine_llm_infer`. Blocks while loading (~1-5s).
-pub fn engine_llm_load(model_path: String, tokenizer_path: String) -> Result<()> {
-    zipher_engine::llm::load_model(&model_path, &tokenizer_path)
-}
-
-/// Unload the LLM from memory.
-pub fn engine_llm_unload() -> Result<()> {
-    zipher_engine::llm::unload_model()
-}
-
-/// Check if an LLM model is currently loaded.
-pub fn engine_llm_is_loaded() -> bool {
-    zipher_engine::llm::is_model_loaded()
-}
-
-/// Run LLM inference on a raw prompt. Returns the generated text.
-pub fn engine_llm_infer(prompt: String, max_tokens: u32, temperature: f64) -> Result<String> {
-    zipher_engine::llm::infer(&prompt, max_tokens, temperature)
-}
-
-/// Build an intent-classification prompt from the user's natural language input.
-/// The returned prompt is ready to pass to `engine_llm_infer`.
-pub fn engine_llm_build_intent_prompt(user_input: String) -> String {
-    zipher_engine::llm::build_intent_prompt(&user_input)
-}
-
-/// Get the recommended model filename, display name, and expected size in bytes.
-pub fn engine_llm_recommended_model() -> EngineLlmModelInfo {
-    let (filename, name, size) = zipher_engine::llm::recommended_model();
-    EngineLlmModelInfo {
-        filename: filename.to_string(),
-        display_name: name.to_string(),
-        size_bytes: size,
-    }
-}
-
-/// Info about the recommended LLM model.
-pub struct EngineLlmModelInfo {
-    pub filename: String,
-    pub display_name: String,
-    pub size_bytes: u64,
 }
 
 // ---------------------------------------------------------------------------

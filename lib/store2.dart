@@ -9,6 +9,8 @@ import 'pages/utils.dart';
 import 'accounts.dart';
 import 'coin/coins.dart';
 import 'services/wallet_service.dart';
+import 'services/coalescing_refresh.dart';
+import 'services/contact_store.dart';
 
 part 'store2.g.dart';
 part 'store2.freezed.dart';
@@ -28,15 +30,19 @@ abstract class _AppStore with Store {
 StreamSubscription<dynamic>? _syncEventSubscription;
 
 void initSyncListener() {
+  final generation = _syncGeneration;
   _syncEventSubscription ??= WalletService.instance.syncEvents().listen(
-        syncStatus2.applyEngineEvent,
-        onError: (Object e) => logger.d('[Sync] event stream error: $e'),
-      );
+    (event) {
+      if (generation == _syncGeneration) syncStatus2.applyEngineEvent(event);
+    },
+    onError: (Object e) => logger.d('[Sync] event stream error: $e'),
+  );
 }
 
 Timer? syncTimer;
 DateTime? _boostUntil;
 DateTime? _lastSyncEventAt;
+int _syncGeneration = 0;
 
 /// Temporarily force fast (5s) polling for 2 minutes.
 /// Call after user-initiated actions like send or opening receive page.
@@ -44,9 +50,10 @@ void boostSyncPolling() {
   _boostUntil = DateTime.now().add(const Duration(minutes: 2));
   syncTimer?.cancel();
   syncTimer = null;
+  final generation = _syncGeneration;
   Future(() async {
     await syncStatus2.sync();
-    _scheduleNextSync();
+    if (generation == _syncGeneration) _scheduleNextSync();
   });
 }
 
@@ -60,31 +67,39 @@ bool isSyncBoosted() {
 }
 
 Future<void> startAutoSync() async {
+  if (!WalletService.instance.isWalletOpen) return;
   if (syncTimer == null) {
     logger.i('[Sync] startAutoSync');
     initSyncListener();
+    final generation = _syncGeneration;
     await syncStatus2.sync();
-    _scheduleNextSync();
+    if (generation == _syncGeneration) _scheduleNextSync();
   }
 }
 
 void _scheduleNextSync() {
+  if (!WalletService.instance.isWalletOpen || syncStatus2.paused) return;
+  final generation = _syncGeneration;
   final now = DateTime.now();
   final streamRecentlyActive = _lastSyncEventAt != null &&
       now.difference(_lastSyncEventAt!) < const Duration(seconds: 60);
   final boosted = isSyncBoosted() || _hasPendingZcashActivity();
   final fast = syncStatus2.syncing || syncStatus2.isMaintaining || boosted;
-  final base = streamRecentlyActive
-      ? const Duration(seconds: 60)
-      : fast
-          ? const Duration(seconds: 5)
-          : const Duration(seconds: 30);
+  final base = boosted
+      ? const Duration(seconds: 5)
+      : streamRecentlyActive
+          ? const Duration(seconds: 60)
+          : fast
+              ? const Duration(seconds: 5)
+              : const Duration(seconds: 30);
   final jitter = 0.75 + Random().nextDouble() * 0.5;
   final interval =
       Duration(milliseconds: (base.inMilliseconds * jitter).round());
   syncTimer?.cancel();
   syncTimer = Timer(interval, () {
-    syncStatus2.sync().then((_) => _scheduleNextSync());
+    syncStatus2.sync().then((_) {
+      if (generation == _syncGeneration) _scheduleNextSync();
+    });
   });
 }
 
@@ -221,6 +236,24 @@ abstract class _SyncStatus2 with Store {
   bool _needsInitialUpdate = true;
   bool _syncInProgress = false;
   DateTime? _lastAccountUpdateAt;
+  CoalescingRefresh? _accountRefresh;
+  ActiveAccount2? _refreshAccountOwner;
+
+  Future<void> _refreshAccount() {
+    if (!identical(_refreshAccountOwner, aa)) {
+      _accountRefresh?.dispose();
+      final account = aa;
+      _refreshAccountOwner = account;
+      _accountRefresh = CoalescingRefresh(() async {
+        if (!identical(aa, account) ||
+            !WalletService.instance.isWalletOpen ||
+            WalletService.instance.isBusy) return;
+        await account.update(syncedHeight);
+        if (identical(aa, account)) _lastAccountUpdateAt = DateTime.now();
+      });
+    }
+    return _accountRefresh!.request();
+  }
 
   /// Called by the adaptive timer (5s while syncing, 30s when caught up).
   /// Starts the sync engine once, then polls heights and connection status.
@@ -230,6 +263,7 @@ abstract class _SyncStatus2 with Store {
     if (!WalletService.instance.isWalletOpen) return;
     if (_syncInProgress) return;
     _syncInProgress = true;
+    final generation = _syncGeneration;
 
     try {
       if (restart) {
@@ -238,18 +272,22 @@ abstract class _SyncStatus2 with Store {
           await WalletService.instance.stopSync();
           await Future.delayed(const Duration(milliseconds: 200));
         } catch (_) {}
+        if (generation != _syncGeneration) return;
         _syncStarted = false;
         connectionError = null;
         connected = true;
         logger.d('[Sync] manual restart requested');
       }
-      await _syncInternal();
+      if (generation != _syncGeneration) return;
+      await _syncInternal(generation);
     } finally {
-      _syncInProgress = false;
+      if (generation == _syncGeneration) _syncInProgress = false;
     }
   }
 
-  Future<void> _syncInternal() async {
+  Future<void> _syncInternal(int generation) async {
+    bool current() =>
+        generation == _syncGeneration && WalletService.instance.isWalletOpen;
     // Start sync once — it runs forever after this
     if (!_syncStarted) {
       _syncStarted = true;
@@ -257,7 +295,9 @@ abstract class _SyncStatus2 with Store {
         logger.i(
             '[Sync] starting engine, server=${WalletService.instance.serverUrl}');
         await WalletService.instance.startSync();
+        if (!current()) return;
       } catch (e) {
+        if (!current()) return;
         final msg = e.toString();
         final lower = msg.toLowerCase();
         if (lower.contains('already') || lower.contains('syncalreadyrunning')) {
@@ -265,10 +305,13 @@ abstract class _SyncStatus2 with Store {
               .d('[Sync] sync still running from previous wallet, stopping...');
           await WalletService.instance.stopSync();
           await Future.delayed(const Duration(milliseconds: 500));
+          if (!current()) return;
           try {
             await WalletService.instance.startSync();
+            if (!current()) return;
             logger.d('[Sync] sync restarted for current wallet');
           } catch (e2) {
+            if (!current()) return;
             logger.e('[Sync] restart failed: $e2');
             _syncStarted = false;
             return;
@@ -284,6 +327,7 @@ abstract class _SyncStatus2 with Store {
     // Poll progress and connection status
     try {
       final progress = await WalletService.instance.getEngineSyncProgress();
+      if (!current()) return;
 
       connectionError = progress.connectionError;
       maintenanceError = progress.maintenanceError;
@@ -306,6 +350,7 @@ abstract class _SyncStatus2 with Store {
       }
 
       final h = await WalletService.instance.getWalletSyncedHeight();
+      if (!current()) return;
       final activeScanHeight =
           progress.phase == 'verifying' ? 0 : progress.scanningUpTo;
       final effectiveH = progress.syncedHeight > 0
@@ -328,8 +373,8 @@ abstract class _SyncStatus2 with Store {
 
       if (_needsInitialUpdate) {
         _needsInitialUpdate = false;
-        await aa.update(syncedHeight);
-        _lastAccountUpdateAt = DateTime.now();
+        await _refreshAccount();
+        if (!current()) return;
         logger.d('[Sync] initial update done at $syncedHeight');
       }
 
@@ -344,13 +389,13 @@ abstract class _SyncStatus2 with Store {
           logger.i('[Sync] catching up from $syncedHeight to $lh');
         }
         if (_shouldRefreshAccountWhileSyncing()) {
-          await aa.update(syncedHeight);
-          _lastAccountUpdateAt = DateTime.now();
+          await _refreshAccount();
         }
       } else if (lh != null && syncedHeight >= lh - 1) {
         if (syncing || isRescan) {
           syncedHeight = lh;
           await WalletService.instance.snapshotAfterSync();
+          if (!current()) return;
           contacts.fetchContacts();
           marketPrice.update();
           syncing = false;
@@ -358,8 +403,7 @@ abstract class _SyncStatus2 with Store {
           eta.end();
           logger.i('[Sync] completed at $syncedHeight');
         }
-        await aa.update(syncedHeight);
-        _lastAccountUpdateAt = DateTime.now();
+        await _refreshAccount();
       }
     } catch (e) {
       logger.d('[Sync] poll error: $e');
@@ -393,8 +437,7 @@ abstract class _SyncStatus2 with Store {
           blocksScanned = eventScanned;
           blocksTotal = eventTotal;
         }
-      } catch (_) {
-      }
+      } catch (_) {}
       // Flip `syncing = true` immediately on the first engine event that
       // tells us we're behind the chain tip, so the home-screen sync bar
       // can render right away (as an indeterminate striped bar until we
@@ -427,20 +470,10 @@ abstract class _SyncStatus2 with Store {
     } else if (eventType == 'engine_log') {
       final msg = event.message as String?;
       if (msg != null) logger.i('[Engine] $msg');
-    } else if (eventType == 'transaction_updated') {
-      final txid = event.txid as String?;
-      final status = event.status as String?;
-      logger.i('[Engine] tx $eventType: ${txid ?? '?'} → ${status ?? '?'}');
-      Future(() async {
-        if (!WalletService.instance.isWalletOpen) return;
-        await aa.update(syncedHeight);
-        _lastAccountUpdateAt = DateTime.now();
-      });
-    } else if (eventType == 'balance_maybe_changed') {
-      Future(() async {
-        if (!WalletService.instance.isWalletOpen) return;
-        await aa.update(syncedHeight);
-        _lastAccountUpdateAt = DateTime.now();
+    } else if (eventType == 'transaction_updated' ||
+        eventType == 'balance_maybe_changed') {
+      _refreshAccount().catchError((Object _) {
+        logger.d('[Sync] account refresh deferred until next poll');
       });
     }
   }
@@ -465,6 +498,8 @@ abstract class _SyncStatus2 with Store {
       await WalletService.instance.rescanFromBirthday();
     } catch (e) {
       logger.e('[Sync] rescan failed: $e');
+      isRescan = false;
+      rethrow;
     }
   }
 
@@ -472,7 +507,13 @@ abstract class _SyncStatus2 with Store {
   /// Also cancels the auto-sync timer so [startAutoSync] re-arms it.
   @action
   void resetForWalletSwitch() {
+    _syncGeneration++;
+    _syncInProgress = false;
     _syncStarted = false;
+    _boostUntil = null;
+    _lastSyncEventAt = null;
+    latestHeight = null;
+    connected = true;
     syncing = false;
     // Wallet-switch / restore flows often set `paused = true` to halt
     // the current wallet's sync before closing it. The previous version
@@ -491,6 +532,9 @@ abstract class _SyncStatus2 with Store {
     blocksScanned = 0;
     blocksTotal = 0;
     _lastAccountUpdateAt = null;
+    _accountRefresh?.dispose();
+    _accountRefresh = null;
+    _refreshAccountOwner = null;
     eta.end();
     syncTimer?.cancel();
     syncTimer = null;
@@ -595,29 +639,6 @@ abstract class _MarketPrice with Store {
 }
 
 var contacts = ContactStore();
-
-class ContactStore = _ContactStore with _$ContactStore;
-
-abstract class _ContactStore with Store {
-  @observable
-  ObservableList<Contact> contacts = ObservableList<Contact>.of([]);
-
-  @action
-  void fetchContacts() {
-    // Contacts are stored in SharedPreferences in the new engine
-    // TODO: migrate contact storage
-  }
-
-  @action
-  void add(Contact c) {
-    contacts.add(c);
-  }
-
-  @action
-  void remove(Contact c) {
-    contacts.removeWhere((contact) => contact.id == c.id);
-  }
-}
 
 class AccountBalanceSnapshot {
   final int coin;

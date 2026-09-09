@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
 
 import '../../generated/intl/messages.dart';
 import '../../store2.dart';
@@ -88,7 +89,9 @@ class SyncStatusState extends State<SyncStatusWidget>
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Observer(builder: (_) => _buildStatus(context));
+
+  Widget _buildStatus(BuildContext context) {
     final syncing = syncStatus2.syncing;
     final connected = syncStatus2.connected;
     final maintaining = syncStatus2.isMaintaining;

@@ -1,0 +1,29 @@
+{
+  "zakura_common": "1.2.0",
+  "crates": [
+    {
+      "crate": "zcash_client_backend",
+      "version": "0.24.0",
+      "sha256": "07ad58d8ca5daacbc089bf82ec09e45cf2a8be40adeb40b9399b16545c81a528",
+      "source": "https://crates.io/api/v1/crates/zcash_client_backend/0.24.0/download"
+    },
+    {
+      "crate": "zcash_client_sqlite",
+      "version": "0.22.0",
+      "sha256": "dd92e4334619b1e3f67019254049318ec0d0240a3c15d853bdf2ac4bba597078",
+      "source": "https://crates.io/api/v1/crates/zcash_client_sqlite/0.22.0/download"
+    },
+    {
+      "crate": "zcash_pool_migration",
+      "version": "0.1.0",
+      "sha256": "6188c544911aad647bdb0730d18a0309991da1ccbbdab0415d4ef3113ecadcb3",
+      "source": "https://crates.io/api/v1/crates/zcash_pool_migration/0.1.0/download"
+    },
+    {
+      "crate": "pczt",
+      "version": "0.9.3",
+      "sha256": "a5592f4f3eba7f9344cc423f45b6e65911e0630c9b89968d5a20792aadd5a0eb",
+      "source": "https://crates.io/api/v1/crates/pczt/0.9.3/download"
+    }
+  ]
+}

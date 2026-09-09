@@ -1204,13 +1204,13 @@ class FrostService {
     required String signingPackage,
     required String signingNonces,
     required String keyPackage,
-    required String randomizerPointHex,
+    required String randomizerHex,
   }) {
     return rust_engine.engineFrostSignRound2(
       signingPackage: signingPackage,
       signingNonces: signingNonces,
       keyPackage: keyPackage,
-      randomizerPointHex: randomizerPointHex,
+      randomizerHex: randomizerHex,
     );
   }
 
@@ -1461,7 +1461,7 @@ class FrostService {
       for (final m in msgs) {
         final decoded = jsonDecode(utf8.decode(_hexDecode(m['msg'] as String)))
             as Map<String, dynamic>;
-        if (decoded['type'] == 'frost_signing_packages_v1') {
+        if (decoded['type'] == 'frost_signing_packages_v2') {
           pkg = decoded;
           break;
         }
@@ -1481,7 +1481,7 @@ class FrostService {
         signingPackage: data['signing_package'] as String,
         signingNonces: state.nonceHandlesByAction[actionIndex]!,
         keyPackage: keyPackage,
-        randomizerPointHex: data['randomizer_point_hex'] as String,
+        randomizerHex: data['randomizer_hex'] as String,
       );
     }
     final reply = jsonEncode({
@@ -1557,7 +1557,7 @@ class FrostService {
       );
       signingPackages[action.actionIndex.toString()] = {
         'signing_package': signingPackage,
-        'randomizer_point_hex': action.randomizerPointHex,
+        'randomizer_hex': action.randomizerHex,
       };
     }
     await client.sendEncrypted(
@@ -1565,7 +1565,7 @@ class FrostService {
       recipients: [coSigner],
       recipientPublicKeyHex: coSigner,
       messageHex: _hexEncode(utf8.encode(jsonEncode({
-        'type': 'frost_signing_packages_v1',
+        'type': 'frost_signing_packages_v2',
         'packages': signingPackages,
       }))),
     );
@@ -1599,7 +1599,7 @@ class FrostService {
         signingPackage: pkg['signing_package'] as String,
         signingNonces: localNonces[action.actionIndex]!,
         keyPackage: localKey,
-        randomizerPointHex: action.randomizerPointHex,
+        randomizerHex: action.randomizerHex,
       );
       final agg = await aggregate(
         signingPackage: pkg['signing_package'] as String,

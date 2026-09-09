@@ -15,11 +15,7 @@ import '../utils.dart';
 import '../widgets.dart';
 
 class SubmitTxPage extends StatefulWidget {
-  final String? txPlan;
-  final String? txBin;
-  /// When true, calls WalletService.confirmSend() (new engine propose/confirm flow).
-  final bool useConfirmSend;
-  SubmitTxPage({this.txPlan, this.txBin, this.useConfirmSend = false});
+  const SubmitTxPage({super.key});
   @override
   State<StatefulWidget> createState() => _SubmitTxState();
 }
@@ -33,13 +29,7 @@ class _SubmitTxState extends State<SubmitTxPage> {
     super.initState();
     Future(() async {
       try {
-        if (widget.useConfirmSend) {
-          txId = await WalletService.instance.confirmSend();
-        } else if (widget.txPlan != null) {
-          txId = 'stub_tx_id';
-        } else if (widget.txBin != null) {
-          txId = 'stub_tx_id';
-        }
+        txId = await WalletService.instance.confirmSend();
         await commitOutgoingMemo(txId!);
         if (shieldPending) {
           lastShieldSubmit = DateTime.now();
@@ -69,8 +59,7 @@ class _SubmitTxState extends State<SubmitTxPage> {
           if (txId != null || error != null)
             IconButton(
               onPressed: _done,
-              icon: Icon(Icons.close_rounded,
-                  color: ZipherColors.text40),
+              icon: Icon(Icons.close_rounded, color: ZipherColors.text40),
             ),
         ],
       ),
@@ -182,17 +171,14 @@ class _SubmitTxState extends State<SubmitTxPage> {
               );
             },
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
                 color: ZipherColors.cardBg,
                 borderRadius: BorderRadius.circular(ZipherRadius.md),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.tag_rounded,
-                      size: 16,
-                      color: ZipherColors.text20),
+                  Icon(Icons.tag_rounded, size: 16, color: ZipherColors.text20),
                   const Gap(10),
                   Expanded(
                     child: Text(
@@ -205,8 +191,7 @@ class _SubmitTxState extends State<SubmitTxPage> {
                     ),
                   ),
                   Icon(Icons.copy_rounded,
-                      size: 14,
-                      color: ZipherColors.text20),
+                      size: 14, color: ZipherColors.text20),
                 ],
               ),
             ),
@@ -233,16 +218,14 @@ class _SubmitTxState extends State<SubmitTxPage> {
                     children: [
                       Icon(Icons.pending_outlined,
                           size: 16,
-                          color:
-                              ZipherColors.cyan.withValues(alpha: 0.7)),
+                          color: ZipherColors.cyan.withValues(alpha: 0.7)),
                       const Gap(8),
                       Text(
                         'View on CipherScan',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
-                          color:
-                              ZipherColors.cyan.withValues(alpha: 0.7),
+                          color: ZipherColors.cyan.withValues(alpha: 0.7),
                         ),
                       ),
                     ],
@@ -280,16 +263,14 @@ class _SubmitTxState extends State<SubmitTxPage> {
                     children: [
                       Icon(Icons.check_rounded,
                           size: 20,
-                          color:
-                              ZipherColors.cyan.withValues(alpha: 0.9)),
+                          color: ZipherColors.cyan.withValues(alpha: 0.9)),
                       const Gap(8),
                       Text(
                         'Done',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
-                          color:
-                              ZipherColors.cyan.withValues(alpha: 0.9),
+                          color: ZipherColors.cyan.withValues(alpha: 0.9),
                         ),
                       ),
                     ],
@@ -354,8 +335,7 @@ class _SubmitTxState extends State<SubmitTxPage> {
           // Error details card
           Container(
             width: double.infinity,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: ZipherColors.red.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(ZipherRadius.md),
@@ -389,17 +369,14 @@ class _SubmitTxState extends State<SubmitTxPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.arrow_back_rounded,
-                          size: 18,
-                          color:
-                              ZipherColors.text60),
+                          size: 18, color: ZipherColors.text60),
                       const Gap(8),
                       Text(
                         'Go Back',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
-                          color:
-                              ZipherColors.text60,
+                          color: ZipherColors.text60,
                         ),
                       ),
                     ],
@@ -466,16 +443,14 @@ class ExportUnsignedTxPage extends StatelessWidget {
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
           IconButton(
             onPressed: () => _export(context),
             icon: Icon(Icons.save_alt_rounded,
-                size: 20,
-                color: ZipherColors.cyan.withValues(alpha: 0.7)),
+                size: 20, color: ZipherColors.cyan.withValues(alpha: 0.7)),
           ),
         ],
       ),

@@ -11,7 +11,6 @@ use frost_core::{
     round2::SignatureShare,
     Ciphersuite, Field, Group, Identifier, Scalar, Signature, SigningPackage, VerifyingKey,
 };
-use frost_rerandomized::RandomizedParams;
 use rand::{rngs::OsRng, RngCore};
 use reddsa::frost::redpallas::PallasBlake2b512;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -582,7 +581,6 @@ fn signing_package_from_wire(encoded: &str) -> Result<FrostSigningPackage> {
 pub fn frost_create_randomizer(public_key_package: String) -> Result<FrostRandomizerResult> {
     let _public_key_package = public_key_package_from_wire(&public_key_package)?;
     let random_scalar = <<FrostSuite as Ciphersuite>::Group as Group>::Field::random(&mut OsRng);
-    let randomizer = frost_rerandomized::Randomizer::<FrostSuite>::from_scalar(random_scalar);
     let randomizer_point = <FrostSuite as Ciphersuite>::Group::generator() * random_scalar;
     Ok(FrostRandomizerResult {
         randomizer_hex: scalar_to_hex(&random_scalar),
@@ -594,7 +592,7 @@ pub fn frost_sign_round2(
     signing_package: String,
     signing_nonces: String,
     key_package: String,
-    randomizer_point_hex: String,
+    randomizer_hex: String,
 ) -> Result<String> {
     let signing_package = signing_package_from_wire(&signing_package)?;
     let signing_nonces = SIGNING_NONCES
@@ -603,7 +601,7 @@ pub fn frost_sign_round2(
         .remove(&signing_nonces)
         .ok_or_else(|| anyhow!("Unknown or already-used signing nonce handle"))?;
     let key_package = key_package_from_wire(&key_package)?;
-    let randomizer_scalar = scalar_from_hex(&randomizer_point_hex)?;
+    let randomizer_scalar = scalar_from_hex(&randomizer_hex)?;
     let randomizer = frost_rerandomized::Randomizer::<FrostSuite>::from_scalar(randomizer_scalar);
     #[allow(deprecated)]
     let share =
@@ -988,14 +986,14 @@ mod tests {
             signing_package.clone(),
             s1.signing_nonces,
             c1.key_package,
-            randomizer.randomizer_point_hex.clone(),
+            randomizer.randomizer_hex.clone(),
         )
         .unwrap();
         let share2 = frost_sign_round2(
             signing_package.clone(),
             s2.signing_nonces,
             c2.key_package,
-            randomizer.randomizer_point_hex,
+            randomizer.randomizer_hex.clone(),
         )
         .unwrap();
 
@@ -1003,7 +1001,7 @@ mod tests {
             signing_package,
             BTreeMap::from([(1, share1), (2, share2)]),
             c1.public_key_package,
-            randomizer.randomizer_hex,
+            randomizer.randomizer_hex.clone(),
         )
         .unwrap();
         assert_eq!(sig.signature_hex.len(), 128);

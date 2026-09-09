@@ -147,7 +147,7 @@ pub async fn verify_tor_connection() -> Result<u64> {
 async fn resolve_height(server_url: &str, height: u32) -> Result<u64> {
     if height == 0 {
         let tip = fetch_latest_height(server_url).await?;
-        println!("[engine] height was 0, resolved to chain tip {}", tip);
+        tracing::debug!(chain_tip = tip, "Resolved wallet birthday to chain tip");
         Ok(tip)
     } else {
         Ok(height as u64)
@@ -211,7 +211,6 @@ pub async fn create(
     db_cipher_key: Option<String>,
     vault_passphrase: Option<&str>,
 ) -> Result<String> {
-    println!("[engine] create wallet dir={} height={}", data_dir, chain_height);
     let (db_data_path, db_cache_path) = db_paths(data_dir);
 
     let height = resolve_height(server_url, chain_height).await?;
@@ -226,10 +225,9 @@ pub async fn create(
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
     init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db: {:?}", e))?;
 
-    let (account_id, _usk) = db
+    let (_account_id, _usk) = db
         .create_account("Main", &seed, &birthday, None)
         .map_err(|e| anyhow::anyhow!("create_account: {:?}", e))?;
-    println!("[engine] created account {:?}", account_id);
 
     if let Some(passphrase) = vault_passphrase {
         Vault::create(data_dir, &SecretString::new(phrase.clone()), passphrase)?;
@@ -252,11 +250,10 @@ pub async fn restore(
     db_cipher_key: Option<String>,
     vault_passphrase: Option<&str>,
 ) -> Result<()> {
-    println!("[engine] restore wallet dir={} birthday={}", data_dir, birthday_height);
     let (db_data_path, db_cache_path) = db_paths(data_dir);
 
     let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase)
-        .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
+        .map_err(|_| anyhow::anyhow!("Invalid seed phrase"))?;
     let seed = SecretVec::new(mnemonic.to_seed("").to_vec());
 
     let height = resolve_height(server_url, birthday_height).await?;
@@ -265,10 +262,9 @@ pub async fn restore(
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
     init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db: {:?}", e))?;
 
-    let (account_id, _usk) = db
+    let (_account_id, _usk) = db
         .create_account("Restored", &seed, &birthday, None)
         .map_err(|e| anyhow::anyhow!("create_account: {:?}", e))?;
-    println!("[engine] restored account {:?}", account_id);
 
     if let Some(passphrase) = vault_passphrase {
         Vault::create(data_dir, &SecretString::new(seed_phrase.to_string()), passphrase)?;
@@ -287,7 +283,6 @@ pub async fn restore_from_ufvk(
     birthday_height: u32,
     db_cipher_key: Option<String>,
 ) -> Result<()> {
-    println!("[engine] restore from UFVK dir={} birthday={}", data_dir, birthday_height);
     let (db_data_path, db_cache_path) = db_paths(data_dir);
 
     let height = resolve_height(server_url, birthday_height).await?;
@@ -308,7 +303,6 @@ pub async fn restore_from_ufvk(
             None,
         )
         .map_err(|e| anyhow::anyhow!("import_account_ufvk: {:?}", e))?;
-    println!("[engine] imported watch-only account");
 
     activate_engine(db_data_path, db_cache_path, params, server_url, height, db_cipher_key).await;
     Ok(())

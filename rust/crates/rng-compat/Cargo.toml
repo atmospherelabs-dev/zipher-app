@@ -1,0 +1,12 @@
+[package]
+name = "zipher-rng-compat"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+rand_core = "0.10"
+rand_core_06 = { package = "rand_core", version = "0.6", features = ["getrandom"] }
+
+[dev-dependencies]
+rand_chacha = "0.3"

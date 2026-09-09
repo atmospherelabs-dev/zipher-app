@@ -4,10 +4,13 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../zipher_theme.dart';
 import '../../accounts.dart';
+import '../../services/app_log.dart';
 import '../../services/wallet_service.dart';
 import '../../services/ironwood_watch_service.dart';
 import '../../src/rust/api/engine_api.dart' as engine;
 import '../utils.dart';
+
+final _log = createLogger();
 
 class IronwoodPage extends StatefulWidget {
   const IronwoodPage({super.key});
@@ -16,7 +19,7 @@ class IronwoodPage extends StatefulWidget {
   State<IronwoodPage> createState() => _IronwoodState();
 }
 
-enum _Phase { warning, ready, roundInProgress, success, error }
+enum _Phase { warning, planReview, ready, roundInProgress, success, error }
 
 class _IronwoodState extends State<IronwoodPage> {
   static const _prefTor = 'ironwood_tor_enabled';
@@ -28,6 +31,7 @@ class _IronwoodState extends State<IronwoodPage> {
   bool _torBootstrapping = false;
   int? _torVerifiedHeight;
   engine.IronwoodSdkProgress? _sdkProgress;
+  engine.IronwoodSdkPlan? _sdkPlan;
 
   int get _orchardBalance => aa.poolBalances.totalOrchard;
 
@@ -41,15 +45,17 @@ class _IronwoodState extends State<IronwoodPage> {
     final prefs = await SharedPreferences.getInstance();
     final savedTor = prefs.getBool(_prefTor) ?? false;
 
-    // Check if SDK migration is in progress
     try {
       final progress = await IronwoodWatchService.instance.refreshStatus();
       _sdkProgress = progress;
+      _log.i('[Ironwood/UI] status check: ${_fmtProgress(progress)}');
       if (progress.status == 'committed' || progress.status == 'in_progress') {
         _phase = _Phase.ready;
         _autoMode = true;
       }
-    } catch (_) {}
+    } catch (e) {
+      _log.d('[Ironwood/UI] no active migration: $e');
+    }
 
     if (IronwoodWatchService.instance.isRoundInProgress) {
       _phase = _Phase.roundInProgress;
@@ -110,6 +116,7 @@ class _IronwoodState extends State<IronwoodPage> {
   /// Manually trigger the next SDK tick (prove + broadcast the next due tx).
   Future<void> _triggerTick() async {
     if (IronwoodWatchService.instance.isRoundInProgress) {
+      _log.w('[Ironwood/UI] tick blocked — round already in progress');
       setState(() {
         _error = 'A migration round is already in progress. Please wait.';
         _phase = _Phase.error;
@@ -117,6 +124,7 @@ class _IronwoodState extends State<IronwoodPage> {
       return;
     }
 
+    _log.i('[Ironwood/UI] tick triggered by user');
     setState(() {
       _phase = _Phase.roundInProgress;
       _error = null;
@@ -126,9 +134,11 @@ class _IronwoodState extends State<IronwoodPage> {
     try {
       final seed = await WalletService.instance.getSeedPhrase();
       if (seed == null) throw Exception('Could not access wallet seed');
+      _log.d('[Ironwood/UI] seed obtained, calling engineIronwoodSdkTick...');
 
       final result = await engine.engineIronwoodSdkTick(seedPhrase: seed);
       _sdkProgress = result;
+      _log.i('[Ironwood/UI] tick result: ${_fmtProgress(result)}');
 
       if (result.status == 'complete') {
         setState(() => _phase = _Phase.success);
@@ -136,6 +146,7 @@ class _IronwoodState extends State<IronwoodPage> {
         setState(() => _phase = _Phase.ready);
       }
     } catch (e) {
+      _log.e('[Ironwood/UI] tick error: $e');
       final msg = e.toString();
       String userMessage;
       if (msg.contains('No transfer in progress')) {
@@ -152,7 +163,31 @@ class _IronwoodState extends State<IronwoodPage> {
     }
   }
 
-  Future<void> _startAutoMigration() async {
+  Future<void> _fetchPlan() async {
+    _log.i('[Ironwood/UI] fetching migration plan...');
+    setState(() {
+      _phase = _Phase.roundInProgress;
+      _error = null;
+    });
+    try {
+      final plan = await IronwoodWatchService.instance.planMigration();
+      _sdkPlan = plan;
+      _log.i('[Ironwood/UI] plan: ${plan.transferTxCount} transfers, '
+          '${plan.prepTxCount} prep (${plan.prepLayers} layers), '
+          '${plan.totalTxCount} total, '
+          'crossings=${plan.crossingValues.map((v) => v).toList()}');
+      setState(() => _phase = _Phase.planReview);
+    } catch (e) {
+      _log.e('[Ironwood/UI] plan failed: $e');
+      setState(() {
+        _error = e.toString();
+        _phase = _Phase.error;
+      });
+    }
+  }
+
+  Future<void> _confirmAndCommit() async {
+    _log.i('[Ironwood/UI] user confirmed plan, committing...');
     setState(() {
       _phase = _Phase.roundInProgress;
       _error = null;
@@ -160,11 +195,13 @@ class _IronwoodState extends State<IronwoodPage> {
     try {
       final progress = await IronwoodWatchService.instance.commitMigration();
       _sdkProgress = progress;
+      _log.i('[Ironwood/UI] commit OK: ${_fmtProgress(progress)}');
       setState(() {
         _autoMode = true;
         _phase = _Phase.ready;
       });
     } catch (e) {
+      _log.e('[Ironwood/UI] commit failed: $e');
       setState(() {
         _error = e.toString();
         _phase = _Phase.error;
@@ -173,9 +210,12 @@ class _IronwoodState extends State<IronwoodPage> {
   }
 
   Future<void> _stopAutoMigration() async {
+    _log.i('[Ironwood/UI] cancelling migration');
     try {
       await IronwoodWatchService.instance.cancelMigration();
-    } catch (_) {}
+    } catch (e) {
+      _log.w('[Ironwood/UI] cancel error: $e');
+    }
     setState(() {
       _autoMode = false;
       _sdkProgress = null;
@@ -228,6 +268,8 @@ class _IronwoodState extends State<IronwoodPage> {
     switch (_phase) {
       case _Phase.warning:
         return _buildWarningView();
+      case _Phase.planReview:
+        return _buildPlanReviewView();
       case _Phase.ready:
         return _buildReadyView();
       case _Phase.roundInProgress:
@@ -435,9 +477,187 @@ class _IronwoodState extends State<IronwoodPage> {
     );
   }
 
+  Widget _buildPlanReviewView() {
+    final plan = _sdkPlan;
+    if (plan == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final zec = BigInt.from(100000000);
+    final totalZec = plan.totalMigratingZat ~/ zec;
+    final totalFrac = (plan.totalMigratingZat % zec).toString().padLeft(8, '0');
+    final feeZec = plan.estimatedTotalFeeZat ~/ zec;
+    final feeFrac = (plan.estimatedTotalFeeZat % zec).toString().padLeft(8, '0');
+
+    return ListView(
+      children: [
+        const Gap(24),
+        Icon(Icons.account_tree_outlined, color: ZipherColors.warm, size: 48),
+        const Gap(16),
+        Text(
+          'Migration Plan',
+          style: TextStyle(
+            color: ZipherColors.textPrimary,
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const Gap(8),
+        Text(
+          'The SDK will split your balance into standard denominations '
+          'and migrate each one separately.',
+          style: TextStyle(color: ZipherColors.text60, fontSize: 13),
+          textAlign: TextAlign.center,
+        ),
+        const Gap(24),
+
+        // Denomination breakdown
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: ZipherColors.cardBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: ZipherColors.borderSubtle),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Crossing Denominations',
+                  style: TextStyle(
+                    color: ZipherColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  )),
+              const Gap(12),
+              ...plan.crossingValues.map((v) {
+                final whole = v ~/ zec;
+                final frac = (v % zec).toString().padLeft(8, '0');
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    children: [
+                      Icon(Icons.arrow_forward_rounded,
+                          size: 14, color: ZipherColors.warm),
+                      const Gap(8),
+                      Text(
+                        '$whole.$frac ZEC',
+                        style: TextStyle(
+                          color: ZipherColors.textPrimary,
+                          fontSize: 14,
+                          fontFamily: 'JetBrains Mono',
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+        const Gap(16),
+
+        // Summary stats
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: ZipherColors.cardBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: ZipherColors.borderSubtle),
+          ),
+          child: Column(
+            children: [
+              _planRow('Total migrating', '$totalZec.$totalFrac ZEC'),
+              const Gap(8),
+              _planRow('Estimated fees', '$feeZec.$feeFrac ZEC'),
+              const Gap(8),
+              _planRow('Preparation txs', '${plan.prepTxCount} (${plan.prepLayers} layers)'),
+              _planRow('Transfer txs', '${plan.transferTxCount}'),
+              const Gap(8),
+              Divider(color: ZipherColors.borderSubtle),
+              const Gap(4),
+              _planRow('Total transactions', '${plan.totalTxCount}'),
+            ],
+          ),
+        ),
+        const Gap(12),
+
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: ZipherColors.warm.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: ZipherColors.warm.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.schedule_rounded, color: ZipherColors.warm, size: 16),
+              const Gap(10),
+              Expanded(
+                child: Text(
+                  'Each transaction will be broadcast as its scheduled block '
+                  'height arrives. The process runs automatically once started.',
+                  style: TextStyle(color: ZipherColors.text60, fontSize: 12, height: 1.4),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Gap(32),
+
+        SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: ElevatedButton(
+            onPressed: _confirmAndCommit,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: ZipherColors.warm,
+              foregroundColor: ZipherColors.bg,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Start Migration',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+        const Gap(12),
+        Center(
+          child: TextButton(
+            onPressed: () => setState(() => _phase = _Phase.ready),
+            child: Text('Cancel', style: TextStyle(color: ZipherColors.text40)),
+          ),
+        ),
+        const Gap(40),
+      ],
+    );
+  }
+
+  Widget _planRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: TextStyle(color: ZipherColors.text40, fontSize: 13)),
+        Text(value, style: TextStyle(
+          color: ZipherColors.textPrimary,
+          fontSize: 13,
+          fontFamily: 'JetBrains Mono',
+        )),
+      ],
+    );
+  }
+
   Widget _buildReadyView() {
     final orchard = _orchardBalance;
-    if (orchard == 0) {
+    final p = _sdkProgress;
+    final hasActiveMigration = p != null &&
+        (p.status == 'committed' || p.status == 'in_progress') &&
+        p.status != 'complete';
+
+    if (orchard == 0 && !hasActiveMigration) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -462,6 +682,10 @@ class _IronwoodState extends State<IronwoodPage> {
           ],
         ),
       );
+    }
+
+    if (orchard == 0 && hasActiveMigration) {
+      return _buildStuckMigrationView(p);
     }
 
     return ListView(
@@ -635,7 +859,7 @@ class _IronwoodState extends State<IronwoodPage> {
                 value: _autoMode,
                 onChanged: (v) {
                   if (v) {
-                    _startAutoMigration();
+                    _fetchPlan();
                   } else {
                     _stopAutoMigration();
                   }
@@ -717,36 +941,150 @@ class _IronwoodState extends State<IronwoodPage> {
 
         // Process next (only when migration is active)
         if (_autoMode) ...[
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
-              onPressed: _triggerTick,
-              icon: const Icon(Icons.fast_forward_rounded, size: 18),
-              label: const Text(
-                'Process Next Transaction',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: ZipherColors.warm.withValues(alpha: 0.12),
-                foregroundColor: ZipherColors.warm,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+          Builder(builder: (_) {
+            final p = _sdkProgress;
+            final hasPendingBroadcast = p != null && p.broadcastCount > p.confirmedCount;
+            return Column(
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: hasPendingBroadcast ? null : _triggerTick,
+                    icon: Icon(
+                      hasPendingBroadcast ? Icons.hourglass_top_rounded : Icons.fast_forward_rounded,
+                      size: 18,
+                    ),
+                    label: Text(
+                      hasPendingBroadcast
+                          ? 'Waiting for Confirmation...'
+                          : 'Process Next Transaction',
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: hasPendingBroadcast
+                          ? ZipherColors.text10.withValues(alpha: 0.08)
+                          : ZipherColors.warm.withValues(alpha: 0.12),
+                      foregroundColor: hasPendingBroadcast
+                          ? ZipherColors.text40
+                          : ZipherColors.warm,
+                      disabledBackgroundColor: ZipherColors.text10.withValues(alpha: 0.08),
+                      disabledForegroundColor: ZipherColors.text40,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                  ),
                 ),
-                elevation: 0,
-              ),
-            ),
-          ),
-          const Gap(8),
-          Center(
-            child: Text(
-              'Prove and broadcast the next due transaction now',
-              style: TextStyle(color: ZipherColors.text40, fontSize: 11),
-            ),
-          ),
+                const Gap(8),
+                Center(
+                  child: Text(
+                    hasPendingBroadcast
+                        ? 'Previous transaction must confirm before the next can be proved'
+                        : 'Prove and broadcast the next due transaction now',
+                    style: TextStyle(color: ZipherColors.text40, fontSize: 11),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            );
+          }),
         ],
         const Gap(32),
       ],
+    );
+  }
+
+  Widget _buildStuckMigrationView(engine.IronwoodSdkProgress p) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.warning_amber_rounded, color: ZipherColors.warm, size: 56),
+            const Gap(16),
+            Text(
+              'Migration Stuck',
+              style: TextStyle(
+                color: ZipherColors.textPrimary,
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Gap(12),
+            Text(
+              'A previous migration has ${p.broadcastCount} broadcast transactions '
+              'that were never confirmed. They likely expired before being mined.',
+              style: TextStyle(color: ZipherColors.text60, fontSize: 13),
+              textAlign: TextAlign.center,
+            ),
+            const Gap(8),
+            Text(
+              '${p.confirmedCount}/${p.totalTxCount} confirmed',
+              style: TextStyle(
+                color: ZipherColors.textPrimary,
+                fontSize: 14,
+                fontFamily: 'JetBrains Mono',
+              ),
+            ),
+            const Gap(24),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: ZipherColors.warm.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: ZipherColors.warm.withValues(alpha: 0.2)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline, color: ZipherColors.warm, size: 16),
+                  const Gap(10),
+                  Expanded(
+                    child: Text(
+                      'Cancelling clears the stale state. No funds are lost — '
+                      'expired transactions are automatically returned to your wallet. '
+                      'You can start a fresh migration afterwards.',
+                      style: TextStyle(color: ZipherColors.text60, fontSize: 12, height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Gap(24),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed: () async {
+                  await _stopAutoMigration();
+                  setState(() => _phase = _Phase.ready);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: ZipherColors.warm,
+                  foregroundColor: ZipherColors.bg,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Cancel Stale Migration',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const Gap(12),
+            Center(
+              child: TextButton(
+                onPressed: () => context.pop(),
+                child: Text('Back', style: TextStyle(color: ZipherColors.text40)),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -909,5 +1247,18 @@ class _IronwoodState extends State<IronwoodPage> {
         ],
       ),
     );
+  }
+
+  static String _fmtProgress(engine.IronwoodSdkProgress p) {
+    final zec = BigInt.from(100000000);
+    final crossings = p.crossingValues.map((v) => '${v ~/ zec}.${(v % zec).toString().padLeft(8, '0')}').join(', ');
+    return 'status=${p.status} '
+        'txs=${p.confirmedCount}/${p.totalTxCount} '
+        'broadcast=${p.broadcastCount} '
+        'planned=${p.totalPlannedZat ~/ zec}.${(p.totalPlannedZat % zec).toString().padLeft(8, '0')}ZEC '
+        'confirmed=${p.totalConfirmedZat ~/ zec}.${(p.totalConfirmedZat % zec).toString().padLeft(8, '0')}ZEC '
+        'nextDueH=${p.nextDueHeight} '
+        'fees=${p.feesPaidZat}zat '
+        'crossings=[$crossings]';
   }
 }

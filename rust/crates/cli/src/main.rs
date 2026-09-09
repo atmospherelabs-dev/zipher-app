@@ -212,11 +212,6 @@ enum Commands {
         ows_wallet: String,
     },
 
-    /// Governance voting (check eligibility, delegate, cast vote)
-    #[cfg(feature = "voting")]
-    #[command(subcommand)]
-    Vote(VoteCmd),
-
     /// Ironwood pool transfer — migrate Orchard funds per ZIP 318
     #[command(subcommand)]
     Ironwood(IronwoodCmd),
@@ -638,23 +633,12 @@ enum FrostCmd {
     },
 }
 
-#[cfg(feature = "voting")]
-#[derive(Subcommand)]
-enum VoteCmd {
-    /// Check your voting eligibility for a governance round
-    Eligibility {
-        /// Snapshot height for the vote round
-        #[arg(long)]
-        snapshot_height: u64,
-    },
-}
-
 #[derive(Subcommand)]
 enum IronwoodCmd {
-    /// Show the proposed transfer plan (denominations, fees, duration)
+    /// Show the SDK transfer plan (requires an unlocked signing seed)
     Plan,
 
-    /// Confirm and start the scheduled pool transfer
+    /// Legacy execution entry point (currently unavailable; use the wallet app)
     Confirm {
         /// Enable Tor for broadcasting migration transactions
         #[arg(long)]
@@ -664,10 +648,10 @@ enum IronwoodCmd {
     /// Show progress of an active transfer
     Status,
 
-    /// Pause an active transfer
+    /// Legacy pause entry point (currently unavailable; use the wallet app)
     Pause,
 
-    /// Resume a paused transfer
+    /// Legacy resume entry point (currently unavailable; use the wallet app)
     Resume,
 }
 
@@ -1038,53 +1022,7 @@ async fn main() {
                 Err(e) => Err(e),
             }
         }
-        #[cfg(feature = "voting")]
-        Commands::Vote(sub) => match sub {
-            VoteCmd::Eligibility { snapshot_height } => {
-                let open_res = async {
-                    helpers::ensure_sapling_params(&cfg.data_dir).await?;
-                    helpers::auto_open(&cfg).await?;
-                    Ok::<(), anyhow::Error>(())
-                }.await;
-                if let Err(e) = open_res {
-                    Err(e)
-                } else {
-                    match zipher_engine::voting::check_eligibility(snapshot_height).await {
-                        Ok((total_value, note_count, bundle_count)) => {
-                            print_ok(
-                                serde_json::json!({
-                                    "eligible": total_value > 0,
-                                    "total_zatoshis": total_value,
-                                    "total_zec": total_value as f64 / 1e8,
-                                    "note_count": note_count,
-                                    "bundle_count": bundle_count,
-                                    "snapshot_height": snapshot_height,
-                                }),
-                                cfg.human,
-                                |d| {
-                                    let e = d.get("eligible").and_then(|v| v.as_bool()).unwrap_or(false);
-                                    if e {
-                                        eprintln!("Eligible: {} ZEC ({} notes, {} bundles)",
-                                            d.get("total_zec").unwrap_or(&serde_json::json!(0)),
-                                            d.get("note_count").unwrap_or(&serde_json::json!(0)),
-                                            d.get("bundle_count").unwrap_or(&serde_json::json!(0)),
-                                        );
-                                    } else {
-                                        eprintln!("Not eligible: no shielded notes at snapshot height {}", snapshot_height);
-                                    }
-                                },
-                            );
-                            zipher_engine::wallet::close().await;
-                            Ok(())
-                        }
-                        Err(e) => {
-                            zipher_engine::wallet::close().await;
-                            Err(e)
-                        }
-                    }
-                }
-            }
-        },
+
     };
 
     if let Err(e) = result {

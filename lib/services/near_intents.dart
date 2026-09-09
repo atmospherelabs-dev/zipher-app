@@ -34,7 +34,7 @@ class NearIntentsService {
     final resp = await http.get(
       Uri.parse('$_baseUrl/tokens'),
       headers: _headers(),
-    );
+    ).timeout(const Duration(seconds: 20));
     if (resp.statusCode ~/ 100 != 2) {
       throw NearIntentsException('Failed to fetch tokens: ${resp.statusCode}', resp.body);
     }
@@ -122,7 +122,7 @@ class NearIntentsService {
       Uri.parse('$_baseUrl/quote'),
       headers: _headers(auth: true),
       body: jsonEncode(body),
-    );
+    ).timeout(const Duration(seconds: 30));
     if (resp.statusCode ~/ 100 != 2) {
       final errBody = _tryParseError(resp.body);
       throw NearIntentsException(
@@ -144,7 +144,7 @@ class NearIntentsService {
         'txHash': txHash,
         'depositAddress': depositAddress,
       }),
-    );
+    ).timeout(const Duration(seconds: 20));
     if (resp.statusCode ~/ 100 != 2) {
       throw NearIntentsException(
         'Deposit submit failed: ${resp.statusCode}',
@@ -157,7 +157,7 @@ class NearIntentsService {
     final uri = Uri.parse('$_baseUrl/status').replace(
       queryParameters: {'depositAddress': depositAddress},
     );
-    final resp = await http.get(uri, headers: _headers(auth: true));
+    final resp = await http.get(uri, headers: _headers(auth: true)).timeout(const Duration(seconds: 20));
     if (resp.statusCode ~/ 100 != 2) {
       throw NearIntentsException(
         'Status check failed: ${resp.statusCode}',
@@ -234,12 +234,24 @@ class NearQuoteResponse {
     final request = json['quoteRequest'] ?? {};
     return NearQuoteResponse(
       depositAddress: quote['depositAddress'] ?? '',
-      amountIn: BigInt.tryParse('${request['amount'] ?? quote['amountIn'] ?? '0'}') ?? BigInt.zero,
+      amountIn: BigInt.tryParse('${quote['amountIn'] ?? '0'}') ?? BigInt.zero,
       amountOut: BigInt.tryParse('${quote['amountOut'] ?? '0'}') ?? BigInt.zero,
       minAmountOut: BigInt.tryParse('${quote['minAmountOut'] ?? ''}'),
-      deadline: request['deadline'] ?? quote['deadline'] ?? '',
+      deadline: quote['deadline'] ?? request['deadline'] ?? '',
       raw: json,
     );
+  }
+
+  /// Fail closed on incomplete quotes. The provider's actual amount and
+  /// deadline take precedence over the requested values.
+  bool isUsableExactInput(int amount, {DateTime? now}) {
+    final expiry = DateTime.tryParse(deadline);
+    final quote = raw['quote'] as Map<String, dynamic>? ?? raw;
+    return depositAddress.isNotEmpty && amountIn == BigInt.from(amount) &&
+        amountOut > BigInt.zero && minAmountOut != null &&
+        minAmountOut! > BigInt.zero && minAmountOut! <= amountOut &&
+        (quote['depositMemo'] == null || quote['depositMemo'] == '') &&
+        expiry != null && expiry.isAfter((now ?? DateTime.now()).add(const Duration(minutes: 2)));
   }
 }
 
@@ -273,7 +285,7 @@ class NearSwapStatus {
   }
 
   bool get isPending => status == 'PENDING' || status == 'PENDING_DEPOSIT';
-  bool get isProcessing => status == 'PROCESSING' || status == 'CONFIRMING';
+  bool get isProcessing => status == 'PROCESSING' || status == 'CONFIRMING' || status == 'KNOWN_DEPOSIT_TX';
   bool get isSuccess => status == 'SUCCESS' || status == 'COMPLETED';
   bool get isFailed => status == 'FAILED' || status == 'EXPIRED';
   bool get isRefunded => status == 'REFUNDED';
@@ -655,6 +667,13 @@ class SwapStore {
   static Future<void> save(StoredSwap swap) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_key) ?? [];
+    raw.removeWhere((entry) {
+      try {
+        return jsonDecode(entry)['depositAddress'] == swap.depositAddress;
+      } catch (_) {
+        return false;
+      }
+    });
     raw.insert(0, jsonEncode(swap.toJson()));
     await prefs.setStringList(_key, raw);
   }

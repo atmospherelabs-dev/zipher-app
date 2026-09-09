@@ -1,472 +1,247 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'app_log.dart';
-import 'evm_rpc.dart';
+import '../src/rust/api/engine_api.dart' as engine;
+import 'chain_config.dart';
 import 'polymarket_client.dart' show polymarketPusd;
 import 'secure_key_store.dart';
 
-final _log = createLogger();
-
-/// Build-time default (CI / local); never commit real keys. User may override via [SecureKeyStore].
-const String _alchemyApiKeyDefine = String.fromEnvironment(
-  'ALCHEMY_API_KEY',
-  defaultValue: '',
-);
-
-String _alchemyBscUrl(String apiKey) => 'https://bnb-mainnet.g.alchemy.com/v2/$apiKey';
-
-String _alchemyPolygonUrl(String apiKey) => 'https://polygon-mainnet.g.alchemy.com/v2/$apiKey';
-
-String _alchemyEthUrl(String apiKey) => 'https://eth-mainnet.g.alchemy.com/v2/$apiKey';
-
-String _alchemyArbUrl(String apiKey) => 'https://arb-mainnet.g.alchemy.com/v2/$apiKey';
-
-String _alchemyBaseUrl(String apiKey) => 'https://base-mainnet.g.alchemy.com/v2/$apiKey';
-
-String _alchemyOpUrl(String apiKey) => 'https://opt-mainnet.g.alchemy.com/v2/$apiKey';
-
-/// One line on the Action balance header (EVM only; ZEC is separate).
 class EvmTokenBalance {
   final String symbol;
-  /// Short chain label for UI, e.g. "BSC", "Polygon".
   final String chainLabel;
   final double balance;
   final double balanceUsd;
+  final bool priceAvailable;
   final String? thumbnailUrl;
-
-  const EvmTokenBalance({
-    required this.symbol,
-    required this.chainLabel,
-    required this.balance,
-    required this.balanceUsd,
-    this.thumbnailUrl,
-  });
+  const EvmTokenBalance(
+      {required this.symbol,
+      required this.chainLabel,
+      required this.balance,
+      required this.balanceUsd,
+      this.priceAvailable = true,
+      this.thumbnailUrl});
 }
 
-class _WatchEntry {
-  final EvmRpc rpc;
-  final String chainLabel;
-  final String symbol;
-  final String? contract;
-  final int decimals;
-  final double Function(double balance) toUsd;
-
-  const _WatchEntry({
-    required this.rpc,
-    required this.chainLabel,
-    required this.symbol,
-    this.contract,
-    required this.decimals,
-    required this.toUsd,
-  });
+class EvmBalanceSnapshot {
+  final List<EvmTokenBalance> tokens;
+  final Set<String> unavailableChains;
+  final DateTime fetchedAt;
+  const EvmBalanceSnapshot(
+      {required this.tokens,
+      required this.unavailableChains,
+      required this.fetchedAt});
+  bool get complete => unavailableChains.isEmpty;
+  bool get fullyPriced => tokens.every((t) => t.priceAvailable);
+  double get evmTotalUsd => tokens.fold(0.0, (sum, t) => sum + t.balanceUsd);
 }
 
-double _usdStable(double b) => b;
-double _usdBnb(double b) => b * 600;
-double _usdPol(double b) => b * 0.085;
-double _usdEth(double b) => b * 2500;
+/// Strict reads: an unavailable chain is never represented as a zero balance.
+/// One reader belongs to one screen; cached addresses never go to disk or logs.
+class EvmBalanceReader {
+  final Future<double> Function(ChainConfig, String, TokenInfo?) readAsset;
+  final Future<Map<String, double>> Function() readPrices;
+  final DateTime Function() now;
+  final Duration timeout;
+  String? _address;
+  EvmBalanceSnapshot? _cached;
+  Future<EvmBalanceSnapshot>? _running;
 
-final _publicWatchlist = <_WatchEntry>[
-  _WatchEntry(rpc: EvmRpc.bsc, chainLabel: 'BSC', symbol: 'BNB', contract: null, decimals: 18, toUsd: _usdBnb),
-  _WatchEntry(
-    rpc: EvmRpc.bsc,
-    chainLabel: 'BSC',
-    symbol: 'USDT',
-    contract: usdtBsc,
-    decimals: 18,
-    toUsd: _usdStable,
-  ),
-  _WatchEntry(
-    rpc: EvmRpc.polygon,
-    chainLabel: 'Polygon',
-    symbol: 'POL',
-    contract: null,
-    decimals: 18,
-    toUsd: _usdPol,
-  ),
-  _WatchEntry(
-    rpc: EvmRpc.polygon,
-    chainLabel: 'Polygon',
-    symbol: 'pUSD',
-    contract: polymarketPusd,
-    decimals: 6,
-    toUsd: _usdStable,
-  ),
-  _WatchEntry(rpc: EvmRpc.ethereum, chainLabel: 'Ethereum', symbol: 'ETH', contract: null, decimals: 18, toUsd: _usdEth),
-  _WatchEntry(
-    rpc: EvmRpc.ethereum,
-    chainLabel: 'Ethereum',
-    symbol: 'USDC',
-    contract: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-    decimals: 6,
-    toUsd: _usdStable,
-  ),
-  _WatchEntry(rpc: EvmRpc.arbitrum, chainLabel: 'Arbitrum', symbol: 'ETH', contract: null, decimals: 18, toUsd: _usdEth),
-  _WatchEntry(
-    rpc: EvmRpc.arbitrum,
-    chainLabel: 'Arbitrum',
-    symbol: 'USDC',
-    contract: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-    decimals: 6,
-    toUsd: _usdStable,
-  ),
-  _WatchEntry(rpc: EvmRpc.base, chainLabel: 'Base', symbol: 'ETH', contract: null, decimals: 18, toUsd: _usdEth),
-  _WatchEntry(
-    rpc: EvmRpc.base,
-    chainLabel: 'Base',
-    symbol: 'USDC',
-    contract: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-    decimals: 6,
-    toUsd: _usdStable,
-  ),
-  _WatchEntry(rpc: EvmRpc.optimism, chainLabel: 'Optimism', symbol: 'ETH', contract: null, decimals: 18, toUsd: _usdEth),
-  _WatchEntry(
-    rpc: EvmRpc.optimism,
-    chainLabel: 'Optimism',
-    symbol: 'USDC',
-    contract: '0x0b2C639c533813c4Aa9D7837CA1A1e916A010327',
-    decimals: 6,
-    toUsd: _usdStable,
-  ),
-];
+  EvmBalanceReader(
+      {required this.readAsset,
+      required this.readPrices,
+      DateTime Function()? now,
+      this.timeout = const Duration(seconds: 12)})
+      : now = now ?? DateTime.now;
 
-double _toHumanFromHex(String hex, int decimals) {
-  final h = hex.trim();
-  if (h.isEmpty || h == '0x' || h == '0x0') return 0;
-  final raw = BigInt.tryParse(h.replaceFirst(RegExp(r'^0x', caseSensitive: false), ''), radix: 16);
-  if (raw == null || raw == BigInt.zero) return 0;
-  return raw / BigInt.from(10).pow(decimals);
+  Future<EvmBalanceSnapshot> fetch(String address, {bool force = false}) {
+    if (!RegExp(r'^0x[0-9a-fA-F]{40}$').hasMatch(address)) {
+      return Future.error(ArgumentError('Invalid EVM address'));
+    }
+    if (_address != address) {
+      _address = address;
+      _cached = null;
+      _running = null;
+    }
+    if (_running != null) return _running!;
+    if (!force &&
+        _cached != null &&
+        now().difference(_cached!.fetchedAt) < const Duration(seconds: 60)) {
+      return Future.value(_cached!);
+    }
+    late Future<EvmBalanceSnapshot> pending;
+    pending = _fetch(address).then((snapshot) {
+      if (_address == address && identical(_running, pending))
+        _cached = snapshot;
+      return snapshot;
+    }).whenComplete(() {
+      if (identical(_running, pending)) _running = null;
+    });
+    return _running = pending;
+  }
+
+  Future<EvmBalanceSnapshot> _fetch(String address) async {
+    // Prices and all six chains load concurrently, under bounded timeouts.
+    final priceFuture = readPrices()
+        .timeout(timeout)
+        .catchError((Object _) => <String, double>{});
+    final failures = <String>{};
+    final rows = await Future.wait(ChainConfig.all.map((chain) async {
+      try {
+        final assets = <TokenInfo?>[
+          null,
+          ...chain.knownTokens.values,
+          if (chain == ChainConfig.polygon)
+            const TokenInfo(
+                address: polymarketPusd, decimals: 6, symbol: 'pUSD')
+        ];
+        return await Future.wait(assets.map((token) async {
+          final amount = await readAsset(chain, address, token);
+          if (!amount.isFinite || amount < 0)
+            throw const FormatException('Invalid balance');
+          return (
+            chain: chain.name,
+            symbol: token?.symbol ?? chain.nativeSymbol,
+            amount: amount
+          );
+        })).timeout(timeout);
+      } catch (_) {
+        failures.add(chain.name);
+        return <({String chain, String symbol, double amount})>[];
+      }
+    }));
+    final prices = await priceFuture;
+    final tokens = <EvmTokenBalance>[];
+    for (final row in rows.expand((r) => r)) {
+      if (row.amount == 0) continue;
+      final price = prices[row.symbol];
+      final priced = price != null && price.isFinite && price > 0;
+      tokens.add(EvmTokenBalance(
+          symbol: row.symbol,
+          chainLabel: row.chain,
+          balance: row.amount,
+          balanceUsd: priced ? row.amount * price : 0,
+          priceAvailable: priced));
+    }
+    tokens.sort((a, b) => b.balanceUsd.compareTo(a.balanceUsd));
+    return EvmBalanceSnapshot(
+        tokens: List.unmodifiable(tokens),
+        unavailableChains: Set.unmodifiable(failures),
+        fetchedAt: now());
+  }
 }
 
-/// Fetches EVM balances for the Action page: Alchemy when configured, else public RPC + watchlist.
 class EvmPortfolioBalance {
   EvmPortfolioBalance._();
-
-  static Future<String?> _resolveAlchemyKey() async {
-    final fromStore = await SecureKeyStore.getApiKey('alchemy');
-    if (fromStore != null && fromStore.isNotEmpty) return fromStore;
-    if (_alchemyApiKeyDefine.isNotEmpty) return _alchemyApiKeyDefine;
-    return null;
-  }
-
-  static Future<Map<String, dynamic>> _alchemyJsonRpc(
-    String httpUrl,
-    String method,
-    List<dynamic> params, {
-    required Duration timeout,
-  }) async {
-    final resp = await http
-        .post(
-          Uri.parse(httpUrl),
-          headers: const {'Content-Type': 'application/json'},
-          body: jsonEncode({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}),
-        )
-        .timeout(timeout);
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw Exception('Alchemy HTTP ${resp.statusCode}');
-    }
-    final raw = resp.body.trim();
-    if (raw.isEmpty || (!raw.startsWith('{'))) {
-      throw const FormatException('Alchemy: non-JSON response');
-    }
-    final decoded = jsonDecode(resp.body);
-    if (decoded is! Map) throw const FormatException('Alchemy: expected JSON object');
-    final err = decoded['error'];
-    if (err != null) throw Exception('Alchemy RPC error: $err');
-    return Map<String, dynamic>.from(decoded);
-  }
-
-  static Future<List<EvmTokenBalance>> _fetchAlchemyBsc(
-    String wallet,
-    String apiKey,
-    Map<String, double> prices, {
-    required Duration timeout,
-  }) async {
-    final url = _alchemyBscUrl(apiKey);
-    final out = <EvmTokenBalance>[];
-
-    final balResp = await _alchemyJsonRpc(url, 'eth_getBalance', [wallet, 'latest'], timeout: timeout);
-    final balHex = balResp['result'] as String? ?? '0x0';
-    final bnb = _toHumanFromHex(balHex, 18);
-    if (bnb > 0) {
-      final px = prices['binancecoin'] ?? 0;
-      final usd = px > 0 ? bnb * px : _usdBnb(bnb);
-      out.add(EvmTokenBalance(symbol: 'BNB', chainLabel: 'BSC', balance: bnb, balanceUsd: usd));
-    }
-
-    final tokResp = await _alchemyJsonRpc(
-      url,
-      'alchemy_getTokenBalances',
-      [wallet, [usdtBsc]],
-      timeout: timeout,
-    );
-    final result = tokResp['result'];
-    if (result is Map) {
-      final list = result['tokenBalances'];
-      if (list is List) {
-        for (final item in list) {
-          if (item is! Map) continue;
-          final m = Map<String, dynamic>.from(item);
-          if (m['error'] != null) continue;
-          final hex = m['tokenBalance'] as String? ?? '0x0';
-          final human = _toHumanFromHex(hex, 18);
-          if (human <= 0) continue;
-          final px = prices['tether'] ?? 0;
-          final usd = px > 0 ? human * px : _usdStable(human);
-          out.add(EvmTokenBalance(symbol: 'USDT', chainLabel: 'BSC', balance: human, balanceUsd: usd));
-        }
-      }
-    }
-    return out;
-  }
-
-  static Future<List<EvmTokenBalance>> _fetchAlchemyPolygon(
-    String wallet,
-    String apiKey,
-    Map<String, double> prices, {
-    required Duration timeout,
-  }) async {
-    final url = _alchemyPolygonUrl(apiKey);
-    final out = <EvmTokenBalance>[];
-
-    final balResp = await _alchemyJsonRpc(url, 'eth_getBalance', [wallet, 'latest'], timeout: timeout);
-    final balHex = balResp['result'] as String? ?? '0x0';
-    final pol = _toHumanFromHex(balHex, 18);
-    if (pol > 0) {
-      final px = prices['polygon-ecosystem-token'] ?? 0;
-      final usd = px > 0 ? pol * px : _usdPol(pol);
-      out.add(EvmTokenBalance(symbol: 'POL', chainLabel: 'Polygon', balance: pol, balanceUsd: usd));
-    }
-
-    final tokResp = await _alchemyJsonRpc(
-      url,
-      'alchemy_getTokenBalances',
-      [wallet, [usdcPolygon, usdcPolygonNative, polymarketPusd]],
-      timeout: timeout,
-    );
-    final result = tokResp['result'];
-    if (result is Map) {
-      final list = result['tokenBalances'];
-      if (list is List) {
-        for (final item in list) {
-          if (item is! Map) continue;
-          final m = Map<String, dynamic>.from(item);
-          if (m['error'] != null) continue;
-          final contract = (m['contractAddress'] as String?)?.toLowerCase() ?? '';
-          final hex = m['tokenBalance'] as String? ?? '0x0';
-          final human = _toHumanFromHex(hex, 6);
-          if (human <= 0) continue;
-          final px = prices['usd-coin'] ?? 0;
-          final usd = px > 0 ? human * px : _usdStable(human);
-          if (contract == usdcPolygon.toLowerCase() || contract == usdcPolygonNative.toLowerCase()) {
-            out.add(EvmTokenBalance(symbol: 'USDC', chainLabel: 'Polygon', balance: human, balanceUsd: usd));
-          } else if (contract == polymarketPusd.toLowerCase()) {
-            out.add(EvmTokenBalance(symbol: 'pUSD', chainLabel: 'Polygon', balance: human, balanceUsd: usd));
+  static EvmBalanceReader createReader(
+      {Duration timeout = const Duration(seconds: 12)}) {
+    Future<String?>? keyFuture;
+    Future<String?> key() =>
+        keyFuture ??= SecureKeyStore.getApiKey('alchemy').then((value) {
+          const configured = String.fromEnvironment('ALCHEMY_API_KEY');
+          return value?.isNotEmpty == true
+              ? value
+              : configured.isEmpty
+                  ? null
+                  : configured;
+        }).catchError((Object _) => null);
+    return EvmBalanceReader(
+        timeout: timeout,
+        readPrices: () => _prices(timeout),
+        readAsset: (chain, address, token) async {
+          final apiKey = await key();
+          String raw;
+          if (apiKey != null) {
+            final network = switch (chain.name) {
+              'BSC' => 'bnb-mainnet',
+              'Polygon' => 'polygon-mainnet',
+              'Ethereum' => 'eth-mainnet',
+              'Arbitrum' => 'arb-mainnet',
+              'Base' => 'base-mainnet',
+              _ => 'opt-mainnet',
+            };
+            final method = token == null ? 'eth_getBalance' : 'eth_call';
+            final params = token == null
+                ? <Object>[address, 'latest']
+                : <Object>[
+                    {
+                      'to': token.address,
+                      'data':
+                          '0x70a08231${address.substring(2).padLeft(64, '0')}'
+                    },
+                    'latest'
+                  ];
+            final response = await http
+                .post(Uri.parse('https://$network.g.alchemy.com/v2/$apiKey'),
+                    headers: {'Content-Type': 'application/json'},
+                    body: jsonEncode({
+                      'jsonrpc': '2.0',
+                      'id': 1,
+                      'method': method,
+                      'params': params
+                    }))
+                .timeout(timeout);
+            if (response.statusCode != 200)
+              throw StateError('Balance service unavailable');
+            final data = jsonDecode(response.body) as Map;
+            if (data['error'] != null || data['result'] is! String)
+              throw StateError('Balance unavailable');
+            raw = BigInt.parse(
+                    (data['result'] as String).replaceFirst('0x', ''),
+                    radix: 16)
+                .toString();
+          } else {
+            // Avoid EvmRpc convenience wrappers that turn RPC failures into zero.
+            raw = token == null
+                ? await engine.engineGetNativeBalance(
+                    rpcUrl: chain.rpc.rpcUrl, address: address)
+                : await engine.engineGetErc20Balance(
+                    rpcUrl: chain.rpc.rpcUrl,
+                    tokenContract: token.address,
+                    ownerAddress: address);
           }
-        }
-      }
-    }
-    return out;
+          return BigInt.parse(raw) /
+              BigInt.from(10).pow(token?.decimals ?? chain.nativeDecimals);
+        });
   }
-
-  /// Generic fetcher for ETH-native chains via Alchemy (Ethereum, Arbitrum, Base, Optimism).
-  static Future<List<EvmTokenBalance>> _fetchAlchemyEthChain(
-    String wallet,
-    String apiKey,
-    Map<String, double> prices,
-    String chainLabel,
-    String url, {
-    required Duration timeout,
-  }) async {
-    final out = <EvmTokenBalance>[];
-    try {
-      final balResp = await _alchemyJsonRpc(url, 'eth_getBalance', [wallet, 'latest'], timeout: timeout);
-      final balHex = balResp['result'] as String? ?? '0x0';
-      final eth = _toHumanFromHex(balHex, 18);
-      if (eth > 0) {
-        final px = prices['ethereum'] ?? 0;
-        final usd = px > 0 ? eth * px : _usdEth(eth);
-        out.add(EvmTokenBalance(symbol: 'ETH', chainLabel: chainLabel, balance: eth, balanceUsd: usd));
-      }
-
-      // Check USDC on this chain via alchemy_getTokenBalances
-      final usdcAddr = _chainUsdc[chainLabel];
-      if (usdcAddr != null) {
-        final tokResp = await _alchemyJsonRpc(
-          url, 'alchemy_getTokenBalances', [wallet, [usdcAddr]], timeout: timeout,
-        );
-        final result = tokResp['result'];
-        if (result is Map) {
-          final list = result['tokenBalances'];
-          if (list is List) {
-            for (final item in list) {
-              if (item is! Map) continue;
-              final m = Map<String, dynamic>.from(item);
-              if (m['error'] != null) continue;
-              final hex = m['tokenBalance'] as String? ?? '0x0';
-              final human = _toHumanFromHex(hex, 6);
-              if (human <= 0) continue;
-              final px = prices['usd-coin'] ?? 0;
-              final usd = px > 0 ? human * px : _usdStable(human);
-              out.add(EvmTokenBalance(symbol: 'USDC', chainLabel: chainLabel, balance: human, balanceUsd: usd));
-            }
-          }
-        }
-      }
-    } catch (e) {
-      _log.d('[EvmPortfolio] Alchemy $chainLabel fetch failed: $e');
-    }
-    return out;
-  }
-
-  static const _chainUsdc = <String, String>{
-    'Ethereum': '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-    'Arbitrum': '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-    'Base': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-    'Optimism': '0x0b2C639c533813c4Aa9D7837CA1A1e916A010327',
-  };
 
   static Future<({List<EvmTokenBalance> tokens, double evmTotalUsd})> fetch(
-    String evmAddress, {
-    Duration timeout = const Duration(seconds: 12),
-  }) async {
-    final addr = evmAddress.trim();
-    if (!addr.startsWith('0x') || addr.length < 42) {
-      _log.w('[EvmPortfolio] Invalid EVM address');
-      return (tokens: <EvmTokenBalance>[], evmTotalUsd: 0.0);
-    }
-
-    try {
-      final prices = await _fetchUsdPrices(timeout: timeout);
-      final key = await _resolveAlchemyKey();
-
-      final List<EvmTokenBalance> rows;
-      if (key != null && key.isNotEmpty) {
-        final parts = await Future.wait([
-          _fetchAlchemyBsc(addr, key, prices, timeout: timeout),
-          _fetchAlchemyPolygon(addr, key, prices, timeout: timeout),
-          _fetchAlchemyEthChain(addr, key, prices, 'Ethereum', _alchemyEthUrl(key), timeout: timeout),
-          _fetchAlchemyEthChain(addr, key, prices, 'Arbitrum', _alchemyArbUrl(key), timeout: timeout),
-          _fetchAlchemyEthChain(addr, key, prices, 'Base', _alchemyBaseUrl(key), timeout: timeout),
-          _fetchAlchemyEthChain(addr, key, prices, 'Optimism', _alchemyOpUrl(key), timeout: timeout),
-        ]);
-        rows = parts.expand((x) => x).toList();
-      } else {
-        _log.d('[EvmPortfolio] No Alchemy key; using public RPC watchlist (set ALCHEMY_API_KEY or storeApiKey("alchemy", …))');
-        rows = await _fetchPublicRpcWatchlist(addr, timeout: timeout);
-      }
-
-      final merged = _mergePolygonUsdc(rows);
-      merged.sort((a, b) => b.balanceUsd.compareTo(a.balanceUsd));
-      final total = merged.fold<double>(0, (s, t) => s + t.balanceUsd);
-      return (tokens: merged, evmTotalUsd: total);
-    } catch (e, st) {
-      _log.w('[EvmPortfolio] fetch failed: $e\n$st');
-      return (tokens: <EvmTokenBalance>[], evmTotalUsd: 0.0);
-    }
+      String address,
+      {Duration timeout = const Duration(seconds: 12)}) async {
+    final snapshot = await createReader(timeout: timeout).fetch(address);
+    return (tokens: snapshot.tokens, evmTotalUsd: snapshot.evmTotalUsd);
   }
 
-  static Future<List<EvmTokenBalance>> _fetchPublicRpcWatchlist(
-    String evmAddress, {
-    required Duration timeout,
-  }) async {
-    try {
-      final results = await Future.wait(
-        [
-          ..._publicWatchlist.map((e) async {
-            final bal = e.contract == null
-                ? await e.rpc.getNativeBalance(evmAddress)
-                : await e.rpc.getErc20Balance(evmAddress, e.contract!, decimals: e.decimals);
-            final usd = e.toUsd(bal);
-            return EvmTokenBalance(
-              symbol: e.symbol,
-              chainLabel: e.chainLabel,
-              balance: bal,
-              balanceUsd: usd,
-            );
-          }),
-          _polygonUsdcCombined(evmAddress),
-        ],
-      ).timeout(timeout);
-
-      return results.where((t) => t.balance > 0).toList();
-    } catch (e, st) {
-      _log.w('[EvmPortfolio] public RPC watchlist failed: $e\n$st');
-      return [];
-    }
+  static Future<Map<String, double>> _prices(Duration timeout) async {
+    final response = await http
+        .get(Uri.parse('https://api.coingecko.com/api/v3/simple/price'
+            '?ids=binancecoin,polygon-ecosystem-token,usd-coin,tether,ethereum&vs_currencies=usd&include_last_updated_at=true'))
+        .timeout(timeout);
+    if (response.statusCode != 200) return {};
+    return parsePrices(jsonDecode(response.body), DateTime.now());
   }
 
-  static Future<EvmTokenBalance> _polygonUsdcCombined(String evmAddress) async {
-    final poly = EvmRpc.polygon;
-    final bridged = await poly.getErc20Balance(evmAddress, usdcPolygon, decimals: 6);
-    final native = await poly.getErc20Balance(evmAddress, usdcPolygonNative, decimals: 6);
-    final sum = bridged + native;
-    return EvmTokenBalance(
-      symbol: 'USDC',
-      chainLabel: 'Polygon',
-      balance: sum,
-      balanceUsd: sum,
-    );
-  }
-
-  /// CoinGecko simple price (no key; low rate — OK for a few symbols per refresh).
-  static Future<Map<String, double>> _fetchUsdPrices({required Duration timeout}) async {
-    final uri = Uri.parse(
-      'https://api.coingecko.com/api/v3/simple/price'
-      '?ids=binancecoin,polygon-ecosystem-token,usd-coin,tether,ethereum&vs_currencies=usd',
-    );
-    try {
-      final resp = await http.get(
-        uri,
-        headers: const {'User-Agent': 'ZipherWallet/1.0 (balance display)'},
-      ).timeout(timeout);
-      if (resp.statusCode < 200 || resp.statusCode >= 300) return {};
-      final map = jsonDecode(resp.body);
-      if (map is! Map) return {};
-      double pick(String id) {
-        final block = map[id];
-        if (block is! Map) return 0;
-        final u = block['usd'];
-        if (u is num) return u.toDouble();
-        return double.tryParse(u?.toString() ?? '') ?? 0;
-      }
-
-      return {
-        'binancecoin': pick('binancecoin'),
-        'polygon-ecosystem-token': pick('polygon-ecosystem-token'),
-        'usd-coin': pick('usd-coin'),
-        'tether': pick('tether'),
-        'ethereum': pick('ethereum'),
-      };
-    } catch (e) {
-      _log.d('[EvmPortfolio] CoinGecko price fetch failed: $e');
-      return {};
+  /// A missing/stale quote is not a fixed $1 stablecoin or guessed ETH price.
+  static Map<String, double> parsePrices(dynamic data, DateTime now) {
+    if (data is! Map) return {};
+    final result = <String, double>{};
+    const ids = {
+      'BNB': 'binancecoin',
+      'POL': 'polygon-ecosystem-token',
+      'ETH': 'ethereum',
+      'USDC': 'usd-coin',
+      'USDC.e': 'usd-coin',
+      'USDT': 'tether'
+    };
+    for (final entry in ids.entries) {
+      final row = data[entry.value];
+      if (row is! Map || row['usd'] is! num || row['last_updated_at'] is! num)
+        continue;
+      final price = (row['usd'] as num).toDouble();
+      final age =
+          now.millisecondsSinceEpoch / 1000 - (row['last_updated_at'] as num);
+      if (price.isFinite && price > 0 && age >= -60 && age <= 300)
+        result[entry.key] = price;
     }
-  }
-
-  /// Sum Polygon USDC.e + native USDC into one row.
-  static List<EvmTokenBalance> _mergePolygonUsdc(List<EvmTokenBalance> rows) {
-    var polyBal = 0.0;
-    var polyUsd = 0.0;
-    final rest = <EvmTokenBalance>[];
-    for (final t in rows) {
-      final onPoly = t.chainLabel == 'Polygon' && t.symbol == 'USDC';
-      if (onPoly) {
-        polyBal += t.balance;
-        polyUsd += t.balanceUsd;
-      } else {
-        rest.add(t);
-      }
-    }
-    if (polyBal > 0) {
-      rest.add(EvmTokenBalance(
-        symbol: 'USDC',
-        chainLabel: 'Polygon',
-        balance: polyBal,
-        balanceUsd: polyUsd > 0 ? polyUsd : polyBal,
-      ));
-    }
-    return rest;
+    return result;
   }
 }

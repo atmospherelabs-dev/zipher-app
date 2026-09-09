@@ -1,446 +1,79 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_form_builder/flutter_form_builder.dart';
-import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import '../../accounts.dart';
+
 import '../../services/wallet_service.dart';
-import '../../zipher_theme.dart';
-import '../../coin/coins.dart';
-import '../../generated/intl/messages.dart';
 import '../../store2.dart';
 import '../utils.dart';
 
+/// The engine supports rescanning from the wallet's saved birthday. Do not
+/// offer date/height selectors until those values can be honored by the SDK.
 class RescanPage extends StatefulWidget {
+  final Future<void> Function()? rescan;
+  const RescanPage({super.key, this.rescan});
+
   @override
-  State<StatefulWidget> createState() => _RescanState();
+  State<RescanPage> createState() => _RescanState();
 }
 
-class _RescanState extends State<RescanPage> with WithLoadingAnimation {
-  late final s = S.of(context);
-  final formKey = GlobalKey<FormBuilderState>();
-  final _heightController = TextEditingController();
-  final minDate = activationDate;
-  DateTime maxDate = DateTime.now();
-  DateTime? _selectedDate;
-  bool _showCalendar = false;
-  bool _useHeight = false;
+class _RescanState extends State<RescanPage> {
+  bool _running = false;
+  String? _error;
 
-  // Rewind data - TODO: migrate to WalletService (checkpoints not yet available)
-  final List<_Checkpoint> checkpoints = [];
-
-  @override
-  void dispose() {
-    _heightController.dispose();
-    super.dispose();
+  Future<void> _recover() async {
+    if (_running) return;
+    final confirmed = await showConfirmDialog(context, 'Recover transactions',
+        'Re-scan from this wallet’s saved birthday? This can take time. Your seed and addresses remain the same.');
+    if (!confirmed || !mounted || _running) return;
+    setState(() {
+      _running = true;
+      _error = null;
+    });
+    try {
+      if (widget.rescan != null) {
+        await widget.rescan!();
+      } else {
+        if (!WalletService.instance.isWalletOpen) {
+          throw StateError('Open a wallet before recovering transactions.');
+        }
+        await syncStatus2.triggerRescan();
+        await syncStatus2.sync();
+      }
+      if (mounted) GoRouter.of(context).pop();
+    } catch (_) {
+      if (mounted)
+        setState(() {
+          _error =
+              'Recovery could not start. Check your connection and try again.';
+        });
+    } finally {
+      if (mounted) setState(() => _running = false);
+    }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: ZipherColors.bg,
-      appBar: AppBar(
-        backgroundColor: ZipherColors.bg,
-        elevation: 0,
-        title: Text(
-          'RECOVER',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
-        ),
-        centerTitle: true,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
-          onPressed: () => GoRouter.of(context).pop(),
-        ),
-      ),
-      body: wrapWithLoading(
-        SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: FormBuilder(
-            key: formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Info
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: ZipherColors.cyan.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    border: Border.all(
-                      color: ZipherColors.cyan.withValues(alpha: 0.1),
-                    ),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.info_outline_rounded,
-                          size: 16,
-                          color: ZipherColors.cyan.withValues(alpha: 0.5)),
-                      const Gap(10),
-                      Expanded(
-                        child: Text(
-                          'If your balance looks wrong or transactions are missing, '
-                          'you can re-sync from an earlier point. Your funds are safe on the blockchain — this just re-reads them.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: ZipherColors.cyan.withValues(alpha: 0.7),
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const Gap(28),
-
-                // ═════════════════════════════
-                // Quick Rewind (if checkpoints)
-                // ═════════════════════════════
-                if (checkpoints.isNotEmpty) ...[
-                  _sectionLabel('Quick Rewind'),
-                  const Gap(4),
-                  Text(
-                    'Roll back to a recent save point. Fastest option.',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: ZipherColors.text40,
-                    ),
-                  ),
-                  const Gap(10),
-                  _buildRewindOptions(),
-                  const Gap(28),
-                ],
-
-                // ═════════════════════════════
-                // Full Rescan
-                // ═════════════════════════════
-                _sectionLabel('Full Rescan'),
-                const Gap(4),
-                Text(
-                  'Re-download all transactions from a specific point. Slower but thorough.',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: ZipherColors.text40,
-                  ),
-                ),
-                const Gap(12),
-
-                // Date picker
-                GestureDetector(
-                  onTap: () =>
-                      setState(() => _showCalendar = !_showCalendar),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: ZipherColors.cardBg,
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.calendar_today_rounded,
-                            size: 16,
-                            color: ZipherColors.text40),
-                        const Gap(10),
-                        Expanded(
-                          child: Text(
-                            _selectedDate != null
-                                ? '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}'
-                                : 'Pick a date to rescan from...',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: _selectedDate != null
-                                  ? ZipherColors.text90
-                                  : ZipherColors.text40,
-                            ),
-                          ),
-                        ),
-                        Icon(
-                          _showCalendar
-                              ? Icons.expand_less_rounded
-                              : Icons.expand_more_rounded,
-                          size: 18,
-                          color: ZipherColors.text20,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                if (_showCalendar) ...[
-                  const Gap(8),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: ZipherColors.cardBg,
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    ),
-                    child: Theme(
-                      data: ThemeData.dark().copyWith(
-                        colorScheme: ColorScheme.dark(
-                          primary: ZipherColors.cyan,
-                          surface: ZipherColors.bg,
-                          onSurface: ZipherColors.text90,
-                        ),
-                      ),
-                      child: CalendarDatePicker(
-                        initialDate: _selectedDate ?? maxDate,
-                        firstDate: minDate,
-                        lastDate: maxDate,
-                        onDateChanged: (v) => setState(() {
-                          _selectedDate = v;
-                          _useHeight = false;
-                        }),
-                      ),
-                    ),
-                  ),
-                ],
-
-                const Gap(12),
-
-                // Or block height
-                GestureDetector(
-                  onTap: () => setState(() => _useHeight = !_useHeight),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _useHeight
-                            ? Icons.check_box_rounded
-                            : Icons.check_box_outline_blank_rounded,
-                        size: 16,
-                        color: _useHeight
-                            ? ZipherColors.cyan.withValues(alpha: 0.6)
-                            : ZipherColors.text20,
-                      ),
-                      const Gap(6),
-                      Text(
-                        'Use block height instead',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: ZipherColors.text40,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                if (_useHeight) ...[
-                  const Gap(8),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: ZipherColors.cardBg,
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    ),
-                    child: FormBuilderTextField(
-                      name: 'height',
-                      controller: _heightController,
-                      keyboardType: TextInputType.number,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: ZipherColors.text90,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'e.g. 2000000',
-                        hintStyle: TextStyle(
-                          fontSize: 14,
-                          color: ZipherColors.text40,
-                        ),
-                        filled: false,
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        contentPadding: const EdgeInsets.all(ZipherSpacing.md),
-                      ),
-                    ),
-                  ),
-                ],
-
-                const Gap(24),
-
-                // Rescan button
-                InkWell(
-                  onTap: _rescan,
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    decoration: BoxDecoration(
-                      color: ZipherColors.cyan.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.sync_rounded,
-                            size: 18,
-                            color:
-                                ZipherColors.cyan.withValues(alpha: 0.8)),
-                        const Gap(8),
-                        Text(
-                          'Start Full Rescan',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color:
-                                ZipherColors.cyan.withValues(alpha: 0.8),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const Gap(40),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRewindOptions() {
-    final recent = checkpoints.take(5).toList();
-    return Container(
-      decoration: BoxDecoration(
-        color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-      ),
-      child: Column(
-        children: [
-          for (int i = 0; i < recent.length; i++) ...[
-            _rewindTile(recent[i]),
-            if (i < recent.length - 1)
-              Divider(
-                height: 1,
-                color: ZipherColors.borderSubtle,
-                indent: 16,
-                endIndent: 16,
-              ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _rewindTile(_Checkpoint cp) {
-    final dt = DateTime.fromMillisecondsSinceEpoch(cp.timestamp * 1000);
-    final dateStr = '${dt.day}/${dt.month}/${dt.year}';
-    final timeStr =
-        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _rewindTo(cp),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Recover transactions')),
+        body: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Icon(Icons.history_rounded,
-                  size: 16,
-                  color: ZipherColors.text20),
-              const Gap(12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '$dateStr at $timeStr',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: ZipherColors.text60,
-                      ),
-                    ),
-                    Text(
-                      'Block ${cp.height}',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: ZipherColors.text40,
-                      ),
-                    ),
-                  ],
-                ),
+              const Text(
+                  'Re-scan your wallet’s transaction history from its saved birthday to refresh balances and transactions.'),
+              const SizedBox(height: 24),
+              if (_error != null) ...[
+                Text(_error!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error)),
+                const SizedBox(height: 16),
+              ],
+              FilledButton(
+                onPressed: _running ? null : _recover,
+                child: Text(
+                    _running ? 'Starting recovery…' : 'Recover transactions'),
               ),
-              Icon(Icons.chevron_right_rounded,
-                  size: 16,
-                  color: ZipherColors.text10),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _sectionLabel(String text) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.5,
-        color: ZipherColors.text40,
-      ),
-    );
-  }
-
-  void _rewindTo(_Checkpoint cp) async {
-    final confirmed = await showConfirmDialog(context, 'Rewind',
-        'Roll back to block ${cp.height}? This is quick and safe.');
-    if (!confirmed) return;
-    await syncStatus2.triggerRescan();
-    Future(() => syncStatus2.sync());
-    if (mounted) GoRouter.of(context).pop();
-  }
-
-  void _rescan() async {
-    final h = _useHeight ? _heightController.text : '';
-    final d = _selectedDate ?? minDate;
-
-    if (!_useHeight && _selectedDate == null) {
-      final confirmed = await showConfirmDialog(context, 'Full Rescan',
-          'No date selected. This will rescan from the very beginning and may take a long time. Continue?');
-      if (!confirmed) return;
-    }
-
-    load(() async {
-      // TODO: migrate to WalletService - getBlockHeightByTime not yet available
-      final height = h.isNotEmpty ? int.parse(h) : 0;
-      final confirmed = await showConfirmDialog(
-          context,
-          'Full Rescan',
-          'Re-sync from block $height? '
-              'This may take a while but your funds are safe.');
-      if (!confirmed) return;
-      aa.reset(height);
-      await syncStatus2.triggerRescan();
-      Future(() => syncStatus2.sync());
-      if (mounted) GoRouter.of(context).pop();
-    });
-  }
-}
-
-// Keep RewindPage for backward compatibility with router
-/// Local checkpoint type (replaces warp_api Checkpoint).
-class _Checkpoint {
-  final int height;
-  final int timestamp;
-  _Checkpoint(this.height, this.timestamp);
-}
-
-class RewindPage extends StatefulWidget {
-  @override
-  State<StatefulWidget> createState() => _RewindState();
-}
-
-class _RewindState extends State<RewindPage> {
-  @override
-  Widget build(BuildContext context) {
-    return RescanPage();
-  }
+      );
 }

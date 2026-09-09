@@ -27,15 +27,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
   final _nameController = TextEditingController();
   final _keyController = TextEditingController();
   bool _loading = false;
-  bool _seedVisible = false;
   String? _error;
-  DateTime? _birthdayDate;
-  bool _showDatePicker = false;
-  static final _saplingActivation = DateTime(2018, 10, 29);
-
-  /// Whether we're creating a new wallet or importing from seed.
-  bool get _isImport =>
-      widget.seedInfo != null || _keyController.text.trim().isNotEmpty;
 
   @override
   void initState() {

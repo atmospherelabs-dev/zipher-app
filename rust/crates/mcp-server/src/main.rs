@@ -326,7 +326,8 @@ struct SweepQuoteParams {
 #[derive(Deserialize, JsonSchema)]
 struct VoteEligibilityParams {
     /// Snapshot height for the vote round
-    snapshot_height: u64,
+    #[serde(rename = "snapshot_height")]
+    _snapshot_height: u64,
 }
 
 // --- Ironwood pool transfer params ---
@@ -381,7 +382,6 @@ struct ZipherMcpServer {
     locked: Arc<std::sync::atomic::AtomicBool>,
     network: Network,
     seed_source: Arc<SeedSource>,
-    tool_router: rmcp::handler::server::tool::ToolRouter<Self>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1607,113 +1607,43 @@ impl ZipherMcpServer {
 
     // --- Ironwood pool transfer tools (ZIP 318) ---
 
-    #[tool(description = "Plan an Orchard -> Ironwood pool transfer per ZIP 318. Returns denomination breakdown, fees, number of parts, and estimated duration. Does NOT execute anything.")]
+    #[tool(description = "Read an Ironwood transfer plan from the current SDK. Requires an unlocked wallet seed for derivation; does not sign, persist or broadcast a transfer.")]
     async fn ironwood_plan(&self, Parameters(_params): Parameters<IronwoodPlanParams>) -> String {
-        let balance = match zipher_engine::query::get_wallet_balance().await {
-            Ok(b) => b,
-            Err(e) => return err_response(&e),
-        };
-        let orchard_zat = balance.orchard;
-        if orchard_zat == 0 {
-            return err_response(&anyhow::anyhow!("No Orchard balance to transfer"));
+        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
+            return err_code_response(WALLET_LOCKED, "Unlock the wallet to derive the SDK plan.");
         }
-        let height = zipher_engine::sync::get_progress().await.latest_height;
-        match zipher_engine::ironwood::plan_pool_transfer(orchard_zat, height) {
-            Ok(plan) => serde_json::to_string_pretty(&plan).unwrap_or_else(|e| err_response(&e.into())),
+        let seed_guard = self.seed.read().await;
+        let Some(seed) = seed_guard.as_ref() else {
+            return err_code_response(WALLET_LOCKED, "No signing seed is available for plan derivation.");
+        };
+        match zipher_engine::ironwood_v2::plan(seed).await {
+            Ok(plan) => ok_response(plan),
             Err(e) => err_response(&e),
         }
     }
 
-    #[tool(description = "Confirm and create the Ironwood pool transfer schedule. Saves schedule to disk and begins at the next bucket boundary.")]
+    #[tool(description = "Unavailable legacy Ironwood execution entry point. Does not sign or create a schedule; use the wallet app's reviewed SDK migration flow.")]
     async fn ironwood_confirm(&self, Parameters(params): Parameters<IronwoodConfirmParams>) -> String {
-        let balance = match zipher_engine::query::get_wallet_balance().await {
-            Ok(b) => b,
-            Err(e) => return err_response(&e),
-        };
-        let orchard_zat = balance.orchard;
-        let height = zipher_engine::sync::get_progress().await.latest_height;
-        let tor = params.tor.unwrap_or(false);
-        let schedule = match zipher_engine::ironwood::create_transfer_schedule(orchard_zat, height, tor) {
-            Ok(s) => s,
-            Err(e) => return err_response(&e),
-        };
-        let schedule_json = match serde_json::to_string_pretty(&schedule) {
-            Ok(j) => j,
-            Err(e) => return err_response(&e.into()),
-        };
-        let schedule_path = std::path::Path::new(&self.data_dir).join("ironwood_schedule.json");
-        if let Err(e) = std::fs::write(&schedule_path, &schedule_json) {
-            return err_response(&e.into());
-        }
-        format!("{{\"status\":\"confirmed\",\"total_parts\":{},\"tor\":{}}}", schedule.total_parts(), tor)
+        let _requested_tor = params.tor;
+        err_response(&anyhow::anyhow!("Headless Ironwood execution is not connected to the SDK runner. Use the wallet app to review and execute the transfer. Nothing was signed or scheduled."))
     }
 
-    #[tool(description = "Check the status of an in-progress Ironwood pool transfer. Returns progress, percent complete, and estimated time remaining.")]
+    #[tool(description = "Read the current Ironwood migration state from the wallet's SDK database, including confirmed transactions and next due height.")]
     async fn ironwood_status(&self, Parameters(_params): Parameters<IronwoodStatusParams>) -> String {
-        let schedule_path = std::path::Path::new(&self.data_dir).join("ironwood_schedule.json");
-        if !schedule_path.exists() {
-            return err_response(&anyhow::anyhow!("No active transfer. Use ironwood_plan first."));
+        match zipher_engine::ironwood_v2::status().await {
+            Ok(report) => ok_response(report),
+            Err(e) => err_response(&e),
         }
-        let raw = match std::fs::read_to_string(&schedule_path) {
-            Ok(r) => r,
-            Err(e) => return err_response(&e.into()),
-        };
-        let schedule: zipher_engine::ironwood::TransferSchedule = match serde_json::from_str(&raw) {
-            Ok(s) => s,
-            Err(e) => return err_response(&e.into()),
-        };
-        let confirmed = schedule.confirmed_parts();
-        let total = schedule.total_parts();
-        serde_json::json!({
-            "status": format!("{:?}", schedule.status),
-            "confirmed": confirmed,
-            "total": total,
-            "percent": if total > 0 { confirmed * 100 / total } else { 0 },
-            "next_height": schedule.next_broadcast_height(),
-            "estimated_hours_remaining": schedule.estimated_duration_hours(),
-        }).to_string()
     }
 
-    #[tool(description = "Pause an active Ironwood pool transfer. No further transactions will be broadcast until resumed.")]
+    #[tool(description = "Unavailable legacy pause entry point. Cannot pause the SDK migration runner; use the wallet app managing the transfer.")]
     async fn ironwood_pause(&self, Parameters(_params): Parameters<IronwoodPauseParams>) -> String {
-        let schedule_path = std::path::Path::new(&self.data_dir).join("ironwood_schedule.json");
-        if !schedule_path.exists() {
-            return err_response(&anyhow::anyhow!("No active transfer to pause."));
-        }
-        let raw = match std::fs::read_to_string(&schedule_path) {
-            Ok(r) => r,
-            Err(e) => return err_response(&e.into()),
-        };
-        let mut schedule: zipher_engine::ironwood::TransferSchedule = match serde_json::from_str(&raw) {
-            Ok(s) => s,
-            Err(e) => return err_response(&e.into()),
-        };
-        schedule.status = zipher_engine::ironwood::TransferStatus::Paused;
-        if let Err(e) = std::fs::write(&schedule_path, serde_json::to_string_pretty(&schedule).unwrap()) {
-            return err_response(&e.into());
-        }
-        "{\"status\":\"paused\"}".to_string()
+        err_response(&anyhow::anyhow!("Headless pause cannot control the SDK migration runner. Nothing was paused."))
     }
 
-    #[tool(description = "Resume a paused Ironwood pool transfer.")]
+    #[tool(description = "Unavailable legacy resume entry point. Cannot resume the SDK migration runner; use the wallet app managing the transfer.")]
     async fn ironwood_resume(&self, Parameters(_params): Parameters<IronwoodResumeParams>) -> String {
-        let schedule_path = std::path::Path::new(&self.data_dir).join("ironwood_schedule.json");
-        if !schedule_path.exists() {
-            return err_response(&anyhow::anyhow!("No transfer to resume."));
-        }
-        let raw = match std::fs::read_to_string(&schedule_path) {
-            Ok(r) => r,
-            Err(e) => return err_response(&e.into()),
-        };
-        let mut schedule: zipher_engine::ironwood::TransferSchedule = match serde_json::from_str(&raw) {
-            Ok(s) => s,
-            Err(e) => return err_response(&e.into()),
-        };
-        schedule.status = zipher_engine::ironwood::TransferStatus::Active;
-        if let Err(e) = std::fs::write(&schedule_path, serde_json::to_string_pretty(&schedule).unwrap()) {
-            return err_response(&e.into());
-        }
-        "{\"status\":\"active\"}".to_string()
+        err_response(&anyhow::anyhow!("Headless resume is not connected to the SDK migration runner. Nothing was resumed."))
     }
 
     // --- HITL tools ---
@@ -1904,7 +1834,7 @@ impl ServerHandler for ZipherMcpServer {
                  Cross-chain: swap_execute converts ZEC to any asset via Near Intents. \
                  EVM: evm_balances shows token holdings; sweep_quote previews bridging back to ZEC. \
                  Prediction markets: polymarket_discover finds markets, polymarket_positions shows bets, polymarket_bet places orders. \
-                 Governance: vote_eligibility checks shielded voting power for protocol votes."
+                 Governance voting is unavailable in this version."
             )
     }
 }
@@ -1955,6 +1885,20 @@ const DEFAULT_TESTNET_SERVER: &str = "https://testnet.zec.rocks:443";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Informational commands must not open a wallet, load keys, or start sync.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+        [] => {}
+        ["--version" | "-V"] => {
+            println!("zipher-mcp-server {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        ["--help" | "-h"] => {
+            println!("Zipher MCP server {}\n\nUsage: zipher-mcp-server [--version|--help]\n\nWith no arguments, serves MCP over stdio. Configure ZIPHER_DATA_DIR,\nZIPHER_SERVER, ZIPHER_TESTNET, OWS_WALLET and OWS_PASSPHRASE through the environment.", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        _ => anyhow::bail!("Unsupported arguments. Use --help for usage."),
+    }
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_max_level(tracing::Level::INFO)
@@ -2005,7 +1949,6 @@ async fn main() -> Result<()> {
         locked: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         network,
         seed_source: Arc::new(seed_source),
-        tool_router: ZipherMcpServer::tool_router(),
     };
 
     tracing::info!("Zipher MCP server starting on stdio (data_dir={})", data_dir);

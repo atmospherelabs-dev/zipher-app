@@ -418,7 +418,7 @@ class _DisclaimerState extends State<DisclaimerPage> {
           await ws.closeWallet();
         }
 
-        final seed = await ws.createNewWallet('Main Wallet');
+        await ws.createNewWallet('Main Wallet');
 
         final balance = await ws.getBalanceOrZero();
         final addrs = await ws.getAddresses();

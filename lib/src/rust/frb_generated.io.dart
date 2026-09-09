@@ -113,9 +113,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   EngineInvoice dco_decode_engine_invoice(dynamic raw);
 
   @protected
-  EngineLlmModelInfo dco_decode_engine_llm_model_info(dynamic raw);
-
-  @protected
   EngineMultiChainAddresses dco_decode_engine_multi_chain_addresses(
       dynamic raw);
 
@@ -405,10 +402,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EngineInvoice sse_decode_engine_invoice(SseDeserializer deserializer);
-
-  @protected
-  EngineLlmModelInfo sse_decode_engine_llm_model_info(
-      SseDeserializer deserializer);
 
   @protected
   EngineMultiChainAddresses sse_decode_engine_multi_chain_addresses(
@@ -727,10 +720,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_engine_invoice(EngineInvoice self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_engine_llm_model_info(
-      EngineLlmModelInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_engine_multi_chain_addresses(

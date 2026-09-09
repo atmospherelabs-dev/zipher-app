@@ -5,7 +5,6 @@ pub mod evm_pay;
 pub mod evm_swap;
 pub mod frost;
 pub mod hitl;
-pub mod llm;
 pub mod mpp;
 pub mod ows;
 pub mod payment;
@@ -20,8 +19,6 @@ pub mod swap;
 pub mod sync;
 pub mod types;
 pub mod vault;
-#[cfg(feature = "voting")]
-pub mod voting;
 pub mod ironwood;
 pub mod ironwood_v2;
 pub mod wallet;
@@ -130,6 +127,5 @@ pub(crate) fn migrate_to_encrypted(path: &Path, key: &str) -> Result<bool> {
 
     std::fs::rename(&enc_path, path)?;
 
-    println!("[engine] migrated {:?} to encrypted", path);
     Ok(true)
 }

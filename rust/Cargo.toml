@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/engine", "crates/cli", "crates/mcp-server"]
+members = ["crates/engine", "crates/cli", "crates/mcp-server", "crates/rng-compat"]
 
 [package]
 name = "rust_lib_zipher"
@@ -13,48 +13,21 @@ crate-type = ["cdylib", "staticlib"]
 zipher-engine = { path = "crates/engine" }
 flutter_rust_bridge = "=2.11.1"
 anyhow = "1"
-thiserror = "2"
 tracing = "0.1"
-log = "0.4"
 hex = "0.4"
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
-rand = "0.8"
 
-# Zcash crates (NU6.3 / Ironwood — 0.24 rc.6 series, pool migration rc.5)
-zcash_protocol = "0.10.3"
-zcash_address = "0.13.0"
-zcash_client_backend = { version = "0.24.0-rc.6", features = ["lightwalletd-tonic", "transparent-inputs", "tor"] }
-zip32 = "0.2"
-zcash_keys = { version = "0.16.1", features = ["orchard", "sapling", "unstable-frost"] }
+# Shared stable wallet layer and Zakura Common cryptography
+zcash_protocol = { workspace = true }
+zcash_address = { workspace = true }
+zcash_client_backend = { workspace = true, features = ["lightwalletd-tonic", "transparent-inputs", "tor"] }
 bip0039 = { version = "0.14", features = ["rand"] }
-xeddsa = "1.0.2"
-snow = "0.9.6"
-uuid = "1"
 
-zcash_client_sqlite = { version = "0.22.0-rc.6", features = ["orchard", "transparent-inputs"] }
-zcash_pool_migration = "0.1.0-rc.5"
+zcash_pool_migration = { workspace = true }
 secrecy = "0.8"
-tonic = { version = "0.14", features = ["channel", "tls-ring", "tls-webpki-roots"] }
-prost = "0.14"
-futures-util = "0.3"
-rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
-zeroize = "1"
-sapling-crypto = { version = "0.7", package = "sapling-crypto" }
-orchard = "0.15.3"
-incrementalmerkletree = "0.8"
-zcash_primitives = "0.30.0"
-zcash_proofs = "0.30.0"
-zcash_transparent = "0.10.0"
-zcash_script = "0.4"
-zip321 = "0.9.0-rc.1"
+orchard = { workspace = true }
 
-rustls = { version = "0.23", features = ["ring"] }
-lazy_static = "1"
-json = "0.12"
-http = "1"
-nonempty = "0.11"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 
 [features]
@@ -74,21 +47,26 @@ opt-level = 3
 strip = true
 
 [patch.crates-io]
-# Pin to librustzcash tag zcash_client_sqlite-0.22.0-rc.6 (2026-07-30).
-# Includes: unpadded Ironwood bundles (PR #2540), boundary anchor fixes,
-# revised ZIP-318 timing, anchor_computable, DummyOutputCounts,
-# anchor_bucket_interval migration fix, pool_crossing_value view.
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-zcash_transparent = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-zcash_address = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-zcash_encoding = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-pczt = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-zip321 = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-equihash = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-f4jumble = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
-zcash_pool_migration = { git = "https://github.com/zcash/librustzcash.git", rev = "f370a1f2" }
+# Stable wallet layer adapted to Zakura Common; retains Ironwood migration storage.
+zcash_client_backend = { path = "vendor/zcash_client_backend" }
+zcash_client_sqlite = { path = "vendor/zcash_client_sqlite" }
+zcash_pool_migration = { path = "vendor/zcash_pool_migration" }
+pczt = { path = "vendor/pczt" }
+
+[workspace.dependencies]
+zcash_protocol = "0.10.6"
+zcash_address = "0.13.0"
+zcash_client_backend = "0.24.0"
+zcash_client_sqlite = "0.22.0"
+zcash_pool_migration = "0.1.0"
+pczt = "0.9.3"
+zcash_transparent = "0.10.0"
+zip321 = "0.9.0"
+orchard = { package = "zakura-orchard", version = "=1.2.0" }
+zcash_keys = { package = "zakura-keys", version = "=1.2.0" }
+zcash_primitives = { package = "zakura-primitives", version = "=1.2.0" }
+zcash_proofs = { package = "zakura-proofs", version = "=1.2.0" }
+pasta_curves = { package = "zakura-pasta-curves", version = "=1.2.0" }
+reddsa = { package = "zakura-reddsa", version = "=1.2.0" }
+sapling-crypto = { package = "zakura-sapling-crypto", version = "=1.2.0" }
+ff = "0.14"

@@ -813,150 +813,47 @@ pub async fn cmd_store_signed_pczt(cfg: &Config, pczt_hex: String) -> Result<()>
 
 pub async fn cmd_ironwood_plan(cfg: &Config) -> Result<()> {
     sync_if_needed(cfg).await?;
-    let balance = zipher_engine::query::get_wallet_balance().await?;
-    let orchard_zat = balance.orchard;
-
-    if orchard_zat == 0 {
-        zipher_engine::wallet::close().await;
-        return Err(anyhow::anyhow!("No Orchard balance to transfer to Ironwood"));
-    }
-
-    let height = zipher_engine::sync::get_progress().await.latest_height;
-    let plan = zipher_engine::ironwood::plan_pool_transfer(orchard_zat, height)?;
-
-    print_ok(&plan, cfg.human, |p| {
-        println!("Ironwood Pool Transfer Plan (ZIP 318)");
-        println!("======================================");
-        println!();
-        println!("  Orchard balance:  {:.8} ZEC ({} zat)", p.orchard_balance_zat as f64 / 1e8, p.orchard_balance_zat);
-        println!();
-        println!("  Denominations:");
-        for g in &p.denominations {
-            println!("    {}", g.label);
-        }
-        println!();
-        println!("  Total parts:      {}", p.total_parts);
-        println!("  Total fees:       {:.8} ZEC ({} zat)", p.total_fee_zat as f64 / 1e8, p.total_fee_zat);
-        println!("  Sessions:         ~{}", p.estimated_sessions);
-        println!("  Duration:         ~{:.1} hours", p.estimated_duration_hours);
-        if p.dust_remaining_zat > 0 {
-            println!("  Dust (unmigrated): {} zat", p.dust_remaining_zat);
-        }
-        println!();
-        println!("Run `zipher-cli ironwood confirm` to begin the transfer.");
-    });
-
+    let result = async {
+        let seed = read_seed(&cfg.data_dir)?;
+        let plan = zipher_engine::ironwood_v2::plan(&seed).await?;
+        print_ok(&plan, cfg.human, |p| {
+            println!("Ironwood SDK transfer plan");
+            println!("Amount: {} zat", p.total_migrating_zat);
+            println!("Estimated fees: {} zat", p.estimated_total_fee_zat);
+            println!("Transactions: {} preparation + {} transfer", p.prep_tx_count, p.transfer_tx_count);
+            println!("Use the wallet app to review and execute this transfer.");
+        });
+        Ok(())
+    }.await;
     zipher_engine::wallet::close().await;
-    Ok(())
-}
-
-pub async fn cmd_ironwood_confirm(cfg: &Config, tor: bool) -> Result<()> {
-    sync_if_needed(cfg).await?;
-    let balance = zipher_engine::query::get_wallet_balance().await?;
-    let orchard_zat = balance.orchard;
-    let height = zipher_engine::sync::get_progress().await.latest_height;
-
-    let schedule = zipher_engine::ironwood::create_transfer_schedule(orchard_zat, height, tor)?;
-    let schedule_json = serde_json::to_string_pretty(&schedule)?;
-
-    let schedule_path = std::path::Path::new(&cfg.data_dir).join("ironwood_schedule.json");
-    std::fs::write(&schedule_path, &schedule_json)?;
-
-    print_ok(
-        serde_json::json!({
-            "status": "confirmed",
-            "total_parts": schedule.total_parts(),
-            "schedule_file": schedule_path.display().to_string(),
-            "tor_enabled": tor,
-        }),
-        cfg.human,
-        |_| {
-            println!("Transfer schedule confirmed and saved.");
-            println!();
-            println!("  Parts:  {}", schedule.total_parts());
-            println!("  Tor:    {}", if tor { "enabled" } else { "disabled" });
-            println!("  File:   {}", schedule_path.display());
-            println!();
-            println!("The transfer will begin at the next bucket boundary.");
-            println!("Run `zipher-cli ironwood status` to check progress.");
-        },
-    );
-
-    zipher_engine::wallet::close().await;
-    Ok(())
+    result
 }
 
 pub async fn cmd_ironwood_status(cfg: &Config) -> Result<()> {
-    let schedule_path = std::path::Path::new(&cfg.data_dir).join("ironwood_schedule.json");
-    if !schedule_path.exists() {
-        return Err(anyhow::anyhow!(
-            "No active transfer. Run `zipher-cli ironwood plan` first."
-        ));
-    }
-
-    let raw = std::fs::read_to_string(&schedule_path)?;
-    let schedule: zipher_engine::ironwood::TransferSchedule = serde_json::from_str(&raw)?;
-
-    let confirmed = schedule.confirmed_parts();
-    let total = schedule.total_parts();
-    let pct = if total > 0 { confirmed * 100 / total } else { 0 };
-
-    print_ok(
-        serde_json::json!({
-            "status": format!("{:?}", schedule.status),
-            "confirmed": confirmed,
-            "total": total,
-            "percent": pct,
-            "next_height": schedule.next_broadcast_height(),
-            "estimated_hours_remaining": schedule.estimated_duration_hours(),
-        }),
-        cfg.human,
-        |_| {
-            println!("Ironwood Transfer Status");
-            println!("========================");
-            println!();
-            println!("  Status:     {:?}", schedule.status);
-            println!("  Progress:   {}/{} ({}%)", confirmed, total, pct);
-            if let Some(h) = schedule.next_broadcast_height() {
-                println!("  Next at:    block {}", h);
-            }
-            println!("  Est. left:  {:.1} hours", schedule.estimated_duration_hours());
-        },
-    );
-
-    Ok(())
-}
-
-pub async fn cmd_ironwood_pause(cfg: &Config) -> Result<()> {
-    let schedule_path = std::path::Path::new(&cfg.data_dir).join("ironwood_schedule.json");
-    if !schedule_path.exists() {
-        return Err(anyhow::anyhow!("No active transfer to pause."));
-    }
-
-    let raw = std::fs::read_to_string(&schedule_path)?;
-    let mut schedule: zipher_engine::ironwood::TransferSchedule = serde_json::from_str(&raw)?;
-    schedule.status = zipher_engine::ironwood::TransferStatus::Paused;
-    std::fs::write(&schedule_path, serde_json::to_string_pretty(&schedule)?)?;
-
-    print_ok(serde_json::json!({"status": "paused"}), cfg.human, |_| {
-        println!("Transfer paused. Run `zipher-cli ironwood resume` to continue.");
+    auto_open(cfg).await?;
+    let result = zipher_engine::ironwood_v2::status().await;
+    zipher_engine::wallet::close().await;
+    let report = result?;
+    print_ok(&report, cfg.human, |r| {
+        println!("Ironwood SDK transfer: {}", r.status);
+        println!("Confirmed: {}/{} transactions", r.confirmed_count, r.total_tx_count);
+        println!("Confirmed amount: {} zat", r.total_confirmed_zat);
+        println!("Next due height: {}", r.next_due_height);
     });
     Ok(())
 }
 
-pub async fn cmd_ironwood_resume(cfg: &Config) -> Result<()> {
-    let schedule_path = std::path::Path::new(&cfg.data_dir).join("ironwood_schedule.json");
-    if !schedule_path.exists() {
-        return Err(anyhow::anyhow!("No transfer to resume."));
-    }
+// The removed scheduler only wrote a JSON file. It did not drive the current
+// SDK's commit/prove/broadcast loop. Do not report a transfer as running or
+// paused while the wallet's database-backed SDK runner is unaffected.
+pub async fn cmd_ironwood_confirm(_cfg: &Config, _tor: bool) -> Result<()> {
+    Err(anyhow::anyhow!("Headless Ironwood execution is not connected to the SDK runner. Use the wallet app to review and execute the transfer; no legacy JSON schedule was created."))
+}
 
-    let raw = std::fs::read_to_string(&schedule_path)?;
-    let mut schedule: zipher_engine::ironwood::TransferSchedule = serde_json::from_str(&raw)?;
-    schedule.status = zipher_engine::ironwood::TransferStatus::Active;
-    std::fs::write(&schedule_path, serde_json::to_string_pretty(&schedule)?)?;
+pub async fn cmd_ironwood_pause(_cfg: &Config) -> Result<()> {
+    Err(anyhow::anyhow!("Headless pause cannot control the SDK migration runner. Use the wallet app managing this transfer. Nothing was paused."))
+}
 
-    print_ok(serde_json::json!({"status": "active"}), cfg.human, |_| {
-        println!("Transfer resumed.");
-    });
-    Ok(())
+pub async fn cmd_ironwood_resume(_cfg: &Config) -> Result<()> {
+    Err(anyhow::anyhow!("Headless resume is not connected to the SDK migration runner. Use the wallet app managing this transfer. Nothing was resumed."))
 }

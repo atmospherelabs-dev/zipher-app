@@ -1,13 +1,19 @@
-name: Testnet Integration Tests
+name: Wallet Regression Tests
 
 on:
   push:
     branches: [main, dev]
     paths:
       - "rust/**"
+      - "npm/**"
+      - "scripts/verify-wallet-stack.py"
+      - ".github/workflows/testnet-ci.yml"
   pull_request:
     paths:
       - "rust/**"
+      - "npm/**"
+      - "scripts/verify-wallet-stack.py"
+      - ".github/workflows/testnet-ci.yml"
   workflow_dispatch:
 
 env:
@@ -44,20 +50,34 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev cmake
 
+      - name: Verify one wallet crypto family
+        run: |
+          mkdir -p target
+          cargo metadata --locked --format-version 1 > target/wallet-stack.json
+          python3 ../scripts/verify-wallet-stack.py target/wallet-stack.json
+
+      - name: Test npm artifact verification
+        run: node --test ../npm/test/*.test.js
+
       - name: Run unit tests
-        run: cargo test --workspace --exclude rust_lib_zipher
+        run: cargo test --locked --workspace --exclude rust_lib_zipher
 
       - name: Build CLI (release)
-        run: cargo build --release -p zipher-cli
+        run: cargo build --locked --release -p zipher-cli
 
       - name: Smoke test - CLI help
         run: ./target/release/zipher-cli --help
 
       - name: Smoke test - version
-        run: ./target/release/zipher-cli --version || true
+        run: ./target/release/zipher-cli --version
 
       - name: Build MCP server
-        run: cargo build --release -p zipher-mcp-server
+        run: cargo build --locked --release -p zipher-mcp-server
+
+      - name: Smoke test - MCP version and help
+        run: |
+          ./target/release/zipher-mcp-server --version
+          ./target/release/zipher-mcp-server --help
 
       - name: Clippy
-        run: cargo clippy -p zipher-cli -p zipher-mcp-server -p zipher-engine -- -D warnings || true
+        run: cargo clippy --locked -p zipher-cli -p zipher-mcp-server -p zipher-engine

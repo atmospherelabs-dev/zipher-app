@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../accounts.dart';
 import '../services/wallet_service.dart';
 import '../zipher_theme.dart';
 

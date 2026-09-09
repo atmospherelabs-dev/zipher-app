@@ -7,8 +7,6 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../zipher_theme.dart';
-import '../../accounts.dart';
-import '../../appsettings.dart';
 import '../../generated/intl/messages.dart';
 import '../../services/near_intents.dart';
 import '../../store2.dart';
@@ -52,8 +50,7 @@ class _ContactsState extends State<ContactsPage> {
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
@@ -61,34 +58,32 @@ class _ContactsState extends State<ContactsPage> {
             IconButton(
               onPressed: _edit,
               icon: Icon(Icons.edit_rounded,
-                  size: 20,
-                  color: ZipherColors.text40),
+                  size: 20, color: ZipherColors.text40),
             ),
           if (selected)
             IconButton(
               onPressed: _delete,
               icon: Icon(Icons.delete_outline_rounded,
-                  size: 20,
-                  color: ZipherColors.red.withValues(alpha: 0.6)),
+                  size: 20, color: ZipherColors.red.withValues(alpha: 0.6)),
             ),
           IconButton(
             onPressed: _add,
             icon: Icon(Icons.person_add_alt_1_rounded,
-                size: 20,
-                color: ZipherColors.cyan.withValues(alpha: 0.7)),
+                size: 20, color: ZipherColors.cyan.withValues(alpha: 0.7)),
           ),
         ],
       ),
       body: Observer(builder: (context) {
         final c = contacts.contacts;
+        final error = contacts.loadError.value;
+        if (error != null) return Center(child: Text(error));
         if (c.isEmpty) {
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(Icons.people_outline_rounded,
-                    size: 48,
-                    color: ZipherColors.cardBgElevated),
+                    size: 48, color: ZipherColors.cardBgElevated),
                 const Gap(16),
                 Text(
                   'No contacts yet',
@@ -118,61 +113,6 @@ class _ContactsState extends State<ContactsPage> {
                 onLongSelect: (v) => setState(() => selected = v != null),
               ),
             ),
-            // Backup to chain banner
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: GestureDetector(
-                  onTap: _save,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: ZipherColors.purple.withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.cloud_upload_outlined,
-                            size: 18,
-                            color: ZipherColors.purple
-                                .withValues(alpha: 0.5)),
-                        const Gap(12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Backup contacts on-chain',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                  color: ZipherColors.purple
-                                      .withValues(alpha: 0.7),
-                                ),
-                              ),
-                              const Gap(2),
-                              Text(
-                                'Encrypt & store on the blockchain so they sync with your seed',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.white
-                                      .withValues(alpha: 0.2),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Icon(Icons.chevron_right_rounded,
-                            size: 16,
-                            color: ZipherColors.purple
-                                .withValues(alpha: 0.3)),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
           ],
         );
       }),
@@ -188,19 +128,6 @@ class _ContactsState extends State<ContactsPage> {
     final c = contacts.contacts[v!];
     Clipboard.setData(ClipboardData(text: c.address!));
     showSnackBar(s.addressCopiedToClipboard);
-  }
-
-  _save() async {
-    final s = S.of(context);
-    final coinSettings = CoinSettingsExtension.load(aa.coin);
-    final fee = coinSettings.feeT;
-    final confirmed =
-        await showConfirmDialog(context, s.save, s.confirmSaveContacts);
-    if (!confirmed) return;
-    // TODO: implement contact syncing
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Contact sync not yet implemented')),
-    );
   }
 
   _add() async {
@@ -221,7 +148,14 @@ class _ContactsState extends State<ContactsPage> {
         await showConfirmDialog(context, s.delete, s.confirmDeleteContact);
     if (!confirmed) return;
     final c = listKey.currentState!.selectedContact!;
-    contacts.remove(c);
+    try {
+      await contacts.remove(c);
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Contact could not be deleted. Try again.')));
+      return;
+    }
     contacts.fetchContacts();
   }
 }
@@ -330,8 +264,7 @@ class _ContactCard extends StatelessWidget {
                 : ZipherColors.cardBg,
             borderRadius: BorderRadius.circular(ZipherRadius.lg),
             border: selected
-                ? Border.all(
-                    color: ZipherColors.cyan.withValues(alpha: 0.15))
+                ? Border.all(color: ZipherColors.cyan.withValues(alpha: 0.15))
                 : null,
           ),
           child: Row(
@@ -362,7 +295,8 @@ class _ContactCard extends StatelessWidget {
                                 horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: ZipherColors.cardBgElevated,
-                              borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                              borderRadius:
+                                  BorderRadius.circular(ZipherRadius.sm),
                             ),
                             child: Text(
                               chain.symbol,
@@ -389,8 +323,7 @@ class _ContactCard extends StatelessWidget {
                 ),
               ),
               Icon(Icons.chevron_right_rounded,
-                  size: 18,
-                  color: ZipherColors.text10),
+                  size: 18, color: ZipherColors.text10),
             ],
           ),
         ),
@@ -413,6 +346,7 @@ class ContactEditPage extends StatefulWidget {
 }
 
 class _ContactEditState extends State<ContactEditPage> {
+  bool _saving = false;
   final formKey = GlobalKey<FormBuilderState>();
   final nameController = TextEditingController();
   final addressController = TextEditingController();
@@ -463,16 +397,14 @@ class _ContactEditState extends State<ContactEditPage> {
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
           IconButton(
             onPressed: _save,
             icon: Icon(Icons.check_rounded,
-                size: 22,
-                color: ZipherColors.cyan.withValues(alpha: 0.8)),
+                size: 22, color: ZipherColors.cyan.withValues(alpha: 0.8)),
           ),
         ],
       ),
@@ -589,14 +521,28 @@ class _ContactEditState extends State<ContactEditPage> {
   }
 
   _save() async {
-    final addr = addressController.text;
-    contacts.add(Contact(id: widget.id, name: nameController.text, address: addr));
-    if (_originalAddress != addr) {
-      await ContactChainStore.remove(_originalAddress);
+    if (_saving) return;
+    _saving = true;
+    try {
+      final addr = addressController.text;
+      try {
+        await contacts.add(
+            Contact(id: widget.id, name: nameController.text, address: addr));
+      } catch (_) {
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Contact could not be saved. Try again.')));
+        return;
+      }
+      if (_originalAddress != addr) {
+        await ContactChainStore.remove(_originalAddress);
+      }
+      await ContactChainStore.set(addr, _selectedChain.id);
+      contacts.fetchContacts();
+      GoRouter.of(context).pop();
+    } finally {
+      _saving = false;
     }
-    await ContactChainStore.set(addr, _selectedChain.id);
-    contacts.fetchContacts();
-    GoRouter.of(context).pop();
   }
 }
 
@@ -610,6 +556,7 @@ class ContactAddPage extends StatefulWidget {
 }
 
 class _ContactAddState extends State<ContactAddPage> {
+  bool _saving = false;
   final formKey = GlobalKey<FormBuilderState>();
   final nameController = TextEditingController();
   final addressController = TextEditingController();
@@ -641,16 +588,14 @@ class _ContactAddState extends State<ContactAddPage> {
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
           IconButton(
             onPressed: _add,
             icon: Icon(Icons.check_rounded,
-                size: 22,
-                color: ZipherColors.cyan.withValues(alpha: 0.8)),
+                size: 22, color: ZipherColors.cyan.withValues(alpha: 0.8)),
           ),
         ],
       ),
@@ -738,7 +683,8 @@ class _ContactAddState extends State<ContactAddPage> {
                         controller: addressController,
                         validator: isZec
                             ? addressValidator
-                            : (v) => chainAddressValidator(v, _selectedChain.id),
+                            : (v) =>
+                                chainAddressValidator(v, _selectedChain.id),
                         minLines: 3,
                         maxLines: 5,
                         textInputAction: TextInputAction.done,
@@ -775,11 +721,11 @@ class _ContactAddState extends State<ContactAddPage> {
                           height: 36,
                           decoration: BoxDecoration(
                             color: ZipherColors.cardBgElevated,
-                            borderRadius: BorderRadius.circular(ZipherRadius.md),
+                            borderRadius:
+                                BorderRadius.circular(ZipherRadius.md),
                           ),
                           child: Icon(Icons.qr_code_rounded,
-                              size: 18,
-                              color: ZipherColors.text40),
+                              size: 18, color: ZipherColors.text40),
                         ),
                       ),
                     ),
@@ -800,13 +746,27 @@ class _ContactAddState extends State<ContactAddPage> {
   }
 
   _add() async {
-    final form = formKey.currentState!;
-    if (form.validate()) {
-      final addr = addressController.text;
-      contacts.add(Contact(id: 0, name: nameController.text, address: addr));
-      await ContactChainStore.set(addr, _selectedChain.id);
-      contacts.fetchContacts();
-      GoRouter.of(context).pop();
+    if (_saving) return;
+    _saving = true;
+    try {
+      final form = formKey.currentState!;
+      if (form.validate()) {
+        final addr = addressController.text;
+        try {
+          await contacts
+              .add(Contact(id: 0, name: nameController.text, address: addr));
+        } catch (_) {
+          if (mounted)
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Contact could not be saved. Try again.')));
+          return;
+        }
+        await ContactChainStore.set(addr, _selectedChain.id);
+        contacts.fetchContacts();
+        GoRouter.of(context).pop();
+      }
+    } finally {
+      _saving = false;
     }
   }
 }
@@ -858,8 +818,7 @@ class _ChainSelector extends StatelessWidget {
               ),
             ),
             Icon(Icons.unfold_more_rounded,
-                size: 18,
-                color: ZipherColors.text40),
+                size: 18, color: ZipherColors.text40),
           ],
         ),
       ),
@@ -902,9 +861,11 @@ class _ChainPickerSheetState extends State<_ChainPickerSheet> {
   Widget build(BuildContext context) {
     final filtered = _search.isEmpty
         ? ChainInfo.all
-        : ChainInfo.all.where((c) =>
-            c.name.toLowerCase().contains(_search.toLowerCase()) ||
-            c.symbol.toLowerCase().contains(_search.toLowerCase())).toList();
+        : ChainInfo.all
+            .where((c) =>
+                c.name.toLowerCase().contains(_search.toLowerCase()) ||
+                c.symbol.toLowerCase().contains(_search.toLowerCase()))
+            .toList();
 
     return DraggableScrollableSheet(
       initialChildSize: 0.65,
@@ -997,7 +958,8 @@ class _ChainPickerSheetState extends State<_ChainPickerSheet> {
                           if (isCurrent)
                             Icon(Icons.check_rounded,
                                 size: 18,
-                                color: ZipherColors.cyan.withValues(alpha: 0.7)),
+                                color:
+                                    ZipherColors.cyan.withValues(alpha: 0.7)),
                         ],
                       ),
                     ),

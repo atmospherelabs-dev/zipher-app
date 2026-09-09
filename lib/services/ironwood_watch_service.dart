@@ -95,10 +95,10 @@ class IronwoodWatchService {
     final seed = await WalletService.instance.getSeedPhrase();
     if (seed == null) throw Exception('Cannot access seed');
 
+    _log.i('[Ironwood] calling SDK commit...');
     final result = await engine.engineIronwoodSdkCommit(seedPhrase: seed);
     _lastProgress = result;
-    _log.i('[Ironwood] committed: ${result.totalTxCount} txs, '
-        'status=${result.status}');
+    _log.i('[Ironwood] committed: ${_fmtProgress(result)}');
 
     _startTickLoop();
     return result;
@@ -117,6 +117,7 @@ class IronwoodWatchService {
   Future<engine.IronwoodSdkProgress> refreshStatus() async {
     final result = await engine.engineIronwoodSdkStatus();
     _lastProgress = result;
+    _log.d('[Ironwood] refreshStatus: ${_fmtProgress(result)}');
     return result;
   }
 
@@ -130,8 +131,10 @@ class IronwoodWatchService {
       _lastProgress = status;
 
       if (status.status == 'committed' || status.status == 'in_progress') {
-        _log.i('[Ironwood] resuming: ${status.confirmedCount}/${status.totalTxCount} confirmed');
+        _log.i('[Ironwood] resuming: ${_fmtProgress(status)}');
         _startTickLoop();
+      } else {
+        _log.d('[Ironwood] not resuming, status=${status.status}');
       }
     } catch (e) {
       _log.d('[Ironwood] no active migration: $e');
@@ -156,11 +159,11 @@ class IronwoodWatchService {
         return;
       }
 
+      _log.d('[Ironwood] tick: calling SDK...');
       final result = await engine.engineIronwoodSdkTick(seedPhrase: seed);
       _lastProgress = result;
 
-      _log.d('[Ironwood] tick: status=${result.status}, '
-          'broadcast=${result.broadcastCount}, confirmed=${result.confirmedCount}');
+      _log.i('[Ironwood] tick result: ${_fmtProgress(result)}');
 
       if (result.status == 'complete') {
         _timer?.cancel();
@@ -173,11 +176,25 @@ class IronwoodWatchService {
         _timer?.cancel();
         _timer = null;
         _lastProgress = null;
+        _log.d('[Ironwood] tick: no transfer in progress, stopping timer');
       } else {
         _log.w('[Ironwood] tick error: $e');
       }
     } finally {
       _ticking = false;
     }
+  }
+
+  static String _fmtProgress(engine.IronwoodSdkProgress p) {
+    final zec = BigInt.from(100000000);
+    final crossings = p.crossingValues.map((v) => '${v ~/ zec}.${(v % zec).toString().padLeft(8, '0')}').join(', ');
+    return 'status=${p.status} '
+        'txs=${p.confirmedCount}/${p.totalTxCount} '
+        'broadcast=${p.broadcastCount} '
+        'planned=${p.totalPlannedZat ~/ zec}.${(p.totalPlannedZat % zec).toString().padLeft(8, '0')}ZEC '
+        'confirmed=${p.totalConfirmedZat ~/ zec}.${(p.totalConfirmedZat % zec).toString().padLeft(8, '0')}ZEC '
+        'nextDueH=${p.nextDueHeight} '
+        'fees=${p.feesPaidZat}zat '
+        'crossings=[$crossings]';
   }
 }

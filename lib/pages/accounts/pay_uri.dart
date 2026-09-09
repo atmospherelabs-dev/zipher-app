@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -11,7 +10,6 @@ import 'package:path/path.dart' as p;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../accounts.dart';
-import '../../appsettings.dart';
 import '../../coin/coins.dart';
 import '../../services/wallet_service.dart';
 import '../../zipher_theme.dart';

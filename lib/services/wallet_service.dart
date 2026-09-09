@@ -5,7 +5,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
-import 'package:logger/logger.dart';
 import 'app_log.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -44,7 +43,11 @@ class WalletService {
   bool get isWalletOpen => _walletOpen;
 
   bool _busy = false;
-  bool get isBusy => _busy;
+  bool _confirmingSend = false;
+  bool _proposingSend = false;
+  int _proposalRevision = 0;
+  int get proposalRevision => _proposalRevision;
+  bool get isBusy => _busy || _confirmingSend || _proposingSend;
 
   String? _activeWalletId;
   String? get activeWalletId => _activeWalletId;
@@ -55,7 +58,7 @@ class WalletService {
   Map<String, String> get memosByTxid => Map.unmodifiable(_memosByTxid);
 
   void _checkBusy() {
-    if (_busy) throw WalletBusyException();
+    if (_busy || _confirmingSend || _proposingSend) throw WalletBusyException();
   }
 
   // -----------------------------------------------------------------------
@@ -388,6 +391,7 @@ class WalletService {
   /// If the target wallet doesn't exist on the current network (e.g. testnet),
   /// a fresh wallet is auto-created with an independent seed.
   Future<void> switchWallet(String targetWalletId) async {
+    _checkBusy();
     _log.i('[WS] switchWallet from=$_activeWalletId to=$targetWalletId');
     if (_activeWalletId == targetWalletId && _walletOpen) return;
     _busy = true;
@@ -444,7 +448,8 @@ class WalletService {
   /// Restore a wallet by ID using its seed from the Keychain, then open it.
   /// Used for DB recovery after schema migration failures.
   Future<void> restoreAndOpenWalletById(String walletId) async {
-    final seed = await SecureKeyStore.getSeedForWallet(networkSeedKey(walletId));
+    final seed =
+        await SecureKeyStore.getSeedForWallet(networkSeedKey(walletId));
     if (seed == null || seed.isEmpty) {
       throw Exception('No seed found in Keychain for wallet $walletId');
     }
@@ -512,7 +517,7 @@ class WalletService {
             : await rust_wallet.getWalletBalance();
         final confirmed = balance.transparent.toInt() +
             balance.sapling.toInt() +
-            balance.orchard.toInt();
+            balance.orchard.toInt() + balance.ironwood.toInt();
         await WalletRegistry.instance.updateSnapshot(
           _activeWalletId!,
           balance: confirmed,
@@ -527,16 +532,19 @@ class WalletService {
 
   /// Snapshot balance after sync (call this after sync completion).
   Future<void> snapshotAfterSync() async {
-    if (_activeWalletId == null || !_walletOpen) return;
+    final walletId = _activeWalletId;
+    final network = isTestnet;
+    if (walletId == null || !_walletOpen) return;
     try {
       final balance = useNewEngine
           ? await rust_engine.engineGetWalletBalance()
           : await rust_wallet.getWalletBalance();
+      if (!_walletOpen || _activeWalletId != walletId || isTestnet != network) return;
       final confirmed = balance.transparent.toInt() +
           balance.sapling.toInt() +
-          balance.orchard.toInt();
+          balance.orchard.toInt() + balance.ironwood.toInt();
       await WalletRegistry.instance.updateSnapshot(
-        _activeWalletId!,
+        walletId,
         balance: confirmed,
       );
     } catch (_) {}
@@ -656,6 +664,7 @@ class WalletService {
   }
 
   Future<void> closeWallet() async {
+    if (_confirmingSend || _proposingSend) throw WalletBusyException();
     final closingId = _activeWalletId;
     _log.i('[WS] closeWallet (activeId=$closingId)');
     final sw = Stopwatch()..start();
@@ -680,7 +689,8 @@ class WalletService {
     final dir = await walletDir(walletId: walletId);
     final height = await getLatestBlockHeight();
     if (height <= 0) {
-      throw Exception('Cannot create wallet: server returned invalid chain height ($height)');
+      throw Exception(
+          'Cannot create wallet: server returned invalid chain height ($height)');
     }
     _log.i(
         '[WS] creating fresh network wallet for $walletId in $dir at height $height');
@@ -981,29 +991,61 @@ class WalletService {
     bool isMax = false,
     bool priority = false,
   }) async {
-    final result = await rust_engine.engineProposeSend(
-      address: address,
-      amount: BigInt.from(amount),
-      memo: memo,
-      isMax: isMax,
-      priority: priority,
-    );
-    return (
-      sendAmount: result.sendAmount.toInt(),
-      fee: result.fee.toInt(),
-      isExact: result.isExact,
-    );
+    _checkBusy();
+    if (!isMax && (amount <= 0 || amount > 2100000000000000)) {
+      throw ArgumentError('Enter a positive ZEC amount within supply.');
+    }
+    // Invalidate old review cards even if the new proposal fails.
+    _proposalRevision++;
+    _proposingSend = true;
+    try {
+      final result = await rust_engine.engineProposeSend(
+        address: address,
+        amount: BigInt.from(amount),
+        memo: memo,
+        isMax: isMax,
+        priority: priority,
+      );
+      return (
+        sendAmount: result.sendAmount.toInt(),
+        fee: result.fee.toInt(),
+        isExact: result.isExact,
+      );
+    } finally {
+      _proposingSend = false;
+    }
   }
 
   /// Step 2: Confirm and broadcast the previously proposed transaction.
-  Future<String> confirmSend() async {
-    if (await isActiveFrostWallet()) {
-      throw Exception(
-        'This is a shared wallet. Use the FROST approval flow so co-signers can review and approve the transaction.',
-      );
+  Future<String> confirmSend(
+      {int? expectedRevision,
+      String? expectedWalletId,
+      bool? expectedTestnet}) async {
+    _checkBusy();
+    final signingWalletId = _activeWalletId;
+    final signingTestnet = isTestnet;
+    if ((expectedRevision != null && expectedRevision != _proposalRevision) ||
+        (expectedWalletId != null && expectedWalletId != _activeWalletId) ||
+        (expectedTestnet != null && expectedTestnet != isTestnet)) {
+      throw StateError(
+          'Wallet or transaction changed. Review the transaction again.');
     }
-    final seed = await _getSeedForSend();
-    return rust_engine.engineConfirmSend(seedPhrase: seed);
+    _confirmingSend = true;
+    try {
+      if (await isActiveFrostWallet()) {
+        throw Exception(
+          'This is a shared wallet. Use the FROST approval flow so co-signers can review and approve the transaction.',
+        );
+      }
+      final seed = await _getSeedForSend();
+      if (signingWalletId != _activeWalletId || signingTestnet != isTestnet) {
+        throw StateError('Wallet changed before signing. Review again.');
+      }
+      return await rust_engine.engineConfirmSend(seedPhrase: seed);
+    } finally {
+      _confirmingSend = false;
+      _proposalRevision++;
+    }
   }
 
   Future<bool> isActiveFrostWallet() async {
@@ -1032,45 +1074,63 @@ class WalletService {
     return FrostService.instance.storeSignedPczt(signedPczt);
   }
 
-  Future<String> send(List<rust_wallet.PaymentRecipient> recipients) async {
+  /// Reserve the payment path before any asynchronous key access. Direct send
+  /// and shielding must invalidate chat reviews just like a replacement proposal.
+  Future<T> _exclusivePayment<T>(Future<T> Function() action) async {
     _checkBusy();
-    if (useNewEngine) {
-      final r = recipients.first;
-      final seed = await _getSeedForSend();
-      return rust_engine.engineSendPayment(
-        seedPhrase: seed,
-        address: r.address,
-        amount: r.amount,
-        memo: r.memo,
-      );
+    _confirmingSend = true;
+    _proposalRevision++;
+    try {
+      return await action();
+    } finally {
+      _confirmingSend = false;
+      _proposalRevision++;
     }
-    return rust_wallet.sendPayment(recipients: recipients);
+  }
+
+  Future<String> _paymentSeed() async {
+    final walletId = _activeWalletId;
+    final network = isTestnet;
+    if (await isActiveFrostWallet()) {
+      throw StateError('Shared wallets require the FROST approval flow.');
+    }
+    final seed = await _getSeedForSend();
+    if (_activeWalletId != walletId || network != isTestnet) {
+      throw StateError('Wallet changed before signing. Review again.');
+    }
+    return seed;
+  }
+
+  Future<String> send(List<rust_wallet.PaymentRecipient> recipients) async {
+    if (recipients.isEmpty || (useNewEngine && recipients.length != 1)) {
+      throw ArgumentError('This payment path requires exactly one recipient.');
+    }
+    return _exclusivePayment(() async {
+      if (useNewEngine) {
+        final r = recipients.single;
+        final seed = await _paymentSeed();
+        return rust_engine.engineSendPayment(
+            seedPhrase: seed,
+            address: r.address,
+            amount: r.amount,
+            memo: r.memo);
+      }
+      return rust_wallet.sendPayment(recipients: recipients);
+    });
   }
 
   Future<String> sendFromAccount(
-    int accountIndex,
-    List<rust_wallet.PaymentRecipient> recipients,
-  ) async {
-    _checkBusy();
-    return rust_wallet.sendFromAccount(
-      accountIndex: accountIndex,
-      recipients: recipients,
-    );
-  }
+          int accountIndex, List<rust_wallet.PaymentRecipient> recipients) =>
+      _exclusivePayment(() => rust_wallet.sendFromAccount(
+          accountIndex: accountIndex, recipients: recipients));
 
-  Future<String> shieldFunds() async {
-    _checkBusy();
-    if (useNewEngine) {
-      if (await isActiveFrostWallet()) {
-        throw Exception(
-          'This is a shared wallet. Use the FROST shield approval flow so co-signers can review and approve shielding.',
-        );
-      }
-      final seed = await _getSeedForSend();
-      return rust_engine.engineShieldFunds(seedPhrase: seed);
-    }
-    return rust_wallet.shieldFunds();
-  }
+  Future<String> shieldFunds() => _exclusivePayment(() async {
+        if (useNewEngine) {
+          final seed = await _paymentSeed();
+          return rust_engine.engineShieldFunds(seedPhrase: seed);
+        }
+        return rust_wallet.shieldFunds();
+      });
 
   /// Converts the pending transparent -> shielded flow into a proved PCZT for
   /// threshold approval. This path does not read seed material.
@@ -1089,10 +1149,8 @@ class WalletService {
     return seed;
   }
 
-  Future<String> shieldAccount(int accountIndex) async {
-    _checkBusy();
-    return rust_wallet.shieldAccount(accountIndex: accountIndex);
-  }
+  Future<String> shieldAccount(int accountIndex) => _exclusivePayment(
+      () => rust_wallet.shieldAccount(accountIndex: accountIndex));
 
   // -----------------------------------------------------------------------
   // Multi-account (within a single wallet)

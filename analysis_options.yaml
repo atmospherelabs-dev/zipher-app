@@ -1,0 +1,4 @@
+analyzer:
+  exclude:
+    # Cargokit is an independent vendored Dart package with its own pubspec.
+    - rust_builder/cargokit/**

@@ -10,15 +10,12 @@ use super::sync::known_lightwalletd_servers;
 use super::wallet::{connect_lwd, connect_lwd_tor};
 use super::{open_wallet_db, ENGINE};
 
-/// Connect to lightwalletd, routing through Tor if enabled.
-async fn connect_lwd_maybe_tor(
+/// Connect with the wallet's captured transport policy; no global lock is needed.
+async fn connect_lwd_with_tor(
     server_url: &str,
+    tor: Option<&zcash_client_backend::tor::Client>,
 ) -> Result<CompactTxStreamerClient<tonic::transport::Channel>> {
-    let tor = {
-        let guard = ENGINE.lock().await;
-        guard.as_ref().and_then(|e| e.tor_client.clone())
-    };
-    if let Some(ref client) = tor {
+    if let Some(client) = tor {
         connect_lwd_tor(client, server_url).await
     } else {
         connect_lwd(server_url).await
@@ -33,7 +30,7 @@ use zcash_client_backend::data_api::wallet::{
     ConfirmationsPolicy, SpendingKeys,
 };
 use zcash_client_backend::data_api::wallet::input_selection::LockedInputPolicy;
-use zcash_client_backend::data_api::{Account as _, CoinbaseFilter, InputSource, MaxSpendMode, OutputLockStore, WalletRead, WalletWrite};
+use zcash_client_backend::data_api::{CoinbaseFilter, InputSource, MaxSpendMode, OutputLockStore, WalletRead};
 use zcash_client_backend::fees::StandardFeeRule;
 use zcash_client_backend::proposal::Proposal;
 use zcash_client_backend::proto::service::RawTransaction;
@@ -48,20 +45,12 @@ use zcash_primitives::transaction::builder::BundlePadding;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::consensus::Network;
 use zcash_protocol::value::Zatoshis;
-use zcash_protocol::ShieldedProtocol;
+use zcash_protocol::ShieldedPool;
 
 pub(crate) type DbType = WalletDb<rusqlite::Connection, Network, SystemClock, rand::rngs::OsRng>;
 pub(crate) type ProposalType = Proposal<StandardFeeRule, ReceivedNoteId>;
 
 use zcash_client_sqlite::util::SystemClock;
-
-/// 2-block expiry delta (~2.5 minutes at 75s/block).
-#[allow(dead_code)]
-const TX_EXPIRY_DELTA: u32 = 2;
-
-/// 4x the standard ZIP-317 marginal fee (5000 zat) = 20000 zat.
-#[allow(dead_code)]
-const PRIORITY_MARGINAL_FEE: u64 = 20_000;
 
 // ---------------------------------------------------------------------------
 // Pending proposal state
@@ -81,11 +70,24 @@ pub(crate) async fn broadcast_multi(
     params: &Network,
     tx_bytes: Vec<u8>,
 ) -> Result<()> {
+    let tor = {
+        let guard = ENGINE.lock().await;
+        guard.as_ref().and_then(|e| e.tor_client.clone())
+    };
+    broadcast_with_transport(primary_url, params, tx_bytes, tor).await
+}
+
+pub(crate) async fn broadcast_with_transport(
+    primary_url: &str,
+    params: &Network,
+    tx_bytes: Vec<u8>,
+    tor: Option<zcash_client_backend::tor::Client>,
+) -> Result<()> {
     let known = known_lightwalletd_servers(params);
     let is_known_primary = known.iter().any(|s| s == primary_url);
 
     if !is_known_primary || known.len() <= 1 {
-        let mut lwd = connect_lwd_maybe_tor(primary_url).await?;
+        let mut lwd = connect_lwd_with_tor(primary_url, tor.as_ref()).await?;
         let resp = lwd
             .send_transaction(RawTransaction { data: tx_bytes, height: 0 })
             .await
@@ -105,8 +107,9 @@ pub(crate) async fn broadcast_multi(
     for server in &known {
         let url = server.clone();
         let data = tx_bytes.clone();
+        let tor = tor.clone();
         handles.push(tokio::spawn(async move {
-            let client = connect_lwd_maybe_tor(&url).await;
+            let client = connect_lwd_with_tor(&url, tor.as_ref()).await;
             match client {
                 Ok(mut lwd) => {
                     match lwd.send_transaction(RawTransaction { data, height: 0 }).await {
@@ -338,7 +341,7 @@ pub async fn propose_send(
                     send_zat,
                     memo_bytes.clone(),
                     None,
-                    ShieldedProtocol::Orchard,
+                    ShieldedPool::Orchard,
                     None,
                     None,
                 );
@@ -368,7 +371,7 @@ pub async fn propose_send(
             &mut db_data,
             &params,
             account_id,
-            &[ShieldedProtocol::Sapling, ShieldedProtocol::Orchard],
+            &[ShieldedPool::Sapling, ShieldedPool::Orchard, ShieldedPool::Ironwood],
             &StandardFeeRule::Zip317,
             zaddr,
             memo_bytes,
@@ -409,7 +412,7 @@ pub async fn propose_send(
             send_zat,
             memo_bytes,
             None,
-            ShieldedProtocol::Orchard,
+            ShieldedPool::Orchard,
             None,
             None,
         )
@@ -462,7 +465,7 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
     drop(engine_guard);
 
     let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase.expose_secret())
-        .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
+        .map_err(|_| anyhow::anyhow!("Invalid seed phrase"))?;
     let mut seed = mnemonic.to_seed("");
     let usk_result = UnifiedSpendingKey::from_seed(&params, &seed, zip32::AccountId::ZERO);
     seed.zeroize();
@@ -590,28 +593,7 @@ pub async fn create_pczt() -> Result<Vec<u8>> {
     )
     .map_err(|e| anyhow::anyhow!("PCZT creation failed: {:?}", e))?;
 
-    info!("Adding zero-knowledge proofs...");
-    let tx_prover = load_prover_from_path(&db_data_path)?;
-
-    let mut prover = pczt::roles::prover::Prover::new(pczt);
-
-    if prover.requires_sapling_proofs() {
-        info!("  Sapling proofs...");
-        prover = prover
-            .create_sapling_proofs(&tx_prover, &tx_prover)
-            .map_err(|e| anyhow::anyhow!("Sapling proving failed: {:?}", e))?;
-    }
-
-    if prover.requires_orchard_proof() {
-        info!("  Orchard proof...");
-        let orchard_pk =
-            orchard::circuit::ProvingKey::build(OrchardCircuitVersion::FixedPostNu6_2);
-        prover = prover
-            .create_orchard_proof(&orchard_pk)
-            .map_err(|e| anyhow::anyhow!("Orchard proving failed: {:?}", e))?;
-    }
-
-    let proved_pczt = prover.finish();
+    let proved_pczt = prove_pczt(pczt, &db_data_path)?;
     let bytes = proved_pczt
         .serialize()
         .map_err(|e| anyhow::anyhow!("PCZT serialize failed: {:?}", e))?;
@@ -657,17 +639,17 @@ async fn store_signed_pczt_inner(signed_pczt_bytes: &[u8], broadcast: bool) -> R
 
     let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
 
-    let tx_prover = load_prover_from_path(&db_data_path)?;
-    let (spend_vk, output_vk) = tx_prover.verifying_keys();
-    let orchard_vk =
-        orchard::circuit::VerifyingKey::build(OrchardCircuitVersion::FixedPostNu6_2);
+    let sapling_keys = if !signed_pczt.sapling().spends().is_empty()
+        || !signed_pczt.sapling().outputs().is_empty() {
+        Some(load_prover_from_path(&db_data_path)?.verifying_keys())
+    } else { None };
 
     info!("Extracting and storing signed transaction in wallet DB...");
     let txid = extract_and_store_transaction_from_pczt::<DbType, Network>(
         &mut db_data,
         signed_pczt,
-        Some((&spend_vk, &output_vk)),
-        Some(&orchard_vk),
+        sapling_keys.as_ref().map(|(spend, output)| (spend, output)),
+        None, // The SDK derives the verifying circuit from the PCZT branch ID.
     )
     .map_err(|e| anyhow::anyhow!("Failed to extract/store PCZT: {:?}", e))?;
 
@@ -768,7 +750,7 @@ pub async fn get_max_sendable(address: &str) -> Result<u64> {
                 send_zat,
                 None,
                 None,
-                ShieldedProtocol::Orchard,
+                ShieldedPool::Orchard,
                 None,
                 None,
             );
@@ -783,7 +765,7 @@ pub async fn get_max_sendable(address: &str) -> Result<u64> {
         &mut db_data,
         &params,
         account_id,
-        &[ShieldedProtocol::Sapling, ShieldedProtocol::Orchard],
+        &[ShieldedPool::Sapling, ShieldedPool::Orchard, ShieldedPool::Ironwood],
         &StandardFeeRule::Zip317,
         zaddr,
         None,
@@ -840,7 +822,7 @@ fn propose_and_create_send(
         amount,
         memo,
         None,
-        ShieldedProtocol::Orchard,
+        ShieldedPool::Orchard,
         None,
         None,
     )
@@ -872,7 +854,7 @@ fn propose_and_create_shielding(
     let change_strategy = zcash_client_backend::fees::zip317::SingleOutputChangeStrategy::new(
         StandardFeeRule::Zip317,
         None,
-        ShieldedProtocol::Orchard,
+        ShieldedPool::Orchard,
         zcash_client_backend::fees::DustOutputPolicy::default(),
     );
     let greedy =
@@ -946,7 +928,7 @@ pub async fn create_shield_pczt() -> Result<Vec<u8>> {
     let change_strategy = zcash_client_backend::fees::zip317::SingleOutputChangeStrategy::new(
         StandardFeeRule::Zip317,
         None,
-        ShieldedProtocol::Orchard,
+        ShieldedPool::Orchard,
         zcash_client_backend::fees::DustOutputPolicy::default(),
     );
     let greedy =
@@ -984,26 +966,60 @@ pub async fn create_shield_pczt() -> Result<Vec<u8>> {
     )
     .map_err(|e| anyhow::anyhow!("Shield PCZT creation failed: {:?}", e))?;
 
-    let tx_prover = load_prover_from_path(&db_data_path)?;
-    let mut prover = pczt::roles::prover::Prover::new(pczt);
-    if prover.requires_sapling_proofs() {
-        prover = prover
-            .create_sapling_proofs(&tx_prover, &tx_prover)
-            .map_err(|e| anyhow::anyhow!("Sapling proving failed: {:?}", e))?;
-    }
-    if prover.requires_orchard_proof() {
-        let orchard_pk =
-            orchard::circuit::ProvingKey::build(OrchardCircuitVersion::FixedPostNu6_2);
-        prover = prover
-            .create_orchard_proof(&orchard_pk)
-            .map_err(|e| anyhow::anyhow!("Orchard proving failed: {:?}", e))?;
-    }
-    let proved_pczt = prover.finish();
+    let proved_pczt = prove_pczt(pczt, &db_data_path)?;
     let bytes = proved_pczt
         .serialize()
         .map_err(|e| anyhow::anyhow!("PCZT serialize failed: {:?}", e))?;
     set_pczt_lock(&db_data_path);
     Ok(bytes)
+}
+
+fn orchard_circuit_version(branch: u32) -> Result<OrchardCircuitVersion> {
+    use zcash_protocol::consensus::{BranchId, OrchardProtocolRevision};
+    let revision = BranchId::try_from(branch).ok()
+        .and_then(|b| b.orchard_protocol_revision())
+        .ok_or_else(|| anyhow::anyhow!("Unsupported Orchard consensus branch"))?;
+    Ok(match revision {
+        OrchardProtocolRevision::InsecureV1 => OrchardCircuitVersion::InsecurePreNu6_2,
+        OrchardProtocolRevision::V2 => OrchardCircuitVersion::FixedPostNu6_2,
+        OrchardProtocolRevision::V3 => OrchardCircuitVersion::PostNu6_3,
+    })
+}
+
+#[cfg(test)]
+mod circuit_tests {
+    use super::*;
+    use zcash_protocol::consensus::BranchId;
+
+    #[test]
+    fn selects_the_transaction_circuit_and_rejects_unknown_branches() {
+        assert_eq!(orchard_circuit_version(u32::from(BranchId::Nu6_2)).unwrap(), OrchardCircuitVersion::FixedPostNu6_2);
+        assert_eq!(orchard_circuit_version(u32::from(BranchId::Nu6_3)).unwrap(), OrchardCircuitVersion::PostNu6_3);
+        assert!(orchard_circuit_version(u32::from(BranchId::Sapling)).is_err());
+        assert!(orchard_circuit_version(0xffff_ffff).is_err());
+    }
+}
+
+fn prove_pczt(pczt: pczt::Pczt, path: &Path) -> Result<pczt::Pczt> {
+    use zcash_primitives::transaction::builder::cached_orchard_proving_key;
+    let branch = *pczt.global().consensus_branch_id();
+    let mut prover = pczt::roles::prover::Prover::new(pczt);
+    if prover.requires_sapling_proofs() {
+        let sapling = load_prover_from_path(path)?;
+        prover = prover.create_sapling_proofs(&sapling, &sapling)
+            .map_err(|e| anyhow::anyhow!("Sapling proving failed: {e:?}"))?;
+    }
+    if prover.requires_orchard_proof() {
+        let key = cached_orchard_proving_key(orchard_circuit_version(branch)?);
+        prover = prover.create_orchard_proof(key)
+            .map_err(|e| anyhow::anyhow!("Orchard proving failed: {e:?}"))?;
+    }
+    if prover.requires_ironwood_proof() {
+        let key = cached_orchard_proving_key(OrchardCircuitVersion::PostNu6_3);
+        prover = prover.create_ironwood_proof(key)
+            .map_err(|e| anyhow::anyhow!("Ironwood proving failed: {e:?}"))?;
+    }
+    Ok(prover.finish())
 }
 
 fn load_prover_from_path(db_data_path: &Path) -> Result<LocalTxProver> {
@@ -1050,7 +1066,7 @@ pub async fn send_payment(
     drop(engine_guard);
 
     let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase.expose_secret())
-        .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
+        .map_err(|_| anyhow::anyhow!("Invalid seed phrase"))?;
     let mut seed = mnemonic.to_seed("");
     let usk_result = UnifiedSpendingKey::from_seed(&params, &seed, zip32::AccountId::ZERO);
     seed.zeroize();
@@ -1141,7 +1157,7 @@ pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
     drop(engine_guard);
 
     let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase.expose_secret())
-        .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {:?}", e))?;
+        .map_err(|_| anyhow::anyhow!("Invalid seed phrase"))?;
     let mut seed = mnemonic.to_seed("");
     let usk_result = UnifiedSpendingKey::from_seed(&params, &seed, zip32::AccountId::ZERO);
     seed.zeroize();

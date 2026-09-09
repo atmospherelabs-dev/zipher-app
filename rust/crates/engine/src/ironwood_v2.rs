@@ -8,15 +8,19 @@ use rand::rngs::OsRng;
 use tracing::info;
 
 use zcash_client_backend::data_api::WalletRead;
-use zcash_client_sqlite::pool_migration::orchard_ironwood::PoolMigrations;
+use zcash_client_sqlite::{pool_migration::orchard_ironwood::PoolMigrations, util::SystemClock};
+use zcash_pool_migration::satisfiability::{
+    advance_migration, AdvanceConfig, DuenessTargets, ReorgSettleDepth, ReplanThreshold,
+};
+
+// Serialize migration mutation across UI, CLI and service calls in this process.
+static MIGRATION_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_pool_migration::engine::{
-    self as mig_engine, MigrationPlan, MigrationState as SdkMigrationState,
-    MigrationStatus, MigrationTxKind, MigrationTxState,
-    PoolMigrationRead, PoolMigrationWrite,
+    self as mig_engine, MigrationPlan, MigrationState as SdkMigrationState, MigrationStatus,
+    MigrationTxKind, MigrationTxState, PoolMigrationRead, PoolMigrationWrite,
 };
 use zcash_pool_migration::wallet::{WalletMigration, WalletMigrationProver};
-
 
 use super::{open_wallet_db, ENGINE};
 
@@ -25,7 +29,7 @@ use super::{open_wallet_db, ENGINE};
 // ---------------------------------------------------------------------------
 
 /// Summary of the planned denomination decomposition for user consent.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PlanSummary {
     pub crossing_values: Vec<u64>,
     pub total_migrating_zat: u64,
@@ -37,7 +41,7 @@ pub struct PlanSummary {
 }
 
 /// Current progress of the committed Ironwood transfer.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ProgressReport {
     pub status: String,
     pub crossing_values: Vec<u64>,
@@ -65,17 +69,32 @@ pub async fn plan(seed_phrase: &secrecy::SecretString) -> Result<PlanSummary> {
 
     let usk = derive_usk(&params, seed_phrase.expose_secret())?;
 
-    let store = PoolMigrations::for_account(open_store_conn(&db_data_path, &db_cipher_key)?, account_id)
-        .map_err(|e| anyhow!("Store: {:?}", e))?;
+    let store = PoolMigrations::for_account(
+        params,
+        SystemClock,
+        open_store_conn(&db_data_path, &db_cipher_key)?,
+        account_id,
+    )
+    .map_err(|e| anyhow!("Store: {:?}", e))?;
 
-    let wallet_mig = WalletMigration::new(&db_data, account_id, usk, store);
+    let wallet_mig = WalletMigration::new(
+        &db_data,
+        account_id,
+        usk.to_unified_full_viewing_key(),
+        store,
+    );
 
     let plan = mig_engine::plan_migration(&params, &wallet_mig, &mut OsRng)
         .map_err(|e| anyhow!("Plan failed: {}", e))?;
 
-    let crossing_values: Vec<u64> = plan.crossing_values().iter().map(|z| u64::from(*z)).collect();
+    let crossing_values: Vec<u64> = plan
+        .crossing_values()
+        .iter()
+        .map(|z| u64::from(*z))
+        .collect();
     let total_migrating: u64 = crossing_values.iter().sum();
-    let estimated_total_fee = 15_000u64 * plan.total_transactions() as u64;
+    let estimated_total_fee =
+        u64::from(plan.total_actions()) * zcash_primitives::transaction::fees::zip317::MARGINAL_FEE.into_u64();
 
     Ok(PlanSummary {
         crossing_values,
@@ -90,6 +109,7 @@ pub async fn plan(seed_phrase: &secrecy::SecretString) -> Result<PlanSummary> {
 
 /// Commit: plan + build + sign all PCZTs in one pass. Durable in the wallet DB.
 pub async fn commit(seed_phrase: &secrecy::SecretString) -> Result<ProgressReport> {
+    let _operation = MIGRATION_OPERATION.lock().await;
     use secrecy::ExposeSecret;
 
     let (db_data_path, params, db_cipher_key) = engine_params().await?;
@@ -98,10 +118,20 @@ pub async fn commit(seed_phrase: &secrecy::SecretString) -> Result<ProgressRepor
     let account_id = first_account_id(&db_data)?;
     let usk = derive_usk(&params, seed_phrase.expose_secret())?;
 
-    let store = PoolMigrations::for_account(open_store_conn(&db_data_path, &db_cipher_key)?, account_id)
-        .map_err(|e| anyhow!("Store: {:?}", e))?;
+    let store = PoolMigrations::for_account(
+        params,
+        SystemClock,
+        open_store_conn(&db_data_path, &db_cipher_key)?,
+        account_id,
+    )
+    .map_err(|e| anyhow!("Store: {:?}", e))?;
 
-    let mut wallet_mig = WalletMigration::new(&db_data, account_id, usk, store);
+    let mut wallet_mig = WalletMigration::new(
+        &db_data,
+        account_id,
+        usk.to_unified_full_viewing_key(),
+        store,
+    );
 
     let plan = mig_engine::plan_migration(&params, &wallet_mig, &mut OsRng)
         .map_err(|e| anyhow!("Plan failed: {}", e))?;
@@ -124,8 +154,10 @@ pub async fn commit(seed_phrase: &secrecy::SecretString) -> Result<ProgressRepor
         &params,
         target_height,
         &mut wallet_mig,
+        usk.orchard(),
         &plan,
         &mut OsRng,
+        ReplanThreshold::DEFAULT,
     )
     .map_err(|e| anyhow!("Commit failed: {}", e))?;
 
@@ -133,102 +165,176 @@ pub async fn commit(seed_phrase: &secrecy::SecretString) -> Result<ProgressRepor
     build_report_from_plan(&state, &plan)
 }
 
-/// Tick: prove and broadcast the next due transaction. Call periodically.
+/// Advance the stable SDK's verified migration driver, broadcasting at most once.
 pub async fn tick(seed_phrase: &secrecy::SecretString) -> Result<ProgressReport> {
     use secrecy::ExposeSecret;
+    use zcash_pool_migration::{engine::ProveOutcome, state::AdvanceStep};
 
+    let _operation = MIGRATION_OPERATION.lock().await;
     let (db_data_path, params, db_cipher_key) = engine_params().await?;
     let server_url = engine_server_url().await?;
     let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
-
     let account_id = first_account_id(&db_data)?;
-
-    let store = PoolMigrations::for_account(open_store_conn(&db_data_path, &db_cipher_key)?, account_id)
-        .map_err(|e| anyhow!("Store: {:?}", e))?;
-
+    let mut store = PoolMigrations::for_account(
+        params,
+        SystemClock,
+        open_store_conn(&db_data_path, &db_cipher_key)?,
+        account_id,
+    )
+    .map_err(|e| anyhow!("Migration store: {e:?}"))?;
     let mut state = store
         .get_migration()
-        .map_err(|e| anyhow!("{:?}", e))?
+        .map_err(|e| anyhow!("Read migration: {e:?}"))?
         .ok_or_else(|| anyhow!("No transfer in progress"))?;
-
-    let chain_tip = db_data
-        .chain_height()
-        .map_err(|e| anyhow!("{:?}", e))?
-        .ok_or_else(|| anyhow!("No chain data"))?;
-
-    // Find next Signed tx whose scheduled height has been reached
-    let next_due = state.transactions().iter().find(|tx| {
-        matches!(tx.state(), MigrationTxState::Signed) && tx.scheduled_height() <= chain_tip
-    });
-
-    let Some(due_tx) = next_due else {
-        info!("[Ironwood] tick: nothing due at h={}", u32::from(chain_tip));
-        return build_report(&state);
-    };
-
-    let tx_id = due_tx.id();
-    let tx_kind = due_tx.kind();
-
-    info!("[Ironwood] Proving {:?} ({:?})", tx_id, tx_kind);
-
+    let scanned_tip = db_data
+        .block_fully_scanned()
+        .map_err(|e| anyhow!("Read scanned height: {e:?}"))?
+        .ok_or_else(|| anyhow!("Sync before advancing a transfer"))?
+        .block_height();
+    let targets = DuenessTargets::new(scanned_tip + 1, scanned_tip + 1);
+    // Ten blocks is about 12.5 minutes at the current 75-second block spacing.
+    let config = AdvanceConfig::new(ReorgSettleDepth::new(10));
     let usk = derive_usk(&params, seed_phrase.expose_secret())?;
+    let ufvk = usk.to_unified_full_viewing_key();
     let fvk = orchard::keys::FullViewingKey::from(usk.orchard());
 
-    // Prove (mutates state: Signed -> Proved, updates stored PCZT with proven bytes)
-    let mut prover = WalletMigrationProver::new(&mut db_data, account_id, fvk);
-    match tx_kind {
-        MigrationTxKind::Transfer { .. } => {
-            mig_engine::prove_transfer(&mut prover, &mut state, tx_id)
-                .map_err(|e| anyhow!("Prove transfer: {}", e))?;
-        }
-        MigrationTxKind::Preparation { .. } => {
-            mig_engine::prove_preparation(&mut prover, &mut state, tx_id, chain_tip)
-                .map_err(|e| anyhow!("Prove prep: {}", e))?;
+    // A bounded session prevents retries of not-yet-provable work from spinning.
+    for _ in 0..=state.transactions().len() {
+        let advance = advance_migration(&mut store, &mut state, targets, &config, &mut OsRng)
+            .map_err(|e| anyhow!("Advance migration: {e:?}"))?;
+        match advance.step() {
+            AdvanceStep::Prove { transactions } => {
+                let mut progressed = false;
+                for target in transactions {
+                    let mut prover =
+                        WalletMigrationProver::new(&mut db_data, account_id, fvk.clone());
+                    let outcome = match target.kind() {
+                        MigrationTxKind::Transfer { .. } => mig_engine::prove_transfer(
+                            &params,
+                            &mut prover,
+                            &mut state,
+                            target.id(),
+                            scanned_tip,
+                            &mut OsRng,
+                        ),
+                        MigrationTxKind::Preparation { .. } => mig_engine::prove_preparation(
+                            &mut prover,
+                            &mut state,
+                            target.id(),
+                            scanned_tip,
+                        ),
+                    }
+                    .map_err(|e| anyhow!("Prove migration: {e}"))?;
+                    match outcome {
+                        ProveOutcome::Proved(proven) => {
+                            store
+                                .store_proved_transaction(&mut state, proven)
+                                .map_err(|e| anyhow!("Store migration proof: {e:?}"))?;
+                            progressed = true;
+                        }
+                        ProveOutcome::NotYetProvable => {
+                            store
+                                .replace_migration(&state)
+                                .map_err(|e| anyhow!("Persist deferred proof: {e:?}"))?;
+                        }
+                        ProveOutcome::MarkedUnsatisfiable { .. } => {
+                            store
+                                .replace_migration(&state)
+                                .map_err(|e| anyhow!("Persist migration state: {e:?}"))?;
+                            progressed = true;
+                        }
+                    }
+                }
+                if !progressed {
+                    break;
+                }
+            }
+            AdvanceStep::Broadcast { id } => {
+                // A wallet switch invalidates this session before any submission.
+                let guard = ENGINE.lock().await;
+                let current = guard.as_ref().ok_or_else(|| anyhow!("Wallet closed"))?;
+                if current.db_data_path != db_data_path || current.params != params {
+                    return Err(anyhow!("Wallet changed; transfer was not submitted"));
+                }
+                let transaction = store
+                    .take_transaction_for_broadcast(&state, *id)
+                    .map_err(|e| anyhow!("Prepare migration broadcast: {e:?}"))?;
+                let mut raw = Vec::new();
+                transaction.write(&mut raw)?;
+                // Keep the engine identity pinned until the attempt completes. The SDK
+                // already recorded this exact transaction for recovery after ambiguity.
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(60),
+                    super::send::broadcast_with_transport(
+                        &server_url,
+                        &params,
+                        raw,
+                        current.tor_client.clone(),
+                    ),
+                )
+                .await
+                .map_err(|_| {
+                    anyhow!(
+                        "Broadcast timed out; the stored transaction will be reconciled after sync"
+                    )
+                })??;
+                state.mark_broadcast(*id);
+                store
+                    .replace_migration(&state)
+                    .map_err(|e| anyhow!("Persist broadcast: {e:?}"))?;
+                drop(guard);
+                break;
+            }
+            AdvanceStep::Rebuild { id } => {
+                let rebuild_store = PoolMigrations::for_account(
+                    params,
+                    SystemClock,
+                    open_store_conn(&db_data_path, &db_cipher_key)?,
+                    account_id,
+                )
+                .map_err(|e| anyhow!("Migration store: {e:?}"))?;
+                let wallet =
+                    WalletMigration::new(&db_data, account_id, ufvk.clone(), rebuild_store);
+                mig_engine::rebuild_expired_transfer(
+                    &params,
+                    &wallet,
+                    usk.orchard(),
+                    &mut state,
+                    *id,
+                    &mut OsRng,
+                )
+                .map_err(|e| anyhow!("Rebuild migration: {e}"))?;
+                store
+                    .replace_migration(&state)
+                    .map_err(|e| anyhow!("Persist rebuilt migration: {e:?}"))?;
+            }
+            AdvanceStep::Replan => {
+                return Err(anyhow!(
+                    "Transfer needs a new plan. Review the remaining balance before restarting."
+                ));
+            }
+            AdvanceStep::Reevaluate | AdvanceStep::Waiting | AdvanceStep::Complete => break,
         }
     }
-
-    // Extract proven PCZT -> transaction bytes -> broadcast
-    let proved_tx = state.transactions().iter().find(|t| t.id() == tx_id)
-        .ok_or_else(|| anyhow!("Tx lost after proving"))?;
-
-    let pczt = pczt::Pczt::parse(proved_tx.pczt())
-        .map_err(|e| anyhow!("Parse proven PCZT: {:?}", e))?;
-    let transaction = pczt::roles::tx_extractor::TransactionExtractor::new(pczt)
-        .extract()
-        .map_err(|e| anyhow!("Extract tx: {:?}", e))?;
-
-    let mut raw_bytes = Vec::new();
-    transaction.write(&mut raw_bytes)
-        .map_err(|e| anyhow!("Serialize tx: {:?}", e))?;
-
-    super::send::broadcast_multi(&server_url, &params, raw_bytes).await?;
-
-    let txid = transaction.txid();
-    info!("[Ironwood] Broadcast OK: {}", txid);
-
-    // Mark broadcast in store
-    let mut store_w = PoolMigrations::for_account(open_store_conn(&db_data_path, &db_cipher_key)?, account_id)
-        .map_err(|e| anyhow!("Store: {:?}", e))?;
-    store_w
-        .update_transaction(tx_id, MigrationTxState::Broadcast { txid })
-        .map_err(|e| anyhow!("Update state: {:?}", e))?;
-
-    let fresh = store_w.get_migration().map_err(|e| anyhow!("{:?}", e))?
-        .ok_or_else(|| anyhow!("Gone"))?;
-    build_report(&fresh)
+    build_report(&state)
 }
 
-/// Read-only status check.
+/// Read the most recent SDK record, including terminal history. No network calls.
 pub async fn status() -> Result<ProgressReport> {
-    let (db_data_path, params, db_cipher_key) = engine_params().await?;
-    let db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
-    let account_id = first_account_id(&db_data)?;
-
-    let store = PoolMigrations::for_account(open_store_conn(&db_data_path, &db_cipher_key)?, account_id)
-        .map_err(|e| anyhow!("Store: {:?}", e))?;
-
-    match store.get_migration().map_err(|e| anyhow!("{:?}", e))? {
-        Some(s) => build_report(&s),
+    let (path, params, key) = engine_params().await?;
+    let db = open_wallet_db(&path, params, &key)?;
+    let store = PoolMigrations::for_account(
+        params,
+        SystemClock,
+        open_store_conn(&path, &key)?,
+        first_account_id(&db)?,
+    )
+    .map_err(|e| anyhow!("Migration store: {e:?}"))?;
+    match store
+        .latest_migration()
+        .map_err(|e| anyhow!("Read migration: {e:?}"))?
+    {
+        Some(state) => build_report(&state),
         None => Ok(ProgressReport {
             status: "idle".into(),
             crossing_values: vec![],
@@ -243,15 +349,22 @@ pub async fn status() -> Result<ProgressReport> {
     }
 }
 
-/// Cancel in-progress transfer (removes stored rows).
+/// Cancel through the SDK: release reservations atomically and retain history.
+/// Transactions already submitted can still be mined.
 pub async fn cancel() -> Result<()> {
-    let (db_data_path, _params, db_cipher_key) = engine_params().await?;
-
-    open_store_conn(&db_data_path, &db_cipher_key)?.execute_batch(
-        "DELETE FROM orchard_ironwood_migrations;"
-    ).map_err(|e| anyhow!("Cancel: {:?}", e))?;
-
-    info!("[Ironwood] Cancelled.");
+    let _operation = MIGRATION_OPERATION.lock().await;
+    let (path, params, key) = engine_params().await?;
+    let db = open_wallet_db(&path, params, &key)?;
+    let mut store = PoolMigrations::for_account(
+        params,
+        SystemClock,
+        open_store_conn(&path, &key)?,
+        first_account_id(&db)?,
+    )
+    .map_err(|e| anyhow!("Migration store: {e:?}"))?;
+    store
+        .cancel_migration()
+        .map_err(|e| anyhow!("Cancel migration: {e:?}"))?;
     Ok(())
 }
 
@@ -259,18 +372,22 @@ pub async fn cancel() -> Result<()> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-use zcash_protocol::consensus::Network;
 use std::path::PathBuf;
+use zcash_protocol::consensus::Network;
 
 async fn engine_params() -> Result<(PathBuf, Network, Option<String>)> {
     let guard = ENGINE.lock().await;
-    let e = guard.as_ref().ok_or_else(|| anyhow!("Engine not initialized"))?;
+    let e = guard
+        .as_ref()
+        .ok_or_else(|| anyhow!("Engine not initialized"))?;
     Ok((e.db_data_path.clone(), e.params, e.db_cipher_key.clone()))
 }
 
 async fn engine_server_url() -> Result<String> {
     let guard = ENGINE.lock().await;
-    let e = guard.as_ref().ok_or_else(|| anyhow!("Engine not initialized"))?;
+    let e = guard
+        .as_ref()
+        .ok_or_else(|| anyhow!("Engine not initialized"))?;
     Ok(e.server_url.clone())
 }
 
@@ -294,16 +411,22 @@ fn first_account_id(db: &DbType) -> Result<zcash_client_sqlite::AccountUuid> {
 
 fn derive_usk(params: &Network, phrase: &str) -> Result<UnifiedSpendingKey> {
     let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(phrase)
-        .map_err(|e| anyhow!("Bad seed: {:?}", e))?;
-    let mut seed = mnemonic.to_seed("");
-    let usk = UnifiedSpendingKey::from_seed(params, &seed, zip32::AccountId::ZERO)
+        .map_err(|_| anyhow!("Invalid seed phrase"))?;
+    let seed = zeroize::Zeroizing::new(mnemonic.to_seed(""));
+    let usk = UnifiedSpendingKey::from_seed(params, seed.as_ref(), zip32::AccountId::ZERO)
         .map_err(|e| anyhow!("USK: {:?}", e))?;
-    seed.iter_mut().for_each(|b| *b = 0);
     Ok(usk)
 }
 
-fn build_report_from_plan(state: &SdkMigrationState, plan: &MigrationPlan) -> Result<ProgressReport> {
-    let crossing_values: Vec<u64> = plan.crossing_values().iter().map(|z| u64::from(*z)).collect();
+fn build_report_from_plan(
+    state: &SdkMigrationState,
+    plan: &MigrationPlan,
+) -> Result<ProgressReport> {
+    let crossing_values: Vec<u64> = plan
+        .crossing_values()
+        .iter()
+        .map(|z| u64::from(*z))
+        .collect();
     let total_planned: u64 = crossing_values.iter().sum();
     let (bc, cc, fees, tc) = tally(state);
     let next = next_due_height(state);
@@ -322,7 +445,11 @@ fn build_report_from_plan(state: &SdkMigrationState, plan: &MigrationPlan) -> Re
 }
 
 fn build_report(state: &SdkMigrationState) -> Result<ProgressReport> {
-    let crossing_values: Vec<u64> = state.funding_notes().iter().map(|z| u64::from(*z)).collect();
+    let crossing_values: Vec<u64> = state
+        .crossing_values()
+        .iter()
+        .map(|z| u64::from(*z))
+        .collect();
     let total_planned: u64 = crossing_values.iter().sum();
     let (bc, cc, fees, tc) = tally(state);
     let next = next_due_height(state);
@@ -347,12 +474,21 @@ fn status_str(s: MigrationStatus) -> String {
         MigrationStatus::InProgress => "in_progress".into(),
         MigrationStatus::Complete => "complete".into(),
         MigrationStatus::Failed => "failed".into(),
+        MigrationStatus::Superseded => "superseded".into(),
+        MigrationStatus::Cancelled => "cancelled".into(),
     }
 }
 
 fn next_due_height(state: &SdkMigrationState) -> u32 {
-    state.transactions().iter()
-        .filter(|tx| matches!(tx.state(), MigrationTxState::Signed))
+    state
+        .transactions()
+        .iter()
+        .filter(|tx| {
+            matches!(
+                tx.state(),
+                MigrationTxState::Signed | MigrationTxState::Proved
+            )
+        })
         .map(|tx| u32::from(tx.scheduled_height()))
         .min()
         .unwrap_or(0)
@@ -361,7 +497,7 @@ fn next_due_height(state: &SdkMigrationState) -> u32 {
 fn tally(state: &SdkMigrationState) -> (u32, u32, u64, u64) {
     let mut broadcast = 0u32;
     let mut confirmed = 0u32;
-    let fees = 0u64;
+    let mut fees = 0u64;
     let mut confirmed_zat = 0u64;
 
     for tx in state.transactions() {
@@ -369,6 +505,7 @@ fn tally(state: &SdkMigrationState) -> (u32, u32, u64, u64) {
             MigrationTxState::Broadcast { .. } => broadcast += 1,
             MigrationTxState::Mined { .. } => {
                 confirmed += 1;
+                fees += migration_fee(tx.kind());
                 if let MigrationTxKind::Transfer { crossing } = tx.kind() {
                     if let Some(val) = state.crossing_values().get(crossing) {
                         confirmed_zat += u64::from(*val);
@@ -379,4 +516,34 @@ fn tally(state: &SdkMigrationState) -> (u32, u32, u64, u64) {
         }
     }
     (broadcast, confirmed, fees, confirmed_zat)
+}
+
+// ZIP 318 requires canonical fees for these fixed transaction shapes. Count
+// only mined transactions; pending submissions have not yet paid a chain fee.
+fn migration_fee(kind: MigrationTxKind) -> u64 {
+    use zcash_protocol::zip318::{
+        CROSSING_DESTINATION_ACTIONS, CROSSING_SOURCE_ACTIONS, PREP_TX_ACTIONS,
+    };
+    let actions = match kind {
+        MigrationTxKind::Preparation { .. } => PREP_TX_ACTIONS,
+        MigrationTxKind::Transfer { .. } => CROSSING_SOURCE_ACTIONS + CROSSING_DESTINATION_ACTIONS,
+    };
+    actions as u64 * zcash_primitives::transaction::fees::zip317::MARGINAL_FEE.into_u64()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reports_canonical_preparation_and_crossing_fees() {
+        assert_eq!(
+            migration_fee(MigrationTxKind::Preparation { layer: 0, index: 0 }),
+            80_000
+        );
+        assert_eq!(
+            migration_fee(MigrationTxKind::Transfer { crossing: 0 }),
+            15_000
+        );
+    }
 }

@@ -10,7 +10,6 @@ import 'pages/utils.dart';
 import 'services/wallet_service.dart';
 import 'src/rust/api/engine_api.dart' as rust_engine;
 import 'src/rust/api/wallet.dart' as rust_wallet;
-import 'store2.dart' as store2;
 
 part 'accounts.g.dart';
 
@@ -72,10 +71,15 @@ class PoolBalance {
   int get confirmed => transparent + sapling + orchard + ironwood;
   int get shielded => sapling + orchard + ironwood;
   int get totalShielded => totalSapling + totalOrchard + totalIronwood;
-  int get unconfirmedShielded => unconfirmedSapling + unconfirmedOrchard + unconfirmedIronwood;
+  int get unconfirmedShielded =>
+      unconfirmedSapling + unconfirmedOrchard + unconfirmedIronwood;
   int get unconfirmed =>
-      unconfirmedTransparent + unconfirmedSapling + unconfirmedOrchard + unconfirmedIronwood;
-  int get total => totalTransparent + totalSapling + totalOrchard + totalIronwood;
+      unconfirmedTransparent +
+      unconfirmedSapling +
+      unconfirmedOrchard +
+      unconfirmedIronwood;
+  int get total =>
+      totalTransparent + totalSapling + totalOrchard + totalIronwood;
   bool get hasUnconfirmed => unconfirmed > 0;
   bool get hasTransparent => totalTransparent > 0;
   bool get hasSpendableTransparent => transparent > 0;
@@ -256,79 +260,38 @@ abstract class _ActiveAccount2 with Store {
   @action
   Future<void> updateBalance() async {
     if (id == 0) return;
+    final walletId = WalletService.instance.activeWalletId;
+    final network = isTestnet;
     try {
       final balance = await WalletService.instance.getBalance();
+      if (!identical(aa, this) ||
+          walletId != WalletService.instance.activeWalletId ||
+          network != isTestnet) return;
       final next = PoolBalance.fromRust(balance);
 
-      // Defensive: never overwrite a known-good balance with an all-zero
-      // reading while the wallet is actively syncing or maintaining. This
-      // guards against the SDK briefly reporting spendable + pending == 0
-      // right after create_proposed_transactions writes spent notes but
-      // before the change output is reflected, or after a reorg triggers
-      // truncate_to_height and the affected range hasn't been rescanned.
-      //
-      // We suppress only when sync is actively in progress. The boost
-      // window is intentionally NOT used here — it governs polling
-      // frequency, not balance truth. When the user sends their full
-      // balance, zero is correct and must be shown once sync catches up.
-      final hadBalance = poolBalances.total > 0;
-      final newAllZero = next.total == 0;
-      if (hadBalance && newAllZero) {
-        final transient = store2.syncStatus2.syncing ||
-            store2.syncStatus2.maintenanceQueueLen > 0;
-        if (transient) {
-          logger.w('[AA] suppressed transient zero balance '
-              '(prev=${poolBalances.total} zat, '
-              'syncing=${store2.syncStatus2.syncing}, '
-              'queue=${store2.syncStatus2.maintenanceQueueLen})');
-          return;
-        }
-      }
-
-      final adjusted = _stabilizeShieldedSpendable(next);
-      poolBalances = adjusted;
-      logger.d(
-          '[AA] updateBalance: confirmed=${poolBalances.confirmed} unconfirmed=${poolBalances.unconfirmed}');
-    } catch (e) {
-      logger.e('updateBalance error: $e');
+      // Spendable must reflect the engine's current note/anchor eligibility.
+      // Inflating it from a previous snapshot makes a send appear affordable
+      // while those notes are confirming, spent or being rescanned.
+      poolBalances = next;
+    } catch (_) {
+      logger.d('[AA] balance refresh unavailable; retaining last snapshot');
     }
-  }
-
-  PoolBalance _stabilizeShieldedSpendable(PoolBalance next) {
-    final previous = poolBalances;
-    final previousSpendable = previous.shielded;
-    if (previousSpendable <= 0) return next;
-    if (next.shielded >= min(previousSpendable, next.totalShielded))
-      return next;
-    if (next.unconfirmedShielded <= 0) return next;
-
-    final phase = store2.syncStatus2.phase;
-    final transientSyncWindow = store2.syncStatus2.syncing ||
-        store2.syncStatus2.scanningUpTo > store2.syncStatus2.syncedHeight ||
-        phase == 'scanning' ||
-        phase == 'refreshing_utxos' ||
-        phase == 'updating_roots' ||
-        phase == 'connecting';
-    if (!transientSyncWindow) return next;
-
-    // The SDK can briefly classify previously-spendable shielded notes as
-    // pending when the chain tip moves before the new anchor shard is scanned.
-    // Preserve only the amount that was already spendable; new inbound funds
-    // still appear as confirming, and lower totals are clamped after sends.
-    final stableSpendable = min(previousSpendable, next.totalShielded);
-    if (stableSpendable <= next.shielded) return next;
-    logger.d('[AA] stabilized shielded spendable '
-        '(prev=$previousSpendable next=${next.shielded} '
-        'total=${next.totalShielded} phase=$phase)');
-    return next.withStableShieldedSpendable(stableSpendable);
   }
 
   @action
   Future<void> updateAddress() async {
     if (id == 0) return;
+    final walletId = WalletService.instance.activeWalletId;
+    final network = isTestnet;
     for (int attempt = 0; attempt < 3; attempt++) {
+      if (!identical(aa, this) ||
+          walletId != WalletService.instance.activeWalletId ||
+          network != isTestnet) return;
       try {
         final addrs = await WalletService.instance.getAddresses();
+        if (!identical(aa, this) ||
+            walletId != WalletService.instance.activeWalletId ||
+            network != isTestnet) return;
         if (addrs.isNotEmpty) {
           diversifiedAddress = addrs.first.address;
           return;
@@ -344,17 +307,22 @@ abstract class _ActiveAccount2 with Store {
 
   @action
   Future<void> updateChainAddresses() async {
-    if (id == 0) return;
+    if (id == 0 || WalletService.instance.isBusy) return;
+    final owner = WalletService.instance.activeWalletId;
+    final network = isTestnet;
     try {
       final seed = await WalletService.instance.getSeedPhrase();
       if (seed == null) return;
-      chainAddresses = await rust_engine.engineDeriveMultiChainAddresses(
+      final derived = await rust_engine.engineDeriveMultiChainAddresses(
         seedPhrase: seed,
       );
-      logger.d(
-          '[AA] chainAddresses: evm=${chainAddresses?.evm}, sol=${chainAddresses?.solana}, btc=${chainAddresses?.bitcoin}');
+      if (WalletService.instance.activeWalletId == owner &&
+          isTestnet == network &&
+          identical(aa, this)) {
+        chainAddresses = derived;
+      }
     } catch (e) {
-      logger.e('updateChainAddresses error: $e');
+      logger.d('[AA] chain addresses unavailable');
     }
   }
 

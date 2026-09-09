@@ -81,3 +81,9 @@ lib/l10n/.yarnrc.yml
 .cursor/
 .agents/
 .refs/
+
+# Downloaded or locally built CLI executables (npm launchers are source files).
+/npm/native/
+
+# Build-runner output for test entry points.
+/test/*.reflectable.dart

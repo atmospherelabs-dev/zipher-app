@@ -848,7 +848,7 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
                     child: Switch.adaptive(
                       value: _priority,
                       onChanged: _sending ? null : _togglePriority,
-                      activeColor: ZipherColors.cyan,
+                      activeThumbColor: ZipherColors.cyan,
                     ),
                   ),
                 ],

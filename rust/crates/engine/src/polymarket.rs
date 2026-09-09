@@ -678,7 +678,7 @@ pub struct PolymarketOrder {
 
 fn derive_evm_privkey(seed_phrase: &str) -> Result<Vec<u8>> {
     let mnemonic = Mnemonic::from_phrase(seed_phrase)
-        .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {}", e))?;
+        .map_err(|_| anyhow::anyhow!("Invalid seed phrase"))?;
 
     let path = EvmSigner.default_derivation_path(0);
     let secret_key = HdDeriver::derive_from_mnemonic(&mnemonic, "", &path, Curve::Secp256k1)

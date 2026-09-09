@@ -17,7 +17,6 @@ import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:local_auth/local_auth.dart';
-import 'package:logger/logger.dart';
 import '../services/app_log.dart';
 import 'package:path_provider/path_provider.dart';
 import '../services/near_intents.dart';

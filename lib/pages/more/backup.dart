@@ -929,7 +929,6 @@ class _KeyCard extends StatelessWidget {
   final String description;
   final String value;
   final IconData icon;
-  final bool alwaysVisible;
   final bool revealed;
   final VoidCallback? onToggleReveal;
   final VoidCallback? onShowQR;
@@ -939,13 +938,12 @@ class _KeyCard extends StatelessWidget {
     required this.description,
     required this.value,
     required this.icon,
-    this.alwaysVisible = false,
     this.revealed = false,
     this.onToggleReveal,
     this.onShowQR,
   });
 
-  bool get _isVisible => alwaysVisible || revealed;
+  bool get _isVisible => revealed;
 
   @override
   Widget build(BuildContext context) {
@@ -973,25 +971,7 @@ class _KeyCard extends StatelessWidget {
                   ),
                 ),
               ),
-              if (alwaysVisible)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: ZipherColors.cyan.withValues(alpha: 0.08),
-                    borderRadius:
-                        BorderRadius.circular(ZipherRadius.xs),
-                  ),
-                  child: Text(
-                    'READ-ONLY',
-                    style: TextStyle(
-                      fontSize: 8,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                      color: ZipherColors.cyan.withValues(alpha: 0.6),
-                    ),
-                  ),
-                ),
+
             ],
           ),
           const Gap(6),
@@ -1052,7 +1032,7 @@ class _KeyCard extends StatelessWidget {
                 ),
                 const Gap(8),
                 _actionButton(Icons.qr_code_rounded, 'QR', onShowQR),
-                if (!alwaysVisible && onToggleReveal != null) ...[
+                if (onToggleReveal != null) ...[
                   const Gap(8),
                   _actionButton(
                       Icons.visibility_off_rounded, 'Hide', onToggleReveal),

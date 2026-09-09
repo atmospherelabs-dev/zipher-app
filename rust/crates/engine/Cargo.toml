@@ -23,35 +23,30 @@ tonic = { version = "0.14", features = ["channel", "tls-ring", "tls-webpki-roots
 rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
 bip0039 = { version = "0.14", features = ["rand"] }
 
-# Zcash crates (NU6.3 / Ironwood — 0.24 rc series, pool migration, tor)
-zcash_protocol = "0.10.3"
-zcash_address = "0.13.0"
-zcash_client_backend = { version = "0.24.0-rc.6", features = ["lightwalletd-tonic", "lightwalletd-tonic-tls-webpki-roots", "transparent-inputs", "pczt", "non-standard-fees", "tor"] }
-pczt = "0.9.1"
-zcash_client_sqlite = { version = "0.22.0-rc.6", features = ["orchard", "transparent-inputs", "serde"] }
-zcash_pool_migration = { version = "0.1.0-rc.5", features = ["wallet"] }
-zcash_keys = { version = "0.16.1", features = ["orchard", "sapling", "unstable-frost"] }
-zcash_primitives = "0.30.0"
-zcash_proofs = "0.30.0"
-zcash_transparent = "0.10.0"
+# Shared stable wallet layer and Zakura Common cryptography
+zcash_protocol = { workspace = true }
+zcash_address = { workspace = true }
+zcash_client_backend = { workspace = true, features = ["lightwalletd-tonic", "lightwalletd-tonic-tls-webpki-roots", "transparent-inputs", "pczt", "non-standard-fees", "tor"] }
+pczt = { workspace = true }
+zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs", "serde"] }
+zcash_pool_migration = { workspace = true, features = ["wallet"] }
+zcash_keys = { workspace = true, features = ["orchard", "sapling", "unstable-frost"] }
+zcash_primitives = { workspace = true }
+zcash_proofs = { workspace = true, features = ["local-prover"] }
+zcash_transparent = { workspace = true }
 zcash_script = "0.4"
 zip32 = "0.2"
-sapling-crypto = { version = "0.7", package = "sapling-crypto" }
-orchard = "0.15.3"
+sapling-crypto = { workspace = true }
+orchard = { workspace = true }
 incrementalmerkletree = "0.8"
-# Shielded voting — DISABLED for Ironwood: zcash_voting pins orchard 0.14
-# which conflicts with the NU6.3 orchard 0.15.0-pre.1. Re-enable once
-# zcash_voting publishes a compatible release.
-zcash_voting = { version = "0.11", features = ["client"], optional = true }
 blake2b_simd = "1"
 sha2 = "0.10"
-ff = "0.13"
-pasta_curves = "0.5"
-voting-circuits = { version = "0.8", optional = true }
+ff = { workspace = true }
+pasta_curves = { workspace = true }
 
 rustls = { version = "0.23", features = ["ring"] }
 reqwest = { version = "0.13", features = ["json"] }
-reddsa = { version = "0.5", features = ["frost", "serde"] }
+reddsa = { workspace = true, features = ["frost", "serde"] }
 frost-rerandomized = "3.0"
 frost-core = { version = "3.0", features = ["serde"] }
 xeddsa = "1.0.2"
@@ -61,20 +56,12 @@ uuid = "1"
 # EVM signing (OWS signer — no tonic/prost, just crypto)
 ows-signer = { path = "../../../ows-core/ows/crates/ows-signer", version = "=1.0.0" }
 
-# On-device LLM inference (candle — pure Rust, no C++ needed)
-candle-core = "0.10"
-candle-nn = "0.10"
-candle-transformers = "0.10"
-tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
-
 # Vault encryption
 aes-gcm = "0.10"
 scrypt = "0.11"
 
 [features]
 default = []
-# Gated because zcash_voting pins orchard 0.14, incompatible with Ironwood's 0.15.
-voting = ["dep:zcash_voting", "dep:voting-circuits"]
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,2 +1,4 @@
-rust_input: rust/src/api/**/*.rs
+rust_input: crate::api
+rust_root: rust
+rust_output: rust/src/frb_generated.rs
 dart_output: lib/src/rust

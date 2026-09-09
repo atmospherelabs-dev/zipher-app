@@ -18,7 +18,7 @@ pub struct MultiChainAddresses {
 }
 
 fn parse_mnemonic(seed_phrase: &str) -> Result<Mnemonic> {
-    Mnemonic::from_phrase(seed_phrase).map_err(|e| anyhow::anyhow!("Invalid seed phrase: {}", e))
+    Mnemonic::from_phrase(seed_phrase).map_err(|_| anyhow::anyhow!("Invalid seed phrase"))
 }
 
 fn derive_address_for<S: ChainSigner>(
@@ -73,7 +73,7 @@ pub fn derive_all_addresses(seed_phrase: &str) -> Result<MultiChainAddresses> {
 /// Returns the fully signed transaction bytes ready for eth_sendRawTransaction.
 pub fn sign_evm_tx(seed_phrase: &str, unsigned_tx_bytes: &[u8]) -> Result<Vec<u8>> {
     let mnemonic = ows_signer::mnemonic::Mnemonic::from_phrase(seed_phrase)
-        .map_err(|e| anyhow::anyhow!("Invalid seed phrase: {}", e))?;
+        .map_err(|_| anyhow::anyhow!("Invalid seed phrase"))?;
 
     let signer = EvmSigner;
     let path = signer.default_derivation_path(0);

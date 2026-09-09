@@ -25,7 +25,6 @@ use zcash_client_backend::proto::service::{
 use zcash_client_backend::wallet::WalletTransparentOutput;
 use zcash_client_sqlite::error::SqliteClientError;
 use zcash_client_sqlite::WalletDb;
-use zcash_keys::encoding::AddressCodec as _;
 use zcash_primitives::transaction::{Transaction, TxId};
 use zcash_protocol::consensus::{BlockHeight, Network};
 use zcash_protocol::consensus::{BranchId, Parameters};

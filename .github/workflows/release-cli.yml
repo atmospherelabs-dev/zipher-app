@@ -60,8 +60,14 @@ jobs:
             rust/target
           key: ${{ matrix.target }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
 
+      - name: Verify wallet dependency graph
+        run: |
+          mkdir -p target
+          cargo metadata --locked --format-version 1 > target/wallet-stack.json
+          python3 ../scripts/verify-wallet-stack.py target/wallet-stack.json
+
       - name: Build release binaries
-        run: cargo build --release --target ${{ matrix.target }} -p zipher-cli -p zipher-mcp-server
+        run: cargo build --locked --release --target ${{ matrix.target }} -p zipher-cli -p zipher-mcp-server
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 

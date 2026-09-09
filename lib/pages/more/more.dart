@@ -98,20 +98,6 @@ class _MorePageState extends State<MorePage> {
               ]),
               const Gap(20),
 
-              // ── Governance ──
-              _sectionLabel('Governance'),
-              const Gap(8),
-              _card([
-                _SettingsItem(
-                  icon: Icons.how_to_vote_rounded,
-                  label: 'Coinholder Voting',
-                  subtitle: 'Vote on Zcash governance proposals',
-                  badge: 'BETA',
-                  onTap: () => _nav('/more/governance'),
-                ),
-              ]),
-              const Gap(20),
-
               // ── Security & Tools ──
               _sectionLabel('Security & Tools'),
               const Gap(8),
@@ -125,22 +111,10 @@ class _MorePageState extends State<MorePage> {
                   onTap: () => _nav('/more/ironwood'),
                 ),
                 _SettingsItem(
-                  icon: Icons.cleaning_services_outlined,
-                  label: s.sweep,
-                  subtitle: 'Import funds from a key',
-                  onTap: () => GoRouter.of(context).push('/more/sweep'),
-                ),
-                _SettingsItem(
                   icon: Icons.sync_rounded,
                   label: 'Recover Transactions',
                   subtitle: 'Re-sync if balance looks wrong',
                   onTap: () => GoRouter.of(context).push('/more/rescan'),
-                ),
-                _SettingsItem(
-                  icon: Icons.cloud_download_outlined,
-                  label: s.appData,
-                  subtitle: 'Backup & restore app data',
-                  onTap: () => _navSecured('/more/batch_backup'),
                 ),
                 _SettingsItem(
                   icon: Icons.group_rounded,

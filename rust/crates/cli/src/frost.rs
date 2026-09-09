@@ -35,19 +35,19 @@ pub async fn cmd_frost_self_test(cfg: &Config) -> Result<()> {
         signing_package.clone(),
         s1.signing_nonces,
         c1.key_package,
-        randomizer.randomizer_point_hex.clone(),
+        randomizer.randomizer_hex.clone(),
     )?;
     let share2 = zipher_engine::frost::frost_sign_round2(
         signing_package.clone(),
         s2.signing_nonces,
         c2.key_package,
-        randomizer.randomizer_point_hex,
+        randomizer.randomizer_hex.clone(),
     )?;
     let sig = zipher_engine::frost::frost_aggregate(
         signing_package,
         BTreeMap::from([(1, share1), (2, share2)]),
         c1.public_key_package,
-        randomizer.randomizer_hex,
+        randomizer.randomizer_hex.clone(),
     )?;
 
     let out = FrostSelfTestResult {
@@ -378,13 +378,13 @@ pub async fn cmd_frost_spend(
             signing_package.clone(),
             s1.signing_nonces.clone(),
             key1.clone(),
-            action.randomizer_point_hex.clone(),
+            action.randomizer_hex.clone(),
         )?;
         let share2 = zipher_engine::frost::frost_sign_round2(
             signing_package.clone(),
             s2.signing_nonces.clone(),
             key2.clone(),
-            action.randomizer_point_hex,
+            action.randomizer_hex.clone(),
         )?;
         let sig = zipher_engine::frost::frost_aggregate(
             signing_package,
@@ -393,7 +393,7 @@ pub async fn cmd_frost_spend(
                 (s2.participant_id, share2),
             ]),
             public_key_package.clone(),
-            action.randomizer_hex,
+            action.randomizer_hex.clone(),
         )?;
         signatures.insert(action.action_index, sig.signature_hex);
     }
