@@ -75,8 +75,10 @@ and wallet generations reject late responses from an old wallet. See
 [chat behavior](chat-home.md).
 
 Common's proving-key cache and conditional Sapling loading remove repeated setup
-work. No cold-restore, memory, battery or time-to-spend benchmark was run, so there
-is no measured claim that sync is now optimal or faster than Vizor.
+work. The initial integration did not measure restore, memory, battery, or
+time-to-spend performance. The subsequent [sync implementation and benchmark
+report](zipher-sync-v3.md) records the engine changes and limited disposable-wallet
+measurements. Neither establishes that Zipher is faster overall than Vizor.
 
 ## CLI packaging
 

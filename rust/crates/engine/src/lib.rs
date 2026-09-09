@@ -44,7 +44,6 @@ lazy_static::lazy_static! {
 /// in the singleton while keeping SQLite connections short-lived and safe.
 pub struct ZipherEngine {
     pub(crate) db_data_path: PathBuf,
-    pub(crate) db_cache_path: PathBuf,
     pub(crate) params: Network,
     pub(crate) server_url: String,
     pub(crate) birthday: BlockHeight,

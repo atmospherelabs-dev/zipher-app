@@ -112,7 +112,8 @@ specific behavior; they are not evidence of mainnet settlement.
 - Chat supports ZEC send and ZEC-out swap review. It does not implement direct
   foreign-chain payments, BTC/SOL balances, arbitrary token discovery, destination
   memos/tags or every CLI market feature. See [chat readiness](chat-home.md).
-- No performance benchmark was run. Existing prefetch and batching remain, and
-  proving setup now uses caching, but “optimal sync” is not established.
+- This initial audit did not run performance benchmarks. A subsequent
+  [sync optimization pass](zipher-sync-v3.md) adds engine changes and disposable
+  benchmark measurements; “optimal sync” remains unproven.
 - Local builds do not publish or deploy a release. The compatibility patches need
   review and the acceptance checks above before release certification.

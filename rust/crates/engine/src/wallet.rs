@@ -177,7 +177,6 @@ async fn build_birthday(
 /// Store the engine singleton after wallet init.
 async fn activate_engine(
     db_data_path: std::path::PathBuf,
-    db_cache_path: std::path::PathBuf,
     params: Network,
     server_url: &str,
     birthday_height: u64,
@@ -185,7 +184,6 @@ async fn activate_engine(
 ) {
     *ENGINE.lock().await = Some(ZipherEngine {
         db_data_path,
-        db_cache_path,
         params,
         server_url: server_url.to_string(),
         birthday: BlockHeight::from_u32(birthday_height as u32),
@@ -211,7 +209,7 @@ pub async fn create(
     db_cipher_key: Option<String>,
     vault_passphrase: Option<&str>,
 ) -> Result<String> {
-    let (db_data_path, db_cache_path) = db_paths(data_dir);
+    let (db_data_path, _) = db_paths(data_dir);
 
     let height = resolve_height(server_url, chain_height).await?;
     let (birthday, _) = build_birthday(server_url, height, false).await?;
@@ -233,7 +231,7 @@ pub async fn create(
         Vault::create(data_dir, &SecretString::new(phrase.clone()), passphrase)?;
     }
 
-    activate_engine(db_data_path, db_cache_path, params, server_url, height, db_cipher_key).await;
+    activate_engine(db_data_path, params, server_url, height, db_cipher_key).await;
     Ok(phrase)
 }
 
@@ -250,7 +248,7 @@ pub async fn restore(
     db_cipher_key: Option<String>,
     vault_passphrase: Option<&str>,
 ) -> Result<()> {
-    let (db_data_path, db_cache_path) = db_paths(data_dir);
+    let (db_data_path, _) = db_paths(data_dir);
 
     let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase)
         .map_err(|_| anyhow::anyhow!("Invalid seed phrase"))?;
@@ -270,7 +268,7 @@ pub async fn restore(
         Vault::create(data_dir, &SecretString::new(seed_phrase.to_string()), passphrase)?;
     }
 
-    activate_engine(db_data_path, db_cache_path, params, server_url, height, db_cipher_key).await;
+    activate_engine(db_data_path, params, server_url, height, db_cipher_key).await;
     Ok(())
 }
 
@@ -283,7 +281,7 @@ pub async fn restore_from_ufvk(
     birthday_height: u32,
     db_cipher_key: Option<String>,
 ) -> Result<()> {
-    let (db_data_path, db_cache_path) = db_paths(data_dir);
+    let (db_data_path, _) = db_paths(data_dir);
 
     let height = resolve_height(server_url, birthday_height).await?;
     let (birthday, _) = build_birthday(server_url, height, true).await?;
@@ -304,7 +302,7 @@ pub async fn restore_from_ufvk(
         )
         .map_err(|e| anyhow::anyhow!("import_account_ufvk: {:?}", e))?;
 
-    activate_engine(db_data_path, db_cache_path, params, server_url, height, db_cipher_key).await;
+    activate_engine(db_data_path, params, server_url, height, db_cipher_key).await;
     Ok(())
 }
 
@@ -315,7 +313,7 @@ pub async fn open(
     params: Network,
     db_cipher_key: Option<String>,
 ) -> Result<()> {
-    let (db_data_path, db_cache_path) = db_paths(data_dir);
+    let (db_data_path, _) = db_paths(data_dir);
 
     if !db_data_path.exists() {
         return Err(anyhow::anyhow!(
@@ -328,7 +326,6 @@ pub async fn open(
 
     if let Some(ref key) = db_cipher_key {
         migrate_to_encrypted(&db_data_path, key).ok();
-        migrate_to_encrypted(&db_cache_path, key).ok();
     }
 
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
@@ -366,7 +363,6 @@ pub async fn open(
 
     *ENGINE.lock().await = Some(ZipherEngine {
         db_data_path,
-        db_cache_path,
         params,
         server_url: server_url.to_string(),
         birthday,
@@ -381,16 +377,6 @@ pub async fn open(
 pub async fn close() {
     tracing::info!("[engine] close wallet — stopping sync first");
     super::sync::stop().await;
-
-    for _ in 0..50 {
-        if !super::sync::is_running() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-    if super::sync::is_running() {
-        tracing::warn!("[engine] sync still running after 5s, proceeding with close");
-    }
 
     *ENGINE.lock().await = None;
     tracing::info!("[engine] wallet closed");

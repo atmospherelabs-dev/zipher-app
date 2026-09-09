@@ -13,7 +13,8 @@ struct SyncBenchmarkResult {
     final_synced_height: u32,
     final_latest_height: u32,
     elapsed_ms: u128,
-    blocks_scanned: u32,
+    blocks_scanned: u64,
+    committed_blocks: u32,
     blocks_per_second: f64,
     progress_samples: usize,
     phase_samples: Vec<PhaseSample>,
@@ -55,6 +56,7 @@ pub async fn cmd_sync_benchmark(
     zipher_engine::sync::configure_runtime(zipher_engine::sync::SyncRuntimeConfig {
         prefetch_depth,
         alternate_servers: alternate_servers.clone(),
+        auto_select_servers: false,
     })
     .await;
 
@@ -82,7 +84,11 @@ pub async fn cmd_sync_benchmark(
     let mut samples = 0usize;
     let mut timed_out = false;
 
-    zipher_engine::sync::start().await?;
+    if let Err(error) = zipher_engine::sync::start().await {
+        zipher_engine::sync::reset_runtime_config().await;
+        zipher_engine::wallet::close().await;
+        return Err(error);
+    }
 
     loop {
         tokio::time::sleep(poll_interval).await;
@@ -121,6 +127,8 @@ pub async fn cmd_sync_benchmark(
         }
     }
 
+    // End timing before stop/close so shutdown latency is not scan throughput.
+    let elapsed = started.elapsed();
     let final_progress = zipher_engine::sync::get_progress().await;
     let perf = zipher_engine::sync::get_perf_snapshot().await;
     zipher_engine::sync::stop().await;
@@ -128,21 +136,17 @@ pub async fn cmd_sync_benchmark(
     let final_synced_height = if final_progress.synced_height > 0 {
         final_progress.synced_height
     } else {
-        zipher_engine::query::get_synced_height()
-            .await
-            .unwrap_or(started_synced_height)
+        started_synced_height
     };
     let final_latest_height = if final_progress.latest_height > 0 {
         final_progress.latest_height
     } else {
-        zipher_engine::wallet::fetch_latest_height(&cfg.server_url)
-            .await
-            .unwrap_or(started_latest_height as u64) as u32
+        started_latest_height
     };
     zipher_engine::wallet::close().await;
 
-    let elapsed = started.elapsed();
-    let blocks_scanned = final_synced_height.saturating_sub(started_synced_height);
+    let blocks_scanned = final_progress.blocks_scanned;
+    let committed_blocks = final_synced_height.saturating_sub(started_synced_height);
     let blocks_per_second = if elapsed.as_secs_f64() > 0.0 {
         blocks_scanned as f64 / elapsed.as_secs_f64()
     } else {
@@ -157,6 +161,7 @@ pub async fn cmd_sync_benchmark(
         final_latest_height,
         elapsed_ms: elapsed.as_millis(),
         blocks_scanned,
+        committed_blocks,
         blocks_per_second,
         progress_samples: samples,
         phase_samples: phase_counts
@@ -169,8 +174,8 @@ pub async fn cmd_sync_benchmark(
         maintenance_queue_len: final_progress.maintenance_queue_len,
         connection_error: final_progress.connection_error,
         maintenance_error: final_progress.maintenance_error,
-        prefetch_depth,
-        multi_server,
+        prefetch_depth: perf.prefetch_depth,
+        multi_server: perf.multi_server_enabled,
         alternate_servers,
         perf,
     };
@@ -186,7 +191,8 @@ pub async fn cmd_sync_benchmark(
             r.final_synced_height, r.final_latest_height
         );
         println!("  elapsed:       {} ms", r.elapsed_ms);
-        println!("  blocks:        {}", r.blocks_scanned);
+        println!("  blocks scanned: {}", r.blocks_scanned);
+        println!("  committed:      {}", r.committed_blocks);
         println!("  throughput:    {:.2} blocks/s", r.blocks_per_second);
         println!("  caught up:     {}", r.caught_up);
         println!("  timed out:     {}", r.timed_out);

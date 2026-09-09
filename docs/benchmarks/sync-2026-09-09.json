@@ -1,0 +1,191 @@
+{
+  "date": "2026-09-09",
+  "implementation": "Sync optimization follow-up to 1f0a095, including dynamic BatchPlan scheduling",
+  "rustc": "1.97.1 (8bab26f4f 2026-07-14)",
+  "host": "x86_64-apple-darwin",
+  "profile": "test, opt-level=1, debug information enabled",
+  "limitations": [
+    "Not a release or native mobile-device benchmark",
+    "Not a before/after comparison or a Vizor benchmark",
+    "Empty disposable wallets; no funded history, battery, peak memory, or time-to-spend measurement",
+    "Live server and chain variance; the chain advanced by three blocks during the samples"
+  ],
+  "validation": {
+    "workspace_tests_passed": 54,
+    "manual_benchmarks_passed": 2,
+    "workspace_includes_flutter_rust_bridge": true
+  },
+  "staging_only": {
+    "rounds": 20,
+    "blocks_per_round": 1000,
+    "encrypted_sqlite_ms": 497.42,
+    "memory_ms": 77.619,
+    "excludes": [
+      "network",
+      "trial decryption",
+      "wallet writes"
+    ]
+  },
+  "restore_samples": [
+    {
+      "benchmark": "disposable_restore",
+      "birthday": 3457261,
+      "blocks_scanned": 20000,
+      "elapsed_ms": 39228,
+      "latest_height": 3477261,
+      "perf": {
+        "adaptive_batch_size": 500,
+        "avg_download_ms": 199,
+        "avg_scan_ms": 974,
+        "batches": 26,
+        "blocks": 20000,
+        "download_ms": 5195,
+        "multi_server_enabled": false,
+        "multi_server_fallbacks": 0,
+        "prefetch_depth": 0,
+        "restarted_batches": 0,
+        "scan_ms": 25333,
+        "work_units": 248570,
+        "work_units_per_second": 9812.102790826195
+      },
+      "prefetch_depth": 0,
+      "sample": 0,
+      "server": "https://zec.rocks:443",
+      "synced_height": 3477261
+    },
+    {
+      "benchmark": "disposable_restore",
+      "birthday": 3457261,
+      "blocks_scanned": 20001,
+      "elapsed_ms": 31569,
+      "latest_height": 3477262,
+      "perf": {
+        "adaptive_batch_size": 1000,
+        "avg_download_ms": 216,
+        "avg_scan_ms": 1139,
+        "batches": 21,
+        "blocks": 20001,
+        "download_ms": 4556,
+        "multi_server_enabled": false,
+        "multi_server_fallbacks": 0,
+        "prefetch_depth": 3,
+        "restarted_batches": 0,
+        "scan_ms": 23934,
+        "work_units": 248580,
+        "work_units_per_second": 10386.061669591376
+      },
+      "prefetch_depth": 3,
+      "sample": 1,
+      "server": "https://zec.rocks:443",
+      "synced_height": 3477262
+    },
+    {
+      "benchmark": "disposable_restore",
+      "birthday": 3457261,
+      "blocks_scanned": 20001,
+      "elapsed_ms": 31917,
+      "latest_height": 3477262,
+      "perf": {
+        "adaptive_batch_size": 500,
+        "avg_download_ms": 207,
+        "avg_scan_ms": 1072,
+        "batches": 23,
+        "blocks": 20001,
+        "download_ms": 4772,
+        "multi_server_enabled": false,
+        "multi_server_fallbacks": 0,
+        "prefetch_depth": 3,
+        "restarted_batches": 0,
+        "scan_ms": 24671,
+        "work_units": 248580,
+        "work_units_per_second": 10075.797495034656
+      },
+      "prefetch_depth": 3,
+      "sample": 2,
+      "server": "https://zec.rocks:443",
+      "synced_height": 3477262
+    },
+    {
+      "benchmark": "disposable_restore",
+      "birthday": 3457261,
+      "blocks_scanned": 20002,
+      "elapsed_ms": 39887,
+      "latest_height": 3477263,
+      "perf": {
+        "adaptive_batch_size": 500,
+        "avg_download_ms": 187,
+        "avg_scan_ms": 946,
+        "batches": 27,
+        "blocks": 20002,
+        "download_ms": 5070,
+        "multi_server_enabled": false,
+        "multi_server_fallbacks": 0,
+        "prefetch_depth": 0,
+        "restarted_batches": 0,
+        "scan_ms": 25566,
+        "work_units": 248583,
+        "work_units_per_second": 9723.187045294531
+      },
+      "prefetch_depth": 0,
+      "sample": 3,
+      "server": "https://zec.rocks:443",
+      "synced_height": 3477263
+    },
+    {
+      "benchmark": "disposable_restore",
+      "birthday": 3457261,
+      "blocks_scanned": 20002,
+      "elapsed_ms": 38314,
+      "latest_height": 3477263,
+      "perf": {
+        "adaptive_batch_size": 500,
+        "avg_download_ms": 191,
+        "avg_scan_ms": 947,
+        "batches": 27,
+        "blocks": 20002,
+        "download_ms": 5166,
+        "multi_server_enabled": false,
+        "multi_server_fallbacks": 0,
+        "prefetch_depth": 0,
+        "restarted_batches": 0,
+        "scan_ms": 25571,
+        "work_units": 248583,
+        "work_units_per_second": 9721.285831606116
+      },
+      "prefetch_depth": 0,
+      "sample": 4,
+      "server": "https://zec.rocks:443",
+      "synced_height": 3477263
+    },
+    {
+      "benchmark": "disposable_restore",
+      "birthday": 3457261,
+      "blocks_scanned": 20003,
+      "elapsed_ms": 31871,
+      "latest_height": 3477264,
+      "perf": {
+        "adaptive_batch_size": 500,
+        "avg_download_ms": 199,
+        "avg_scan_ms": 1080,
+        "batches": 23,
+        "blocks": 20003,
+        "download_ms": 4584,
+        "multi_server_enabled": false,
+        "multi_server_fallbacks": 0,
+        "prefetch_depth": 3,
+        "restarted_batches": 0,
+        "scan_ms": 24857,
+        "work_units": 248595,
+        "work_units_per_second": 10001.005752906625
+      },
+      "prefetch_depth": 3,
+      "sample": 5,
+      "server": "https://zec.rocks:443",
+      "synced_height": 3477264
+    }
+  ],
+  "median_elapsed_ms_by_prefetch_depth": {
+    "0": 39228,
+    "3": 31871
+  }
+}
