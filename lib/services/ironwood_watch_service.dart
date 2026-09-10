@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:shared_preferences/shared_preferences.dart';
+import 'network_privacy.dart';
 
 import 'app_log.dart';
 import 'wallet_service.dart';
@@ -20,7 +20,6 @@ class IronwoodWatchService {
   IronwoodWatchService._();
   static final instance = IronwoodWatchService._();
 
-  static const _prefTor = 'ironwood_tor_enabled';
   static const _tickInterval = Duration(seconds: 75);
 
   Timer? _timer;
@@ -35,21 +34,7 @@ class IronwoodWatchService {
 
   Future<void> onWalletReady() async {
     _walletReady = true;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedTor = prefs.getBool(_prefTor) ?? false;
-      if (savedTor) {
-        try {
-          final dataDir = await WalletService.instance.walletDir();
-          await engine.engineEnableTor(dataDir: dataDir);
-          _log.i('[Ironwood] Tor re-enabled from saved preference');
-        } catch (e) {
-          _log.w('[Ironwood] Tor re-enable failed: $e');
-        }
-      }
-    } catch (e) {
-      _log.w('[Ironwood] onWalletReady prefs error: $e');
-    }
+    await NetworkPrivacy.instance.restore();
 
     await _resumeIfActive();
   }

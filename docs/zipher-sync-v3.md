@@ -1,6 +1,6 @@
 # Zipher sync: implementation and measurement
 
-Updated 2026-09-09. This replaces the earlier speculative Sync v3 RFC. Its
+Updated 2026-09-10. This replaces the earlier speculative Sync v3 RFC. Its
 speed multipliers were targets, not measurements; its proposed filtered-block
 scanner and custom cryptographic optimizations are not implemented.
 
@@ -130,3 +130,34 @@ These are not native mobile or release measurements.
    against known fixtures; timing alone cannot establish wallet correctness.
 
 No result currently establishes that Zipher sync is faster overall than Vizor.
+
+## 2026-09-10 selected-peer policy
+
+Current Vizor source was reviewed at
+[`123bcef78c03f0ed9b11f1778e5de424ffb9cd5f`](https://github.com/chainapsis/vizor-wallet/tree/123bcef78c03f0ed9b11f1778e5de424ffb9cd5f/rust/src/wallet/sync_engine).
+Its scanner prefetches using the selected connection. Zipher's automatic policy
+previously rotated every batch across six regional servers, serially paying each
+region's latency. Automatic downloads now stay with the selected server, while
+known alternates remain available for retry/failover. Explicit multi-server
+configuration retains rotation. Custom-server sessions do not inherit public
+fallback peers from a previous wallet/server selection.
+
+Six disposable restores compared both policies over the same 6,000-block window
+and 93,177 work units per run, using the same random wallet seed and fresh databases.
+Median elapsed time was 14.532 seconds with regional rotation and 12.151 seconds
+with the selected peer: 16.4% less elapsed time. All six restored to the target tip.
+[Raw results](benchmarks/sync-peer-policy-2026-09-10.json) include per-run download,
+scan, block and commitment metrics. Reproduce with:
+
+```sh
+ZIPHER_SYNC_BENCH_PEERS=1 ZIPHER_SYNC_BENCH_BLOCKS=6000 cargo test --locked -p zipher-engine --lib benchmark_live_disposable_restore -- --ignored --nocapture
+```
+
+This is a short modern-history benchmark on a live network, using the x86_64 host
+Cargo test profile (opt-level 1), not a full-chain or iPhone release benchmark.
+Vizor's debug profile uses opt-level 3; Zipher's release profile uses opt-level 3,
+LTO and one codegen unit. These measurements do not establish parity with Vizor.
+
+Live diagnostics now carry the actual active scan target on progress events and
+include both prefetched download time and local scan time. Routine empty-batch
+account refreshes are throttled, and timed-out downloads shrink their next batch.

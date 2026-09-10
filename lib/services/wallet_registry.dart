@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -39,6 +40,8 @@ class WalletProfile {
   DateTime lastOpenedAt;
   int lastBalance;
   int lastSyncHeight;
+  bool? snapshotTestnet;
+  DateTime? snapshotAt;
   List<AccountEntry>? _accounts;
 
   WalletProfile({
@@ -49,6 +52,8 @@ class WalletProfile {
     DateTime? lastOpenedAt,
     this.lastBalance = 0,
     this.lastSyncHeight = 0,
+    this.snapshotTestnet,
+    this.snapshotAt,
     List<AccountEntry>? accounts,
   })  : lastOpenedAt = lastOpenedAt ?? createdAt,
         _accounts = accounts;
@@ -83,6 +88,8 @@ class WalletProfile {
         'lastOpenedAt': lastOpenedAt.toIso8601String(),
         'lastBalance': lastBalance,
         'lastSyncHeight': lastSyncHeight,
+        'snapshotTestnet': snapshotTestnet,
+        'snapshotAt': snapshotAt?.toIso8601String(),
         'accounts': accounts.map((a) => a.toJson()).toList(),
       };
 
@@ -105,6 +112,8 @@ class WalletProfile {
           : null,
       lastBalance: json['lastBalance'] as int? ?? 0,
       lastSyncHeight: json['lastSyncHeight'] as int? ?? 0,
+      snapshotTestnet: json['snapshotTestnet'] as bool?,
+      snapshotAt: DateTime.tryParse(json['snapshotAt'] as String? ?? ''),
       accounts: accts,
     );
   }
@@ -118,6 +127,7 @@ class WalletRegistry {
   static const _activeKey = 'active_wallet_id';
   static const _migratedKey = 'wallet_migration_v1_done';
 
+  final changes = ValueNotifier<int>(0);
   List<WalletProfile>? _cache;
 
   Future<List<WalletProfile>> getAll() async {
@@ -205,11 +215,15 @@ class WalletRegistry {
   }
 
   Future<void> updateSnapshot(String id,
-      {int? balance, int? syncHeight}) async {
+      {int? balance, int? syncHeight, bool? testnet}) async {
     final all = await getAll();
     final profile = all.where((w) => w.id == id).firstOrNull;
     if (profile == null) return;
-    if (balance != null) profile.lastBalance = balance;
+    if (balance != null) {
+      profile.lastBalance = balance;
+      profile.snapshotTestnet = testnet;
+      profile.snapshotAt = DateTime.now();
+    }
     if (syncHeight != null) profile.lastSyncHeight = syncHeight;
     await _persist(all);
   }
@@ -298,6 +312,8 @@ class WalletRegistry {
           walletId: profile.id,
           walletName: profile.name,
           walletBalance: profile.lastBalance,
+          snapshotTestnet: profile.snapshotTestnet,
+          snapshotAt: profile.snapshotAt,
           account: acct,
           flatIndex: idx,
         ));
@@ -323,7 +339,11 @@ class WalletRegistry {
     _cache = profiles;
     final prefs = await SharedPreferences.getInstance();
     final json = jsonEncode(profiles.map((p) => p.toJson()).toList());
-    await prefs.setString(_profilesKey, json);
+    if (!await prefs.setString(_profilesKey, json)) {
+      invalidateCache();
+      throw StateError('Wallet profiles could not be saved');
+    }
+    changes.value++;
   }
 
   static String _generateUuid() {
@@ -343,6 +363,8 @@ class FlatAccount {
   final String walletId;
   final String walletName;
   final int walletBalance;
+  final bool? snapshotTestnet;
+  final DateTime? snapshotAt;
   final AccountEntry account;
   final int flatIndex;
 
@@ -354,12 +376,15 @@ class FlatAccount {
     required this.walletId,
     required this.walletName,
     required this.walletBalance,
+    this.snapshotTestnet,
+    this.snapshotAt,
     required this.account,
     required this.flatIndex,
   });
 
   int get accountIndex => account.accountIndex;
-  int get lastBalance => walletBalance;
+  int get lastBalance => accountIndex == 0 ? walletBalance : account.lastBalance;
+  bool hasSnapshot(bool testnet) => accountIndex == 0 && snapshotAt != null && snapshotTestnet == testnet;
 
   /// Show "Account 1", "Account 2", ... unless the user explicitly renamed it.
   String get displayName {

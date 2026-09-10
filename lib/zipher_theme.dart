@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 class ZipherColors {
   // Core backgrounds (Cipherscan/Cipherpay-aligned dark: #08090F)
   static const Color bg = Color(0xFF08090F);
-  static const Color surface = Color(0xFF0E1018);
-  static const Color surfaceLight = Color(0xFF14161F);
+  static const Color surface = Color(0xFF111219);
+  static const Color surfaceLight = Color(0xFF1B1D26);
   static const Color border = Color(0xFF1A1D28);
   static const Color borderLight = Color(0xFF22252F);
 
@@ -35,15 +35,17 @@ class ZipherColors {
   // Use these instead of scattered Colors.white.withValues(alpha: ...).
   // 5 tiers for text, 3 for surfaces.
 
-  static final Color text90 = Colors.white.withValues(alpha: 0.9);
-  static final Color text60 = Colors.white.withValues(alpha: 0.6);
-  static final Color text40 = Colors.white.withValues(alpha: 0.55);
-  static final Color text20 = Colors.white.withValues(alpha: 0.35);
-  static final Color text10 = Colors.white.withValues(alpha: 0.15);
+  static const Color text90 = textPrimary;
+  static const Color text60 = textSecondary;
+  static const Color text40 = textMuted;
+  static const Color text20 = Color(0xFF686D78);
+  static const Color text10 = Color(0xFF383C46);
 
-  static final Color cardBg = Colors.white.withValues(alpha: 0.04);
-  static final Color cardBgElevated = Colors.white.withValues(alpha: 0.06);
-  static final Color borderSubtle = Colors.white.withValues(alpha: 0.05);
+  // Surfaces must stay opaque, including when used by modal sheets.
+  static const Color cardBg = surface;
+  static const Color cardBgElevated = surfaceLight;
+  static const Color borderSubtle = border;
+  static const Color syncPending = Color(0xFFFFD60A);
 
   // Gradients
   /// Primary brand gradient (sync bar, gradient buttons). Cyan → warm.
@@ -70,10 +72,11 @@ class ZipherColors {
   );
 
   // Pool-specific colors
-  static const Color transparent = cyan;
+  static const Color transparent = orange;
+  static const Color ironwood = cyan;
   static const Color sapling = purple;
   static const Color orchard = warm;
-  static const Color shielded = purple;
+  static const Color shielded = cyan;
 
   // Standard page padding
   static const double pagePadding = 20.0;
@@ -256,6 +259,17 @@ class ZipherTheme {
       ),
 
       // Dialogs
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: ZipherColors.surface,
+        modalBackgroundColor: ZipherColors.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        modalElevation: 0,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+      ),
       dialogTheme: DialogThemeData(
         backgroundColor: ZipherColors.surface,
         shape: RoundedRectangleBorder(

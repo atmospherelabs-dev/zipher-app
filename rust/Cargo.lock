@@ -8638,6 +8638,7 @@ dependencies = [
  "zcash_transparent",
  "zeroize",
  "zip32",
+ "zip321",
 ]
 
 [[package]]

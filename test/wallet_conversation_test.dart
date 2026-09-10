@@ -2,6 +2,39 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:zipher/pages/action/wallet_conversation.dart';
 
 void main() {
+  test('privacy routing is local and cannot override a payment memo', () {
+    for (final text in [
+      'activate tor',
+      'enable Tor',
+      'turn on tor',
+      '/tor on'
+    ]) {
+      expect(WalletConversation.command(text), WalletCommand.torOn);
+    }
+    expect(WalletConversation.command('disable tor'), WalletCommand.torOff);
+    expect(WalletConversation.command('privacy'), WalletCommand.privacy);
+    expect(WalletConversation.command('activate nym'), WalletCommand.nym);
+    expect(WalletConversation.command('enable vpn'), WalletCommand.vpn);
+    expect(WalletConversation.command('send 1 ZEC memo: enable Tor'),
+        WalletCommand.send);
+    final conversation = WalletConversation();
+    conversation.accept('send');
+    conversation.accept('enable Tor');
+    expect(conversation.pending, isNull);
+  });
+
+  test('pool questions route locally without preparing a payment', () {
+    for (final prompt in [
+      'pools',
+      'pool breakdown',
+      'where is my ZEC',
+      'repartition'
+    ]) {
+      expect(WalletConversation().accept(prompt).request?.command,
+          WalletCommand.pools);
+    }
+  });
+
   final address = 'u1${'a' * 100}';
   test('guided send collects recipient then exact ZEC amount', () {
     final chat = WalletConversation();
@@ -109,6 +142,11 @@ void main() {
     expect(WalletConversation.parseZatoshis('0.00000001'), 1);
     expect(WalletConversation.parseZatoshis('21000000'), 2100000000000000);
     expect(WalletConversation.parseZatoshis('21000000.00000001'), isNull);
+    expect(WalletConversation.formatZec(0), '0');
+    expect(WalletConversation.formatZec(100000000), '1');
+    expect(WalletConversation.formatZec(100000), '0.001');
+    expect(WalletConversation.formatZec(-100000), '-0.001');
+    expect(WalletConversation.formatZec(-1), '-0.00000001');
     expect(WalletConversation.formatZec(1), '0.00000001');
     expect(WalletConversation.formatZec(123456789), '1.23456789');
   });

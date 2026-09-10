@@ -4,7 +4,6 @@ import 'package:showcaseview/showcaseview.dart';
 
 import 'pages/accounts/swap/history.dart';
 import 'pages/faucet.dart';
-import 'pages/swap.dart';
 import 'pages/swap_status.dart';
 import 'pages/more/cold.dart';
 import 'package:flutter/material.dart';
@@ -138,7 +137,9 @@ final router = GoRouter(
                 ),
                 GoRoute(
                   path: 'swap',
-                  builder: (context, state) => NearSwapPage(),
+                  redirect: (_, state) => state.uri.path == '/account/swap'
+                      ? '/account?intent=swap'
+                      : null,
                   routes: [
                     GoRoute(
                       path: 'history',
@@ -227,11 +228,10 @@ final router = GoRouter(
           routes: [
             GoRoute(
               path: '/swap',
-              builder: (context, state) => ValueListenableBuilder<bool>(
-                valueListenable: testnetNotifier,
-                builder: (_, isTest, __) =>
-                    isTest ? FaucetPage() : NearSwapPage(),
-              ),
+              redirect: (_, state) => !isTestnet && state.uri.path == '/swap'
+                  ? '/account?intent=swap'
+                  : null,
+              builder: (context, state) => FaucetPage(),
               routes: [
                 GoRoute(
                   path: 'status',
@@ -527,33 +527,11 @@ class ScaffoldBar extends StatefulWidget {
   State<ScaffoldBar> createState() => _ScaffoldBar();
 }
 
-class _ScaffoldBar extends State<ScaffoldBar>
-    with SingleTickerProviderStateMixin {
+class _ScaffoldBar extends State<ScaffoldBar> {
   int _knownCoin = aa.coin;
   int _knownId = aa.id;
   bool _knownTestnet = isTestnet;
   final Set<int> _staleTabs = {};
-  late final AnimationController _zBounce;
-  late final Animation<double> _zScale;
-
-  @override
-  void initState() {
-    super.initState();
-    _zBounce = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 150),
-    );
-    _zScale = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.08), weight: 50),
-      TweenSequenceItem(tween: Tween(begin: 1.08, end: 1.0), weight: 50),
-    ]).animate(CurvedAnimation(parent: _zBounce, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() {
-    _zBounce.dispose();
-    super.dispose();
-  }
 
   void _goToBranch(int i) {
     if (aa.coin != _knownCoin || aa.id != _knownId) {
@@ -605,66 +583,8 @@ class _ScaffoldBar extends State<ScaffoldBar>
                 padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [0, 1, 2].map((i) {
+                  children: [0, if (isTestnet) 1, 2].map((i) {
                     final isActive = widget.shell.currentIndex == i;
-                    final isZButton = i == 0;
-
-                    if (isZButton) {
-                      final zActive = widget.shell.currentIndex == 0;
-                      return Expanded(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () {
-                            _zBounce.forward(from: 0);
-                            _goToBranch(0);
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                ScaleTransition(
-                                  scale: _zScale,
-                                  child: Container(
-                                    width: 42,
-                                    height: 42,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: zActive
-                                          ? ZipherColors.surfaceLight
-                                          : ZipherColors.surface,
-                                      border: Border.all(
-                                        color: zActive
-                                            ? ZipherColors.cyan
-                                                .withValues(alpha: 0.4)
-                                            : ZipherColors.border,
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Center(
-                                      child: AnimatedDefaultTextStyle(
-                                        duration:
-                                            const Duration(milliseconds: 200),
-                                        style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.w800,
-                                          fontFamily: 'JetBrains Mono',
-                                          color: zActive
-                                              ? ZipherColors.textPrimary
-                                              : ZipherColors.text40,
-                                        ),
-                                        child: const Text('Z'),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-
                     final navIndex = i;
                     final icons = [
                       Icons.home_outlined,

@@ -26,6 +26,21 @@ void main() {
     expect(afterDelete.contacts.single.name, 'Bob');
   });
 
+  test('same address retains different chains after reopening', () async {
+    String? disk;
+    ContactStore open() => ContactStore(
+        read: () async => disk, write: (value) async => disk = value);
+    final store = open();
+    const address = '0x1111111111111111111111111111111111111111';
+    await store
+        .add(Contact(id: 0, name: 'Alice', address: address, chainId: 'eth'));
+    await store
+        .add(Contact(id: 0, name: 'Alice', address: address, chainId: 'base'));
+    final restored = open();
+    await restored.fetchContacts();
+    expect(restored.contacts.map((c) => c.chainId), ['eth', 'base']);
+  });
+
   test('failed writes preserve the saved list and later retries can succeed',
       () async {
     var fail = true;

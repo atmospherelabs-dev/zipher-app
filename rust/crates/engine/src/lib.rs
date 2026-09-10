@@ -48,7 +48,18 @@ pub struct ZipherEngine {
     pub(crate) server_url: String,
     pub(crate) birthday: BlockHeight,
     pub(crate) db_cipher_key: Option<String>,
+    pub(crate) tor_required: bool,
     pub(crate) tor_client: Option<zcash_client_backend::tor::Client>,
+}
+
+impl ZipherEngine {
+    /// A requested private route must never silently fall back to clearnet.
+    pub(crate) fn tor_transport(&self) -> Result<Option<zcash_client_backend::tor::Client>> {
+        if self.tor_required && self.tor_client.is_none() {
+            anyhow::bail!("Tor is required but unavailable. Retry Tor or explicitly disable it.");
+        }
+        Ok(self.tor_client.clone())
+    }
 }
 
 pub(crate) fn db_paths(data_dir: &str) -> (PathBuf, PathBuf) {

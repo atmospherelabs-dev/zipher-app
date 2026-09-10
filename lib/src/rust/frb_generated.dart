@@ -5451,24 +5451,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   EngineSyncEvent dco_decode_engine_sync_event(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 15)
-      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
+    if (arr.length != 16)
+      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
     return EngineSyncEvent(
       eventType: dco_decode_String(arr[0]),
-      phase: dco_decode_opt_String(arr[1]),
-      syncedHeight: dco_decode_u_32(arr[2]),
-      latestHeight: dco_decode_u_32(arr[3]),
-      maintenanceQueueLen: dco_decode_u_32(arr[4]),
-      txid: dco_decode_opt_String(arr[5]),
-      status: dco_decode_opt_String(arr[6]),
-      scope: dco_decode_opt_String(arr[7]),
-      message: dco_decode_opt_String(arr[8]),
-      scanProgressNum: dco_decode_u_64(arr[9]),
-      scanProgressDen: dco_decode_u_64(arr[10]),
-      recoveryProgressNum: dco_decode_u_64(arr[11]),
-      recoveryProgressDen: dco_decode_u_64(arr[12]),
-      blocksScanned: dco_decode_u_64(arr[13]),
-      blocksTotal: dco_decode_u_64(arr[14]),
+      scanningUpTo: dco_decode_u_32(arr[1]),
+      phase: dco_decode_opt_String(arr[2]),
+      syncedHeight: dco_decode_u_32(arr[3]),
+      latestHeight: dco_decode_u_32(arr[4]),
+      maintenanceQueueLen: dco_decode_u_32(arr[5]),
+      txid: dco_decode_opt_String(arr[6]),
+      status: dco_decode_opt_String(arr[7]),
+      scope: dco_decode_opt_String(arr[8]),
+      message: dco_decode_opt_String(arr[9]),
+      scanProgressNum: dco_decode_u_64(arr[10]),
+      scanProgressDen: dco_decode_u_64(arr[11]),
+      recoveryProgressNum: dco_decode_u_64(arr[12]),
+      recoveryProgressDen: dco_decode_u_64(arr[13]),
+      blocksScanned: dco_decode_u_64(arr[14]),
+      blocksTotal: dco_decode_u_64(arr[15]),
     );
   }
 
@@ -6468,6 +6469,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   EngineSyncEvent sse_decode_engine_sync_event(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_eventType = sse_decode_String(deserializer);
+    var var_scanningUpTo = sse_decode_u_32(deserializer);
     var var_phase = sse_decode_opt_String(deserializer);
     var var_syncedHeight = sse_decode_u_32(deserializer);
     var var_latestHeight = sse_decode_u_32(deserializer);
@@ -6484,6 +6486,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_blocksTotal = sse_decode_u_64(deserializer);
     return EngineSyncEvent(
         eventType: var_eventType,
+        scanningUpTo: var_scanningUpTo,
         phase: var_phase,
         syncedHeight: var_syncedHeight,
         latestHeight: var_latestHeight,
@@ -7566,6 +7569,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       EngineSyncEvent self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.eventType, serializer);
+    sse_encode_u_32(self.scanningUpTo, serializer);
     sse_encode_opt_String(self.phase, serializer);
     sse_encode_u_32(self.syncedHeight, serializer);
     sse_encode_u_32(self.latestHeight, serializer);

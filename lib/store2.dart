@@ -329,6 +329,7 @@ abstract class _SyncStatus2 with Store {
       final progress = await WalletService.instance.getEngineSyncProgress();
       if (!current()) return;
 
+      final previousError = connectionError;
       connectionError = progress.connectionError;
       maintenanceError = progress.maintenanceError;
       phase = progress.phase;
@@ -337,7 +338,7 @@ abstract class _SyncStatus2 with Store {
       blocksScanned = progress.blocksScanned.toInt();
       blocksTotal = progress.blocksTotal.toInt();
       connected = connectionError == null;
-      if (connectionError != null) {
+      if (connectionError != null && connectionError != previousError) {
         logger.w('[Sync] connection error: $connectionError');
       }
       if (maintenanceError != null) {
@@ -418,12 +419,18 @@ abstract class _SyncStatus2 with Store {
       final eventPhase = event.phase as String?;
       if (eventPhase != null && eventPhase.isNotEmpty) {
         if (eventPhase != phase) {
-          logger.d('[Engine] phase: $eventPhase');
+          logger.i('[Engine] phase: $eventPhase');
         }
         phase = eventPhase;
+        if (eventType == 'phase_changed' &&
+            const ['scanning', 'verifying', 'caught_up'].contains(eventPhase)) {
+          connectionError = null;
+          connected = true;
+        }
       }
       final eventLatest = event.latestHeight as int;
       if (eventLatest > 0) latestHeight = eventLatest;
+      scanningUpTo = event.scanningUpTo as int;
       final eventSynced = event.syncedHeight as int;
       if (eventSynced > 0 && eventSynced >= syncedHeight) {
         syncedHeight = eventSynced;
@@ -472,6 +479,12 @@ abstract class _SyncStatus2 with Store {
       if (msg != null) logger.i('[Engine] $msg');
     } else if (eventType == 'transaction_updated' ||
         eventType == 'balance_maybe_changed') {
+      // Historic batches emit this even when no wallet notes changed.
+      // Keep transaction updates immediate, but avoid re-querying the wallet
+      // after every empty batch during a long restore.
+      if (eventType == 'balance_maybe_changed' &&
+          syncing &&
+          !_shouldRefreshAccountWhileSyncing()) return;
       _refreshAccount().catchError((Object _) {
         logger.d('[Sync] account refresh deferred until next poll');
       });

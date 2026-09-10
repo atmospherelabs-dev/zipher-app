@@ -16,7 +16,11 @@ void main() {
         });
     final result = await reader.fetch(address);
     expect(result.unavailableChains, {'Polygon'});
-    expect(result.tokens.single.balance, 2);
+    expect(
+        result.tokens
+            .singleWhere((t) => t.chainLabel == 'Ethereum' && t.symbol == 'ETH')
+            .balance,
+        2);
     expect(result.evmTotalUsd, 4000);
     expect(result.complete, false);
   });
@@ -26,10 +30,14 @@ void main() {
         readPrices: () async => {},
         readAsset: (chain, _, token) async => chain == ChainConfig.bsc ? 1 : 0);
     final result = await reader.fetch(address);
-    expect(result.tokens.length, 2);
+    expect(result.tokens.where((t) => t.balance > 0).length, 2);
     expect(result.fullyPriced, false);
     expect(result.evmTotalUsd, 0);
-    expect(result.tokens.every((t) => !t.priceAvailable), true);
+    expect(
+        result.tokens
+            .where((t) => t.balance > 0)
+            .every((t) => !t.priceAvailable),
+        true);
   });
   test(
       'concurrent reads coalesce; fresh cache avoids RPC; force refresh bypasses cache',
@@ -64,7 +72,7 @@ void main() {
     gate.complete(1);
     await old;
     expect(identical(await reader.fetch(other), current), true);
-    expect(current.tokens, isEmpty);
+    expect(current.tokens.every((t) => t.balance == 0), true);
   });
   test('hung chains time out with explicit failure instead of zero', () async {
     final reader = EvmBalanceReader(
@@ -91,5 +99,61 @@ void main() {
         readPrices: () => throw StateError('unexpected call'),
         readAsset: (_, __, ___) => throw StateError('unexpected call'));
     await expectLater(reader.fetch('not an address'), throwsArgumentError);
+  });
+  test('one failed token cannot hide native or sibling token balances',
+      () async {
+    final reader = EvmBalanceReader(
+        readPrices: () async => {'ETH': 2000, 'USDC': 1},
+        readAsset: (chain, _, token) async {
+          if (chain != ChainConfig.ethereum) return 0;
+          if (token?.symbol == 'USDT') throw StateError('rate limited');
+          return token == null ? 2 : 50;
+        });
+    final result = await reader.fetch(address);
+    expect(result.unavailableChains, {'Ethereum'});
+    expect(
+        result.tokens
+            .where((t) => t.chainLabel == 'Ethereum')
+            .map((t) => t.symbol),
+        containsAll(['ETH', 'USDC']));
+    expect(result.evmTotalUsd, 4050);
+  });
+  test('failed refresh retains clearly stale amounts without valuing them',
+      () async {
+    var offline = false;
+    final reader = EvmBalanceReader(
+        readPrices: () async => {'ETH': 2000},
+        readAsset: (chain, _, token) async {
+          if (offline && chain == ChainConfig.ethereum)
+            throw StateError('offline');
+          return chain == ChainConfig.ethereum && token == null ? 2 : 0;
+        });
+    await reader.fetch(address);
+    offline = true;
+    final result = await reader.fetch(address, force: true);
+    final eth = result.tokens.singleWhere((t) => t.chainLabel == 'Ethereum');
+    expect(eth.stale, true);
+    expect(eth.balance, 2);
+    expect(result.evmTotalUsd, 0);
+  });
+  test('Bitcoin and Solana native balances use their correct units', () {
+    expect(
+        EvmPortfolioBalance.parseBitcoinBalance({
+          'chain_stats': {
+            'funded_txo_sum': 200000000,
+            'spent_txo_sum': 50000000
+          },
+          'mempool_stats': {'funded_txo_sum': 0, 'spent_txo_sum': 25000000},
+        }),
+        1.25);
+    expect(
+        EvmPortfolioBalance.parseSolanaBalance({
+          'result': {'value': 1500000000}
+        }),
+        1.5);
+    expect(() => EvmPortfolioBalance.parseBitcoinBalance({}),
+        throwsFormatException);
+    expect(() => EvmPortfolioBalance.parseSolanaBalance({'error': {}}),
+        throwsFormatException);
   });
 }

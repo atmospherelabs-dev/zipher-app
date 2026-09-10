@@ -1493,6 +1493,7 @@ class EngineSharePayload {
 
 class EngineSyncEvent {
   final String eventType;
+  final int scanningUpTo;
   final String? phase;
   final int syncedHeight;
   final int latestHeight;
@@ -1510,6 +1511,7 @@ class EngineSyncEvent {
 
   const EngineSyncEvent({
     required this.eventType,
+    required this.scanningUpTo,
     this.phase,
     required this.syncedHeight,
     required this.latestHeight,
@@ -1529,6 +1531,7 @@ class EngineSyncEvent {
   @override
   int get hashCode =>
       eventType.hashCode ^
+      scanningUpTo.hashCode ^
       phase.hashCode ^
       syncedHeight.hashCode ^
       latestHeight.hashCode ^
@@ -1550,6 +1553,7 @@ class EngineSyncEvent {
       other is EngineSyncEvent &&
           runtimeType == other.runtimeType &&
           eventType == other.eventType &&
+          scanningUpTo == other.scanningUpTo &&
           phase == other.phase &&
           syncedHeight == other.syncedHeight &&
           latestHeight == other.latestHeight &&

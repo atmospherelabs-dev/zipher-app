@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../services/network_privacy.dart';
 import '../../zipher_theme.dart';
 import '../../accounts.dart';
 import '../../services/app_log.dart';
@@ -22,7 +22,6 @@ class IronwoodPage extends StatefulWidget {
 enum _Phase { warning, planReview, ready, roundInProgress, success, error }
 
 class _IronwoodState extends State<IronwoodPage> {
-  static const _prefTor = 'ironwood_tor_enabled';
 
   _Phase _phase = _Phase.warning;
   String? _error;
@@ -42,8 +41,6 @@ class _IronwoodState extends State<IronwoodPage> {
   }
 
   Future<void> _loadPreferences() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedTor = prefs.getBool(_prefTor) ?? false;
 
     try {
       final progress = await IronwoodWatchService.instance.refreshStatus();
@@ -63,53 +60,26 @@ class _IronwoodState extends State<IronwoodPage> {
 
     if (mounted) setState(() {});
 
-    if (savedTor) {
-      await _toggleTor(true);
-    } else {
-      await _checkTorStatus();
-    }
+    await _checkTorStatus();
   }
 
   Future<void> _checkTorStatus() async {
-    try {
-      final enabled = await engine.engineIsTorEnabled();
-      if (mounted) setState(() => _torEnabled = enabled);
-    } catch (_) {}
+    final privacy = NetworkPrivacy.instance;
+    if (mounted) setState(() {
+      _torEnabled = privacy.state == NetworkPrivacyState.tor;
+      _torBootstrapping = privacy.busy;
+      _torVerifiedHeight = privacy.verifiedHeight;
+    });
   }
 
   Future<void> _toggleTor(bool enable) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (enable) {
-      setState(() {
-        _torBootstrapping = true;
-        _torVerifiedHeight = null;
-      });
-      try {
-        final dataDir = await WalletService.instance.walletDir();
-        await engine.engineEnableTor(dataDir: dataDir);
-        // Verify by fetching block height through Tor
-        final height = await engine.engineVerifyTor();
-        await prefs.setBool(_prefTor, true);
-        if (mounted) setState(() {
-          _torEnabled = true;
-          _torBootstrapping = false;
-          _torVerifiedHeight = height.toInt();
-        });
-      } catch (e) {
-        await prefs.setBool(_prefTor, false);
-        if (mounted) setState(() {
-          _torBootstrapping = false;
-          _torVerifiedHeight = null;
-          _error = 'Tor failed: $e';
-        });
-      }
-    } else {
-      await engine.engineDisableTor();
-      await prefs.setBool(_prefTor, false);
-      if (mounted) setState(() {
-        _torEnabled = false;
-        _torVerifiedHeight = null;
-      });
+    setState(() => _torBootstrapping = true);
+    try {
+      await NetworkPrivacy.instance.setTor(enable);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Tor could not connect. Retry or explicitly turn Tor off.');
+    } finally {
+      await _checkTorStatus();
     }
   }
 

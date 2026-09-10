@@ -10,7 +10,7 @@ final _log = createLogger();
 
 const bscRpc = 'https://bsc-dataseed1.binance.org';
 const polygonRpc = 'https://polygon-bor-rpc.publicnode.com';
-const ethereumRpc = 'https://ethereum-rpc.publicnode.com';
+const ethereumRpc = 'https://ethereum.publicnode.com';
 const arbitrumRpc = 'https://arb1.arbitrum.io/rpc';
 const baseRpc = 'https://mainnet.base.org';
 const optimismRpc = 'https://mainnet.optimism.io';

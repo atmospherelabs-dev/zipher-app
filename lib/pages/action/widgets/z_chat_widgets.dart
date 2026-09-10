@@ -23,7 +23,9 @@ class ZChatMessage extends StatelessWidget {
             alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
             child: ConstrainedBox(
                 constraints: BoxConstraints(
-                    maxWidth: MediaQuery.sizeOf(context).width * .85),
+                    maxWidth: isUser
+                        ? MediaQuery.sizeOf(context).width * .85
+                        : MediaQuery.sizeOf(context).width - 32),
                 child: Column(
                     crossAxisAlignment: isUser
                         ? CrossAxisAlignment.end
@@ -49,13 +51,32 @@ class ZChatMessage extends StatelessWidget {
                                         ? ZipherColors.cyan
                                             .withValues(alpha: .2)
                                         : ZipherColors.borderSubtle)),
-                            child: Text(text,
-                                style: TextStyle(
-                                    color: isUser
-                                        ? ZipherColors.textPrimary
-                                        : ZipherColors.textSecondary,
-                                    fontSize: 14,
-                                    height: 1.5))),
+                            child: isUser &&
+                                    RegExp(r'^(u1|utest1|t1|t3)[A-Za-z0-9]{40,}$')
+                                        .hasMatch(text.trim())
+                                ? ExpansionTile(
+                                    tilePadding: EdgeInsets.zero,
+                                    childrenPadding: EdgeInsets.zero,
+                                    title: Text(
+                                        '${text.substring(0, 12)}…${text.substring(text.length - 12)}',
+                                        style: const TextStyle(
+                                            fontFamily: 'JetBrains Mono',
+                                            fontSize: 12,
+                                            color: ZipherColors.textPrimary)),
+                                    children: [
+                                        SelectableText(text,
+                                            style: const TextStyle(
+                                                fontFamily: 'JetBrains Mono',
+                                                fontSize: 11,
+                                                height: 1.5))
+                                      ])
+                                : Text(text,
+                                    style: TextStyle(
+                                        color: isUser
+                                            ? ZipherColors.textPrimary
+                                            : ZipherColors.textSecondary,
+                                        fontSize: 14,
+                                        height: 1.5))),
                       if (card != null) card!,
                       if (footer != null) footer!,
                     ]))),
@@ -64,11 +85,15 @@ class ZChatMessage extends StatelessWidget {
 
 class ZChatShortcut extends StatelessWidget {
   final IconData icon;
+  final Widget? leading;
+  final bool secondary;
   final String label;
   final VoidCallback? onTap;
   const ZChatShortcut(
       {super.key,
-      required this.icon,
+      this.icon = Icons.circle_outlined,
+      this.leading,
+      this.secondary = false,
       required this.label,
       required this.onTap});
 
@@ -80,26 +105,36 @@ class ZChatShortcut extends StatelessWidget {
             color: Colors.transparent,
             child: InkWell(
                 onTap: onTap,
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(12),
                 child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
                     decoration: BoxDecoration(
-                        color: ZipherColors.cardBg,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: ZipherColors.borderSubtle)),
+                        color: secondary
+                            ? Colors.transparent
+                            : ZipherColors.cardBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color: secondary
+                                ? Colors.transparent
+                                : ZipherColors.borderSubtle)),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(icon,
-                          size: 14,
-                          color: onTap == null
-                              ? ZipherColors.text40
-                              : ZipherColors.cyan),
+                      leading ??
+                          Icon(icon,
+                              size: 14,
+                              color: onTap == null
+                                  ? ZipherColors.text40
+                                  : secondary
+                                      ? ZipherColors.text40
+                                      : ZipherColors.cyan),
                       const SizedBox(width: 6),
                       Text(label,
                           style: TextStyle(
                               color: onTap == null
                                   ? ZipherColors.text40
-                                  : ZipherColors.textPrimary,
+                                  : secondary
+                                      ? ZipherColors.text40
+                                      : ZipherColors.textPrimary,
                               fontSize: 13,
                               fontWeight: FontWeight.w500)),
                     ])))),
@@ -112,21 +147,23 @@ class ZChatComposer extends StatelessWidget {
   final String hint;
   final bool busy;
   final ValueChanged<String> onSubmit;
+  final VoidCallback? onScan;
   const ZChatComposer(
       {super.key,
       required this.controller,
       this.focusNode,
       required this.hint,
       required this.busy,
-      required this.onSubmit});
+      required this.onSubmit,
+      this.onScan});
 
   @override
   Widget build(BuildContext context) {
     final border = OutlineInputBorder(
-        borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none);
+        borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none);
     return Container(
       decoration: BoxDecoration(
-          color: ZipherColors.surface,
+          color: ZipherColors.bg,
           border: Border(
               top: BorderSide(color: ZipherColors.borderSubtle, width: .5))),
       child: SafeArea(
@@ -146,6 +183,16 @@ class ZChatComposer extends StatelessWidget {
                             color: ZipherColors.textPrimary, fontSize: 15),
                         decoration: InputDecoration(
                           hintText: hint,
+                          suffixIcon: onScan == null
+                              ? null
+                              : IconButton(
+                                  tooltip: 'Scan QR code',
+                                  onPressed: busy ? null : onScan,
+                                  icon: const Icon(
+                                      Icons.qr_code_scanner_rounded,
+                                      size: 20,
+                                      color: ZipherColors.textSecondary),
+                                ),
                           hintStyle: TextStyle(color: ZipherColors.text40),
                           filled: true,
                           fillColor: ZipherColors.cardBg,
@@ -183,89 +230,23 @@ class ZChatComposer extends StatelessWidget {
 }
 
 class ZChatTypingIndicator extends StatelessWidget {
-  const ZChatTypingIndicator({super.key});
+  const ZChatTypingIndicator({super.key, this.label = 'Working…'});
+  final String label;
   @override
   Widget build(BuildContext context) => Semantics(
-        label: 'Processing request',
-        child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Align(
-                alignment: Alignment.centerLeft,
-                child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                        color: ZipherColors.cardBg,
-                        borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(16),
-                            topRight: Radius.circular(16),
-                            bottomLeft: Radius.circular(4),
-                            bottomRight: Radius.circular(16)),
-                        border: Border.all(color: ZipherColors.borderSubtle)),
-                    child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                      _PulsingDot(delayMs: 0),
-                      SizedBox(width: 4),
-                      _PulsingDot(delayMs: 150),
-                      SizedBox(width: 4),
-                      _PulsingDot(delayMs: 300),
-                    ])))),
-      );
-}
-
-class _PulsingDot extends StatefulWidget {
-  final int delayMs;
-  const _PulsingDot({required this.delayMs});
-
-  @override
-  State<_PulsingDot> createState() => _PulsingDotState();
-}
-
-class _PulsingDotState extends State<_PulsingDot>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _opacity;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-    _opacity = TweenSequence<double>([
-      TweenSequenceItem(
-          tween: Tween(begin: 0.3, end: 1.0)
-              .chain(CurveTween(curve: Curves.easeInOut)),
-          weight: 50),
-      TweenSequenceItem(
-          tween: Tween(begin: 1.0, end: 0.3)
-              .chain(CurveTween(curve: Curves.easeInOut)),
-          weight: 50),
-    ]).animate(_controller);
-    Future.delayed(Duration(milliseconds: widget.delayMs), () {
-      if (mounted) _controller.repeat();
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _opacity,
-      builder: (context, child) => Opacity(
-        opacity: _opacity.value,
-        child: child,
-      ),
-      child: Container(
-          width: 6,
-          height: 6,
-          decoration: BoxDecoration(
-              color: ZipherColors.text40, shape: BoxShape.circle)),
-    );
-  }
+      liveRegion: true,
+      label: label,
+      child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+          child: Row(children: [
+            const SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(strokeWidth: 1.5)),
+            const SizedBox(width: 10),
+            Expanded(
+                child: Text(label,
+                    style: const TextStyle(
+                        fontSize: 12, color: ZipherColors.text40))),
+          ])));
 }

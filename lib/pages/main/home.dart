@@ -712,11 +712,9 @@ class _HomeState extends State<HomePageInner> {
   }
 
   void _shield(int transparentBal) async {
-    final protectSend = appSettings.protectSend;
-    if (protectSend) {
-      final authed = await authBarrier(context, dismissable: true);
-      if (!authed) return;
-    }
+    final authorized = await requireSigningAuthorization(context,
+        actionSummary: 'Shield transparent ZEC');
+    if (!authorized || !mounted) return;
 
     final amtStr = amountToString2(transparentBal);
     logger.i(
@@ -1483,6 +1481,15 @@ class _TxRowState extends State<_TxRow> {
 // ACCOUNT SWITCHER BOTTOM SHEET
 // ═══════════════════════════════════════════════════════════
 
+Future<void> showWalletAccountSwitcher(BuildContext context) =>
+    showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      backgroundColor: ZipherColors.surface,
+      isScrollControlled: true,
+      builder: (_) => _AccountSwitcherSheet(onAccountChanged: () {}),
+    );
+
 class _AccountSwitcherSheet extends StatefulWidget {
   final VoidCallback onAccountChanged;
   const _AccountSwitcherSheet({required this.onAccountChanged});
@@ -1753,14 +1760,18 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                                               color: ZipherColors.text90,
                                             ),
                                           ),
-                                          if (isActive) _accountStatusLine(),
+                                          if (isActive) _accountStatusLine()
+                                          else Text(fa.hasSnapshot(isTestnet) ? 'Last known balance' : 'Open to update',
+                                            style: const TextStyle(fontSize: 11, color: ZipherColors.text40)),
                                         ],
                                       ),
                               ),
                               Text(
                                 isActive
                                     ? '${_liveBalance()} ${activeCoin.ticker}'
-                                    : '${amountToString2(fa.lastBalance)} ${activeCoin.ticker}',
+                                    : fa.hasSnapshot(isTestnet)
+                                        ? '${amountToString2(fa.lastBalance)} ${activeCoin.ticker}'
+                                        : '—',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500,
@@ -1879,55 +1890,55 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
   }
 
   void _switchToAccount(FlatAccount fa) async {
+    if (_switching) return;
     final ws = WalletService.instance;
-
-    // Already on this account
-    if (fa.walletId == ws.activeWalletId &&
-        fa.accountIndex == aa.accountIndex) {
+    if (fa.walletId == ws.activeWalletId && fa.accountIndex == aa.accountIndex) {
       Navigator.of(context).pop();
       return;
     }
-
     setState(() => _switching = true);
+    final previous = aa;
+    final paused = syncStatus2.paused;
+    // Stop refreshes before changing the native wallet. Otherwise an old account
+    // object can ask the newly opened engine for its balance under the old name.
+    syncStatus2.paused = true;
+    syncTimer?.cancel();
+    syncTimer = null;
     try {
-      if (fa.walletId != ws.activeWalletId) {
-        await ws.switchWallet(fa.walletId);
-        syncStatus2.resetForWalletSwitch();
-        Future.delayed(
-            const Duration(milliseconds: 500), () => startAutoSync());
+      if (fa.accountIndex != 0 && WalletService.useNewEngine) {
+        throw StateError('This derived account requires account-aware engine support. Use a separate wallet for now.');
       }
-
       final profile = await WalletRegistry.instance.getById(fa.walletId);
-
-      aa = ActiveAccount2(
-        coin: activeCoin.coin,
-        id: 1,
-        name: fa.displayName,
-        address: '',
-        canPay: true,
-        walletId: fa.walletId,
-        accountIndex: fa.accountIndex,
+      if (fa.walletId != ws.activeWalletId) await ws.switchWallet(fa.walletId);
+      syncStatus2.resetForWalletSwitch();
+      final selected = ActiveAccount2(
+        coin: activeCoin.coin, id: 1, name: fa.displayName, address: '',
+        canPay: !(profile?.isWatchOnly ?? false),
+        walletId: fa.walletId, accountIndex: fa.accountIndex,
       );
-
-      // Use cached balance from registry for instant display while loading
-      if (profile != null && profile.lastBalance > 0) {
-        aa.poolBalances = PoolBalance(orchard: profile.lastBalance);
-      }
-
-      // Load full state (balance, txs, address) from the opened wallet
-      await aa.update(null);
-
+      aa = selected;
       aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+      // Never invent a pool allocation from the registry's total-only snapshot.
+      // Selection is now visible; the sheet keeps actions blocked until loaded.
+      await selected.update(null);
+      startAutoSync();
       if (mounted) Navigator.of(context).pop();
       widget.onAccountChanged();
-    } catch (e) {
+    } catch (error) {
+      logger.e('[Wallet] account switch failed: $error');
+      if (ws.activeWalletId == previous.walletId && ws.isWalletOpen) {
+        aa = previous;
+        syncStatus2.paused = paused;
+        if (!paused) startAutoSync();
+      } else {
+        // A failed open must not show the closed wallet's balances or actions.
+        aa = nullAccount;
+      }
+      aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
       if (mounted) {
-        Navigator.of(context).pop();
+        setState(() => _switching = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to switch account: $e'),
-          ),
-        );
+            const SnackBar(content: Text('Could not open this account. Please try again.')));
       }
     }
   }
@@ -2134,7 +2145,7 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
               ),
             )
           else ...[
-            if (_wallets.isNotEmpty) ...[
+            if (_wallets.isNotEmpty && !WalletService.useNewEngine) ...[
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
                 child: Align(

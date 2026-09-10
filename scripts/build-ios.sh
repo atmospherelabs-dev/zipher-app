@@ -6,7 +6,7 @@ PUBSPEC="${WORKSPACE}/pubspec.yaml"
 VERSION_DART="${WORKSPACE}/lib/src/version.dart"
 ARCHIVE_PATH="${WORKSPACE}/build/ios/archive/Runner.xcarchive"
 IPA_DIR="${WORKSPACE}/build/ios/ipa"
-EXPORT_OPTIONS="${IPA_DIR}/ExportOptions.plist"
+EXPORT_OPTIONS="${WORKSPACE}/ios/ExportOptions.plist"
 EXPECTED_IPA="${IPA_DIR}/Zipher.ipa"
 
 # ----------------------------------------------------------------------------
@@ -46,7 +46,8 @@ rm -f "$EXPECTED_IPA"
 # When signing is healthy this is enough. We still verify afterwards.
 # ----------------------------------------------------------------------------
 echo "Building IPA via flutter..."
-flutter build ipa --build-name="$VERSION_NAME" --build-number="$NEW_BUILD"
+flutter build ipa --build-name="$VERSION_NAME" --build-number="$NEW_BUILD" \
+    --export-options-plist="$EXPORT_OPTIONS"
 
 # ----------------------------------------------------------------------------
 # Verify the IPA's actual CFBundleVersion matches what we asked for. If

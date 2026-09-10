@@ -288,12 +288,10 @@ class _SettingsState extends State<SettingsPage> {
                 ),
                 child: Column(
                   children: [
-                    _securityToggle(
-                      icon: Icons.lock_rounded,
-                      label: 'Require auth for Send & Swap',
-                      subtitle: 'Biometric or device PIN before sending or swapping funds',
-                      value: appSettings.protectSend,
-                      onChanged: (v) => setState(() => appSettings.protectSend = v),
+                    const ListTile(
+                      leading: Icon(Icons.lock_rounded, size: 20),
+                      title: Text('Payment confirmation'),
+                      subtitle: Text('Face ID or device passcode is required after every payment review.'),
                     ),
                     Divider(height: 1, color: ZipherColors.cardBg,
                         indent: 52, endIndent: 16),

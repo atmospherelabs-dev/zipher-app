@@ -16,6 +16,7 @@ import '../services/wallet_service.dart';
 import '../store2.dart';
 import '../tablelist.dart';
 import 'utils.dart';
+import 'action/wallet_conversation.dart';
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -533,11 +534,11 @@ class _TxRowState extends State<_TxRow> {
     if (isSwapDeposit) {
       amountStr = '${swapInfo!.toAmount} ${swapInfo!.toCurrency}';
     } else if (shieldedAmount != null) {
-      amountStr = '${decimalToString(shieldedAmount)} ZEC';
+      amountStr = '${WalletConversation.formatZec((shieldedAmount * ZECUNIT).round())} ZEC';
     } else if (isShielding) {
       amountStr = '···';
     } else {
-      amountStr = '${isReceive ? '+' : ''}${decimalToString(tx.value)} ZEC';
+      amountStr = '${isReceive ? '+' : ''}${WalletConversation.formatZec((tx.value * ZECUNIT).round())} ZEC';
     }
 
     final amountColor = isReceive
@@ -906,7 +907,7 @@ class TableListTxMetadata extends TableListItemMetadata<Tx> {
           DataCell(Text("${tx.height}")),
           DataCell(Text("${tx.confirmations}")),
           DataCell(Text("${txDateFormat.format(tx.timestamp)}")),
-          DataCell(Text(decimalToString(tx.value),
+          DataCell(Text(WalletConversation.formatZec((tx.value * ZECUNIT).round()),
               style: style, textAlign: TextAlign.left)),
           DataCell(Text("${tx.txId}")),
           DataCell(Text("$a")),
@@ -937,25 +938,30 @@ class TransactionPage extends StatefulWidget {
 
 class TransactionState extends State<TransactionPage> {
   late final s = S.of(context);
-  late int idx;
+  late final Tx _openedTransaction;
+  late final ActiveAccount2 _owner;
 
   @override
   void initState() {
     super.initState();
-    idx = widget.txIndex;
+    _owner = aa;
+    _openedTransaction = _owner.txs.items[widget.txIndex];
     Future(() async {
+      if (!mounted || !identical(aa, _owner)) return;
       final currentTx = tx;
       if ((currentTx.memo == null || currentTx.memo!.isEmpty) &&
           currentTx.fullTxId.isNotEmpty) {
         try {
           await WalletService.instance.enhanceTransaction(currentTx.fullTxId);
-          await aa.update(syncStatus2.syncedHeight);
+          if (mounted && identical(aa, _owner)) await _owner.update(syncStatus2.syncedHeight);
         } catch (_) {}
       }
     });
   }
 
-  Tx get tx => aa.txs.items[idx];
+  Tx get tx => _owner.txs.items.firstWhere(
+      (item) => item.fullTxId == _openedTransaction.fullTxId,
+      orElse: () => _openedTransaction);
 
   /// Look up the matching ZMessage for this tx (if any).
   /// The messages table has no foreign key to transactions, so we match
@@ -1108,7 +1114,7 @@ class TransactionState extends State<TransactionPage> {
 
                     // Amount — always white on detail page
                     Text(
-                      '${decimalToString(displayValue)} ZEC',
+                      '${WalletConversation.formatZec((displayValue * ZECUNIT).round())} ZEC',
                       style: const TextStyle(
                         fontSize: 32,
                         fontWeight: FontWeight.w700,

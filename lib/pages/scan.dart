@@ -26,11 +26,13 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
   final controller = TextEditingController();
   var scanned = false;
   StreamSubscription<BarcodeCapture>? ss;
+  MobileScannerController? _galleryController;
 
   @override
   void dispose() {
     ss?.cancel();
     ss = null;
+    _galleryController?.dispose();
     controller.dispose();
     super.dispose();
   }
@@ -54,23 +56,20 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
           IconButton(
-              onPressed: _open,
-              icon: Icon(Icons.photo_library_outlined,
-                  size: 20,
-                  color: ZipherColors.text40),
-              tooltip: 'Open from gallery',
-            ),
+            onPressed: _open,
+            icon: Icon(Icons.photo_library_outlined,
+                size: 20, color: ZipherColors.text40),
+            tooltip: 'Open from gallery',
+          ),
           IconButton(
             onPressed: _ok,
             icon: Icon(Icons.check_rounded,
-                size: 22,
-                color: ZipherColors.cyan.withValues(alpha: 0.8)),
+                size: 22, color: ZipherColors.cyan.withValues(alpha: 0.8)),
             tooltip: 'Confirm',
           ),
         ],
@@ -187,18 +186,24 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
       WidgetsBinding.instance.addPostFrameCallback((_) => widget.onCode(text));
       return;
     }
-    if (widget.onCode(text)) GoRouter.of(context).pop();
+    if (widget.onCode(text)) {
+      GoRouter.of(context).pop();
+    } else {
+      scanned = false;
+    }
   }
 
   _open() async {
     FocusManager.instance.primaryFocus?.unfocus();
     final file = await pickFile();
-    logger.d('open');
     if (file != null) {
       final path = file.files[0].path!;
-      final c = MobileScannerController();
-      c.analyzeImage(path);
+      await ss?.cancel();
+      await _galleryController?.dispose();
+      if (!mounted) return;
+      final c = _galleryController = MobileScannerController();
       ss = c.barcodes.listen(_onScan);
+      await c.analyzeImage(path);
     }
   }
 
@@ -216,12 +221,15 @@ Future<String> scanQRCode(
 }) {
   final completer = Completer<String>();
   bool onCode(String c) {
-    completer.complete(c);
+    if (!completer.isCompleted) completer.complete(c);
     return true;
   }
 
   GoRouter.of(context)
-      .push('/scan', extra: ScanQRContext(onCode, validator: validator));
+      .push('/scan', extra: ScanQRContext(onCode, validator: validator))
+      .then((_) {
+    if (!completer.isCompleted) completer.complete('');
+  });
   return completer.future;
 }
 

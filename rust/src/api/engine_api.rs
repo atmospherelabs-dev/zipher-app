@@ -334,6 +334,7 @@ pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
     // is actually wired up end-to-end in the binary the user is running.
     let _ = sink.add(EngineSyncEvent {
         event_type: "engine_log".to_string(),
+        scanning_up_to: 0,
         phase: None,
         synced_height: 0,
         latest_height: 0,
@@ -368,6 +369,7 @@ pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
                     forwarded += 1;
                     let _ = sink.add(EngineSyncEvent {
                         event_type: event.event_type,
+                        scanning_up_to: event.scanning_up_to,
                         phase: event.phase,
                         synced_height: event.synced_height,
                         latest_height: event.latest_height,
@@ -386,6 +388,7 @@ pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
                     if forwarded % 200 == 0 {
                         let _ = sink.add(EngineSyncEvent {
                             event_type: "engine_log".to_string(),
+                            scanning_up_to: 0,
                             phase: None,
                             synced_height: 0,
                             latest_height: 0,
@@ -410,6 +413,7 @@ pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
                     lagged_total += n;
                     let _ = sink.add(EngineSyncEvent {
                         event_type: "engine_log".to_string(),
+                        scanning_up_to: 0,
                         phase: None,
                         synced_height: 0,
                         latest_height: 0,
@@ -466,6 +470,7 @@ pub struct EngineSyncProgress {
 
 pub struct EngineSyncEvent {
     pub event_type: String,
+    pub scanning_up_to: u32,
     pub phase: Option<String>,
     pub synced_height: u32,
     pub latest_height: u32,
@@ -507,7 +512,7 @@ pub async fn engine_clear_inactive_wallets() -> Result<()> {
 
 /// Step 1: Create a proposal and return exact fee info.
 /// When `is_max` is true, `amount` is ignored and the SDK computes the max sendable.
-/// When `priority` is true, a 4x marginal fee is applied for faster confirmation.
+/// When `priority` is true, a 4x marginal fee is applied; confirmation time is not guaranteed.
 pub async fn engine_propose_send(
     address: String,
     amount: u64,

@@ -48,9 +48,44 @@ use zcash_protocol::value::Zatoshis;
 use zcash_protocol::ShieldedPool;
 
 pub(crate) type DbType = WalletDb<rusqlite::Connection, Network, SystemClock, rand::rngs::OsRng>;
-pub(crate) type ProposalType = Proposal<StandardFeeRule, ReceivedNoteId>;
+pub(crate) type ProposalType = Proposal<zcash_primitives::transaction::fees::zip317::FeeRule, ReceivedNoteId>;
 
 use zcash_client_sqlite::util::SystemClock;
+
+fn wallet_fee_rule(priority: bool) -> zcash_primitives::transaction::fees::zip317::FeeRule {
+    use zcash_primitives::transaction::fees::zip317;
+    if priority {
+        zip317::FeeRule::non_standard(
+            Zatoshis::from_u64(20_000).expect("valid marginal fee"),
+            zip317::GRACE_ACTIONS, zip317::P2PKH_STANDARD_INPUT_SIZE,
+            zip317::P2PKH_STANDARD_OUTPUT_SIZE,
+        ).expect("standard nonzero sizes")
+    } else { zip317::FeeRule::standard() }
+}
+
+/// SDK selection, change and construction use the same reviewed fee rule.
+fn propose_wallet_transfer(
+    db: &mut DbType, params: &Network,
+    fee_rule: zcash_primitives::transaction::fees::zip317::FeeRule,
+    account: <DbType as InputSource>::AccountId,
+    confirmations: ConfirmationsPolicy, to: &Address, amount: Zatoshis,
+    memo: Option<zcash_protocol::memo::MemoBytes>,
+) -> Result<ProposalType> {
+    use zcash_client_backend::data_api::wallet::{propose_transfer, input_selection::{GreedyInputSelector, SpendPolicy}};
+    let request = zip321::TransactionRequest::new(vec![zip321::Payment::new(
+        to.to_zcash_address(params), Some(amount), memo, None, None, vec![],
+    ).map_err(|e| anyhow::anyhow!("Invalid payment: {:?}", e))?])
+        .map_err(|e| anyhow::anyhow!("Invalid request: {:?}", e))?;
+    let selector = GreedyInputSelector::<DbType>::new();
+    let change = zcash_client_backend::fees::zip317::SingleOutputChangeStrategy::<_, DbType>::new(
+        fee_rule, None, ShieldedPool::Orchard,
+        zcash_client_backend::fees::DustOutputPolicy::default(),
+    );
+    propose_transfer::<_, _, _, _, std::convert::Infallible>(
+        db, params, account, &selector, &change, request, confirmations,
+        &SpendPolicy::default(), None, None,
+    ).map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))
+}
 
 // ---------------------------------------------------------------------------
 // Pending proposal state
@@ -72,7 +107,7 @@ pub(crate) async fn broadcast_multi(
 ) -> Result<()> {
     let tor = {
         let guard = ENGINE.lock().await;
-        guard.as_ref().and_then(|e| e.tor_client.clone())
+        guard.as_ref().map(|e| e.tor_transport()).transpose()?.flatten()
     };
     broadcast_with_transport(primary_url, params, tx_bytes, tor).await
 }
@@ -249,6 +284,7 @@ pub async fn propose_send(
     priority: bool,
 ) -> Result<(u64, u64, bool)> {
     super::sync::ensure_synced().await?;
+    let fee_rule = wallet_fee_rule(priority);
 
     let engine_guard = ENGINE.lock().await;
     let engine = engine_guard
@@ -316,13 +352,15 @@ pub async fn propose_send(
                 .get(&account_id)
                 .ok_or_else(|| anyhow::anyhow!("account balance missing"))?;
             let spendable: u64 = u64::from(ab.sapling_balance().spendable_value())
-                + u64::from(ab.orchard_balance().spendable_value());
+                + u64::from(ab.orchard_balance().spendable_value())
+                + u64::from(ab.ironwood_balance().spendable_value());
 
             // Probe progressively larger fee buffers until the proposal succeeds.
             // ZIP-317 base is 5_000 zat and most max-to-transparent sends fit within
             // 25_000 zat. Any over-estimate ends up as shielded change, which is fine.
             let mut last_err: Option<anyhow::Error> = None;
-            for fee_buffer in [10_000u64, 15_000, 20_000, 25_000, 30_000, 40_000] {
+            for base_buffer in [10_000u64, 15_000, 20_000, 25_000, 30_000, 40_000] {
+                let fee_buffer = base_buffer * if priority { 4 } else { 1 };
                 if spendable <= fee_buffer {
                     continue;
                 }
@@ -331,19 +369,15 @@ pub async fn propose_send(
                     Ok(z) => z,
                     Err(_) => continue,
                 };
-                let attempt = propose_standard_transfer_to_address::<_, _, std::convert::Infallible>(
+                let attempt = propose_wallet_transfer(
                     &mut db_data,
                     &params,
-                    StandardFeeRule::Zip317,
+                    fee_rule.clone(),
                     account_id,
                     confirmations,
                     &to,
                     send_zat,
                     memo_bytes.clone(),
-                    None,
-                    ShieldedPool::Orchard,
-                    None,
-                    None,
                 );
                 match attempt {
                     Ok(proposal) => {
@@ -372,7 +406,7 @@ pub async fn propose_send(
             &params,
             account_id,
             &[ShieldedPool::Sapling, ShieldedPool::Orchard, ShieldedPool::Ironwood],
-            &StandardFeeRule::Zip317,
+            &fee_rule.clone(),
             zaddr,
             memo_bytes,
             MaxSpendMode::MaxSpendable,
@@ -402,19 +436,15 @@ pub async fn propose_send(
     } else {
         let send_zat = Zatoshis::from_u64(amount).map_err(|_| anyhow::anyhow!("Invalid amount"))?;
 
-        let proposal = propose_standard_transfer_to_address::<_, _, std::convert::Infallible>(
+        let proposal = propose_wallet_transfer(
             &mut db_data,
             &params,
-            StandardFeeRule::Zip317,
+            fee_rule.clone(),
             account_id,
             confirmations,
             &to,
             send_zat,
             memo_bytes,
-            None,
-            ShieldedPool::Orchard,
-            None,
-            None,
         )
         .map_err(|e| {
             if priority {
@@ -427,7 +457,7 @@ pub async fn propose_send(
         let fee = u64::from(proposal.steps().first().balance().fee_required());
         if priority {
             info!(
-                "Priority proposal ready: {:.8} ZEC + {:.8} ZEC fee (standard ZIP-317 until custom marginal fee is restored)",
+                "Priority proposal ready: {:.8} ZEC + {:.8} ZEC fee (4x marginal fee)",
                 amount as f64 / 1e8,
                 fee as f64 / 1e8
             );
@@ -1214,3 +1244,19 @@ pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
 // was removed for ZIP-318 compliance. All migrations now go through
 // `zcash_pool_migration` in ironwood_v2.rs, which handles canonical
 // denominations, boundary-aligned anchors, and unpadded Ironwood bundles.
+
+#[cfg(test)]
+mod fee_tier_tests {
+    use super::*;
+    use zcash_primitives::transaction::fees::FeeRule;
+    #[test]
+    fn priority_scales_the_fee_used_by_the_builder() {
+        for actions in [2, 3, 8] {
+            let fee = |priority| wallet_fee_rule(priority).fee_required(
+                &Network::MainNetwork, 3_477_000u32.into(), [], [], 0, 0, actions, 0,
+            ).unwrap();
+            assert_eq!(u64::from(fee(false)), 5_000 * actions as u64);
+            assert_eq!(u64::from(fee(true)), 4 * u64::from(fee(false)));
+        }
+    }
+}

@@ -2,7 +2,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 import 'package:logger/logger.dart';
 
-class AppLog {
+class AppLog extends ChangeNotifier {
   AppLog._();
   static final AppLog instance = AppLog._();
 
@@ -12,13 +12,39 @@ class AppLog {
   List<LogEntry> get entries => _entries.toList();
 
   void add(Level level, String message) {
-    _entries.addLast(LogEntry(DateTime.now(), level, message));
+    final clean = sanitize(message);
+    if (clean.isEmpty) return;
+    _entries.addLast(LogEntry(DateTime.now(), level, clean));
     while (_entries.length > _maxEntries) {
       _entries.removeFirst();
     }
+    notifyListeners();
   }
 
-  void clear() => _entries.clear();
+  static String sanitize(String message) => message
+      .replaceAll(RegExp(r'\x1B\[[0-?]*[ -/]*[@-~]'), '')
+      .replaceAll(RegExp(r'\[38;5;\d+m|\[0m'), '')
+      .split('Stack backtrace:')
+      .first
+      .replaceAllMapped(RegExp(r'https?://[^\s\)]+'),
+          (m) => Uri.tryParse(m[0]!)?.host ?? '[endpoint]')
+      .replaceAll(RegExp(r'\b0x[0-9a-fA-F]{40,}\b'), '[address]')
+      .replaceAll(
+          RegExp(r'\b(?:u1|utest1|zs1|bc1|tb1|t1|t3)[a-zA-Z0-9]{20,}\b'),
+          '[address]')
+      .replaceAll(RegExp(r'\b[A-Za-z0-9]{43,}\b'), '[identifier]')
+      .replaceAll(RegExp(r'\[(?:T|D|I|W|E|F)\]\s*'), '')
+      .trim();
+
+  void event(String scope, String action, {String? detail, Object? error}) {
+    add(error == null ? Level.info : Level.warning,
+        '[$scope] $action${detail == null ? '' : ' $detail'}${error == null ? '' : ' error=${sanitize(error.toString())}'}');
+  }
+
+  void clear() {
+    _entries.clear();
+    notifyListeners();
+  }
 }
 
 class LogEntry {
@@ -47,20 +73,14 @@ final _appLogOutput = _RingBufferOutput();
 class _RingBufferOutput extends LogOutput {
   @override
   void output(OutputEvent event) {
-    final level = event.level;
-    for (final line in event.lines) {
-      final trimmed = line.trimLeft();
-      if (trimmed.isEmpty) continue;
-      if (trimmed.startsWith('┌') ||
-          trimmed.startsWith('├') ||
-          trimmed.startsWith('└') ||
-          trimmed.startsWith('───')) continue;
-      var clean = trimmed;
-      if (clean.startsWith('│ ')) clean = clean.substring(2);
-      if (clean.startsWith('│')) clean = clean.substring(1);
-      if (clean.trim().isEmpty) continue;
-      AppLog.instance.add(level, clean);
-    }
+    final message = event.lines
+        .where((line) =>
+            !line.trimLeft().startsWith('┌') &&
+            !line.trimLeft().startsWith('├') &&
+            !line.trimLeft().startsWith('└'))
+        .map((line) => line.replaceFirst(RegExp(r'^\s*│ ?'), ''))
+        .join('\n');
+    AppLog.instance.add(event.level, message);
   }
 }
 
@@ -69,7 +89,7 @@ class _RingBufferOutput extends LogOutput {
 Logger createLogger() {
   return Logger(
     filter: _AlwaysOnFilter(),
-    printer: SimplePrinter(printTime: false),
+    printer: SimplePrinter(printTime: false, colors: false),
     output: MultiOutput([ConsoleOutput(), _appLogOutput]),
   );
 }

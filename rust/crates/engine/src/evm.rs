@@ -43,7 +43,7 @@ pub const BSC: ChainConfig = ChainConfig {
 pub const ETHEREUM: ChainConfig = ChainConfig {
     chain_id: 1,
     name: "Ethereum",
-    rpc_url: "https://ethereum-rpc.publicnode.com",
+    rpc_url: "https://ethereum.publicnode.com",
     native_symbol: "ETH",
     native_decimals: 18,
     explorer_tx: "https://etherscan.io/tx/",
@@ -217,12 +217,18 @@ pub fn known_tokens(chain_id: u64) -> Vec<TokenInfo> {
 // JSON-RPC helper
 // ---------------------------------------------------------------------------
 
+// Share connections across concurrent asset reads instead of a new TLS handshake
+// for every token. Bound reads in Rust so a timed-out Dart future leaves no
+// indefinitely running FFI request behind.
+static RPC_CLIENT: std::sync::LazyLock<reqwest::Client> =
+    std::sync::LazyLock::new(reqwest::Client::new);
+
 async fn rpc_call(
     rpc_url: &str,
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value> {
-    let client = reqwest::Client::new();
+    let client = &*RPC_CLIENT;
     let body = serde_json::json!({
         "jsonrpc": "2.0",
         "method": method,
@@ -233,9 +239,17 @@ async fn rpc_call(
     let resp: serde_json::Value = client
         .post(rpc_url)
         .json(&body)
+        .timeout(std::time::Duration::from_secs(
+            if matches!(method, "eth_getBalance" | "eth_call") {
+                4
+            } else {
+                30
+            },
+        ))
         .send()
         .await
-        .map_err(|e| anyhow!("RPC {} error: {}", method, e))?
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| anyhow!("RPC {} error: {}", method, e.without_url()))?
         .json()
         .await
         .map_err(|e| anyhow!("RPC {} parse error: {}", method, e))?;
@@ -261,8 +275,7 @@ fn parse_hex_u128(hex: &str) -> Result<u128> {
     if stripped.is_empty() {
         return Ok(0);
     }
-    u128::from_str_radix(stripped, 16)
-        .map_err(|e| anyhow!("Invalid hex u128 '{}': {}", hex, e))
+    u128::from_str_radix(stripped, 16).map_err(|e| anyhow!("Invalid hex u128 '{}': {}", hex, e))
 }
 
 // ---------------------------------------------------------------------------

@@ -4,10 +4,10 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../accounts.dart';
+import '../../coin/coins.dart';
 import '../../services/wallet_service.dart';
 import '../../init.dart';
 import '../../zipher_theme.dart';
-import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 import '../../src/version.dart';
 import '../utils.dart';
@@ -54,25 +54,6 @@ class _MorePageState extends State<MorePage> {
               const Gap(8),
               _card([
                 _SettingsItem(
-                  icon: Icons.bolt_rounded,
-                  label: 'Action',
-                  subtitle: 'Command your wallet with text',
-                  badge: 'BETA',
-                  onTap: () => _nav('/account/action'),
-                ),
-                _SettingsItem(
-                  icon: Icons.receipt_long_rounded,
-                  label: 'Activity',
-                  subtitle: 'Full transaction history',
-                  onTap: () => _nav('/more/history'),
-                ),
-                _SettingsItem(
-                  icon: Icons.all_inbox_rounded,
-                  label: 'Memos',
-                  subtitle: 'Received transaction memos',
-                  onTap: () => _nav('/more/memos'),
-                ),
-                _SettingsItem(
                   icon: Icons.people_outline_rounded,
                   label: s.contacts,
                   subtitle: 'Manage saved addresses',
@@ -102,14 +83,20 @@ class _MorePageState extends State<MorePage> {
               _sectionLabel('Security & Tools'),
               const Gap(8),
               _card([
-                // Ironwood transfer: only show after NU6.3 activates
-                if (_isIronwoodActive()) _SettingsItem(
-                  icon: Icons.swap_horiz_rounded,
-                  label: 'Ironwood Transfer',
-                  subtitle: 'Migrate Orchard funds to the new pool (ZIP 318)',
-                  badge: 'NEW',
-                  onTap: () => _nav('/more/ironwood'),
+                _SettingsItem(
+                  icon: Icons.key_rounded,
+                  label: s.seedKeys,
+                  subtitle: 'Back up your recovery phrase and keys',
+                  onTap: () => _navSecured('/more/backup'),
                 ),
+                // Ironwood transfer: only show after NU6.3 activates
+                if (_isIronwoodActive())
+                  _SettingsItem(
+                    icon: Icons.swap_horiz_rounded,
+                    label: 'Ironwood Transfer',
+                    subtitle: 'Migrate Orchard funds to the new pool (ZIP 318)',
+                    onTap: () => _nav('/more/ironwood'),
+                  ),
                 _SettingsItem(
                   icon: Icons.sync_rounded,
                   label: 'Recover Transactions',
@@ -120,7 +107,6 @@ class _MorePageState extends State<MorePage> {
                   icon: Icons.group_rounded,
                   label: 'Shared Wallet',
                   subtitle: 'Create or join a FROST wallet',
-                  badge: 'NEW',
                   onTap: () => GoRouter.of(context).push('/wallet/frost'),
                 ),
               ]),
@@ -150,65 +136,11 @@ class _MorePageState extends State<MorePage> {
               ),
               const Gap(20),
 
-              // ── Danger Zone ──
-              _sectionLabel('Danger Zone'),
-              const Gap(8),
-              _card([
-                _SettingsItem(
-                  icon: Icons.key_rounded,
-                  iconColor: ZipherColors.orange,
-                  label: s.seedKeys,
-                  subtitle: 'Export seed phrase & keys',
-                  onTap: () => _navSecured('/more/backup'),
-                ),
-                _SettingsItem(
-                  icon: Icons.restart_alt_rounded,
-                  iconColor: ZipherColors.red,
-                  label: 'Reset App',
-                  subtitle: 'Delete all data and start fresh',
-                  onTap: () => _resetApp(),
-                ),
-              ]),
-
-              // Version footer
-              const Gap(40),
+              const Gap(24),
               Center(
-                child: Column(
-                  children: [
-                    Image.asset(
-                      'assets/zipher_logo.png',
-                      width: 28,
-                      height: 28,
-                      opacity: const AlwaysStoppedAnimation(0.15),
-                    ),
-                    const Gap(8),
-                    Text(
-                      'Zipher',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: ZipherColors.text10,
-                      ),
-                    ),
-                    const Gap(2),
-                    Text(
-                      'by CipherScan',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: ZipherColors.cyan.withValues(alpha: 0.12),
-                      ),
-                    ),
-                    const Gap(2),
-                    Text(
-                      'v$packageVersion',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: ZipherColors.text40,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                  child: Text('Zipher · v$packageVersion',
+                      style: const TextStyle(
+                          fontSize: 11, color: ZipherColors.text40))),
               const Gap(32),
             ],
           ),
@@ -260,36 +192,6 @@ class _MorePageState extends State<MorePage> {
     final auth = await authenticate(context, s.secured);
     if (!auth) return;
     if (mounted) GoRouter.of(context).push(url);
-  }
-
-  void _resetApp() async {
-    final confirm1 = await showConfirmDialog(
-      context,
-      'Reset App',
-      'This will delete ALL accounts, keys, and settings. '
-          'Make sure you have backed up your seed phrase before continuing.',
-      isDanger: true,
-    );
-    if (!confirm1) return;
-
-    final confirm2 = await showConfirmDialog(
-      context,
-      'Are you sure?',
-      'This action is permanent and cannot be undone. '
-          'All your data will be erased.',
-      isDanger: true,
-    );
-    if (!confirm2) return;
-
-    try {
-      for (final c in coins) {
-        await c.delete();
-      }
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
-    } catch (_) {}
-
-    if (mounted) GoRouter.of(context).go('/welcome');
   }
 }
 
@@ -441,7 +343,9 @@ class _TestnetToggleState extends State<_TestnetToggle> {
       await prefs.setBool('testnet', !enable);
       isTestnet = !enable;
       testnetNotifier.value = !enable;
-      try { await initCoins(); } catch (_) {}
+      try {
+        await initCoins();
+      } catch (_) {}
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error switching network: $e')),
@@ -455,18 +359,15 @@ class _TestnetToggleState extends State<_TestnetToggle> {
 
 class _SettingsItem extends StatelessWidget {
   final IconData icon;
-  final Color iconColor;
+  static const iconColor = ZipherColors.textSecondary;
   final String label;
   final String? subtitle;
-  final String? badge;
   final VoidCallback onTap;
 
   const _SettingsItem({
     required this.icon,
-    this.iconColor = const Color(0x66FFFFFF),
     required this.label,
     this.subtitle,
-    this.badge,
     required this.onTap,
   });
 
@@ -504,27 +405,6 @@ class _SettingsItem extends StatelessWidget {
                             color: ZipherColors.text90,
                           ),
                         ),
-                        if (badge != null) ...[
-                          const Gap(6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: ZipherColors.cyan.withValues(alpha: 0.12),
-                              borderRadius:
-                                  BorderRadius.circular(ZipherRadius.xs),
-                            ),
-                            child: Text(
-                              badge!,
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                                color: ZipherColors.cyan.withValues(alpha: 0.8),
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                     if (subtitle != null) ...[

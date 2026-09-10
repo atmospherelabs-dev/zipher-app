@@ -6,18 +6,28 @@ import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:intl/intl.dart';
 
 import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../coin/coins.dart';
 import '../../services/near_intents.dart';
+import '../../services/network_privacy.dart';
+import '../../services/wallet_swap_tracker.dart';
 import '../../services/evm_portfolio_balance.dart';
 import '../../services/wallet_receive_address.dart';
 import '../../services/wallet_service.dart';
-import '../../src/rust/api/engine_api.dart' as engine;
+import '../../services/wallet_registry.dart';
+import '../scan.dart';
+import 'wallet_chat_input.dart';
 import '../../store2.dart';
 import '../../zipher_theme.dart';
-import '../main/sync_status.dart';
+import '../main/home.dart' show showWalletAccountSwitcher;
+import '../tx.dart' show gotoTx;
+import '../../services/app_log.dart';
+import 'widgets/wallet_balance_details.dart';
+import 'widgets/wallet_activity_row.dart';
+import 'widgets/wallet_activity_panel.dart';
 import '../utils.dart';
 import 'wallet_conversation.dart';
 import 'widgets/wallet_review_card.dart';
@@ -28,7 +38,9 @@ import 'widgets/z_chat_widgets.dart';
 class WalletChatPage extends StatelessWidget {
   final String? initialIntent;
   final EvmBalanceReader? balanceReader;
-  const WalletChatPage({super.key, this.initialIntent, this.balanceReader});
+  final NetworkPrivacy? privacy;
+  const WalletChatPage(
+      {super.key, this.initialIntent, this.balanceReader, this.privacy});
 
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<bool>(
@@ -38,13 +50,16 @@ class WalletChatPage extends StatelessWidget {
                 key: ValueKey('${aaSequence.seqno}:$network'),
                 initialIntent: initialIntent,
                 balanceReader: balanceReader,
+                privacy: privacy,
               )));
 }
 
 class _WalletChat extends StatefulWidget {
   final String? initialIntent;
   final EvmBalanceReader? balanceReader;
-  const _WalletChat({super.key, this.initialIntent, this.balanceReader});
+  final NetworkPrivacy? privacy;
+  const _WalletChat(
+      {super.key, this.initialIntent, this.balanceReader, this.privacy});
   @override
   State<_WalletChat> createState() => _WalletChatState();
 }
@@ -53,16 +68,20 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
   final _conversation = WalletConversation();
   final _input = TextEditingController();
   final _scroll = ScrollController();
+  final _latestMessageKey = GlobalKey();
   final _messages = <({String text, bool user, Widget? card})>[];
   final _wallet = WalletService.instance;
   final _near = NearIntentsService();
+  NetworkPrivacy get _privacy => widget.privacy ?? NetworkPrivacy.instance;
   late final String? _walletId;
   late final bool _testnet;
   late final ActiveAccount2 _account;
   final _reviewEpoch = ValueNotifier<int>(0);
+  final _portfolioUpdates = ValueNotifier<int>(0);
   bool _busy = false;
+  String _busyLabel = 'Working…';
   bool _balanceExpanded = false;
-  bool _historyExpanded = false;
+  WalletHomeTab _homeTab = WalletHomeTab.chat;
   bool _choosingAddress = false;
   late final EvmBalanceReader _balanceReader;
   EvmBalanceSnapshot? _portfolio;
@@ -72,10 +91,13 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
   List<NearToken> _swapTokens = [];
   NearToken? _swapToken;
   String? _swapRecipient;
-  Timer? _swapTimer;
-  bool _pollingSwap = false;
+  late final WalletSwapTracker _swapTracker;
   String? _trackedDeposit;
   String? _lastSwapStatus;
+  ChatManagementStep? _managementStep;
+  String? _contactChain;
+  String? _contactName;
+  late String _displayName;
 
   bool get _current =>
       mounted &&
@@ -90,6 +112,22 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     _walletId = _wallet.activeWalletId;
     _testnet = isTestnet;
     _account = aa;
+    _displayName = _account.name;
+    WalletRegistry.instance.changes.addListener(_refreshAccountName);
+    _refreshAccountName();
+    _swapTracker = WalletSwapTracker(
+        walletId: _walletId,
+        testnet: _testnet,
+        transactionIds: () =>
+            _account.txs.items.map((tx) => tx.fullTxId).toSet(),
+        canPoll: () =>
+            _current &&
+            (WidgetsBinding.instance.lifecycleState == null ||
+                WidgetsBinding.instance.lifecycleState ==
+                    AppLifecycleState.resumed) &&
+            TickerMode.valuesOf(context).enabled,
+        readStatus: _near.getStatus)
+      ..addListener(_onSwapUpdate);
     _balanceReader = widget.balanceReader ?? EvmPortfolioBalance.createReader();
     WidgetsBinding.instance.addObserver(this);
     if (_wallet.isWalletOpen)
@@ -103,6 +141,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     // is public market data; no account or address is included.
     marketPrice.update().catchError((Object _) {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_current && _wallet.isWalletOpen) _swapTracker.start();
       _refreshPortfolio();
       if (widget.initialIntent != null && _current)
         _submit(widget.initialIntent!);
@@ -111,12 +150,14 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    _swapTimer?.cancel();
+    WalletRegistry.instance.changes.removeListener(_refreshAccountName);
+    _swapTracker.dispose();
     _portfolioTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _input.dispose();
     _scroll.dispose();
     _reviewEpoch.dispose();
+    _portfolioUpdates.dispose();
     super.dispose();
   }
 
@@ -124,7 +165,10 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _refreshPortfolio(force: true);
-      if (_wallet.isWalletOpen) boostSyncPolling();
+      if (_wallet.isWalletOpen) {
+        boostSyncPolling();
+        _swapTracker.refresh();
+      }
     }
   }
 
@@ -136,18 +180,32 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
             WidgetsBinding.instance.lifecycleState !=
                 AppLifecycleState.resumed)) return;
     setState(() => _loadingPortfolio = true);
+    _portfolioUpdates.value++;
+    AppLog.instance.event('portfolio', 'refresh_started');
     try {
       if (_account.chainAddresses == null && _wallet.isWalletOpen)
         await _account.updateChainAddresses();
       if (!_current) return;
       final address = _account.chainAddresses?.evm;
       if (address == null || address.isEmpty) return;
-      final result = await _balanceReader.fetch(address, force: force);
-      if (_current) setState(() => _portfolio = result);
-    } catch (_) {
-      // Existing snapshot stays visible if a new read cannot start.
+      final result = await _balanceReader.fetch(address,
+          force: force,
+          bitcoin: _account.chainAddresses?.bitcoin,
+          solana: _account.chainAddresses?.solana);
+      if (_current) {
+        setState(() => _portfolio = result);
+        _portfolioUpdates.value++;
+        AppLog.instance.event('portfolio', 'refresh_completed',
+            detail:
+                'assets=${result.tokens.length} unavailable=${result.unavailableChains.join(",")}');
+      }
+    } catch (e) {
+      AppLog.instance.event('portfolio', 'refresh_failed', error: e);
     } finally {
-      if (mounted) setState(() => _loadingPortfolio = false);
+      if (mounted) {
+        setState(() => _loadingPortfolio = false);
+        _portfolioUpdates.value++;
+      }
     }
   }
 
@@ -164,16 +222,34 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
 
   void _message(String text, {bool user = false, Widget? card}) {
     if (!_current) return;
+    if (!user) AppLog.instance.event('chat', 'response', detail: text);
     setState(() => _messages.add((text: text, user: user, card: card)));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 180), curve: Curves.easeOut);
+        final target = _latestMessageKey.currentContext;
+        if (target != null) {
+          Scrollable.ensureVisible(target,
+              alignment: 0,
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut);
+        } else {
+          // Build an off-screen lazy reply before aligning its beginning.
+          _scroll.jumpTo(_scroll.position.maxScrollExtent);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final target = _latestMessageKey.currentContext;
+            if (mounted && target != null) {
+              Scrollable.ensureVisible(target, alignment: 0);
+            }
+          });
+        }
       }
     });
   }
 
   void _clearDraft() {
+    _managementStep = null;
+    _contactChain = null;
+    _contactName = null;
     _conversation.cancel();
     _choosingAddress = false;
     _swapRequest = null;
@@ -189,6 +265,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     try {
       await action();
     } catch (e) {
+      AppLog.instance.event('chat', 'request_failed', error: e);
       if (_current) {
         // Do not echo raw RPC errors, which can contain request addresses.
         final text = e.toString().toLowerCase();
@@ -205,10 +282,31 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
 
   Future<void> _submit(String text) async {
     if (_busy || !_current || text.trim().isEmpty) return;
+    if (_homeTab != WalletHomeTab.chat)
+      setState(() => _homeTab = WalletHomeTab.chat);
+    if (WalletConversation.command(text) == WalletCommand.clear) {
+      _clearChat();
+      return;
+    }
     _input.clear();
     _message(text.trim(), user: true);
     await _run(() async {
+      if (await _manage(text)) return;
       final command = WalletConversation.command(text);
+      setState(() => _busyLabel = switch (command) {
+            WalletCommand.balance => 'Updating balances…',
+            WalletCommand.history => 'Loading transactions…',
+            WalletCommand.memos => 'Loading memos…',
+            WalletCommand.receive => 'Preparing your address…',
+            WalletCommand.send => 'Preparing your payment…',
+            WalletCommand.swap => 'Finding swap options…',
+            WalletCommand.torOn => 'Connecting to Tor…',
+            WalletCommand.torOff => 'Changing connection…',
+            _ => 'Working…',
+          });
+      AppLog.instance.event('chat', 'command',
+          detail:
+              'command=${command.name} draft=${_conversation.pending?.command.name ?? _swapRequest?.command.name ?? "none"}');
       if (_choosingAddress && command == WalletCommand.unknown) {
         await _receive(text);
         return;
@@ -228,7 +326,21 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
         _reviewEpoch.value++;
       }
       final reply = _conversation.accept(text);
-      if (reply.prompt != null) _message(reply.prompt!);
+      if (reply.prompt != null) {
+        final askingAmount =
+            _conversation.pending?.command == WalletCommand.send &&
+                _conversation.pending?.zatoshis == null;
+        _message(reply.prompt!,
+            card: askingAmount
+                ? Observer(
+                    builder: (_) => Text(
+                        '${_assetAmount(_account.poolBalances.shielded / 1e8)} ZEC available · fee applies',
+                        style: const TextStyle(
+                            fontFamily: 'JetBrains Mono',
+                            fontSize: 12,
+                            color: ZipherColors.textSecondary)))
+                : null);
+      }
       final request = reply.request;
       if (request == null) return;
       switch (request.command) {
@@ -242,26 +354,359 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
           await _account.updateBalance();
           await _refreshPortfolio(force: true);
           if (!_current) return;
-          final b = _account.poolBalances;
+          _message('Your assets',
+              card: ValueListenableBuilder<int>(
+                  valueListenable: _portfolioUpdates,
+                  builder: (_, __, ___) => Observer(builder: (_) {
+                        final b = _account.poolBalances;
+                        final price = _zecUsdPrice;
+                        return Column(children: [
+                          _assetRow(
+                              chain: 'Zcash',
+                              symbol: 'ZEC',
+                              amount: b.total / 1e8,
+                              dollars:
+                                  price == null ? null : b.total / 1e8 * price,
+                              onTap: _showPools),
+                          _portfolioDetails(
+                              onRefresh: () => _refreshPortfolio(force: true)),
+                        ]);
+                      })));
+        case WalletCommand.pools:
+          await _account.updateBalance();
+          if (_current)
+            _message('Your ZEC by pool',
+                card: Observer(
+                    builder: (_) => WalletPoolDetails(_account.poolBalances)));
+        case WalletCommand.privacy:
+          _message(_privacy.label, card: _privacyControls());
+        case WalletCommand.torOn:
+          await _changePrivacy(true);
+        case WalletCommand.torOff:
+          await _changePrivacy(false);
+        case WalletCommand.nym:
+        case WalletCommand.vpn:
           _message(
-              'Balance: ${WalletConversation.formatZec(b.total)} ZEC\n'
-              'Spendable shielded: ${WalletConversation.formatZec(b.shielded)} ZEC\n'
-              'Confirming: ${WalletConversation.formatZec(b.unconfirmed)} ZEC\n'
-              'Transparent: ${WalletConversation.formatZec(b.totalTransparent)} ZEC',
-              card: _portfolioDetails());
+              'Nym and external VPNs are managed in their own app. Zipher cannot verify whether they are connected. Built-in Tor is available for Zcash.',
+              card: _privacyControls());
         case WalletCommand.history:
-          await _history();
+          FocusScope.of(context).unfocus();
+          setState(() => _homeTab = WalletHomeTab.activity);
+        case WalletCommand.memos:
+          await _showMemos();
+        case WalletCommand.clear:
+          _clearChat();
         case WalletCommand.help:
-          _message(
-              'Type send and I’ll ask who and how much, or write “send 0.5 ZEC to …”.\n\n'
-              'Receive or “my address” shows supported chains; choose one for its address, QR and copy button. Swap guides you through amount, token, network and recipient. '
-              'Use balance or history to check your wallet. Type cancel to discard a draft.\n\n'
-              'Amounts are in ZEC. Every payment needs your review and confirmation.');
+          _message('What would you like to do?', card: _helpCard());
         case WalletCommand.cancel:
         case WalletCommand.unknown:
           break;
       }
     });
+  }
+
+  Future<void> _refreshAccountName() async {
+    if (_walletId == null) return;
+    final accounts = await WalletRegistry.instance.getAllVisibleAccounts();
+    final matches = accounts.where((a) =>
+        a.walletId == _walletId && a.accountIndex == _account.accountIndex);
+    if (mounted && matches.isNotEmpty) {
+      final name = matches.first.displayName;
+      if (_displayName != name) setState(() => _displayName = name);
+    }
+  }
+
+  static const _contactChains = [
+    'zec',
+    'btc',
+    'sol',
+    'eth',
+    'arb',
+    'base',
+    'op',
+    'pol',
+    'bsc'
+  ];
+
+  Widget _managementAction(String label, Future<void> Function() action,
+      {bool danger = false}) {
+    final epoch = _reviewEpoch.value;
+    return ValueListenableBuilder<int>(
+        valueListenable: _reviewEpoch,
+        builder: (_, value, __) => TextButton(
+            style: danger
+                ? TextButton.styleFrom(foregroundColor: ZipherColors.red)
+                : null,
+            onPressed: value != epoch
+                ? null
+                : () => _run(() async {
+                      if (!_current || _reviewEpoch.value != epoch) return;
+                      await action();
+                    }),
+            child: Text(label)));
+  }
+
+  Future<bool> _manage(String text) async {
+    final tool = chatTool(text);
+    final command = WalletConversation.command(text);
+    if (command == WalletCommand.cancel) {
+      _managementStep = null;
+      return false;
+    }
+    // Once prompted, treat the reply as data (a contact can be named "Send").
+    if (_managementStep != null && tool != ChatTool.scan) {
+      final value = text.trim();
+      switch (_managementStep!) {
+        case ChatManagementStep.contactChain:
+          final chain = WalletReceiveAddress.requestedChain(value);
+          if (chain == null || !_contactChains.contains(chain)) {
+            _message('Choose one of the supported chains above.');
+            return true;
+          }
+          _contactChain = chain;
+          _managementStep = ChatManagementStep.contactName;
+          _message('What’s their name?');
+        case ChatManagementStep.contactName:
+          if (value.isEmpty || value.length > 60) {
+            _message('Use a name between 1 and 60 characters.');
+            return true;
+          }
+          _contactName = value;
+          _managementStep = ChatManagementStep.contactAddress;
+          _message(
+              'Paste their ${ChainInfo.byId(_contactChain)?.name ?? _contactChain} address, or tap scan.');
+        case ChatManagementStep.contactAddress:
+          await _reviewContact(value);
+        case ChatManagementStep.rename:
+          if (value.isEmpty || value.length > 60) {
+            _message('Use a name between 1 and 60 characters.');
+            return true;
+          }
+          if (_walletId == null) return true;
+          await WalletRegistry.instance.rename(_walletId, value);
+          if (!_current) return true;
+          _account.name = value;
+          _clearDraft();
+          _message('Account renamed.');
+          AppLog.instance.event('wallet', 'renamed');
+        case ChatManagementStep.review:
+          _message('Use the confirmation button above, or type cancel.');
+      }
+      return true;
+    }
+    if (tool == null) return false;
+    AppLog.instance.event('chat', 'tool', detail: tool.name);
+    if (tool != ChatTool.scan) _clearDraft();
+    switch (tool) {
+      case ChatTool.addContact:
+        _managementStep = ChatManagementStep.contactChain;
+        _message('Which chain is the contact on?',
+            card: Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final id in _contactChains)
+                ZChatShortcut(
+                    leading: WalletChainLogo(id),
+                    label: ChainInfo.byId(id)?.name ?? id,
+                    onTap: () => _submit(ChainInfo.byId(id)?.name ?? id)),
+            ]));
+      case ChatTool.contacts:
+        await contacts.fetchContacts();
+        if (!_current) return true;
+        if (contacts.loadError.value != null) {
+          _message(contacts.loadError.value!);
+          return true;
+        }
+        final saved = contacts.contacts.toList();
+        final legacy = await ContactChainStore.loadAll();
+        if (!_current) return true;
+        _message(
+            saved.isEmpty
+                ? 'No contacts yet. Type add contact to save one.'
+                : 'Your contacts',
+            card: saved.isEmpty
+                ? null
+                : Column(children: [
+                    for (final c in saved)
+                      ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          leading: WalletChainLogo(
+                              c.chainId ?? legacy[c.address] ?? 'zec'),
+                          title: Text(c.name ?? 'Contact'),
+                          subtitle: Text(ChainInfo.byId(
+                                      c.chainId ?? legacy[c.address] ?? 'zec')
+                                  ?.name ??
+                              'Address'),
+                          onTap: () => _run(() async {
+                                _clearDraft();
+                                final chain =
+                                    c.chainId ?? legacy[c.address] ?? 'zec';
+                                _message(c.name ?? 'Contact',
+                                    card: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          SelectableText(c.address ?? '',
+                                              style: const TextStyle(
+                                                  fontSize: 12)),
+                                          Row(children: [
+                                            TextButton.icon(
+                                                icon: const Icon(
+                                                    Icons.copy_rounded,
+                                                    size: 16),
+                                                label: const Text('Copy'),
+                                                onPressed: () async {
+                                                  await Clipboard.setData(
+                                                      ClipboardData(
+                                                          text:
+                                                              c.address ?? ''));
+                                                  if (_current)
+                                                    _message('Address copied.');
+                                                }),
+                                            if (chain == 'zec')
+                                              _managementAction('Send ZEC',
+                                                  () async {
+                                                _clearDraft();
+                                                final reply = _conversation
+                                                    .accept(c.address ?? '');
+                                                _message(reply.prompt ??
+                                                    'Enter the amount in ZEC.');
+                                              }),
+                                          ])
+                                        ]));
+                              })),
+                  ]));
+      case ChatTool.accounts:
+        FocusScope.of(context).unfocus();
+        showWalletAccountSwitcher(context);
+      case ChatTool.renameAccount:
+        _managementStep = ChatManagementStep.rename;
+        _message('What would you like to call this account?');
+      case ChatTool.deleteAccount:
+        final choices = (await WalletRegistry.instance.getAllVisibleAccounts())
+            .where((a) => a.accountIndex == 0 && a.walletId != _walletId)
+            .toList();
+        if (!_current) return true;
+        _message(
+            choices.isEmpty
+                ? 'Switch to another account before removing this one. Your active account stays on this device.'
+                : 'Which account would you like to remove from this device?',
+            card: choices.isEmpty
+                ? null
+                : Column(children: [
+                    for (final a in choices)
+                      _managementAction(a.displayName, () async {
+                        _clearDraft();
+                        _managementStep = ChatManagementStep.review;
+                        _message(
+                            'Remove ${a.displayName}? This deletes its local wallets and keys on both networks. You need your backed-up seed phrase to restore access. Funds stay on-chain.',
+                            card: _managementAction('Remove account', () async {
+                              final epoch = _reviewEpoch.value;
+                              final authorized = await authenticate(context,
+                                  'Remove ${a.displayName} from this device');
+                              if (!_current ||
+                                  !authorized ||
+                                  epoch != _reviewEpoch.value ||
+                                  _wallet.activeWalletId == a.walletId) return;
+                              await _wallet.deleteWalletById(a.walletId);
+                              if (!_current) return;
+                              _clearDraft();
+                              _message('Account removed from this device.');
+                              AppLog.instance.event('wallet', 'removed');
+                            }, danger: true));
+                      }),
+                  ]));
+      case ChatTool.scan:
+        await _scanCode();
+    }
+    return true;
+  }
+
+  Future<void> _reviewContact(String address) async {
+    final validation = _contactChain == 'zec'
+        ? ((await _wallet.validateAddress(address)).isValid
+            ? null
+            : 'Invalid Zcash address for this network.')
+        : chainAddressValidator(address, _contactChain!);
+    if (!_current) return;
+    if (validation != null) {
+      _message(validation);
+      return;
+    }
+    final chain = _contactChain!;
+    final name = _contactName!;
+    _managementStep = ChatManagementStep.review;
+    _message('Save contact',
+        card: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: WalletChainLogo(chain),
+              title: Text(name),
+              subtitle: Text(ChainInfo.byId(chain)?.name ?? chain)),
+          SelectableText(address, style: const TextStyle(fontSize: 12)),
+          _managementAction('Save contact', () async {
+            // Chain, name and address are one secure-storage write.
+            await contacts.add(
+                Contact(id: 0, name: name, address: address, chainId: chain));
+            if (!_current) return;
+            _clearDraft();
+            _message('Contact saved. Type contacts to find them.');
+            AppLog.instance.event('contacts', 'saved', detail: 'chain=$chain');
+          }),
+        ]));
+  }
+
+  Future<void> _scanCode() async {
+    FocusScope.of(context).unfocus();
+    final epoch = _reviewEpoch.value;
+    AppLog.instance.event('qr', 'opened');
+    final text = await scanQRCode(context);
+    if (!_current || epoch != _reviewEpoch.value) return;
+    if (text.isEmpty) {
+      AppLog.instance.event('qr', 'cancelled');
+      return;
+    }
+    if (_managementStep == ChatManagementStep.contactAddress) {
+      await _reviewContact(text.trim());
+      return;
+    }
+    if (_managementStep != null) {
+      _message(
+          'Choose a contact chain and name before scanning their address.');
+      return;
+    }
+    if (_swapRequest != null && _swapToken != null) {
+      await _continueSwap(text.trim());
+      return;
+    }
+    try {
+      var payment = scannedPayment(text, testnet: _testnet);
+      final valid = await _wallet.validateAddress(payment.recipient!);
+      if (!_current) return;
+      if (!valid.isValid)
+        throw const FormatException(
+            'That Zcash address is invalid for this network.');
+      final pending = _conversation.pending;
+      if (payment.zatoshis == null && pending?.command == WalletCommand.send) {
+        payment = WalletRequest(WalletCommand.send,
+            recipient: payment.recipient,
+            zatoshis: pending?.zatoshis,
+            memo: payment.memo ?? pending?.memo);
+      }
+      _clearDraft();
+      AppLog.instance.event('qr', 'payment_read');
+      if (payment.zatoshis == null) {
+        _conversation.pending = payment;
+        _message('Address scanned. How much ZEC would you like to send?',
+            card: Text(
+                '${WalletConversation.formatZec(_account.poolBalances.shielded)} ZEC available · fee applies',
+                style: const TextStyle(fontSize: 12)));
+      } else {
+        await _prepareSend(payment);
+      }
+    } on FormatException catch (e) {
+      AppLog.instance.event('qr', 'rejected');
+      _message(e.message);
+    }
   }
 
   Future<void> _receive(String input) async {
@@ -291,7 +736,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
             : Wrap(spacing: 8, runSpacing: 8, children: [
                 for (final choice in choices)
                   ZChatShortcut(
-                      icon: Icons.qr_code_rounded,
+                      leading: WalletChainLogo(choice.id),
                       label: choice.label,
                       onTap: () {
                         if (!_current || _busy) return;
@@ -303,6 +748,8 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
   void _showReceiveAddress(WalletReceiveAddress choice) {
     if (!_current) return;
     _choosingAddress = false;
+    AppLog.instance
+        .event('receive', 'address_shown', detail: 'chain=${choice.id}');
     if (choice.id == 'zec' && _wallet.isWalletOpen) boostSyncPolling();
     _message(
         'Your ${choice.label} ${choice.id == 'zec' ? 'shielded ' : 'mainnet '}receive address.',
@@ -312,7 +759,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
               padding: const EdgeInsets.all(12),
               child: QrImage(data: choice.address, size: 180)),
           const SizedBox(height: 12),
-          SelectableText(choice.address, style: const TextStyle(fontSize: 12)),
+          SelectableText(choice.address, style: TextStyle(fontSize: 12)),
           const SizedBox(height: 8),
           Text(
               'Send only assets on ${choice.label}${choice.id == 'zec' ? '' : ' mainnet'} to this address.',
@@ -324,6 +771,8 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                 if (!_current) return;
                 try {
                   await Clipboard.setData(ClipboardData(text: choice.address));
+                  AppLog.instance.event('receive', 'address_copied',
+                      detail: 'chain=${choice.id}');
                   _message('${choice.label} address copied.');
                 } catch (_) {
                   _message(
@@ -333,76 +782,155 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
         ]));
   }
 
-  Widget _portfolioDetails() =>
+  Widget _portfolioDetails({VoidCallback? onRefresh}) =>
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         for (final t in _portfolio?.tokens ?? <EvmTokenBalance>[])
-          Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Row(children: [
-                Expanded(
-                    child: Text(
-                        '${t.balance.toStringAsFixed(8)} ${t.symbol} · ${t.chainLabel}',
-                        style: TextStyle(
-                            fontSize: 12, color: ZipherColors.text60))),
-                const SizedBox(width: 8),
-                Text(
-                    t.priceAvailable
-                        ? '\$${t.balanceUsd.toStringAsFixed(2)} USD'
-                        : 'Price unavailable',
-                    style: TextStyle(fontSize: 11, color: ZipherColors.text40)),
-              ])),
-        if (_portfolio != null && !_portfolio!.complete)
-          Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                  'Unavailable: ${_portfolio!.unavailableChains.join(', ')}. These chains are excluded from the subtotal.',
-                  style: TextStyle(fontSize: 11, color: ZipherColors.orange))),
-        if (_portfolio != null &&
-            _portfolio!.tokens.isEmpty &&
-            _portfolio!.complete)
-          Text('No balances found for tracked EVM assets.',
+          _assetRow(
+              chain: t.chainLabel,
+              symbol: t.symbol,
+              amount: t.balance,
+              dollars: t.priceAvailable ? t.balanceUsd : null,
+              stale: t.stale),
+        if (_portfolio?.unavailableChains.isNotEmpty == true)
+          Text('Unavailable: ${_portfolio!.unavailableChains.join(", ")}',
               style: TextStyle(fontSize: 11, color: ZipherColors.text40)),
         if (_portfolio == null && !_testnet)
           Text(
               _loadingPortfolio
-                  ? 'Loading other chains…'
-                  : 'Other-chain balances unavailable.',
+                  ? 'Loading assets…'
+                  : 'Other assets unavailable',
               style: TextStyle(fontSize: 11, color: ZipherColors.text40)),
-        if (!_testnet)
-          Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                  'EVM balances use public RPC services. Bitcoin and Solana balances are not included.',
-                  style: TextStyle(fontSize: 11, color: ZipherColors.text40))),
+        if (onRefresh != null)
+          TextButton(
+              onPressed: _loadingPortfolio ? null : onRefresh,
+              child: const Text('Refresh balances')),
       ]);
 
-  Future<void> _history() async {
-    final records = await engine.engineGetTransactions();
+  void _openTransaction(String txid) {
     if (!_current) return;
-    if (records.isEmpty) {
-      _message(
-          'No transactions yet. Your history will appear as your wallet syncs.');
+    final index = _account.txs.items.indexWhere((tx) => tx.fullTxId == txid);
+    if (index < 0) {
+      _message('This transaction is refreshing. Try history again.');
       return;
     }
-    _message('Recent transactions',
-        card: Column(
-          children: records.take(10).map((tx) {
-            final incoming = tx.value >= 0;
-            return ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(incoming ? Icons.south_west : Icons.north_east,
-                  color: incoming ? ZipherColors.green : ZipherColors.text60),
-              title: Text(
-                  '${incoming ? '+' : '−'}${WalletConversation.formatZec(tx.value.abs().toInt())} ZEC'),
-              subtitle: Text(tx.expiredUnmined
-                  ? 'Expired · not confirmed'
-                  : tx.height > 0
-                      ? 'Confirmed · block ${tx.height}'
-                      : 'Pending confirmation'),
-            );
-          }).toList(),
-        ));
+    AppLog.instance.event('history', 'transaction_opened');
+    gotoTx(context, index);
   }
+
+  Widget _activityList(Iterable<Tx> records, {bool showMemo = false}) =>
+      Column(mainAxisSize: MainAxisSize.min, children: [
+        for (final tx in records)
+          WalletActivityRow(
+              transaction: tx,
+              showMemo: showMemo,
+              onTap: () => _openTransaction(tx.fullTxId))
+      ]);
+
+  Future<void> _showMemos() async {
+    await _account.updateTransactions();
+    if (!_current) return;
+    final records = _account.txs.items
+        .where((tx) => tx.memo?.trim().isNotEmpty ?? false)
+        .toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    if (records.isEmpty) {
+      _message(
+          'No memos yet. Incoming and outgoing memos appear here as your wallet syncs.');
+    } else {
+      _message('Latest memos · tap to read the transaction',
+          card: _activityList(records.take(10), showMemo: true));
+    }
+  }
+
+  void _clearChat() {
+    if (_busy) return;
+    _clearDraft();
+    _input.clear();
+    setState(() {
+      _messages
+        ..clear()
+        ..add((text: 'What would you like to do?', user: false, card: null));
+      _balanceExpanded = false;
+    });
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    AppLog.instance.event('chat', 'cleared');
+  }
+
+  Widget _helpCard() =>
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        for (final (command, example, icon) in [
+          ('Send', 'Send 0.01 ZEC to an address', Icons.north_east_rounded),
+          (
+            'Receive',
+            'Choose a chain, then copy your address',
+            Icons.qr_code_rounded
+          ),
+          (
+            'Swap',
+            'Choose an asset and review the quote',
+            Icons.swap_horiz_rounded
+          ),
+          (
+            'Balance',
+            'See your assets and available funds',
+            Icons.account_balance_wallet_outlined
+          ),
+          (
+            'Add contact',
+            'Save a name, chain and address',
+            Icons.person_add_alt_rounded
+          ),
+          (
+            'Contacts',
+            'Find or pay a saved Zcash contact',
+            Icons.people_outline_rounded
+          ),
+          (
+            'Scan',
+            'Scan an address or Zcash payment request',
+            Icons.qr_code_scanner_rounded
+          ),
+          ('Rename account', 'Change this account’s name', Icons.edit_outlined),
+          (
+            'Delete account',
+            'Remove an inactive account from this device',
+            Icons.person_remove_outlined
+          ),
+          ('Accounts', 'Choose another account', Icons.account_circle_rounded),
+          (
+            'Memos',
+            'Read your latest wallet messages',
+            Icons.chat_bubble_outline_rounded
+          ),
+          (
+            'Privacy',
+            'Manage your Zcash Tor connection',
+            Icons.vpn_key_rounded
+          ),
+        ])
+          ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              leading: Icon(icon, size: 18, color: ZipherColors.cyan),
+              title: Text(command,
+                  style: const TextStyle(color: ZipherColors.textPrimary)),
+              subtitle: Text(example,
+                  style: const TextStyle(
+                      color: ZipherColors.text40, fontSize: 12)),
+              onTap: () => _submit(command)),
+        const SizedBox(height: 8),
+        const Text(
+            'Review, tap Send, then confirm with Face ID or your device passcode. Activity contains pending and completed transfers. Type cancel to discard a draft.',
+            style: TextStyle(
+                fontSize: 12, color: ZipherColors.textSecondary, height: 1.5)),
+        const SizedBox(height: 8),
+        TextButton.icon(
+            onPressed: _clearChat,
+            icon: const Icon(Icons.refresh_rounded, size: 16),
+            label: const Text('Clear chat')),
+        const Text('Clearing chat keeps your wallet and transaction history.',
+            style: TextStyle(fontSize: 11, color: ZipherColors.text40)),
+      ]);
 
   Future<bool> _canSend() async {
     if (!_account.canPay || await _wallet.isActiveFrostWallet()) {
@@ -443,7 +971,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     _message(quote == null
         ? 'Checking the address, spendable funds and exact fee…'
         : 'Checking the Zcash deposit and network fee…');
-    final proposal = await _wallet.proposeSend(address, request.zatoshis!,
+    var proposal = await _wallet.proposeSend(address, request.zatoshis!,
         memo: request.memo);
     if (!_current) return;
     if (!proposal.isExact || proposal.sendAmount != request.zatoshis) {
@@ -451,7 +979,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
           'The wallet couldn’t prepare that exact amount. Start again with a smaller amount.');
       return;
     }
-    final revision = _wallet.proposalRevision;
+    var revision = _wallet.proposalRevision;
     final epoch = ++_reviewEpoch.value;
     final details = <String, String>{
       if (quote == null) 'Recipient': address,
@@ -477,11 +1005,50 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
         'Provider':
             'NEAR Intents receives the destination and refund addresses. Destination-chain transfers may be public.',
     };
-    _message(quote == null ? 'Review your send.' : 'Review your swap.',
+    FocusScope.of(context).unfocus();
+    AppLog.instance.event(quote == null ? 'send' : 'swap', 'review_shown');
+    _message('',
         card: WalletReviewCard(
           epoch: _reviewEpoch,
           expectedEpoch: epoch,
           details: details,
+          onPriorityChanged: (priority) async {
+            if (_busy || !_current || _reviewEpoch.value != epoch) {
+              throw StateError('Review no longer available');
+            }
+            setState(() {
+              _busy = true;
+              _busyLabel = 'Updating fee…';
+            });
+            try {
+              if (quote != null && !_quoteValid(quote, request.zatoshis!)) {
+                _reviewEpoch.value++;
+                _message(
+                    'This quote expired. Start a new swap for a fresh review.');
+                throw StateError('Quote expired');
+              }
+              final next = await _wallet.proposeSend(address, request.zatoshis!,
+                  memo: request.memo, priority: priority);
+              if (!_current ||
+                  _reviewEpoch.value != epoch ||
+                  !next.isExact ||
+                  next.sendAmount != request.zatoshis) {
+                throw StateError('Review changed');
+              }
+              proposal = next;
+              revision = _wallet.proposalRevision;
+              AppLog.instance.event('send', 'fee_updated',
+                  detail: 'priority=$priority fee=${next.fee}');
+              return {
+                ...details,
+                'Network fee': '${WalletConversation.formatZec(next.fee)} ZEC',
+                'Total':
+                    '${WalletConversation.formatZec(next.sendAmount + next.fee)} ZEC'
+              };
+            } finally {
+              if (mounted) setState(() => _busy = false);
+            }
+          },
           confirmLabel: quote == null ? 'Send ZEC' : 'Confirm swap',
           onCancel: () {
             _clearDraft();
@@ -710,6 +1277,8 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
       NearQuoteResponse quote, NearToken token, String recipient, int zatoshis,
       {String? txid}) {
     return StoredSwap(
+        walletId: _walletId,
+        testnet: _testnet,
         provider: 'near_intents',
         depositAddress: quote.depositAddress,
         timestamp: DateTime.now().millisecondsSinceEpoch ~/ 1000,
@@ -749,40 +1318,31 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
             onPressed: () =>
                 context.push('/swap/status', extra: quote.depositAddress),
             child: const Text('Open swap status')));
-    _swapTimer?.cancel();
-    _swapTimer =
-        Timer.periodic(const Duration(seconds: 15), (_) => _pollSwap());
-    await _pollSwap();
+    _swapTracker
+        .track(_storedSwap(quote, token, recipient, zatoshis, txid: txid));
+    await _swapTracker.refresh();
   }
 
-  Future<void> _pollSwap() async {
-    if (_pollingSwap || !_current || _trackedDeposit == null) return;
-    _pollingSwap = true;
-    try {
-      final status = await _near.getStatus(_trackedDeposit!);
-      if (!_current) return;
-      if (status.status != _lastSwapStatus) {
-        _lastSwapStatus = status.status;
-        _message(status.isSuccess
-            ? 'Swap complete. The destination tokens have been delivered.'
-            : status.isRefunded
-                ? 'The swap was refunded. Check your Zcash balance as it syncs.'
-                : status.isFailed
-                    ? 'The swap did not complete. Open swap status to check the deposit and refund.'
-                    : status.isProcessing
-                        ? 'Deposit detected. The swap is processing.'
-                        : 'Waiting for the swap provider to confirm the deposit.');
-      }
-      if (status.isTerminal) {
-        _swapTimer?.cancel();
-        _trackedDeposit = null;
-        boostSyncPolling();
-      }
-    } catch (_) {
-      // A transient provider outage does not mean the swap failed. Retry on
-      // the next bounded poll; the persisted swap also has a status page.
-    } finally {
-      _pollingSwap = false;
+  void _onSwapUpdate() {
+    if (!_current || _trackedDeposit == null) return;
+    final entry = _swapTracker.entries
+        .where((entry) => entry.swap.depositAddress == _trackedDeposit)
+        .firstOrNull;
+    final status = entry?.status;
+    if (status == null || status.status == _lastSwapStatus) return;
+    _lastSwapStatus = status.status;
+    _message(status.isSuccess
+        ? 'Swap complete. The destination tokens have been delivered.'
+        : status.isRefunded
+            ? 'The swap was refunded. Check your Zcash balance as it syncs.'
+            : status.isFailed
+                ? 'The swap did not complete. Open Activity to check the deposit and refund.'
+                : status.isProcessing
+                    ? 'Deposit detected. The swap is processing.'
+                    : 'Waiting for the swap provider to confirm the deposit.');
+    if (status.isTerminal) {
+      _trackedDeposit = null;
+      boostSyncPolling();
     }
   }
 
@@ -796,295 +1356,486 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
           appBar: AppBar(
             backgroundColor: ZipherColors.bg,
             surfaceTintColor: Colors.transparent,
-            centerTitle: true,
-            title: _testnet
-                ? Text('Testnet',
-                    style: TextStyle(fontSize: 12, color: ZipherColors.text40))
-                : null,
-            leading: Navigator.of(context).canPop()
-                ? IconButton(
-                    tooltip: 'Back',
-                    icon: Icon(Icons.arrow_back, color: ZipherColors.text60),
-                    onPressed: () => Navigator.of(context).pop())
-                : null,
+            centerTitle: false,
+            automaticallyImplyLeading: false,
+            title: TextButton.icon(
+              onPressed: () {
+                FocusScope.of(context).unfocus();
+                AppLog.instance.event('wallet', 'account_switcher_opened');
+                showWalletAccountSwitcher(context);
+              },
+              icon: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                      color: ZipherColors.cyan.withValues(alpha: .10),
+                      borderRadius: BorderRadius.circular(ZipherRadius.md)),
+                  child: Icon(Icons.account_circle_rounded,
+                      size: 18,
+                      color: ZipherColors.cyan.withValues(alpha: .7))),
+              label: Row(mainAxisSize: MainAxisSize.min, children: [
+                Flexible(
+                    child: Text(_displayName,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: ZipherColors.textPrimary, fontSize: 15))),
+                const Icon(Icons.expand_more, size: 18),
+              ]),
+            ),
+            actions: [
+              _walletIndicators(),
+              if (_testnet)
+                const Padding(
+                    padding: EdgeInsets.only(right: 16),
+                    child: Center(child: Text('Testnet')))
+            ],
           ),
           body: Column(children: [
             _buildBalanceHeader(),
-            SyncStatusWidget(),
-            // The keyboard leaves space for the conversation on smaller phones.
-            if (MediaQuery.viewInsetsOf(context).bottom == 0)
-              _buildHistoryStrip(),
             Expanded(
-                child: ListView.builder(
-              controller: _scroll,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              itemCount: _messages.length + (_busy ? 1 : 0),
-              itemBuilder: (_, index) {
-                if (index == _messages.length)
-                  return const ZChatTypingIndicator();
-                final msg = _messages[index];
-                return ZChatMessage(
-                  text: msg.text,
-                  isUser: msg.user,
-                  card: index == 0
-                      ? _buildSuggestionChips()
-                      : msg.card == null
-                          ? null
-                          : Container(
-                              margin: const EdgeInsets.only(top: 8),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                  color: ZipherColors.cardBg,
-                                  borderRadius:
-                                      BorderRadius.circular(ZipherRadius.md),
-                                  border: Border.all(
-                                      color: ZipherColors.borderSubtle)),
-                              child: msg.card),
-                  footer: index == _messages.length - 1 &&
-                          !_busy &&
-                          (_conversation.pending != null ||
-                              _swapRequest != null)
-                      ? Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: ZChatShortcut(
-                              icon: Icons.close,
-                              label: 'Cancel',
-                              onTap: () => _submit('cancel')))
-                      : null,
-                );
-              },
-            )),
-            ZChatComposer(
-              controller: _input,
-              busy: _busy,
-              onSubmit: _submit,
-              hint: _swapRequest != null
-                  ? (_swapToken == null
-                      ? 'Choose a network'
-                      : 'Paste the recipient address')
-                  : _choosingAddress
-                      ? 'Choose a chain'
-                      : _conversation.hint,
-            ),
+                child: _buildHomeViews(Column(children: [
+              Expanded(
+                  child: ListView.builder(
+                controller: _scroll,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                itemCount: _messages.length + (_busy ? 1 : 0),
+                itemBuilder: (_, index) {
+                  if (index == _messages.length)
+                    return ZChatTypingIndicator(label: _busyLabel);
+                  final msg = _messages[index];
+                  return ZChatMessage(
+                    key: index == _messages.length - 1
+                        ? _latestMessageKey
+                        : null,
+                    text: index == 0 ? '' : msg.text,
+                    isUser: msg.user,
+                    card: index == 0
+                        ? _buildSuggestionChips()
+                        : msg.card == null
+                            ? null
+                            : Container(
+                                margin: const EdgeInsets.only(top: 8),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                    color: ZipherColors.cardBg,
+                                    borderRadius:
+                                        BorderRadius.circular(ZipherRadius.md),
+                                    border: Border.all(
+                                        color: ZipherColors.borderSubtle)),
+                                child: msg.card),
+                    footer: index == _messages.length - 1 &&
+                            !_busy &&
+                            (_conversation.pending != null ||
+                                _managementStep != null ||
+                                _swapRequest != null)
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: ZChatShortcut(
+                                icon: Icons.close,
+                                label: 'Cancel',
+                                onTap: () => _submit('cancel')))
+                        : null,
+                  );
+                },
+              )),
+              ZChatComposer(
+                controller: _input,
+                busy: _busy,
+                onSubmit: _submit,
+                onScan: () => _submit('scan'),
+                hint: _managementStep != null
+                    ? switch (_managementStep!) {
+                        ChatManagementStep.contactChain => 'Choose a chain',
+                        ChatManagementStep.contactName => 'Contact name',
+                        ChatManagementStep.contactAddress =>
+                          'Paste the wallet address',
+                        ChatManagementStep.rename => 'New account name',
+                        ChatManagementStep.review => 'Review above, or cancel',
+                      }
+                    : _swapRequest != null
+                        ? (_swapToken == null
+                            ? 'Choose a network'
+                            : 'Paste the recipient address')
+                        : _choosingAddress
+                            ? 'Choose a chain'
+                            : _conversation.hint,
+              ),
+            ]))),
           ]),
         ),
       );
 
   Widget _buildSuggestionChips() => Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: Wrap(spacing: 8, runSpacing: 8, children: [
+      padding: const EdgeInsets.only(top: 18, bottom: 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('What would you like to do?',
+            style: TextStyle(
+                fontSize: 15,
+                color: ZipherColors.textPrimary,
+                fontWeight: FontWeight.w500)),
+        const SizedBox(height: 16),
+        Wrap(spacing: 8, runSpacing: 8, children: [
           for (final (icon, label) in [
             (Icons.arrow_upward_rounded, 'Send'),
             (Icons.qr_code_rounded, 'Receive'),
             (Icons.swap_horiz, 'Swap'),
-            (Icons.account_balance_wallet_outlined, 'Balance'),
-            (Icons.history_rounded, 'History'),
-            (Icons.help_outline, 'Help'),
           ])
             ZChatShortcut(
                 icon: icon,
                 label: label,
                 onTap: _busy ? null : () => _submit(label)),
         ]),
-      );
+        const SizedBox(height: 8),
+        Wrap(spacing: 4, runSpacing: 4, children: [
+          for (final (icon, label) in [
+            (Icons.account_balance_wallet_outlined, 'Balance'),
+            (Icons.people_outline_rounded, 'Contacts'),
+            (Icons.help_outline, 'Help'),
+          ])
+            ZChatShortcut(
+                icon: icon,
+                label: label,
+                secondary: true,
+                onTap: _busy ? null : () => _submit(label)),
+        ]),
+      ]));
+
+  void _showPools() {
+    FocusScope.of(context).unfocus();
+    AppLog.instance.event('balance', 'pool_breakdown_opened');
+    showModalBottomSheet<void>(
+        context: context,
+        useRootNavigator: true,
+        showDragHandle: true,
+        isScrollControlled: true,
+        backgroundColor: ZipherColors.surface,
+        builder: (_) => SafeArea(
+            child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+                child: Observer(
+                    builder: (_) =>
+                        WalletPoolDetails(_account.poolBalances)))));
+  }
+
+  String _dollars(double amount) =>
+      NumberFormat.currency(symbol: '\$', decimalDigits: 2).format(amount);
+
+  double? get _zecUsdPrice => appSettings.currency.toUpperCase() == 'USD'
+      ? marketPrice.price ?? _portfolio?.zecPriceUsd
+      : _portfolio?.zecPriceUsd;
+
+  String _assetAmount(double amount) {
+    if (amount > 0 && amount < 0.00000001) return '<0.00000001';
+    return amount.toStringAsFixed(8).replaceFirst(RegExp(r'\.?0+$'), '');
+  }
+
+  Widget _assetRow(
+          {required String chain,
+          required String symbol,
+          required double amount,
+          double? dollars,
+          bool stale = false,
+          VoidCallback? onTap}) =>
+      InkWell(
+          onTap: onTap,
+          onLongPress: onTap,
+          child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 9),
+              child: Row(children: [
+                WalletChainLogo(chain, size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(symbol,
+                          style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: ZipherColors.textPrimary)),
+                      const SizedBox(height: 2),
+                      Text(chain,
+                          style: TextStyle(
+                              fontSize: 11, color: ZipherColors.text40)),
+                    ])),
+                Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Text(
+                      stale
+                          ? 'Last known'
+                          : dollars == null
+                              ? '—'
+                              : _dollars(dollars),
+                      style: TextStyle(
+                          fontSize: 14, color: ZipherColors.textPrimary)),
+                  const SizedBox(height: 2),
+                  Text('${_assetAmount(amount)} $symbol',
+                      style:
+                          TextStyle(fontSize: 11, color: ZipherColors.text40)),
+                ]),
+              ])));
+
+  Future<void> _changePrivacy(bool enabled) async {
+    if (_privacy.busy) {
+      _message('A connection change is already in progress.');
+      return;
+    }
+    _message(
+        enabled ? 'Connecting to Tor…' : 'Switching to a direct connection…');
+    try {
+      await _privacy.setTor(enabled);
+      if (_current) {
+        _message(
+            enabled
+                ? 'Tor is verified for Zcash sync and broadcasts. Prices, other chains and swap services use separate connections.'
+                : 'Zcash now uses a direct connection.',
+            card: _privacyControls());
+        // The backend replaced live channels. Refresh the UI's start flag too
+        // after a failed bootstrap previously stopped the workers.
+        if (_wallet.isWalletOpen) await syncStatus2.sync(restart: true);
+      }
+    } catch (_) {
+      if (_current)
+        _message(
+            'Tor could not be verified. Retry, or explicitly turn Tor off to use a direct connection.',
+            card: _privacyControls());
+    }
+  }
+
+  Widget _privacyControls() => ListenableBuilder(
+      listenable: _privacy,
+      builder: (_, __) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_privacy.label,
+                    style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: ZipherColors.textPrimary)),
+                const SizedBox(height: 12),
+                const Text(
+                    'Tor covers Zcash sync and transaction broadcasts. Prices, other chains and swap services use separate connections.',
+                    style: TextStyle(
+                        color: ZipherColors.textSecondary, height: 1.5)),
+                const SizedBox(height: 12),
+                const Text('External VPN / Nym: not verified by Zipher.',
+                    style: TextStyle(color: ZipherColors.text40, fontSize: 12)),
+                const SizedBox(height: 16),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  if (_privacy.state != NetworkPrivacyState.tor)
+                    OutlinedButton.icon(
+                        onPressed:
+                            _privacy.busy ? null : () => _submit('enable Tor'),
+                        icon: const Icon(Icons.vpn_key_rounded, size: 16),
+                        label: Text(_privacy.state == NetworkPrivacyState.error
+                            ? 'Retry Tor'
+                            : 'Enable Tor')),
+                  if (_privacy.state != NetworkPrivacyState.direct)
+                    TextButton(
+                        onPressed:
+                            _privacy.busy ? null : () => _submit('disable Tor'),
+                        child: const Text('Turn Tor off')),
+                ]),
+              ]));
+
+  void _showNetworkPrivacy() {
+    FocusScope.of(context).unfocus();
+    showModalBottomSheet<void>(
+        context: context,
+        useRootNavigator: true,
+        backgroundColor: ZipherColors.surface,
+        showDragHandle: true,
+        builder: (_) => SafeArea(
+            child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                child: _privacyControls())));
+  }
+
+  Widget _walletIndicators() => Observer(builder: (_) {
+        final b = _account.poolBalances;
+        final shielded = b.total > 0 && !b.hasTransparent;
+        final error =
+            !syncStatus2.connected || syncStatus2.connectionError != null;
+        final synced = !error && !syncStatus2.paused && syncStatus2.isSynced;
+        final progress = syncStatus2.blocksProgress;
+        final status = error
+            ? 'Sync error'
+            : syncStatus2.paused
+                ? 'Sync paused'
+                : synced
+                    ? 'Synced'
+                    : 'Syncing${progress == null ? "" : " ${(progress * 100).toStringAsFixed(1)}%"}';
+        return Row(mainAxisSize: MainAxisSize.min, children: [
+          ListenableBuilder(
+              listenable: _privacy,
+              builder: (_, __) => IconButton(
+                  tooltip: _privacy.label,
+                  onPressed: _showNetworkPrivacy,
+                  icon: Icon(Icons.vpn_key_rounded,
+                      size: 17,
+                      color: switch (_privacy.state) {
+                        NetworkPrivacyState.tor => ZipherColors.cyan,
+                        NetworkPrivacyState.connecting =>
+                          ZipherColors.syncPending,
+                        NetworkPrivacyState.error => ZipherColors.red,
+                        NetworkPrivacyState.direct => ZipherColors.text40,
+                      }))),
+          IconButton(
+              tooltip: shielded ? 'ZEC fully shielded' : 'ZEC pool details',
+              onPressed: _showPools,
+              icon: Icon(
+                  shielded ? Icons.shield_rounded : Icons.shield_outlined,
+                  size: 17,
+                  color: shielded ? ZipherColors.cyan : ZipherColors.text40)),
+          Tooltip(
+              message: status,
+              child: Semantics(
+                  button: true,
+                  label: status,
+                  child: InkResponse(
+                      onTap: () => context.push('/more/debug_log'),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: SizedBox(
+                            height: 44,
+                            child:
+                                Row(mainAxisSize: MainAxisSize.min, children: [
+                              Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: error
+                                          ? ZipherColors.red
+                                          : syncStatus2.paused
+                                              ? ZipherColors.text40
+                                              : synced
+                                                  ? ZipherColors.green
+                                                  : ZipherColors.syncPending)),
+                              if (!synced && progress != null) ...[
+                                const SizedBox(width: 6),
+                                Text('${(progress * 100).toStringAsFixed(1)}%',
+                                    style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500,
+                                        color: ZipherColors.text60)),
+                              ],
+                            ])),
+                      )))),
+          const SizedBox(width: 8),
+        ]);
+      });
 
   Widget _buildBalanceHeader() => Observer(builder: (_) {
         final b = _account.poolBalances;
-        final price = marketPrice.price;
-        final hasFiat = price != null && price > 0 && !_testnet;
-        final currency = appSettings.currency.toUpperCase();
-        final includesEvm = hasFiat && currency == 'USD' && _portfolio != null;
-        final fiat = hasFiat
-            ? (b.total / 1e8 * price +
-                    (includesEvm ? _portfolio!.evmTotalUsd : 0))
-                .toStringAsFixed(2)
+        final price = _zecUsdPrice;
+        final zecValue = price != null && price > 0 && !_testnet
+            ? b.total / 1e8 * price
             : null;
-        final partial =
-            includesEvm && (!_portfolio!.complete || !_portfolio!.fullyPriced);
+        final total = (zecValue ?? 0) + (_portfolio?.evmTotalUsd ?? 0);
+        final hasPrice = zecValue != null ||
+            (_portfolio?.tokens.any((t) => t.priceAvailable && !t.stale) ??
+                false);
         final expanded =
             _balanceExpanded && MediaQuery.viewInsetsOf(context).bottom == 0;
-        return Semantics(
-          button: true,
-          label:
-              expanded ? 'Collapse balance details' : 'Expand balance details',
-          child: Material(
-              color: ZipherColors.bg,
-              child: InkWell(
-                onTap: () {
-                  setState(() => _balanceExpanded = !_balanceExpanded);
-                  if (_balanceExpanded) _refreshPortfolio();
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  decoration: BoxDecoration(
-                      border: Border(
-                          bottom: BorderSide(
-                              color: ZipherColors.borderSubtle, width: .5))),
-                  child: Column(children: [
-                    Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Flexible(
-                          child: Text(
-                              fiat != null
-                                  ? (currency == 'USD'
-                                      ? '\$$fiat'
-                                      : '$fiat $currency')
-                                  : '${WalletConversation.formatZec(b.total)} ZEC',
-                              style: const TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w700,
-                                  color: ZipherColors.textPrimary,
-                                  letterSpacing: -.5))),
-                      const SizedBox(width: 8),
-                      Icon(
-                          expanded
-                              ? Icons.keyboard_arrow_up_rounded
-                              : Icons.keyboard_arrow_down_rounded,
-                          size: 20,
-                          color: ZipherColors.text40),
-                    ]),
-                    if (!expanded)
-                      Text(
-                          includesEvm
-                              ? (partial
-                                  ? 'Tracked subtotal · incomplete'
-                                  : 'Zcash + tracked EVM assets')
-                              : 'Zcash balance',
-                          style: TextStyle(
-                              fontSize: 11, color: ZipherColors.text40)),
-                    if (expanded) ...[
-                      const SizedBox(height: 10),
-                      Row(children: [
-                        ClipOval(
-                            child: Image.asset('assets/tokens/zec.png',
-                                width: 18, height: 18)),
-                        const SizedBox(width: 8),
-                        Expanded(
-                            child: Text(
-                                '${WalletConversation.formatZec(b.total)} ZEC',
-                                style: TextStyle(
+        final incomplete = (b.total > 0 && zecValue == null) ||
+            (_portfolio != null &&
+                (!_portfolio!.complete || !_portfolio!.fullyPriced));
+        return Container(
+            decoration: BoxDecoration(
+                gradient: RadialGradient(
+                    center: Alignment.topCenter,
+                    radius: .7,
+                    colors: [
+                  Color.alphaBlend(ZipherColors.cyan.withValues(alpha: .045),
+                      ZipherColors.bg),
+                  ZipherColors.bg
+                ])),
+            child: Column(children: [
+              Semantics(
+                  button: true,
+                  label: (expanded
+                          ? 'Collapse balance details'
+                          : 'Expand balance details') +
+                      (incomplete ? ', some assets unavailable' : ''),
+                  child: InkWell(
+                      onLongPress: _showPools,
+                      onTap: () {
+                        setState(() => _balanceExpanded = !_balanceExpanded);
+                        if (_balanceExpanded) _refreshPortfolio();
+                      },
+                      child: Padding(
+                          padding: const EdgeInsets.fromLTRB(28, 14, 28, 18),
+                          child: Column(children: [
+                            FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                    _testnet
+                                        ? '${WalletConversation.formatZec(b.total)} ZEC'
+                                        : hasPrice
+                                            ? _dollars(total)
+                                            : '—',
+                                    style: TextStyle(
+                                        fontSize: 38,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: -1.5,
+                                        color: ZipherColors.textPrimary))),
+                            const SizedBox(height: 10),
+                            Text(
+                                '${_assetAmount(b.shielded / 1e8)} ZEC available',
+                                style: const TextStyle(
+                                    fontFamily: 'JetBrains Mono',
                                     fontSize: 12,
-                                    color: ZipherColors.text60,
-                                    fontFamily: 'JetBrains Mono'))),
-                        Text('Total',
-                            style: TextStyle(
-                                fontSize: 11, color: ZipherColors.text40)),
-                      ]),
-                      const SizedBox(height: 6),
-                      Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                              '${WalletConversation.formatZec(b.shielded)} ZEC spendable',
-                              style: TextStyle(
-                                  fontSize: 12, color: ZipherColors.text60))),
-                      if (b.hasUnconfirmed)
-                        Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                                '${WalletConversation.formatZec(b.unconfirmed)} ZEC confirming',
-                                style: TextStyle(
-                                    fontSize: 12, color: ZipherColors.text40))),
-                      ConstrainedBox(
-                          constraints: BoxConstraints(
-                              maxHeight:
-                                  MediaQuery.sizeOf(context).height * .16),
-                          child: SingleChildScrollView(
-                              child: _portfolioDetails())),
-                      if (!_testnet)
-                        TextButton.icon(
-                            onPressed: _loadingPortfolio
-                                ? null
-                                : () => _refreshPortfolio(force: true),
-                            icon: const Icon(Icons.refresh, size: 14),
-                            label: Text(
-                                _loadingPortfolio
-                                    ? 'Refreshing…'
-                                    : 'Refresh other chains',
-                                style: const TextStyle(fontSize: 11))),
-                    ],
-                  ]),
-                ),
-              )),
-        );
+                                    color: ZipherColors.textSecondary)),
+                            if (!_testnet &&
+                                (!syncStatus2.isSynced ||
+                                    (expanded && incomplete)))
+                              Padding(
+                                  padding: const EdgeInsets.only(top: 7),
+                                  child: Text(
+                                      !syncStatus2.isSynced
+                                          ? 'Updating balance…'
+                                          : 'Some assets unavailable',
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          color: ZipherColors.text40))),
+                          ])))),
+              if (expanded)
+                ConstrainedBox(
+                    constraints: BoxConstraints(
+                        maxHeight: MediaQuery.sizeOf(context).height * .30),
+                    child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(28, 0, 32, 12),
+                        child: Column(children: [
+                          _assetRow(
+                              chain: 'Zcash',
+                              symbol: 'ZEC',
+                              amount: b.total / 1e8,
+                              dollars: zecValue,
+                              onTap: _showPools),
+                          _portfolioDetails(),
+                        ]))),
+            ]));
       });
 
-  Widget _buildHistoryStrip() => Observer(builder: (_) {
-        final records = _account.txs.items.toList()
-          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-        if (records.isEmpty) return const SizedBox.shrink();
-        return Container(
-          decoration: BoxDecoration(
-              border: Border(
-                  bottom:
-                      BorderSide(color: ZipherColors.borderSubtle, width: .5))),
-          child: Column(children: [
-            InkWell(
-              onTap: () => setState(() => _historyExpanded = !_historyExpanded),
-              child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  child: Row(children: [
-                    Icon(Icons.history_rounded,
-                        size: 14, color: ZipherColors.text40),
-                    const SizedBox(width: 6),
-                    Text('Recent Actions',
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: .5,
-                            color: ZipherColors.text40)),
-                    const Spacer(),
-                    Icon(
-                        _historyExpanded
-                            ? Icons.keyboard_arrow_up_rounded
-                            : Icons.keyboard_arrow_down_rounded,
-                        size: 16,
-                        color: ZipherColors.text40),
-                  ])),
-            ),
-            if (_historyExpanded)
-              ConstrainedBox(
-                  constraints: BoxConstraints(
-                      maxHeight: MediaQuery.sizeOf(context).height * .18),
-                  child: ListView(
-                      shrinkWrap: true,
-                      padding: const EdgeInsets.only(bottom: 8),
-                      children: [
-                        for (final tx in records.take(10))
-                          Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 20, vertical: 4),
-                              child: Row(children: [
-                                Icon(
-                                    tx.value >= 0
-                                        ? Icons.arrow_downward_rounded
-                                        : Icons.arrow_upward_rounded,
-                                    size: 14,
-                                    color: ZipherColors.text40),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                    child: Text(
-                                        '${tx.value >= 0 ? '+' : '−'}${tx.value.abs().toStringAsFixed(8)} ZEC',
-                                        style: TextStyle(
-                                            fontSize: 12,
-                                            color: ZipherColors.text60),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis)),
-                                const SizedBox(width: 8),
-                                Text(
-                                    tx.expiredUnmined
-                                        ? 'Expired'
-                                        : tx.height > 0
-                                            ? 'Confirmed'
-                                            : 'Pending',
-                                    style: TextStyle(
-                                        fontSize: 10,
-                                        color: ZipherColors.text40)),
-                              ])),
-                      ])),
-          ]),
-        );
-      });
+  Widget _buildHomeViews(Widget chat) => ListenableBuilder(
+      listenable: _swapTracker,
+      builder: (_, __) => Observer(
+          builder: (_) => WalletActivityPanel(
+              chat: chat,
+              selectedTab: _homeTab,
+              showTabs: MediaQuery.viewInsetsOf(context).bottom == 0,
+              onTabChanged: (tab) {
+                FocusScope.of(context).unfocus();
+                AppLog.instance.event('activity', '${tab.name}_opened');
+                setState(() => _homeTab = tab);
+              },
+              transactions: _account.txs.items.toList(),
+              swaps: _swapTracker.entries,
+              onTransaction: _openTransaction,
+              onSwap: (deposit) =>
+                  context.push('/swap/status', extra: deposit))));
 }

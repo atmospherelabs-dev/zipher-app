@@ -31,7 +31,8 @@ pczt = { workspace = true }
 zcash_client_sqlite = { workspace = true, features = ["orchard", "transparent-inputs", "serde"] }
 zcash_pool_migration = { workspace = true, features = ["wallet"] }
 zcash_keys = { workspace = true, features = ["orchard", "sapling", "unstable-frost"] }
-zcash_primitives = { workspace = true }
+zcash_primitives = { workspace = true, features = ["non-standard-fees"] }
+zip321 = { workspace = true }
 zcash_proofs = { workspace = true, features = ["local-prover"] }
 zcash_transparent = { workspace = true }
 zcash_script = "0.4"

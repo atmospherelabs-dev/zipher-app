@@ -597,6 +597,9 @@ class CurrencyIcon extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class StoredSwap {
+  final String? walletId;
+  final bool? testnet;
+  final String? status;
   final String provider;
   final String depositAddress;
   final int timestamp;
@@ -610,6 +613,9 @@ class StoredSwap {
   final String? toBlockchain;
 
   StoredSwap({
+    this.walletId,
+    this.testnet,
+    this.status,
     required this.provider,
     required this.depositAddress,
     required this.timestamp,
@@ -624,6 +630,9 @@ class StoredSwap {
   });
 
   Map<String, dynamic> toJson() => {
+    if (walletId != null) 'walletId': walletId,
+    if (testnet != null) 'testnet': testnet,
+    if (status != null) 'status': status,
     'provider': provider,
     'depositAddress': depositAddress,
     'timestamp': timestamp,
@@ -638,6 +647,9 @@ class StoredSwap {
   };
 
   factory StoredSwap.fromJson(Map<String, dynamic> json) => StoredSwap(
+    walletId: json['walletId'],
+    testnet: json['testnet'],
+    status: json['status'],
     provider: json['provider'] ?? '',
     depositAddress: json['depositAddress'] ?? '',
     timestamp: json['timestamp'] ?? 0,
@@ -681,6 +693,22 @@ class SwapStore {
   static Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);
+  }
+
+  /// Update only status; never overwrite a txid saved after a provider request.
+  static Future<void> updateStatus(String depositAddress, String status) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_key) ?? [];
+    final updated = raw.map((entry) {
+      try {
+        final json = jsonDecode(entry) as Map<String, dynamic>;
+        if (json['depositAddress'] == depositAddress) json['status'] = status;
+        return jsonEncode(json);
+      } catch (_) {
+        return entry;
+      }
+    }).toList();
+    await prefs.setStringList(_key, updated);
   }
 
   static Future<Map<String, StoredSwap>> loadByDepositAddress() async {

@@ -2,11 +2,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zipher/pages/action/widgets/wallet_review_card.dart';
+import 'package:zipher/zipher_theme.dart';
 
 void main() {
   Widget card(ValueNotifier<int> epoch,
           {required Future<void> Function() confirm,
-          required VoidCallback cancel}) =>
+          required VoidCallback cancel,
+          Future<Map<String, String>> Function(bool)? priority}) =>
       MaterialApp(
         home: Scaffold(
             body: SingleChildScrollView(
@@ -22,6 +24,7 @@ void main() {
           confirmLabel: 'Send ZEC',
           onConfirm: confirm,
           onCancel: cancel,
+          onPriorityChanged: priority,
         ))),
       );
   testWidgets('confirmation is single use while signing is pending',
@@ -87,5 +90,79 @@ void main() {
     callback();
     await tester.pump();
     expect(calls, 1);
+  });
+  testWidgets('priority recalculation blocks signing and updates the exact fee',
+      (tester) async {
+    final pending = Completer<Map<String, String>>();
+    var requested = false;
+    await tester.pumpWidget(card(ValueNotifier(1),
+        confirm: () async {}, cancel: () {}, priority: (value) {
+      requested = value;
+      return pending.future;
+    }));
+    await tester.tap(find.byType(Switch));
+    await tester.pump();
+    expect(requested, true);
+    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+        isNull);
+    pending.complete({
+      'Amount': '0.5 ZEC',
+      'Network fee': '0.0004 ZEC',
+      'Total': '0.5004 ZEC'
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('0.0004 ZEC'), findsOneWidget);
+    expect(find.text('0.5004 ZEC'), findsOneWidget);
+    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+        isNotNull);
+  });
+  testWidgets('failed fee update cannot sign the previous proposal',
+      (tester) async {
+    await tester.pumpWidget(card(ValueNotifier(1),
+        confirm: () async {
+          fail('must not sign a stale fee proposal');
+        },
+        cancel: () {},
+        priority: (_) async => throw StateError('insufficient funds')));
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(find.text('Fee update failed. Retry'), findsOneWidget);
+    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+        isNull);
+  });
+  testWidgets(
+      'standard review fits a 360-point chat viewport without scrolling',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+        theme: ZipherTheme.dark,
+        home: Scaffold(
+            body: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                    width: 358,
+                    height: 360,
+                    child: SingleChildScrollView(
+                        child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: WalletReviewCard(
+                                epoch: ValueNotifier(1),
+                                expectedEpoch: 1,
+                                details: {
+                                  'Recipient': 'u1${'a' * 200}',
+                                  'Amount': '0.00100000 ZEC',
+                                  'Network fee': '0.00010000 ZEC',
+                                  'Total': '0.00110000 ZEC'
+                                },
+                                confirmLabel: 'Send ZEC',
+                                onConfirm: () async {},
+                                onCancel: () {},
+                                onPriorityChanged: (_) async => {}))))))));
+    expect(find.text('0.001 ZEC'), findsOneWidget);
+    expect(find.text('0.0001 ZEC'), findsOneWidget);
+    expect(find.text('Cancel').hitTestable(), findsOneWidget);
+    expect(find.text('Send ZEC').hitTestable(), findsOneWidget);
+    expect(tester.getSize(find.byType(WalletReviewCard)).height,
+        lessThanOrEqualTo(328));
+    expect(tester.takeException(), isNull);
   });
 }

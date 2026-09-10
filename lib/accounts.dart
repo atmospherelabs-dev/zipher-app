@@ -257,14 +257,21 @@ abstract class _ActiveAccount2 with Store {
     height = resetHeight;
   }
 
+  bool get isCurrentWallet => identical(aa, this) &&
+      !WalletService.instance.isBusy &&
+      (walletId.isEmpty || walletId == WalletService.instance.activeWalletId) &&
+      coin == activeCoin.coin;
+
   @action
   Future<void> updateBalance() async {
-    if (id == 0) return;
+    if (id == 0 || !isCurrentWallet) return;
+    final generation = WalletService.instance.walletGeneration;
     final walletId = WalletService.instance.activeWalletId;
     final network = isTestnet;
     try {
       final balance = await WalletService.instance.getBalance();
-      if (!identical(aa, this) ||
+      if (!isCurrentWallet ||
+          generation != WalletService.instance.walletGeneration ||
           walletId != WalletService.instance.activeWalletId ||
           network != isTestnet) return;
       final next = PoolBalance.fromRust(balance);
@@ -280,16 +287,19 @@ abstract class _ActiveAccount2 with Store {
 
   @action
   Future<void> updateAddress() async {
-    if (id == 0) return;
+    if (id == 0 || !isCurrentWallet) return;
+    final generation = WalletService.instance.walletGeneration;
     final walletId = WalletService.instance.activeWalletId;
     final network = isTestnet;
     for (int attempt = 0; attempt < 3; attempt++) {
-      if (!identical(aa, this) ||
+      if (!isCurrentWallet ||
+          generation != WalletService.instance.walletGeneration ||
           walletId != WalletService.instance.activeWalletId ||
           network != isTestnet) return;
       try {
         final addrs = await WalletService.instance.getAddresses();
-        if (!identical(aa, this) ||
+        if (!isCurrentWallet ||
+          generation != WalletService.instance.walletGeneration ||
             walletId != WalletService.instance.activeWalletId ||
             network != isTestnet) return;
         if (addrs.isNotEmpty) {
@@ -307,7 +317,8 @@ abstract class _ActiveAccount2 with Store {
 
   @action
   Future<void> updateChainAddresses() async {
-    if (id == 0 || WalletService.instance.isBusy) return;
+    if (id == 0 || !isCurrentWallet) return;
+    final generation = WalletService.instance.walletGeneration;
     final owner = WalletService.instance.activeWalletId;
     final network = isTestnet;
     try {
@@ -318,7 +329,7 @@ abstract class _ActiveAccount2 with Store {
       );
       if (WalletService.instance.activeWalletId == owner &&
           isTestnet == network &&
-          identical(aa, this)) {
+          isCurrentWallet && generation == WalletService.instance.walletGeneration) {
         chainAddresses = derived;
       }
     } catch (e) {
@@ -328,7 +339,9 @@ abstract class _ActiveAccount2 with Store {
 
   @action
   Future<void> updateTransactions() async {
-    if (id == 0) return;
+    if (id == 0 || !isCurrentWallet) return;
+    final generation = WalletService.instance.walletGeneration;
+    final network = isTestnet;
     try {
       // Use aa.height if set; otherwise fetch from wallet so confirmations are correct
       var latestHeight = height;
@@ -339,7 +352,9 @@ abstract class _ActiveAccount2 with Store {
       }
       final h = latestHeight > 0 ? latestHeight : null;
 
+      if (!isCurrentWallet || generation != WalletService.instance.walletGeneration || network != isTestnet) return;
       final records = await WalletService.instance.getTransactions();
+      if (!isCurrentWallet || generation != WalletService.instance.walletGeneration || network != isTestnet) return;
       final memos = WalletService.instance.memosByTxid;
       final newTxs = <Tx>[];
       final newMessages = <ZMessage>[];
@@ -364,6 +379,7 @@ abstract class _ActiveAccount2 with Store {
           kind: r.kind,
           rawValue: r.rawValue.toDouble() / ZECUNIT,
           expiredUnmined: r.status == 'expired',
+          fee: r.fee == null ? null : r.fee!.toDouble() / ZECUNIT,
         ));
         if (memo != null && memo.isNotEmpty) {
           final incoming = r.value > 0;
@@ -393,11 +409,16 @@ abstract class _ActiveAccount2 with Store {
 
   @action
   Future<void> update(int? newHeight) async {
-    if (id == 0) return;
+    if (id == 0 || !isCurrentWallet) return;
+    final generation = WalletService.instance.walletGeneration;
     await updateAddress();
+    if (!isCurrentWallet || generation != WalletService.instance.walletGeneration) return;
     await updateBalance();
+    if (!isCurrentWallet || generation != WalletService.instance.walletGeneration) return;
     await updateTransactions();
+    if (!isCurrentWallet || generation != WalletService.instance.walletGeneration) return;
     if (chainAddresses == null) await updateChainAddresses();
+    if (!isCurrentWallet || generation != WalletService.instance.walletGeneration) return;
     currency = appSettings.currency;
     if (newHeight != null) height = newHeight;
   }

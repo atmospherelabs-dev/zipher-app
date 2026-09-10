@@ -77,33 +77,73 @@ pub async fn fetch_latest_height(server_url: &str) -> Result<u64> {
 /// Bootstrap the Tor client and store it in the engine state.
 /// `data_dir` is the app's data directory — a `tor/` subdirectory will be
 /// created inside it for Arti's persistent data and cache.
+static TOR_TRANSITION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub async fn enable_tor(data_dir: &str) -> Result<()> {
+    let _transition = TOR_TRANSITION.lock().await;
+    let identity = {
+        let mut guard = ENGINE.lock().await;
+        let engine = guard.as_mut().ok_or_else(|| anyhow::anyhow!("Wallet is not open"))?;
+        engine.tor_required = true;
+        engine.tor_client = None;
+        engine.db_data_path.clone()
+    };
+    let was_running = super::sync::is_running();
+    // Existing HTTP/2 channels retain their route. Join both workers before
+    // bootstrapping so a successful toggle also replaces those channels.
+    super::sync::stop().await;
     let tor_dir = std::path::PathBuf::from(data_dir).join("tor");
     tokio::fs::create_dir_all(&tor_dir).await?;
-
-    tracing::info!("Bootstrapping Tor client from {:?}", tor_dir);
-    let client = zcash_client_backend::tor::Client::create(&tor_dir, |perms| {
-        perms.ignore_prefix(&tor_dir);
-    })
-    .await
-    .map_err(|e| anyhow::anyhow!("Tor bootstrap failed: {}", e))?;
-    tracing::info!("Tor bootstrapped successfully");
-
-    let mut guard = ENGINE.lock().await;
-    if let Some(ref mut engine) = *guard {
+    tracing::info!("Bootstrapping Tor for Zcash connections");
+    let client = tokio::time::timeout(std::time::Duration::from_secs(120),
+        zcash_client_backend::tor::Client::create(&tor_dir, |perms| {
+            perms.ignore_prefix(&tor_dir);
+        })
+    ).await.map_err(|_| anyhow::anyhow!("Tor bootstrap timed out"))?
+        .map_err(|e| anyhow::anyhow!("Tor bootstrap failed: {e}"))?;
+    {
+        let mut guard = ENGINE.lock().await;
+        let engine = guard.as_mut().ok_or_else(|| anyhow::anyhow!("Wallet closed"))?;
+        if engine.db_data_path != identity {
+            anyhow::bail!("Wallet changed while connecting to Tor");
+        }
         engine.tor_client = Some(client);
     }
+    // Failure leaves Tor required; callers cannot retry over a direct route.
+    let verification = tokio::time::timeout(std::time::Duration::from_secs(30), verify_tor_connection())
+        .await.map_err(|_| anyhow::anyhow!("Tor verification timed out"))
+        .and_then(|result| result);
+    if let Err(error) = verification {
+        let mut guard = ENGINE.lock().await;
+        if let Some(engine) = guard.as_mut().filter(|e| e.db_data_path == identity) {
+            engine.tor_client = None;
+        }
+        return Err(error);
+    }
+    if was_running { super::sync::start().await?; }
+    tracing::info!("Tor verified; Zcash connections use Tor");
     Ok(())
 }
 
-/// Shut down Tor and revert to direct connections.
+/// Explicitly opt back into direct Zcash connections, replacing live channels.
 pub async fn disable_tor() {
-    let mut guard = ENGINE.lock().await;
-    if let Some(ref mut engine) = *guard {
-        if let Some(ref client) = engine.tor_client {
-            client.set_dormant(zcash_client_backend::tor::DormantMode::Soft);
+    let _transition = TOR_TRANSITION.lock().await;
+    let was_running = super::sync::is_running();
+    super::sync::stop().await;
+    {
+        let mut guard = ENGINE.lock().await;
+        if let Some(ref mut engine) = *guard {
+            if let Some(ref client) = engine.tor_client {
+                client.set_dormant(zcash_client_backend::tor::DormantMode::Soft);
+            }
+            engine.tor_client = None;
+            engine.tor_required = false;
         }
-        engine.tor_client = None;
+    }
+    if was_running {
+        if let Err(error) = super::sync::start().await {
+            tracing::warn!("Sync restart after disabling Tor failed: {error}");
+        }
     }
 }
 
@@ -188,6 +228,7 @@ async fn activate_engine(
         server_url: server_url.to_string(),
         birthday: BlockHeight::from_u32(birthday_height as u32),
         db_cipher_key,
+        tor_required: false,
         tor_client: None,
     });
 }
@@ -367,6 +408,7 @@ pub async fn open(
         server_url: server_url.to_string(),
         birthday,
         db_cipher_key,
+        tor_required: false,
         tor_client: None,
     });
 

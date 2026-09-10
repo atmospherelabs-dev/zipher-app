@@ -6314,6 +6314,7 @@ impl SseDecode for crate::api::engine_api::EngineSyncEvent {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_eventType = <String>::sse_decode(deserializer);
+        let mut var_scanningUpTo = <u32>::sse_decode(deserializer);
         let mut var_phase = <Option<String>>::sse_decode(deserializer);
         let mut var_syncedHeight = <u32>::sse_decode(deserializer);
         let mut var_latestHeight = <u32>::sse_decode(deserializer);
@@ -6330,6 +6331,7 @@ impl SseDecode for crate::api::engine_api::EngineSyncEvent {
         let mut var_blocksTotal = <u64>::sse_decode(deserializer);
         return crate::api::engine_api::EngineSyncEvent {
             event_type: var_eventType,
+            scanning_up_to: var_scanningUpTo,
             phase: var_phase,
             synced_height: var_syncedHeight,
             latest_height: var_latestHeight,
@@ -8408,6 +8410,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::engine_api::EngineSyncEvent {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
             self.event_type.into_into_dart().into_dart(),
+            self.scanning_up_to.into_into_dart().into_dart(),
             self.phase.into_into_dart().into_dart(),
             self.synced_height.into_into_dart().into_dart(),
             self.latest_height.into_into_dart().into_dart(),
@@ -9369,6 +9372,7 @@ impl SseEncode for crate::api::engine_api::EngineSyncEvent {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.event_type, serializer);
+        <u32>::sse_encode(self.scanning_up_to, serializer);
         <Option<String>>::sse_encode(self.phase, serializer);
         <u32>::sse_encode(self.synced_height, serializer);
         <u32>::sse_encode(self.latest_height, serializer);

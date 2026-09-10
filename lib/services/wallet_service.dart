@@ -49,6 +49,9 @@ class WalletService {
   int get proposalRevision => _proposalRevision;
   bool get isBusy => _busy || _confirmingSend || _proposingSend;
 
+  int _walletGeneration = 0;
+  int get walletGeneration => _walletGeneration;
+
   String? _activeWalletId;
   String? get activeWalletId => _activeWalletId;
 
@@ -359,6 +362,8 @@ class WalletService {
   }
 
   Future<void> _openWalletByIdInternal(String walletId) async {
+    _walletGeneration++;
+    _memosByTxid.clear();
     final dir = await walletDir(walletId: walletId);
     _log.i('[WS] openWalletById $walletId dir=$dir server=$serverUrl');
     if (useNewEngine) {
@@ -383,7 +388,7 @@ class WalletService {
     if (!useNewEngine) await rust_wallet.startSaveTask();
     _log.i('[WS] openWalletById complete');
     // Notify Ironwood service that engine is ready (deferred Tor + migration start)
-    IronwoodWatchService.instance.onWalletReady();
+    await IronwoodWatchService.instance.onWalletReady();
   }
 
   /// Switch from the current wallet to another.
@@ -515,12 +520,13 @@ class WalletService {
         final balance = useNewEngine
             ? await rust_engine.engineGetWalletBalance()
             : await rust_wallet.getWalletBalance();
-        final confirmed = balance.transparent.toInt() +
-            balance.sapling.toInt() +
-            balance.orchard.toInt() + balance.ironwood.toInt();
+        final confirmed = balance.totalTransparent.toInt() +
+            balance.totalSapling.toInt() +
+            balance.totalOrchard.toInt() + balance.totalIronwood.toInt();
         await WalletRegistry.instance.updateSnapshot(
           _activeWalletId!,
           balance: confirmed,
+          testnet: isTestnet,
         );
       } catch (e) {
         _log.w('[WS] snapshot failed (sync may be running): $e');
@@ -532,6 +538,7 @@ class WalletService {
 
   /// Snapshot balance after sync (call this after sync completion).
   Future<void> snapshotAfterSync() async {
+    final generation = _walletGeneration;
     final walletId = _activeWalletId;
     final network = isTestnet;
     if (walletId == null || !_walletOpen) return;
@@ -539,13 +546,14 @@ class WalletService {
       final balance = useNewEngine
           ? await rust_engine.engineGetWalletBalance()
           : await rust_wallet.getWalletBalance();
-      if (!_walletOpen || _activeWalletId != walletId || isTestnet != network) return;
-      final confirmed = balance.transparent.toInt() +
-          balance.sapling.toInt() +
-          balance.orchard.toInt() + balance.ironwood.toInt();
+      if (!_walletOpen || _activeWalletId != walletId || isTestnet != network || generation != _walletGeneration) return;
+      final confirmed = balance.totalTransparent.toInt() +
+          balance.totalSapling.toInt() +
+          balance.totalOrchard.toInt() + balance.totalIronwood.toInt();
       await WalletRegistry.instance.updateSnapshot(
         walletId,
         balance: confirmed,
+        testnet: network,
       );
     } catch (_) {}
   }
@@ -660,11 +668,13 @@ class WalletService {
     }
     _walletOpen = true;
     if (!useNewEngine) await rust_wallet.startSaveTask();
-    IronwoodWatchService.instance.onWalletReady();
+    await IronwoodWatchService.instance.onWalletReady();
   }
 
   Future<void> closeWallet() async {
     if (_confirmingSend || _proposingSend) throw WalletBusyException();
+    _walletGeneration++;
+    _memosByTxid.clear();
     final closingId = _activeWalletId;
     _log.i('[WS] closeWallet (activeId=$closingId)');
     final sw = Stopwatch()..start();
@@ -916,7 +926,9 @@ class WalletService {
   Future<List<rust_wallet.TransactionRecord>> getTransactions() async {
     _checkBusy();
     if (useNewEngine) {
+      final generation = _walletGeneration;
       final engineTxs = await rust_engine.engineGetTransactions();
+      if (generation != _walletGeneration || isBusy) throw WalletBusyException();
       _memosByTxid.clear();
       for (final etx in engineTxs) {
         final m = etx.memo;
@@ -983,7 +995,7 @@ class WalletService {
 
   /// Step 1: Create a proposal and return exact fee info.
   /// When [isMax] is true, [amount] is ignored and the SDK computes the max.
-  /// When [priority] is true, a 4x marginal fee is applied for faster confirmation.
+  /// When [priority] is true, a 4x marginal fee is applied; confirmation time is not guaranteed.
   Future<({int sendAmount, int fee, bool isExact})> proposeSend(
     String address,
     int amount, {

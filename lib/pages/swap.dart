@@ -11,7 +11,6 @@ import '../coin/coins.dart';
 import '../services/wallet_service.dart';
 import '../src/rust/api/wallet.dart' as rust_wallet;
 import '../src/rust/api/engine_api.dart' as rust_engine;
-import '../appsettings.dart';
 import '../services/near_intents.dart';
 import '../services/secure_key_store.dart';
 import '../zipher_theme.dart';
@@ -463,12 +462,9 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                   // Confirm button
                   GestureDetector(
                     onTap: () async {
-                      final protectSend = appSettings.protectSend;
-                      if (protectSend) {
-                        final authed =
-                            await authBarrier(ctx, dismissable: true);
-                        if (!authed) return;
-                      }
+                      final authorized = await requireSigningAuthorization(ctx,
+                          actionSummary: 'Confirm reviewed swap');
+                      if (!authorized || !mounted) return;
                       Navigator.pop(ctx);
                       await Future.delayed(const Duration(milliseconds: 300));
                       _executeSwap(quote, amountStr);

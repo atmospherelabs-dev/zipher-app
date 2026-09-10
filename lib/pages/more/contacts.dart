@@ -206,7 +206,7 @@ class ContactListState extends State<ContactList> {
             child: _ContactCard(
               contact: contact,
               selected: isSelected,
-              chainId: _chainMap[addr],
+              chainId: contact.chainId ?? _chainMap[addr],
               onPress: () => widget.onSelect?.call(index),
               onLongPress: () {
                 final v = selected != index ? index : null;
@@ -365,7 +365,8 @@ class _ContactEditState extends State<ContactEditPage> {
   }
 
   Future<void> _loadChain() async {
-    final chainId = await ContactChainStore.get(_originalAddress);
+    final contact = contacts.contacts.firstWhere((c) => c.id == widget.id);
+    final chainId = contact.chainId ?? await ContactChainStore.get(_originalAddress);
     final chain = ChainInfo.byId(chainId);
     if (chain != null && mounted) setState(() => _selectedChain = chain);
   }
@@ -527,17 +528,13 @@ class _ContactEditState extends State<ContactEditPage> {
       final addr = addressController.text;
       try {
         await contacts.add(
-            Contact(id: widget.id, name: nameController.text, address: addr));
+            Contact(id: widget.id, name: nameController.text, address: addr, chainId: _selectedChain.id));
       } catch (_) {
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text('Contact could not be saved. Try again.')));
         return;
       }
-      if (_originalAddress != addr) {
-        await ContactChainStore.remove(_originalAddress);
-      }
-      await ContactChainStore.set(addr, _selectedChain.id);
       contacts.fetchContacts();
       GoRouter.of(context).pop();
     } finally {
@@ -754,14 +751,13 @@ class _ContactAddState extends State<ContactAddPage> {
         final addr = addressController.text;
         try {
           await contacts
-              .add(Contact(id: 0, name: nameController.text, address: addr));
+              .add(Contact(id: 0, name: nameController.text, address: addr, chainId: _selectedChain.id));
         } catch (_) {
           if (mounted)
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                 content: Text('Contact could not be saved. Try again.')));
           return;
         }
-        await ContactChainStore.set(addr, _selectedChain.id);
         contacts.fetchContacts();
         GoRouter.of(context).pop();
       }

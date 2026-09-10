@@ -6,7 +6,15 @@ enum WalletCommand {
   receive,
   swap,
   balance,
+  pools,
+  privacy,
+  torOn,
+  torOff,
+  nym,
+  vpn,
   history,
+  memos,
+  clear,
   help,
   cancel,
   unknown
@@ -45,6 +53,26 @@ class WalletConversation {
         .hasMatch(s)) {
       return WalletCommand.cancel;
     }
+    if (RegExp(r'^(?:clear|clear chat|clear conversation|reset chat|new chat)$')
+        .hasMatch(s)) return WalletCommand.clear;
+    if (RegExp(
+            r'^(?:(?:show|read)(?: me)? )?(?:(?:my|the) )?(?:latest |recent )?(?:memos|messages|inbox)$')
+        .hasMatch(s)) return WalletCommand.memos;
+    // Exact privacy commands cannot capture payment memos or addresses.
+    if (RegExp(
+            r'^(?:please )?(?:activate|enable|use|turn on|connect to) tor$|^tor on$')
+        .hasMatch(s)) return WalletCommand.torOn;
+    if (RegExp(
+            r'^(?:please )?(?:disable|deactivate|turn off|disconnect from) tor$|^tor off$')
+        .hasMatch(s)) return WalletCommand.torOff;
+    if (RegExp(
+            r'^(?:(?:activate|enable|use|turn on|connect to) )?nym(?: vpn)?$')
+        .hasMatch(s)) return WalletCommand.nym;
+    if (RegExp(r'^(?:(?:activate|enable|use|turn on|connect to) )?(?:a )?vpn$')
+        .hasMatch(s)) return WalletCommand.vpn;
+    if (RegExp(
+            r'^(?:privacy|network privacy|connection|connection status|tor|tor status)$')
+        .hasMatch(s)) return WalletCommand.privacy;
     // Whole words, before broad read-only phrases. An address containing a
     // command substring must never change the intended operation.
     if (RegExp(r'\b(send|transfer|pay)\b').hasMatch(s))
@@ -59,6 +87,8 @@ class WalletConversation {
         .hasMatch(s)) {
       return WalletCommand.receive;
     }
+    if (RegExp(r'\b(pool|pools|breakdown|repartition)\b|where.*(?:zec|zcash)')
+        .hasMatch(s)) return WalletCommand.pools;
     if (RegExp(
             r'\b(balances|balance|bal)\b|how much (?:do i have|zec do i have)')
         .hasMatch(s)) {
@@ -90,8 +120,15 @@ class WalletConversation {
     return amount.toInt();
   }
 
-  static String formatZec(int value) =>
-      '${value ~/ 100000000}.${(value % 100000000).toString().padLeft(8, '0')}';
+  static String formatZec(int value) {
+    final amount = value.abs();
+    final fraction = (amount % 100000000)
+        .toString()
+        .padLeft(8, '0')
+        .replaceFirst(RegExp(r'0+$'), '');
+    return '${value < 0 ? '-' : ''}${amount ~/ 100000000}'
+        '${fraction.isEmpty ? '' : '.$fraction'}';
+  }
 
   static bool looksLikeAddress(String text) => RegExp(
           r'^(?:u1|utest1|uregtest1|zs1|ztestsapling1|tex1|textest1|t1|t3|tm|t2)[a-zA-Z0-9]{20,}$')

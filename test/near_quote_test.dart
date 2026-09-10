@@ -72,4 +72,18 @@ void main() {
     expect(records, hasLength(1));
     expect(records.single.txId, 'broadcast-txid');
   });
+
+  test('status persistence retains wallet ownership and the funding transaction', () async {
+    SharedPreferences.setMockInitialValues({});
+    await SwapStore.save(StoredSwap(walletId: 'wallet-one', testnet: false,
+        provider: 'near_intents', depositAddress: 'deposit', timestamp: 1,
+        fromCurrency: 'ZEC', fromAmount: '1', toCurrency: 'ETH',
+        toAmount: '.1', toAddress: 'recipient', txId: 'funding'));
+    await SwapStore.updateStatus('deposit', 'SUCCESS');
+    final record = (await SwapStore.load()).single;
+    expect(record.walletId, 'wallet-one');
+    expect(record.testnet, false);
+    expect(record.txId, 'funding');
+    expect(record.status, 'SUCCESS');
+  });
 }

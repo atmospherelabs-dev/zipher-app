@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:logger/logger.dart';
+import 'package:flutter_mobx/flutter_mobx.dart';
+import '../../src/version.dart';
+import '../../coin/coins.dart';
 
 import '../../services/app_log.dart';
 import '../../store2.dart';
@@ -23,7 +26,18 @@ class _DebugLogPageState extends State<DebugLogPage> {
       .toList();
 
   @override
+  void initState() {
+    super.initState();
+    AppLog.instance.addListener(_onLog);
+  }
+
+  void _onLog() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    AppLog.instance.removeListener(_onLog);
     _scrollController.dispose();
     super.dispose();
   }
@@ -35,165 +49,182 @@ class _DebugLogPageState extends State<DebugLogPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final entries = _filtered;
-    final syncPhase = syncStatus2.phase;
-    final syncedH = syncStatus2.syncedHeight;
-    final scanningUpTo = syncStatus2.scanningUpTo;
-    final latestH = syncStatus2.latestHeight ?? 0;
-    final activeLabel =
-        syncPhase == 'verifying' ? 'verifying to' : 'scanning to';
-    final connected = syncStatus2.connected;
-    final error = syncStatus2.connectionError;
-    final queueLen = syncStatus2.maintenanceQueueLen;
-    final blocksScanned = syncStatus2.blocksScanned;
-    final blocksTotal = syncStatus2.blocksTotal;
-    final blocksPct = syncStatus2.blocksProgress;
-    final blocksPctStr =
-        blocksPct != null ? '${(blocksPct * 100).toStringAsFixed(1)}%' : '–';
+  Widget build(BuildContext context) => Observer(builder: (_) {
+        final entries = _filtered;
+        final syncPhase = syncStatus2.phase;
+        final syncedH = syncStatus2.syncedHeight;
+        final scanningUpTo = syncStatus2.scanningUpTo;
+        final latestH = syncStatus2.latestHeight ?? 0;
+        final activeLabel =
+            syncPhase == 'verifying' ? 'verifying to' : 'scanning to';
+        final connected = syncStatus2.connected;
+        final error = syncStatus2.connectionError == null
+            ? null
+            : AppLog.sanitize(syncStatus2.connectionError!);
+        final queueLen = syncStatus2.maintenanceQueueLen;
+        final blocksScanned = syncStatus2.blocksScanned;
+        final blocksTotal = syncStatus2.blocksTotal;
+        final blocksPct = syncStatus2.blocksProgress;
+        final blocksPctStr = blocksPct != null
+            ? '${(blocksPct * 100).toStringAsFixed(1)}%'
+            : '–';
 
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
-    return Scaffold(
-      backgroundColor: ZipherColors.bg,
-      appBar: AppBar(
-        backgroundColor: ZipherColors.bg,
-        title: const Text('Debug Log', style: TextStyle(fontSize: 16)),
-        actions: [
-          PopupMenuButton<Level>(
-            icon: Icon(Icons.filter_list, color: ZipherColors.text60, size: 20),
-            onSelected: (level) => setState(() => _minLevel = level),
-            itemBuilder: (_) => [
-              for (final l in [
-                Level.trace,
-                Level.debug,
-                Level.info,
-                Level.warning,
-                Level.error
-              ])
-                PopupMenuItem(value: l, child: Text(_levelName(l))),
-            ],
-          ),
-          IconButton(
-            icon: Icon(Icons.copy, color: ZipherColors.text60, size: 20),
-            onPressed: () async {
-              final all = AppLog.instance.entries;
-              final header = 'Zipher Debug Log\n'
-                  'connected=$connected phase=$syncPhase\n'
-                  'committed_height=$syncedH/$latestH ${activeLabel.replaceAll(' ', '_')}=$scanningUpTo queue=$queueLen\n'
-                  'blocks=$blocksScanned/$blocksTotal ($blocksPctStr)\n'
-                  'error=${error ?? 'none'}\n'
-                  '---\n';
-              final body = all
-                  .map((e) =>
-                      '${_ts(e.time)} [${_levelTag(e.level)}] ${e.message}')
-                  .join('\n');
-              final text = header + body;
-              await Clipboard.setData(ClipboardData(text: text));
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Copied ${all.length} entries')),
-                );
-              }
-            },
-          ),
-          IconButton(
-            icon: Icon(Icons.delete_outline,
-                color: ZipherColors.text60, size: 20),
-            onPressed: () {
-              AppLog.instance.clear();
-              setState(() {});
-            },
-          ),
-          IconButton(
-            icon: Icon(Icons.refresh, color: ZipherColors.text60, size: 20),
-            onPressed: () => setState(() {}),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            color: ZipherColors.cardBg,
-            child: DefaultTextStyle(
-              style: TextStyle(
-                fontFamily: 'JetBrains Mono',
-                fontSize: 11,
-                color: ZipherColors.text60,
-                height: 1.5,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Icon(
-                      connected
-                          ? Icons.cloud_done_outlined
-                          : Icons.cloud_off_outlined,
-                      size: 14,
-                      color: connected ? ZipherColors.green : ZipherColors.red,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      connected ? 'Connected' : 'Disconnected',
-                      style: TextStyle(
-                        color:
-                            connected ? ZipherColors.green : ZipherColors.red,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text('phase: $syncPhase'),
-                  ]),
-                  const SizedBox(height: 4),
-                  Text(
-                      'committed: $syncedH / $latestH   $activeLabel: $scanningUpTo   queue: $queueLen'),
-                  const SizedBox(height: 2),
-                  Text(
-                      'blocks: $blocksScanned / $blocksTotal   progress: $blocksPctStr'),
-                  if (error != null) ...[
-                    const SizedBox(height: 4),
-                    Text('error: $error',
-                        style:
-                            TextStyle(color: ZipherColors.red, fontSize: 10)),
-                  ],
+        return Scaffold(
+          backgroundColor: ZipherColors.bg,
+          appBar: AppBar(
+            backgroundColor: ZipherColors.bg,
+            title: const Text('Debug Log', style: TextStyle(fontSize: 16)),
+            actions: [
+              PopupMenuButton<Level>(
+                icon: Icon(Icons.filter_list,
+                    color: ZipherColors.text60, size: 20),
+                onSelected: (level) => setState(() => _minLevel = level),
+                itemBuilder: (_) => [
+                  for (final l in [
+                    Level.trace,
+                    Level.debug,
+                    Level.info,
+                    Level.warning,
+                    Level.error
+                  ])
+                    PopupMenuItem(value: l, child: Text(_levelName(l))),
                 ],
               ),
-            ),
+              IconButton(
+                icon: Icon(Icons.copy, color: ZipherColors.text60, size: 20),
+                onPressed: () async {
+                  final all = AppLog.instance.entries;
+                  final header = 'Zipher Debug Log · $packageVersion\n'
+                      'commit=$commitId network=${isTestnet ? "testnet" : "mainnet"} time=${DateTime.now().toUtc().toIso8601String()}\n'
+                      'connected=$connected phase=$syncPhase\n'
+                      'committed_height=$syncedH/$latestH ${activeLabel.replaceAll(' ', '_')}=$scanningUpTo queue=$queueLen\n'
+                      'blocks=$blocksScanned/$blocksTotal ($blocksPctStr)\n'
+                      'error=${error ?? 'none'}\n'
+                      'maintenance=${AppLog.sanitize(syncStatus2.maintenanceError ?? "none")}\n'
+                      '---\n';
+                  final body = all
+                      .map((e) =>
+                          '${_ts(e.time)} [${_levelTag(e.level)}] ${e.message}')
+                      .join('\n');
+                  final text = header + body;
+                  await Clipboard.setData(ClipboardData(text: text));
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Copied ${all.length} entries')),
+                    );
+                  }
+                },
+              ),
+              IconButton(
+                icon: Icon(Icons.delete_outline,
+                    color: ZipherColors.text60, size: 20),
+                onPressed: () {
+                  AppLog.instance.clear();
+                  setState(() {});
+                },
+              ),
+              IconButton(
+                icon: Icon(Icons.refresh, color: ZipherColors.text60, size: 20),
+                onPressed: () => setState(() {}),
+              ),
+            ],
           ),
-          Expanded(
-            child: entries.isEmpty
-                ? Center(
-                    child: Text('No log entries',
-                        style: TextStyle(color: ZipherColors.text40)))
-                : ListView.builder(
-                    controller: _scrollController,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    itemCount: entries.length,
-                    itemBuilder: (context, index) {
-                      final e = entries[index];
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 1),
-                        child: Text(
-                          '${_ts(e.time)} ${_levelTag(e.level)} ${e.message}',
+          body: Column(
+            children: [
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                color: ZipherColors.cardBg,
+                child: DefaultTextStyle(
+                  style: TextStyle(
+                    fontFamily: 'JetBrains Mono',
+                    fontSize: 11,
+                    color: ZipherColors.text60,
+                    height: 1.5,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Icon(
+                          connected
+                              ? Icons.cloud_done_outlined
+                              : Icons.cloud_off_outlined,
+                          size: 14,
+                          color:
+                              connected ? ZipherColors.green : ZipherColors.red,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          connected ? 'Connected' : 'Disconnected',
                           style: TextStyle(
-                            fontFamily: 'JetBrains Mono',
-                            fontSize: 10,
-                            height: 1.4,
-                            color: _levelColor(e.level),
+                            color: connected
+                                ? ZipherColors.green
+                                : ZipherColors.red,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      );
-                    },
+                        const SizedBox(width: 12),
+                        Text('phase: $syncPhase'),
+                      ]),
+                      const SizedBox(height: 4),
+                      Text(
+                          'committed: $syncedH / $latestH   $activeLabel: $scanningUpTo   queue: $queueLen'),
+                      const SizedBox(height: 2),
+                      Text(
+                          'blocks: $blocksScanned / $blocksTotal   progress: $blocksPctStr'),
+                      if (error != null) ...[
+                        const SizedBox(height: 4),
+                        Text('error: $error',
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                color: ZipherColors.red, fontSize: 10)),
+                      ],
+                    ],
                   ),
+                ),
+              ),
+              Expanded(
+                child: NotificationListener<ScrollNotification>(
+                    onNotification: (notice) {
+                      _autoScroll = notice.metrics.extentAfter < 60;
+                      return false;
+                    },
+                    child: entries.isEmpty
+                        ? Center(
+                            child: Text('No log entries',
+                                style: TextStyle(color: ZipherColors.text40)))
+                        : ListView.builder(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            itemCount: entries.length,
+                            itemBuilder: (context, index) {
+                              final e = entries[index];
+                              return Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 1),
+                                child: Text(
+                                  '${_ts(e.time)} ${_levelTag(e.level)} ${e.message}',
+                                  style: TextStyle(
+                                    fontFamily: 'JetBrains Mono',
+                                    fontSize: 10,
+                                    height: 1.4,
+                                    color: _levelColor(e.level),
+                                  ),
+                                ),
+                              );
+                            },
+                          )),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-  }
+        );
+      });
 
   String _ts(DateTime t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';

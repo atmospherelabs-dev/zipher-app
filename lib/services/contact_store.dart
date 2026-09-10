@@ -41,6 +41,7 @@ class ContactStore {
               id: entry['id'] as int,
               name: entry['name'] as String?,
               address: entry['address'] as String?,
+              chainId: entry['chainId'] as String?,
             ))
         .toList();
     if (loaded.any((c) => c.id <= 0) ||
@@ -63,7 +64,12 @@ class ContactStore {
 
   Future<void> _persist(List<Contact> next) async {
     await _write(jsonEncode(next
-        .map((c) => {'id': c.id, 'name': c.name, 'address': c.address})
+        .map((c) => {
+              'id': c.id,
+              'name': c.name,
+              'address': c.address,
+              'chainId': c.chainId
+            })
         .toList()));
     runInAction(() {
       contacts
@@ -82,8 +88,11 @@ class ContactStore {
         if (id < 1) throw ArgumentError('Invalid contact identifier');
         final next = contacts.toList();
         final index = next.indexWhere((c) => c.id == id);
-        final saved =
-            Contact(id: id, name: contact.name, address: contact.address);
+        final saved = Contact(
+            id: id,
+            name: contact.name,
+            address: contact.address,
+            chainId: contact.chainId);
         if (index == -1) {
           next.add(saved);
         } else {

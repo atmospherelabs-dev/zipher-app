@@ -269,7 +269,7 @@ pub async fn tick(seed_phrase: &secrecy::SecretString) -> Result<ProgressReport>
                         &server_url,
                         &params,
                         raw,
-                        current.tor_client.clone(),
+                        current.tor_transport()?,
                     ),
                 )
                 .await

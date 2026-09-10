@@ -46,7 +46,7 @@ async fn connect_lwd_maybe_tor(
 ) -> Result<CompactTxStreamerClient<tonic::transport::Channel>> {
     let tor = {
         let guard = ENGINE.lock().await;
-        guard.as_ref().and_then(|e| e.tor_client.clone())
+        guard.as_ref().map(|e| e.tor_transport()).transpose()?.flatten()
     };
     if let Some(ref client) = tor {
         connect_lwd_tor(client, server_url).await
@@ -61,6 +61,8 @@ async fn connect_lwd_maybe_tor(
 
 static SYNC_RUNNING: AtomicBool = AtomicBool::new(false);
 static SYNC_CANCEL: AtomicBool = AtomicBool::new(false);
+// Survives reconnect passes; reset only when a wallet starts a new sync session.
+static DOWNLOAD_BATCH_LIMIT: AtomicU32 = AtomicU32::new(u32::MAX);
 static SYNC_PASS_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 // Stuck-reorg detection: if we see the same continuity error at the same
@@ -131,11 +133,10 @@ pub struct SyncRuntimeConfig {
     /// How many completed batches may wait ahead of the scanner. Additional
     /// lookahead trades memory for latency hiding; explicit values are capped at 8.
     pub prefetch_depth: usize,
-    /// Optional lightwalletd peers we round-robin batch downloads across.
-    /// One failed batch silently falls back to the primary. Empty means
-    /// single-server.
+    /// Optional lightwalletd peers. Automatic selection keeps them for failover;
+    /// explicitly configured multi-server downloads rotate through them.
     pub alternate_servers: Vec<String>,
-    /// Allow known-server defaults. Explicit benchmark configurations disable this.
+    /// Use known fallback peers without rotating healthy downloads across regions.
     pub auto_select_servers: bool,
 }
 
@@ -149,10 +150,8 @@ impl Default for SyncRuntimeConfig {
     }
 }
 
-/// Canonical lightwalletd servers we are willing to spread download load
-/// across when multi-server prefetch is enabled. We only auto-enable
-/// multi-server when the user's chosen primary is one of these — if the
-/// user picked a self-hosted node we leave them on a single server.
+/// Known fallback peers for public-server users. Custom/self-hosted server
+/// selections never silently add third-party peers.
 pub fn known_lightwalletd_servers(params: &Network) -> Vec<String> {
     match params {
         Network::MainNetwork => vec![
@@ -202,6 +201,7 @@ pub struct SyncPerfSnapshot {
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct SyncEventInfo {
     pub event_type: String,
+    pub scanning_up_to: u32,
     pub phase: Option<String>,
     pub synced_height: u32,
     pub latest_height: u32,
@@ -268,22 +268,22 @@ pub async fn start() -> Result<()> {
 
     SYNC_RUNNING.store(true, Ordering::SeqCst);
     SYNC_CANCEL.store(false, Ordering::SeqCst);
+    DOWNLOAD_BATCH_LIMIT.store(u32::MAX, Ordering::Release);
     {
         let mut runtime = SYNC_RUNTIME_CONFIG.lock().await;
-        if runtime.auto_select_servers && runtime.alternate_servers.is_empty() {
+        if runtime.auto_select_servers {
             let defaults = default_alternate_servers(&params, &server_url);
             if !defaults.is_empty() {
-                tracing::info!(
-                    "[sync] auto-enabling multi-server with {} alternates",
-                    defaults.len()
-                );
+                tracing::info!("[sync] configuring {} fallback peers", defaults.len());
                 emit_log(&format!(
-                    "multi-server: auto-enabled, {} alternates ({})",
+                    "server policy: selected peer with {} fallbacks ({})",
                     defaults.len(),
                     short_server_list(&defaults)
                 ));
-                runtime.alternate_servers = defaults;
             }
+            // Recompute after a wallet/server switch; never carry public peers
+            // into a custom-server session.
+            runtime.alternate_servers = defaults;
         }
         let runtime_snapshot = runtime.clone();
         drop(runtime);
@@ -291,7 +291,8 @@ pub async fn start() -> Result<()> {
         *perf = SyncPerfSnapshot {
             adaptive_batch_size: SCAN_BATCH_SIZE,
             prefetch_depth: runtime_snapshot.prefetch_depth,
-            multi_server_enabled: runtime_snapshot.prefetch_depth > 0
+            multi_server_enabled: !runtime_snapshot.auto_select_servers
+                && runtime_snapshot.prefetch_depth > 0
                 && !runtime_snapshot.alternate_servers.is_empty(),
             ..SyncPerfSnapshot::default()
         };
@@ -414,6 +415,7 @@ async fn emit_progress_event(event_type: &str, scope: Option<&str>, message: Opt
     let p = SYNC_PROGRESS.lock().await.clone();
     emit_event(SyncEventInfo {
         event_type: event_type.to_string(),
+        scanning_up_to: p.scanning_up_to,
         phase: Some(p.phase),
         synced_height: p.synced_height,
         latest_height: p.latest_height,
@@ -434,6 +436,7 @@ async fn emit_progress_event(event_type: &str, scope: Option<&str>, message: Opt
 pub fn emit_transaction_event(txid: String, status: &str) {
     emit_event(SyncEventInfo {
         event_type: "transaction_updated".to_string(),
+        scanning_up_to: 0,
         phase: None,
         synced_height: 0,
         latest_height: 0,
@@ -451,6 +454,7 @@ pub fn emit_transaction_event(txid: String, status: &str) {
     });
     emit_event(SyncEventInfo {
         event_type: "balance_maybe_changed".to_string(),
+        scanning_up_to: 0,
         phase: None,
         synced_height: 0,
         latest_height: 0,
@@ -472,6 +476,7 @@ pub fn emit_transaction_event(txid: String, status: &str) {
 pub fn emit_log(message: &str) {
     emit_event(SyncEventInfo {
         event_type: "engine_log".to_string(),
+        scanning_up_to: 0,
         phase: None,
         synced_height: 0,
         latest_height: 0,
@@ -635,7 +640,25 @@ async fn sync_forever(
     loop {
         check_cancel()?;
 
-        match sync_once(db_data_path, params, server_url, db_cipher_key, &mut perf).await {
+        let active_server = {
+            let runtime = SYNC_RUNTIME_CONFIG.lock().await;
+            let mut peers = vec![server_url.to_string()];
+            for peer in &runtime.alternate_servers {
+                if !peers.contains(peer) {
+                    peers.push(peer.clone());
+                }
+            }
+            peers[consecutive_failures as usize % peers.len()].clone()
+        };
+        match sync_once(
+            db_data_path,
+            params,
+            &active_server,
+            db_cipher_key,
+            &mut perf,
+        )
+        .await
+        {
             Ok(()) => {
                 {
                     let mut p = SYNC_PROGRESS.lock().await;
@@ -665,7 +688,7 @@ async fn sync_forever(
                 }
 
                 consecutive_failures += 1;
-                let err_msg = format!("{:?}", e);
+                let err_msg = format!("{:#}", e);
                 tracing::warn!(
                     "[sync] error (attempt {}), retrying in {}ms: {}",
                     consecutive_failures,
@@ -673,18 +696,16 @@ async fn sync_forever(
                     err_msg
                 );
                 emit_log(&format!(
-                    "pass failed (attempt {}): {}",
+                    "pass failed attempt={} retry_ms={} batch_limit={}: {}",
                     consecutive_failures,
-                    if err_msg.len() > 120 {
-                        &err_msg[..120]
-                    } else {
-                        &err_msg
-                    }
+                    backoff_ms,
+                    DOWNLOAD_BATCH_LIMIT.load(Ordering::Acquire),
+                    err_msg
                 ));
 
                 if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
                     let mut p = SYNC_PROGRESS.lock().await;
-                    p.connection_error = Some(format!("{:?}", e));
+                    p.connection_error = Some(format!("{:#}", e));
                     p.phase = SYNC_PHASE_IDLE.to_string();
                     p.is_syncing = false;
                     drop(p);
@@ -698,18 +719,18 @@ async fn sync_forever(
                     )
                     .await;
                     return Err(anyhow::anyhow!(
-                        "Sync stopped after {} consecutive failures: {:?}",
+                        "Sync stopped after {} consecutive failures: {:#}",
                         MAX_CONSECUTIVE_FAILURES,
                         e
                     ));
                 }
 
-                if consecutive_failures >= 3 {
+                {
                     let mut p = SYNC_PROGRESS.lock().await;
-                    p.connection_error = Some(format!("{:?}", e));
+                    p.connection_error = Some(format!("{:#}", e));
                     p.phase = SYNC_PHASE_RECONNECTING.to_string();
                     drop(p);
-                    emit_progress_event("connection_error", Some("scan"), Some(format!("{:?}", e)))
+                    emit_progress_event("connection_error", Some("scan"), Some(format!("{:#}", e)))
                         .await;
                 }
 
@@ -850,7 +871,7 @@ async fn sync_once(
     }
 
     // 2) Sync until caught up (ECC pattern: `while running(...) {}`)
-    let mut batch_size: u32 = SCAN_BATCH_SIZE;
+    let mut batch_size: u32 = SCAN_BATCH_SIZE.min(DOWNLOAD_BATCH_LIMIT.load(Ordering::Acquire));
     let mut keep_running = true;
     const SYNC_RESTART_TIMEOUT: Duration = Duration::from_secs(300);
     while keep_running {
@@ -1049,7 +1070,7 @@ async fn sync_once(
                 batches.len(),
                 batch_size,
                 runtime.prefetch_depth,
-                !runtime.alternate_servers.is_empty()
+                !runtime.auto_select_servers && !runtime.alternate_servers.is_empty()
             ));
 
             let mut plan = BatchPlan {
@@ -1106,6 +1127,7 @@ async fn sync_once(
                     emit_progress_event("phase_changed", None, None).await;
                     did_restart = handle_scan_outcome(
                         outcome,
+                        perf,
                         &mut db_data,
                         &params,
                         &mut lwd,
@@ -1180,11 +1202,15 @@ async fn sync_once(
                     }
                     let committed_before = wallet_fully_scanned_height(&mut db_data).unwrap_or(0);
                     emit_log(&format!(
-                        "batch {} [{:?}] {}..{}: prefetched, scanning",
+                        "batch {} [{:?}] {}..{}: downloaded in {} ms, prefetched, scanning",
                         batch_idx,
                         current_range.priority(),
                         u32::from(current_range.block_range().start),
                         u32::from(current_range.block_range().end),
+                        downloaded
+                            .as_ref()
+                            .map(|range| range.download_ms)
+                            .unwrap_or(0),
                     ));
                     {
                         let mut p = SYNC_PROGRESS.lock().await;
@@ -1210,6 +1236,7 @@ async fn sync_once(
                     emit_progress_event("phase_changed", None, None).await;
                     did_restart = handle_scan_outcome(
                         outcome,
+                        perf,
                         &mut db_data,
                         &params,
                         &mut lwd,
@@ -1358,7 +1385,7 @@ async fn sync_once(
             {
                 tracing::warn!("[sync] maintenance failed (will retry next pass): {:?}", e);
                 let mut p = SYNC_PROGRESS.lock().await;
-                p.maintenance_error = Some(format!("{:?}", e));
+                p.maintenance_error = Some(format!("{:#}", e));
             }
             match pending::resubmit_unmined(
                 db_data_path,
@@ -1381,7 +1408,7 @@ async fn sync_once(
                 Err(e) => {
                     tracing::warn!("[sync] pending tx resubmission failed: {:?}", e);
                     let mut p = SYNC_PROGRESS.lock().await;
-                    p.maintenance_error = Some(format!("{:?}", e));
+                    p.maintenance_error = Some(format!("{:#}", e));
                 }
             }
         }
@@ -1391,7 +1418,7 @@ async fn sync_once(
             // as a wallet-wide connection failure.
             tracing::warn!("[sync] maintenance connection failed: {:?}", e);
             let mut p = SYNC_PROGRESS.lock().await;
-            p.maintenance_error = Some(format!("{:?}", e));
+            p.maintenance_error = Some(format!("{:#}", e));
         }
     }
 
@@ -2248,6 +2275,7 @@ struct SessionPerf {
     scan_ms: u64,
     restarted_batches: u64,
     multi_server_fallbacks: u64,
+    last_summary_refresh: Option<Instant>,
 }
 
 impl SessionPerf {
@@ -2302,7 +2330,8 @@ impl SessionPerf {
             work_units_per_second,
             adaptive_batch_size,
             prefetch_depth: runtime.prefetch_depth,
-            multi_server_enabled: runtime.prefetch_depth > 0
+            multi_server_enabled: !runtime.auto_select_servers
+                && runtime.prefetch_depth > 0
                 && !runtime.alternate_servers.is_empty(),
             multi_server_fallbacks: self.multi_server_fallbacks,
         };
@@ -2388,8 +2417,8 @@ fn adjust_batch_size(current: u32, scan_elapsed_ms: u64) -> u32 {
 }
 
 /// Producer task for the prefetch pipeline. Downloads block ranges
-/// sequentially, round-robin'ing across the configured lightwalletd
-/// peers so load spreads, and emits each downloaded batch to the scan
+/// sequentially on the selected peer (or rotates explicitly configured peers),
+/// and emits each downloaded batch to the scan
 /// consumer in order via `tx` (its capacity, `runtime.prefetch_depth`,
 /// is the pipeline depth — we can stay that many batches ahead of the
 /// scanner before blocking).
@@ -2414,6 +2443,9 @@ async fn fetch_prefetched_ranges(
         return Ok(());
     }
 
+    // Automatic mode keeps a healthy selected peer; sync_forever rotates on
+    // failure. Explicit multi-server mode preserves round-robin downloads.
+    let rotate_peers = !runtime.auto_select_servers;
     // Build the rotation: primary first, then unique alternates.
     let mut servers = vec![primary_server_url.clone()];
     for server in runtime.alternate_servers {
@@ -2430,7 +2462,12 @@ async fn fetch_prefetched_ranges(
     let mut batch_idx = 0;
     while let Some(scan_range) = plan.next_batch(batch_size.load(Ordering::Acquire)) {
         check_cancel()?;
-        let server_url = servers[batch_idx % servers.len()].clone();
+        let server_url = servers[if rotate_peers {
+            batch_idx % servers.len()
+        } else {
+            0
+        }]
+        .clone();
         let first = async {
             if !clients.contains_key(&server_url) {
                 let client = tokio::time::timeout(
@@ -2497,7 +2534,8 @@ fn process_prefetched_range(
         process_downloaded_range(params, db_data, current_range, downloaded)
     })?;
     let scan_elapsed_ms = scan_started.elapsed().as_millis() as u64;
-    *batch_size = adjust_batch_size(*batch_size, scan_elapsed_ms);
+    *batch_size = adjust_batch_size(*batch_size, scan_elapsed_ms)
+        .min(DOWNLOAD_BATCH_LIMIT.load(Ordering::Acquire));
     if let Some(stats) = batch_stats {
         perf.record(stats, scan_elapsed_ms, &outcome);
     }
@@ -2506,6 +2544,7 @@ fn process_prefetched_range(
 
 async fn handle_scan_outcome(
     outcome: ScanOutcome,
+    perf: &mut SessionPerf,
     db_data: &mut DbType,
     params: &Network,
     lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
@@ -2522,7 +2561,15 @@ async fn handle_scan_outcome(
             notes_found,
         } => {
             update_synced_progress(db_data, synced_height, false).await;
-            refresh_scan_progress(db_data).await;
+            // WalletSummary computes all balances and subtree estimates. Keep it
+            // off the per-batch hot path, especially the 100-block spam-era batches.
+            // Committed heights and block counts still update after every batch.
+            if perf.last_summary_refresh.is_none_or(|last| last.elapsed() >= Duration::from_secs(15)) {
+                let started = Instant::now();
+                refresh_scan_progress(db_data).await;
+                perf.last_summary_refresh = Some(Instant::now());
+                emit_log(&format!("progress summary refreshed in {} ms", started.elapsed().as_millis()));
+            }
             if notes_found > 0 {
                 let _ =
                     enhance_transactions_inline(db_data, params, lwd, db_data_path, db_cipher_key)
@@ -2530,6 +2577,7 @@ async fn handle_scan_outcome(
             }
             emit_event(SyncEventInfo {
                 event_type: "balance_maybe_changed".to_string(),
+                scanning_up_to: 0,
                 phase: None,
                 synced_height,
                 latest_height: 0,
@@ -2549,6 +2597,17 @@ async fn handle_scan_outcome(
         }
         ScanOutcome::NothingToScan => Ok(false),
     }
+}
+
+// Use observed throughput when available, while always shrinking the failed range.
+fn smaller_download_batch(requested: u32, received: u32) -> u32 {
+    let half = (requested / 2).max(1);
+    let throughput = if received == 0 {
+        half
+    } else {
+        (received / 2).max(1)
+    };
+    half.min(throughput).max(16).min(requested.max(1))
 }
 
 /// Download independent block and tree-state requests on the same HTTP/2 channel.
@@ -2571,19 +2630,40 @@ async fn download_range(
         return Ok(None);
     }
     let mut tree_client = lwd.clone();
-    let (blocks, chain_state) = tokio::time::timeout(BATCH_DOWNLOAD_DEADLINE, async {
+    let received = AtomicU32::new(0);
+    let tree_ready = AtomicBool::new(false);
+    emit_log(&format!(
+        "download start range={}..{} blocks={} priority={:?}",
+        u32::from(range_start),
+        u32::from(range_end),
+        scan_range.len(),
+        scan_range.priority()
+    ));
+    let result = tokio::time::timeout(BATCH_DOWNLOAD_DEADLINE, async {
         tokio::try_join!(
-            download_blocks(lwd, range_start, range_end),
-            download_chain_state(&mut tree_client, range_start),
+            download_blocks(lwd, range_start, range_end, &received),
+            async {
+                let state = download_chain_state(&mut tree_client, range_start).await?;
+                tree_ready.store(true, Ordering::Relaxed);
+                Ok::<_, anyhow::Error>(state)
+            },
         )
     })
-    .await
-    .map_err(|_| {
-        anyhow::anyhow!(
-            "batch download timed out after {}s",
-            BATCH_DOWNLOAD_DEADLINE.as_secs()
-        )
-    })??;
+    .await;
+    let (blocks, chain_state) = match result {
+        Ok(result) => result?,
+        Err(_) => {
+            let count = received.load(Ordering::Relaxed);
+            let next = smaller_download_batch(scan_range.len() as u32, count);
+            DOWNLOAD_BATCH_LIMIT.fetch_min(next, Ordering::AcqRel);
+            return Err(anyhow::anyhow!(
+                "download timeout: range={}..{} received={}/{} tree_ready={} elapsed_s={} next_batch={}",
+                u32::from(range_start), u32::from(range_end), count, scan_range.len(),
+                tree_ready.load(Ordering::Relaxed), BATCH_DOWNLOAD_DEADLINE.as_secs(),
+                DOWNLOAD_BATCH_LIMIT.load(Ordering::Acquire)
+            ));
+        }
+    };
     // Empty or truncated server responses must fail, never count as completed work.
     validate_blocks_for_range(&blocks, range_start, range_end)?;
     anyhow::ensure!(
@@ -2833,6 +2913,7 @@ struct BatchPlan {
 
 impl BatchPlan {
     fn next_batch(&mut self, batch_size: u32) -> Option<ScanRange> {
+        let batch_size = batch_size.min(DOWNLOAD_BATCH_LIMIT.load(Ordering::Acquire));
         while let Some(range) = self.pending.pop_front() {
             if range.is_empty() {
                 continue;
@@ -3074,13 +3155,12 @@ fn summarize_scan_ranges(ranges: &[ScanRange]) -> String {
 }
 
 fn wallet_fully_scanned_height(db_data: &mut DbType) -> Option<u32> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        db_data.get_wallet_summary(ConfirmationsPolicy::MIN)
-    }))
-    .ok()
-    .and_then(|r| r.ok())
-    .flatten()
-    .map(|s| u32::from(s.fully_scanned_height()))
+    // The SDK summary uses the same metadata, falling back to birthday - 1.
+    // Asking for the full summary here recomputed balances several times per batch.
+    match db_data.block_fully_scanned().ok()? {
+        Some(block) => Some(u32::from(block.block_height())),
+        None => db_data.get_wallet_birthday().ok()?.map(|h| u32::from(h).saturating_sub(1)),
+    }
 }
 
 async fn update_synced_progress(db_data: &mut DbType, fallback_height: u32, allow_regress: bool) {
@@ -3246,6 +3326,7 @@ async fn download_blocks(
     lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
     from: BlockHeight,
     to: BlockHeight,
+    received: &AtomicU32,
 ) -> Result<Vec<CompactBlock>> {
     let range = BlockRange {
         start: Some(BlockId {
@@ -3278,6 +3359,7 @@ async fn download_blocks(
             end
         );
         expected += 1;
+        received.fetch_add(1, Ordering::Relaxed);
         blocks.push(block);
     }
 
@@ -3394,6 +3476,57 @@ async fn refresh_transparent_utxos(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "manual Tor network verification; no keys, wallet data, or transaction submission"]
+    async fn verify_live_tor_transport() {
+        let dir = tempfile::tempdir().unwrap();
+        *ENGINE.lock().await = Some(crate::ZipherEngine {
+            db_data_path: dir.path().join("unused.db"), params: Network::MainNetwork,
+            server_url: "https://zec.rocks:443".into(), birthday: height(3_477_000),
+            db_cipher_key: None, tor_required: false, tor_client: None,
+        });
+        let started = Instant::now();
+        let result = super::super::wallet::enable_tor(dir.path().to_str().unwrap()).await;
+        if result.is_ok() {
+            assert!(super::super::wallet::is_tor_enabled().await);
+            let tip = super::super::wallet::verify_tor_connection().await.unwrap();
+            println!("Tor verified: tip={tip} elapsed_ms={}", started.elapsed().as_millis());
+        }
+        super::super::wallet::disable_tor().await;
+        *ENGINE.lock().await = None;
+        result.unwrap();
+    }
+
+    #[test]
+    fn requested_tor_without_a_client_blocks_network_access() {
+        let mut engine = crate::ZipherEngine {
+            db_data_path: PathBuf::from("disposable.db"),
+            params: Network::TestNetwork,
+            server_url: "http://127.0.0.1:1".into(),
+            birthday: height(2_000_000),
+            db_cipher_key: None,
+            tor_required: false,
+            tor_client: None,
+        };
+        assert!(engine.tor_transport().unwrap().is_none());
+        engine.tor_required = true;
+        assert!(engine.tor_transport().is_err());
+    }
+
+    #[test]
+    fn timeout_batches_shrink_to_observed_throughput_without_zero_ranges() {
+        assert_eq!(smaller_download_batch(1000, 80), 40);
+        assert_eq!(smaller_download_batch(1000, 0), 500);
+        assert_eq!(smaller_download_batch(1000, 1000), 500);
+        assert_eq!(smaller_download_batch(40, 0), 20);
+        assert_eq!(smaller_download_batch(20, 0), 16);
+        assert_eq!(smaller_download_batch(1, 0), 1);
+        for n in 1..2000 {
+            let next = smaller_download_batch(n, n / 4);
+            assert!(next > 0 && next <= n);
+        }
+    }
 
     fn height(n: u32) -> BlockHeight {
         BlockHeight::from_u32(n)
@@ -3585,7 +3718,8 @@ mod tests {
             server_url: "http://127.0.0.1:1".to_string(),
             birthday: height(2_000_000),
             db_cipher_key: None,
-            tor_client: None,
+            tor_required: false,
+        tor_client: None,
         });
         start().await.unwrap();
         assert!(is_running());
@@ -3617,7 +3751,19 @@ mod tests {
         let entropy: [u8; 32] = rand::random();
         let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_entropy(&entropy).unwrap();
 
-        for (sample, prefetch_depth) in [0, 3, 3, 0, 0, 3].into_iter().enumerate() {
+        let compare_peers = std::env::var_os("ZIPHER_SYNC_BENCH_PEERS").is_some();
+        let configurations: Vec<_> = if compare_peers {
+            [false, true, true, false, false, true]
+                .into_iter()
+                .map(|automatic| (3, automatic))
+                .collect()
+        } else {
+            [0, 3, 3, 0, 0, 3]
+                .into_iter()
+                .map(|depth| (depth, false))
+                .collect()
+        };
+        for (sample, (prefetch_depth, automatic)) in configurations.into_iter().enumerate() {
             let dir = tempfile::tempdir().unwrap();
             let data_dir = dir.path().to_str().unwrap();
             let key = Some("disposable-sync-benchmark-key".to_string());
@@ -3634,8 +3780,12 @@ mod tests {
             .unwrap();
             configure_runtime(SyncRuntimeConfig {
                 prefetch_depth,
-                alternate_servers: vec![],
-                auto_select_servers: false,
+                alternate_servers: if compare_peers {
+                    default_alternate_servers(&params, server)
+                } else {
+                    vec![]
+                },
+                auto_select_servers: automatic,
             })
             .await;
             *SYNC_PROGRESS.lock().await = SyncProgressInfo::default();
@@ -3654,7 +3804,7 @@ mod tests {
                 "{}",
                 serde_json::json!({
                     "benchmark": "disposable_restore", "sample": sample, "server": server, "birthday": birthday,
-                    "prefetch_depth": prefetch_depth, "elapsed_ms": elapsed_ms,
+                    "prefetch_depth": prefetch_depth, "automatic_peer_policy": automatic, "compare_peers": compare_peers, "elapsed_ms": elapsed_ms,
                     "synced_height": progress.synced_height, "latest_height": progress.latest_height,
                     "blocks_scanned": progress.blocks_scanned, "perf": get_perf_snapshot().await,
                 })

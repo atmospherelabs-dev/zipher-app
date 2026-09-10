@@ -139,6 +139,15 @@ mod tests {
         db.create_account("test", &SecretVec::new(vec![42; 32]), &birthday, None)
             .unwrap();
         db.update_chain_tip(start + 3).unwrap();
+        let assert_height = |db: &mut crate::sync::DbType, expected: u32| {
+            let full = db.get_wallet_summary(zcash_client_backend::data_api::wallet::ConfirmationsPolicy::MIN)
+                .unwrap();
+            assert_eq!(crate::sync::wallet_fully_scanned_height(db), Some(expected));
+            if let Some(full) = full {
+                assert_eq!(u32::from(full.fully_scanned_height()), expected);
+            }
+        };
+        assert_height(&mut db, u32::from(start));
         let blocks: Vec<_> = (1u8..=3)
             .map(|offset| CompactBlock {
                 height: u64::from(u32::from(start)) + u64::from(offset),
@@ -152,14 +161,17 @@ mod tests {
         let summary = scan_cached_blocks(&network, &source, &mut db, start + 1, &state, 3).unwrap();
         assert_eq!(summary.scanned_range(), (start + 1..start + 4));
         assert!(db.block_metadata(start + 3).unwrap().is_some());
+        assert_height(&mut db, u32::from(start + 3));
 
         db.truncate_to_height(start + 1).unwrap();
         assert!(db.block_metadata(start + 3).unwrap().is_none());
+        assert_height(&mut db, u32::from(start + 1));
         let state = ChainState::empty(start + 1, BlockHash([1; 32]));
         let source = MemoryBlockSource::new(blocks[1..].to_vec());
         let summary = scan_cached_blocks(&network, &source, &mut db, start + 2, &state, 2).unwrap();
         assert_eq!(summary.scanned_range(), (start + 2..start + 4));
         assert!(db.block_metadata(start + 3).unwrap().is_some());
+        assert_height(&mut db, u32::from(start + 3));
     }
 
     /// Measures staging overhead only, excluding network, decryption, and wallet writes.

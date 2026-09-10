@@ -299,25 +299,17 @@ Future<bool> authBarrier(BuildContext context,
   }
 }
 
-/// Single auth gate for any flow that signs or moves funds. Honors the
-/// user's `protectSend` setting (default: ON for new wallets, see
-/// `AppSettingsExtension.defaults`). Pass an `actionSummary` so the
-/// system biometric prompt can show what the user is authorizing.
-///
-/// Returns `true` if the user authenticated (or if `protectSend` is off
-/// and the action is allowed to proceed without auth). Returns `false`
-/// if the user cancelled.
-///
-/// Audit finding H1 (2026-05-18). Every Action Wallet confirmation that
-/// reads seed material or calls a signing FRB function MUST gate behind
-/// this helper. Examples: Polymarket bet/sell, EVM swap, sweep, shield,
-/// CipherPay payments, classic Zcash send.
+/// Every signing flow authenticates after review, before accessing signing keys.
+/// Device biometrics or device passcode are required; cancellation fails closed.
 Future<bool> requireSigningAuthorization(
   BuildContext context, {
   required String actionSummary,
 }) async {
-  if (!appSettings.protectSend) return true;
-  return await authenticate(context, actionSummary);
+  AppLog.instance.event('signing', 'authentication_requested');
+  final authorized = await authenticate(context, actionSummary);
+  AppLog.instance.event('signing',
+      authorized ? 'authentication_approved' : 'authentication_cancelled');
+  return authorized;
 }
 
 Future<bool> authenticate(BuildContext context, String reason) async {
@@ -643,6 +635,7 @@ class Tx extends HasHeight {
   String kind;
   double rawValue;
   bool expiredUnmined;
+  double? fee;
 
   factory Tx.from(
     int? latestHeight,
@@ -659,13 +652,14 @@ class Tx extends HasHeight {
     String kind = '',
     double rawValue = 0,
     bool expiredUnmined = false,
+    double? fee,
   }) {
     final confirmations =
         (height > 0 && latestHeight != null && latestHeight > 0)
             ? latestHeight - height + 1
             : 0;
     return Tx(id, height, confirmations, timestamp, txid, fullTxId, value,
-        address, contact, memo, memos, kind, rawValue, expiredUnmined);
+        address, contact, memo, memos, kind, rawValue, expiredUnmined, fee);
   }
 
   Tx(
@@ -682,7 +676,7 @@ class Tx extends HasHeight {
       this.memos,
       this.kind,
       this.rawValue,
-      [this.expiredUnmined = false]);
+      [this.expiredUnmined = false, this.fee]);
 }
 
 class ZMessage extends HasHeight {
@@ -900,8 +894,9 @@ class Contact {
   final int id;
   final String? name;
   final String? address;
+  final String? chainId;
 
-  Contact({required this.id, this.name, this.address});
+  Contact({required this.id, this.name, this.address, this.chainId});
 }
 
 List<Account> getAllAccounts() {
@@ -1043,7 +1038,7 @@ class _ContactAutocompleteState extends State<ContactAutocomplete> {
                   ),
                   itemBuilder: (context, index) {
                     final c = _matches[index];
-                    final chainId = _chainMap[c.address ?? ''];
+                    final chainId = c.chainId ?? _chainMap[c.address ?? ''];
                     final chain = ChainInfo.byId(chainId);
                     final symbol = chain?.symbol ?? 'ZEC';
                     return ListTile(
