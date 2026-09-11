@@ -24,3 +24,5 @@ zcash_protocol = { workspace = true }
 zcash_address = { workspace = true }
 dirs = "6"
 reqwest = "0.13"
+
+uuid = { version = "1", features = ["v4"] }

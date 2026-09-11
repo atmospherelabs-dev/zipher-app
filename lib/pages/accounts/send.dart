@@ -1,3 +1,4 @@
+import '../../coin/coins.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_form_builder/flutter_form_builder.dart';
 import 'package:gap/gap.dart';
@@ -553,12 +554,13 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
         isMax: _deductFee,
         isTransparent: isTransparent,
         memo: memo,
-        onConfirmed: () => _executeConfirmedSend(),
+        onConfirmed: _executeConfirmedSend,
       ),
     );
   }
 
-  Future<void> _executeConfirmedSend() async {
+  Future<void> _executeConfirmedSend(
+      ({int revision, String walletId, bool testnet}) review) async {
     if (mounted) {
       if (await WalletService.instance.isActiveFrostWallet()) {
         GoRouter.of(context).push(
@@ -570,7 +572,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
           ),
         );
       } else {
-        GoRouter.of(context).go('/account/submit_tx');
+        GoRouter.of(context).go('/account/submit_tx', extra: review);
       }
     }
   }
@@ -622,7 +624,8 @@ class _ConfirmSendSheet extends StatefulWidget {
   final bool isMax;
   final bool isTransparent;
   final String? memo;
-  final Future<void> Function() onConfirmed;
+  final Future<void> Function(
+      ({int revision, String walletId, bool testnet}) review) onConfirmed;
 
   const _ConfirmSendSheet({
     required this.address,
@@ -644,6 +647,7 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
   bool _sending = false;
   String? _error;
   int _fee = 0;
+  ({int revision, String walletId, bool testnet})? _review;
   bool _feeEstimated = false;
   int _sendAmount = 0;
   bool _priority = false;
@@ -679,6 +683,16 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
         priority: _priority,
       );
 
+      if (!mounted) return;
+      final wallet = WalletService.instance;
+      if (!result.isExact || wallet.activeWalletId == null) {
+        throw StateError('An exact transaction review is required.');
+      }
+      _review = (
+        revision: wallet.proposalRevision,
+        walletId: wallet.activeWalletId!,
+        testnet: isTestnet
+      );
       _sendAmount = result.sendAmount;
       _fee = result.fee;
       _feeEstimated = !result.isExact;
@@ -819,8 +833,11 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
             _divider(),
             _row('Amount', '${amountToString2(_sendAmount)} ZEC'),
             _divider(),
-            _row('Network fee',
-                _recalculating ? 'Recalculating...' : '${_feeEstimated ? "~" : ""}${amountToString2(_fee)} ZEC',
+            _row(
+                'Network fee',
+                _recalculating
+                    ? 'Recalculating...'
+                    : '${_feeEstimated ? "~" : ""}${amountToString2(_fee)} ZEC',
                 valueColor: ZipherColors.text40),
             _divider(),
             Padding(
@@ -833,12 +850,14 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
                       children: [
                         Text(
                           'Priority',
-                          style: TextStyle(fontSize: 13, color: ZipherColors.text40),
+                          style: TextStyle(
+                              fontSize: 13, color: ZipherColors.text40),
                         ),
                         const Gap(2),
                         Text(
                           'Higher fee, priority during congestion',
-                          style: TextStyle(fontSize: 11, color: ZipherColors.text20),
+                          style: TextStyle(
+                              fontSize: 11, color: ZipherColors.text20),
                         ),
                       ],
                     ),
@@ -892,9 +911,12 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
                       icon: Icons.check_rounded,
                       enabled: !_recalculating,
                       onPressed: () {
+                        if (_sending || _recalculating || _review == null)
+                          return;
                         setState(() => _sending = true);
+                        final review = _review!;
                         Navigator.of(context).pop();
-                        widget.onConfirmed();
+                        widget.onConfirmed(review);
                       },
                     ),
             ),

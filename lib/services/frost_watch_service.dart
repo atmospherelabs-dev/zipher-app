@@ -24,6 +24,8 @@ class FrostWatchService {
   final _notifiedSessions = <String>{};
 
   void start() {
+    // Remote signing is disabled until approvals are transaction-bound.
+    if (!FrostService.remoteSigningEnabled) return;
     if (_timer != null) return;
     _timer = Timer.periodic(const Duration(seconds: 20), (_) => poll());
     _log.i('[FROST] watch service started');
@@ -39,14 +41,16 @@ class FrostWatchService {
   void onAppResumed() => poll();
 
   Future<void> poll() async {
+    // Do not produce actionable approval notifications while signing is paused.
+    if (!FrostService.remoteSigningEnabled) return;
     if (_polling) return;
     _polling = true;
     try {
       final all = await FrostService.instance.loadAllMetadata();
       for (final entry in all.entries) {
         if (entry.value.participantId == 1) continue;
-        final peek = await FrostService.instance
-            .peekSigningRequest(walletId: entry.key);
+        final peek =
+            await FrostService.instance.peekSigningRequest(walletId: entry.key);
         if (peek == null) continue;
         if (_notifiedSessions.contains(peek.sessionId)) continue;
         _notifiedSessions.add(peek.sessionId);

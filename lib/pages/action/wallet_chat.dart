@@ -87,6 +87,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
   EvmBalanceSnapshot? _portfolio;
   bool _loadingPortfolio = false;
   Timer? _portfolioTimer;
+  bool _swapAwaitingAmount = false;
   WalletRequest? _swapRequest;
   List<NearToken> _swapTokens = [];
   NearToken? _swapToken;
@@ -253,6 +254,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     _conversation.cancel();
     _choosingAddress = false;
     _swapRequest = null;
+    _swapAwaitingAmount = false;
     _swapTokens = [];
     _swapToken = null;
     _swapRecipient = null;
@@ -267,6 +269,14 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     } catch (e) {
       AppLog.instance.event('chat', 'request_failed', error: e);
       if (_current) {
+        if (e is NearIntentsException &&
+            e.minimumZatoshis != null &&
+            _swapRequest != null) {
+          _swapAwaitingAmount = true;
+          _message(
+              'This route currently needs at least ${WalletConversation.formatZec(e.minimumZatoshis!)} ZEC. Enter a new amount in ZEC, or cancel.');
+          return;
+        }
         // Do not echo raw RPC errors, which can contain request addresses.
         final text = e.toString().toLowerCase();
         _message(text.contains('insufficient')
@@ -320,6 +330,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
       }
       if (command != WalletCommand.unknown) {
         _swapRequest = null;
+        _swapAwaitingAmount = false;
         _swapToken = null;
         _swapTokens = [];
         _swapRecipient = null;
@@ -1202,6 +1213,16 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
   }
 
   Future<void> _continueSwap(String input) async {
+    if (_swapAwaitingAmount) {
+      final amount = WalletConversation.parseZatoshis(input);
+      if (amount == null || amount <= 0) {
+        _message('Enter an amount in ZEC, or cancel.');
+        return;
+      }
+      _swapRequest = _swapRequest!.withFields(zatoshis: amount);
+      _swapAwaitingAmount = false;
+      input = _swapRecipient!;
+    }
     if (_swapToken == null) {
       final choice = int.tryParse(input);
       final matches = choice != null &&
@@ -1252,6 +1273,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
       _message(
           'The provider returned an incomplete or expired quote. Type swap to try again.');
       _swapRequest = null;
+      _swapAwaitingAmount = false;
       return;
     }
     final request = WalletRequest(WalletCommand.send,
@@ -1259,6 +1281,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     final destination = _swapToken!;
     final recipient = _swapRecipient!;
     _swapRequest = null;
+    _swapAwaitingAmount = false;
     await _prepareSend(request,
         quote: quote, destination: destination, recipient: recipient);
   }
@@ -1456,9 +1479,11 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                         ChatManagementStep.review => 'Review above, or cancel',
                       }
                     : _swapRequest != null
-                        ? (_swapToken == null
-                            ? 'Choose a network'
-                            : 'Paste the recipient address')
+                        ? (_swapAwaitingAmount
+                            ? 'Amount in ZEC'
+                            : _swapToken == null
+                                ? 'Choose a network'
+                                : 'Paste the recipient address')
                         : _choosingAddress
                             ? 'Choose a chain'
                             : _conversation.hint,

@@ -18,6 +18,90 @@ void main() {
           ...overrides,
         },
       };
+  test(
+      'provider minimum is bounded and arbitrary remote text is never surfaced',
+      () {
+    expect(
+        NearIntentsException(
+                'Amount is too low for bridge, try at least 132000')
+            .minimumZatoshis,
+        132000);
+    for (final text in [
+      'amount 132000 address xyz',
+      'Amount is too low for bridge, try at least -1',
+      'Amount is too low for bridge, try at least 9999999999999999'
+    ]) {
+      expect(NearIntentsException(text).minimumZatoshis, isNull);
+    }
+  });
+  test('every quoted asset, destination and fee must match the request', () {
+    final request = <String, dynamic>{
+      'dry': false,
+      'swapType': 'EXACT_INPUT',
+      'slippageTolerance': 100,
+      'originAsset': 'nep141:zec.omft.near',
+      'destinationAsset': 'nep141:sol.omft.near',
+      'amount': '1000000',
+      'refundTo': 'refund',
+      'refundType': 'ORIGIN_CHAIN',
+      'recipient': 'recipient',
+      'recipientType': 'DESTINATION_CHAIN',
+      'depositType': 'ORIGIN_CHAIN',
+      'appFees': [
+        {'recipient': 'cipherscan.near', 'fee': 50}
+      ]
+    };
+    NearQuoteResponse quote(Map<String, dynamic> echoed) =>
+        NearQuoteResponse.fromJson({...payload(), 'quoteRequest': echoed});
+    expect(quote(request).matchesRequest(request), isTrue);
+    const protocol =
+        '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd';
+    for (final other in [protocol, 'attacker']) {
+      expect(
+          quote({
+            ...request,
+            'appFees': [
+              {
+                'recipient': 'cipherscan.near',
+                'fee': 25,
+                'limitOrderId': null
+              },
+              {'recipient': other, 'fee': 25, 'limitOrderId': null}
+            ]
+          }).matchesRequest(request),
+          other == protocol);
+    }
+    expect(
+        quote({
+          ...request,
+          'appFees': [
+            {'recipient': 'cipherscan.near', 'fee': 25},
+            {'recipient': protocol, 'fee': 26}
+          ]
+        }).matchesRequest(request),
+        isFalse);
+
+    for (final field in request.keys) {
+      final altered = {...request, field: 'tampered'};
+      expect(quote(altered).matchesRequest(request), isFalse, reason: field);
+      final missing = {...request}..remove(field);
+      expect(quote(missing).matchesRequest(request), isFalse, reason: field);
+    }
+    expect(
+        quote({
+          ...request,
+          'appFees': [
+            {'recipient': 'attacker', 'fee': 50}
+          ]
+        }).matchesRequest(request),
+        isFalse);
+  });
+  test('quote must supply its actual deadline', () {
+    expect(
+        NearQuoteResponse.fromJson(payload(overrides: {'deadline': null}))
+            .isUsableExactInput(100000000, now: now),
+        isFalse);
+  });
   test('valid exact-input quote is reviewable', () {
     expect(
         NearQuoteResponse.fromJson(payload())
@@ -73,12 +157,22 @@ void main() {
     expect(records.single.txId, 'broadcast-txid');
   });
 
-  test('status persistence retains wallet ownership and the funding transaction', () async {
+  test(
+      'status persistence retains wallet ownership and the funding transaction',
+      () async {
     SharedPreferences.setMockInitialValues({});
-    await SwapStore.save(StoredSwap(walletId: 'wallet-one', testnet: false,
-        provider: 'near_intents', depositAddress: 'deposit', timestamp: 1,
-        fromCurrency: 'ZEC', fromAmount: '1', toCurrency: 'ETH',
-        toAmount: '.1', toAddress: 'recipient', txId: 'funding'));
+    await SwapStore.save(StoredSwap(
+        walletId: 'wallet-one',
+        testnet: false,
+        provider: 'near_intents',
+        depositAddress: 'deposit',
+        timestamp: 1,
+        fromCurrency: 'ZEC',
+        fromAmount: '1',
+        toCurrency: 'ETH',
+        toAmount: '.1',
+        toAddress: 'recipient',
+        txId: 'funding'));
     await SwapStore.updateStatus('deposit', 'SUCCESS');
     final record = (await SwapStore.load()).single;
     expect(record.walletId, 'wallet-one');

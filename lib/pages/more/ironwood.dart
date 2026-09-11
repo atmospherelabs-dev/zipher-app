@@ -1,3 +1,4 @@
+import '../../coin/coins.dart';
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
@@ -22,7 +23,6 @@ class IronwoodPage extends StatefulWidget {
 enum _Phase { warning, planReview, ready, roundInProgress, success, error }
 
 class _IronwoodState extends State<IronwoodPage> {
-
   _Phase _phase = _Phase.warning;
   String? _error;
   bool _autoMode = false;
@@ -31,6 +31,7 @@ class _IronwoodState extends State<IronwoodPage> {
   int? _torVerifiedHeight;
   engine.IronwoodSdkProgress? _sdkProgress;
   engine.IronwoodSdkPlan? _sdkPlan;
+  ({int revision, String walletId, bool testnet})? _review;
 
   int get _orchardBalance => aa.poolBalances.totalOrchard;
 
@@ -41,7 +42,6 @@ class _IronwoodState extends State<IronwoodPage> {
   }
 
   Future<void> _loadPreferences() async {
-
     try {
       final progress = await IronwoodWatchService.instance.refreshStatus();
       _sdkProgress = progress;
@@ -65,11 +65,12 @@ class _IronwoodState extends State<IronwoodPage> {
 
   Future<void> _checkTorStatus() async {
     final privacy = NetworkPrivacy.instance;
-    if (mounted) setState(() {
-      _torEnabled = privacy.state == NetworkPrivacyState.tor;
-      _torBootstrapping = privacy.busy;
-      _torVerifiedHeight = privacy.verifiedHeight;
-    });
+    if (mounted)
+      setState(() {
+        _torEnabled = privacy.state == NetworkPrivacyState.tor;
+        _torBootstrapping = privacy.busy;
+        _torVerifiedHeight = privacy.verifiedHeight;
+      });
   }
 
   Future<void> _toggleTor(bool enable) async {
@@ -77,7 +78,9 @@ class _IronwoodState extends State<IronwoodPage> {
     try {
       await NetworkPrivacy.instance.setTor(enable);
     } catch (_) {
-      if (mounted) setState(() => _error = 'Tor could not connect. Retry or explicitly turn Tor off.');
+      if (mounted)
+        setState(() => _error =
+            'Tor could not connect. Retry or explicitly turn Tor off.');
     } finally {
       await _checkTorStatus();
     }
@@ -120,7 +123,8 @@ class _IronwoodState extends State<IronwoodPage> {
       final msg = e.toString();
       String userMessage;
       if (msg.contains('No transfer in progress')) {
-        userMessage = 'No migration in progress. Start automatic migration first.';
+        userMessage =
+            'No migration in progress. Start automatic migration first.';
       } else {
         userMessage = msg.length > 200 ? '${msg.substring(0, 200)}...' : msg;
       }
@@ -141,6 +145,14 @@ class _IronwoodState extends State<IronwoodPage> {
     });
     try {
       final plan = await IronwoodWatchService.instance.planMigration();
+      if (!mounted) return;
+      final wallet = WalletService.instance;
+      if (wallet.activeWalletId == null) throw StateError('No active wallet');
+      _review = (
+        revision: wallet.proposalRevision,
+        walletId: wallet.activeWalletId!,
+        testnet: isTestnet
+      );
       _sdkPlan = plan;
       _log.i('[Ironwood/UI] plan: ${plan.transferTxCount} transfers, '
           '${plan.prepTxCount} prep (${plan.prepLayers} layers), '
@@ -157,13 +169,26 @@ class _IronwoodState extends State<IronwoodPage> {
   }
 
   Future<void> _confirmAndCommit() async {
-    _log.i('[Ironwood/UI] user confirmed plan, committing...');
+    if (_phase != _Phase.planReview || _review == null) return;
+    final review = _review!;
+    _log.i('[Ironwood/UI] authorizing reviewed plan...');
     setState(() {
       _phase = _Phase.roundInProgress;
       _error = null;
     });
     try {
-      final progress = await IronwoodWatchService.instance.commitMigration();
+      final authorized = await requireSigningAuthorization(context,
+          actionSummary:
+              'Authorize the reviewed Ironwood migration and its fees');
+      if (!mounted) return;
+      if (!authorized) {
+        setState(() => _phase = _Phase.planReview);
+        return;
+      }
+      final progress = await IronwoodWatchService.instance.commitMigration(
+          expectedRevision: review.revision,
+          expectedWalletId: review.walletId,
+          expectedTestnet: review.testnet);
       _sdkProgress = progress;
       _log.i('[Ironwood/UI] commit OK: ${_fmtProgress(progress)}');
       setState(() {
@@ -306,7 +331,8 @@ class _IronwoodState extends State<IronwoodPage> {
             children: [
               Row(
                 children: [
-                  Icon(Icons.vpn_lock_rounded, color: ZipherColors.warm, size: 22),
+                  Icon(Icons.vpn_lock_rounded,
+                      color: ZipherColors.warm, size: 22),
                   const Gap(10),
                   Expanded(
                     child: Text(
@@ -328,7 +354,8 @@ class _IronwoodState extends State<IronwoodPage> {
                 style: TextStyle(color: ZipherColors.text60, fontSize: 13),
               ),
               const Gap(10),
-              _torStep('1', 'Use the built-in Tor toggle on the next screen, or enable an external Tor app (e.g. Orbot)'),
+              _torStep('1',
+                  'Use the built-in Tor toggle on the next screen, or enable an external Tor app (e.g. Orbot)'),
               const Gap(6),
               _torStep('2', 'Verify your connection is routed through Tor/Nym'),
               const Gap(6),
@@ -457,7 +484,8 @@ class _IronwoodState extends State<IronwoodPage> {
     final totalZec = plan.totalMigratingZat ~/ zec;
     final totalFrac = (plan.totalMigratingZat % zec).toString().padLeft(8, '0');
     final feeZec = plan.estimatedTotalFeeZat ~/ zec;
-    final feeFrac = (plan.estimatedTotalFeeZat % zec).toString().padLeft(8, '0');
+    final feeFrac =
+        (plan.estimatedTotalFeeZat % zec).toString().padLeft(8, '0');
 
     return ListView(
       children: [
@@ -541,7 +569,8 @@ class _IronwoodState extends State<IronwoodPage> {
               const Gap(8),
               _planRow('Estimated fees', '$feeZec.$feeFrac ZEC'),
               const Gap(8),
-              _planRow('Preparation txs', '${plan.prepTxCount} (${plan.prepLayers} layers)'),
+              _planRow('Preparation txs',
+                  '${plan.prepTxCount} (${plan.prepLayers} layers)'),
               _planRow('Transfer txs', '${plan.transferTxCount}'),
               const Gap(8),
               Divider(color: ZipherColors.borderSubtle),
@@ -568,7 +597,8 @@ class _IronwoodState extends State<IronwoodPage> {
                 child: Text(
                   'Each transaction will be broadcast as its scheduled block '
                   'height arrives. The process runs automatically once started.',
-                  style: TextStyle(color: ZipherColors.text60, fontSize: 12, height: 1.4),
+                  style: TextStyle(
+                      color: ZipherColors.text60, fontSize: 12, height: 1.4),
                 ),
               ),
             ],
@@ -611,11 +641,12 @@ class _IronwoodState extends State<IronwoodPage> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label, style: TextStyle(color: ZipherColors.text40, fontSize: 13)),
-        Text(value, style: TextStyle(
-          color: ZipherColors.textPrimary,
-          fontSize: 13,
-          fontFamily: 'JetBrains Mono',
-        )),
+        Text(value,
+            style: TextStyle(
+              color: ZipherColors.textPrimary,
+              fontSize: 13,
+              fontFamily: 'JetBrains Mono',
+            )),
       ],
     );
   }
@@ -632,11 +663,15 @@ class _IronwoodState extends State<IronwoodPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.check_circle_outline, color: ZipherColors.warm, size: 56),
+            Icon(Icons.check_circle_outline,
+                color: ZipherColors.warm, size: 56),
             const Gap(16),
             Text(
               'Migration Complete',
-              style: TextStyle(color: ZipherColors.textPrimary, fontSize: 18, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                  color: ZipherColors.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600),
             ),
             const Gap(8),
             Text(
@@ -681,7 +716,8 @@ class _IronwoodState extends State<IronwoodPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Orchard balance to migrate',
-                          style: TextStyle(color: ZipherColors.text40, fontSize: 12)),
+                          style: TextStyle(
+                              color: ZipherColors.text40, fontSize: 12)),
                       const Gap(2),
                       Text(
                         '${amountToString2(orchard)} ZEC',
@@ -722,7 +758,8 @@ class _IronwoodState extends State<IronwoodPage> {
             decoration: BoxDecoration(
               color: ZipherColors.warm.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: ZipherColors.warm.withValues(alpha: 0.2)),
+              border:
+                  Border.all(color: ZipherColors.warm.withValues(alpha: 0.2)),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -734,7 +771,8 @@ class _IronwoodState extends State<IronwoodPage> {
                     'The amount crossing from Orchard to Ironwood is visible on-chain. '
                     'Tor hides your IP address from the server. '
                     'No names or addresses are revealed.',
-                    style: TextStyle(color: ZipherColors.text60, fontSize: 12, height: 1.4),
+                    style: TextStyle(
+                        color: ZipherColors.text60, fontSize: 12, height: 1.4),
                   ),
                 ),
               ],
@@ -749,12 +787,14 @@ class _IronwoodState extends State<IronwoodPage> {
           decoration: BoxDecoration(
             color: ZipherColors.green.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: ZipherColors.green.withValues(alpha: 0.3)),
+            border:
+                Border.all(color: ZipherColors.green.withValues(alpha: 0.3)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.verified_outlined, color: ZipherColors.green, size: 16),
+              Icon(Icons.verified_outlined,
+                  color: ZipherColors.green, size: 16),
               const Gap(6),
               Text(
                 'ZIP-318 Compliant',
@@ -820,7 +860,8 @@ class _IronwoodState extends State<IronwoodPage> {
                       _autoMode
                           ? _autoMigrationSubtitle()
                           : 'Plans, signs, and broadcasts automatically',
-                      style: TextStyle(color: ZipherColors.text40, fontSize: 12),
+                      style:
+                          TextStyle(color: ZipherColors.text40, fontSize: 12),
                     ),
                   ],
                 ),
@@ -883,7 +924,8 @@ class _IronwoodState extends State<IronwoodPage> {
                                   ? 'Verified — block $_torVerifiedHeight via Tor'
                                   : 'Active — IP address hidden from server'
                               : 'Protects your IP during migration',
-                      style: TextStyle(color: ZipherColors.text40, fontSize: 12),
+                      style:
+                          TextStyle(color: ZipherColors.text40, fontSize: 12),
                     ),
                   ],
                 ),
@@ -913,7 +955,8 @@ class _IronwoodState extends State<IronwoodPage> {
         if (_autoMode) ...[
           Builder(builder: (_) {
             final p = _sdkProgress;
-            final hasPendingBroadcast = p != null && p.broadcastCount > p.confirmedCount;
+            final hasPendingBroadcast =
+                p != null && p.broadcastCount > p.confirmedCount;
             return Column(
               children: [
                 SizedBox(
@@ -922,14 +965,17 @@ class _IronwoodState extends State<IronwoodPage> {
                   child: ElevatedButton.icon(
                     onPressed: hasPendingBroadcast ? null : _triggerTick,
                     icon: Icon(
-                      hasPendingBroadcast ? Icons.hourglass_top_rounded : Icons.fast_forward_rounded,
+                      hasPendingBroadcast
+                          ? Icons.hourglass_top_rounded
+                          : Icons.fast_forward_rounded,
                       size: 18,
                     ),
                     label: Text(
                       hasPendingBroadcast
                           ? 'Waiting for Confirmation...'
                           : 'Process Next Transaction',
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w600),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: hasPendingBroadcast
@@ -938,7 +984,8 @@ class _IronwoodState extends State<IronwoodPage> {
                       foregroundColor: hasPendingBroadcast
                           ? ZipherColors.text40
                           : ZipherColors.warm,
-                      disabledBackgroundColor: ZipherColors.text10.withValues(alpha: 0.08),
+                      disabledBackgroundColor:
+                          ZipherColors.text10.withValues(alpha: 0.08),
                       disabledForegroundColor: ZipherColors.text40,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -973,7 +1020,8 @@ class _IronwoodState extends State<IronwoodPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.warning_amber_rounded, color: ZipherColors.warm, size: 56),
+            Icon(Icons.warning_amber_rounded,
+                color: ZipherColors.warm, size: 56),
             const Gap(16),
             Text(
               'Migration Stuck',
@@ -1005,7 +1053,8 @@ class _IronwoodState extends State<IronwoodPage> {
               decoration: BoxDecoration(
                 color: ZipherColors.warm.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: ZipherColors.warm.withValues(alpha: 0.2)),
+                border:
+                    Border.all(color: ZipherColors.warm.withValues(alpha: 0.2)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1017,7 +1066,10 @@ class _IronwoodState extends State<IronwoodPage> {
                       'Cancelling clears the stale state. No funds are lost — '
                       'expired transactions are automatically returned to your wallet. '
                       'You can start a fresh migration afterwards.',
-                      style: TextStyle(color: ZipherColors.text60, fontSize: 12, height: 1.4),
+                      style: TextStyle(
+                          color: ZipherColors.text60,
+                          fontSize: 12,
+                          height: 1.4),
                     ),
                   ),
                 ],
@@ -1049,7 +1101,8 @@ class _IronwoodState extends State<IronwoodPage> {
             Center(
               child: TextButton(
                 onPressed: () => context.pop(),
-                child: Text('Back', style: TextStyle(color: ZipherColors.text40)),
+                child:
+                    Text('Back', style: TextStyle(color: ZipherColors.text40)),
               ),
             ),
           ],
@@ -1101,7 +1154,8 @@ class _IronwoodState extends State<IronwoodPage> {
 
   Widget _buildSuccessView() {
     final p = _sdkProgress;
-    final isDone = _orchardBalance == 0 || (p != null && p.status == 'complete');
+    final isDone =
+        _orchardBalance == 0 || (p != null && p.status == 'complete');
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1152,14 +1206,14 @@ class _IronwoodState extends State<IronwoodPage> {
                       _phase = _Phase.ready;
                     });
                   },
-                  child: Text('Back',
-                      style: TextStyle(color: ZipherColors.warm)),
+                  child:
+                      Text('Back', style: TextStyle(color: ZipherColors.warm)),
                 ),
               const Gap(16),
               TextButton(
                 onPressed: () => context.pop(),
-                child: Text('Done',
-                    style: TextStyle(color: ZipherColors.text60)),
+                child:
+                    Text('Done', style: TextStyle(color: ZipherColors.text60)),
               ),
             ],
           ),
@@ -1209,8 +1263,8 @@ class _IronwoodState extends State<IronwoodPage> {
               const Gap(16),
               TextButton(
                 onPressed: () => context.pop(),
-                child: Text('Back',
-                    style: TextStyle(color: ZipherColors.text60)),
+                child:
+                    Text('Back', style: TextStyle(color: ZipherColors.text60)),
               ),
             ],
           ),
@@ -1221,7 +1275,9 @@ class _IronwoodState extends State<IronwoodPage> {
 
   static String _fmtProgress(engine.IronwoodSdkProgress p) {
     final zec = BigInt.from(100000000);
-    final crossings = p.crossingValues.map((v) => '${v ~/ zec}.${(v % zec).toString().padLeft(8, '0')}').join(', ');
+    final crossings = p.crossingValues
+        .map((v) => '${v ~/ zec}.${(v % zec).toString().padLeft(8, '0')}')
+        .join(', ');
     return 'status=${p.status} '
         'txs=${p.confirmedCount}/${p.totalTxCount} '
         'broadcast=${p.broadcastCount} '

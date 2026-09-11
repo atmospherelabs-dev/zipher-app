@@ -155,8 +155,13 @@ final router = GoRouter(
                 GoRoute(
                   path: 'submit_tx',
                   builder: (context, state) {
-                    if (state.extra == null) {
-                      return const SubmitTxPage();
+                    final review = state.extra;
+                    if (review is ({
+                      int revision,
+                      String walletId,
+                      bool testnet
+                    })) {
+                      return SubmitTxPage(review: review);
                     }
                     return const UnavailablePage('Legacy transaction signing');
                   },

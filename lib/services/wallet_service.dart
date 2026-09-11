@@ -71,8 +71,11 @@ class WalletService {
   /// Call once at app startup, before any other Rust call.
   Future<void> initRustLib() async {
     if (_initialized) return;
-    await RustLib.init();
+    // Keychain/registry failures must occur before initializing the native
+    // singleton, so startup can safely retry without double initialization.
+    await FrostService.instance.resumeExplicitDeletions();
     await _ensureSaplingParams();
+    await RustLib.init();
     _initialized = true;
   }
 
@@ -477,30 +480,40 @@ class WalletService {
   /// Delete a wallet: close if active, remove files, remove from registry.
   Future<void> deleteWalletById(String walletId) async {
     _checkBusy();
-    if (_activeWalletId == walletId && _walletOpen) {
-      await closeWallet();
-    }
+    _busy = true;
+    try {
+      if (_activeWalletId == walletId && _walletOpen) {
+        await closeWallet();
+      }
 
-    // Remove wallet files
-    final mainDir = await walletDir(walletId: walletId, testnet: false);
-    final testDir = await walletDir(walletId: walletId, testnet: true);
-    await _deleteDirectory(mainDir);
-    await _deleteDirectory(testDir);
+      // Delete signing material before removing the registry entry, so a failed
+      // keychain deletion remains visible and retryable.
+      await FrostService.instance.queueWalletDeletion(walletId);
+      await FrostService.instance.resumeExplicitDeletions();
 
-    // Remove seed from secure storage. We have to delete BOTH the mainnet
-    // key (`walletId`) AND the testnet key (`${walletId}_testnet`); they
-    // are stored separately, and the previous version only cleared the
-    // mainnet entry which left testnet seed material behind after a
-    // user deleted the wallet. Audit finding H5 (2026-05-18).
-    await SecureKeyStore.deleteSeedForWallet(walletId);
-    await SecureKeyStore.deleteSeedForWallet('${walletId}_testnet');
+      // Remove wallet files
+      final mainDir = await walletDir(walletId: walletId, testnet: false);
+      final testDir = await walletDir(walletId: walletId, testnet: true);
+      await _deleteDirectory(mainDir);
+      await _deleteDirectory(testDir);
 
-    // Remove from registry
-    await WalletRegistry.instance.delete(walletId);
+      // Remove seed from secure storage. We have to delete BOTH the mainnet
+      // key (`walletId`) AND the testnet key (`${walletId}_testnet`); they
+      // are stored separately, and the previous version only cleared the
+      // mainnet entry which left testnet seed material behind after a
+      // user deleted the wallet. Audit finding H5 (2026-05-18).
+      await SecureKeyStore.deleteSeedForWallet(walletId);
+      await SecureKeyStore.deleteSeedForWallet('${walletId}_testnet');
 
-    if (_activeWalletId == walletId) {
-      _activeWalletId = null;
-      _walletOpen = false;
+      // Remove from registry
+      await WalletRegistry.instance.delete(walletId);
+
+      if (_activeWalletId == walletId) {
+        _activeWalletId = null;
+        _walletOpen = false;
+      }
+    } finally {
+      _busy = false;
     }
   }
 
@@ -522,7 +535,8 @@ class WalletService {
             : await rust_wallet.getWalletBalance();
         final confirmed = balance.totalTransparent.toInt() +
             balance.totalSapling.toInt() +
-            balance.totalOrchard.toInt() + balance.totalIronwood.toInt();
+            balance.totalOrchard.toInt() +
+            balance.totalIronwood.toInt();
         await WalletRegistry.instance.updateSnapshot(
           _activeWalletId!,
           balance: confirmed,
@@ -546,10 +560,14 @@ class WalletService {
       final balance = useNewEngine
           ? await rust_engine.engineGetWalletBalance()
           : await rust_wallet.getWalletBalance();
-      if (!_walletOpen || _activeWalletId != walletId || isTestnet != network || generation != _walletGeneration) return;
+      if (!_walletOpen ||
+          _activeWalletId != walletId ||
+          isTestnet != network ||
+          generation != _walletGeneration) return;
       final confirmed = balance.totalTransparent.toInt() +
           balance.totalSapling.toInt() +
-          balance.totalOrchard.toInt() + balance.totalIronwood.toInt();
+          balance.totalOrchard.toInt() +
+          balance.totalIronwood.toInt();
       await WalletRegistry.instance.updateSnapshot(
         walletId,
         balance: confirmed,
@@ -928,7 +946,8 @@ class WalletService {
     if (useNewEngine) {
       final generation = _walletGeneration;
       final engineTxs = await rust_engine.engineGetTransactions();
-      if (generation != _walletGeneration || isBusy) throw WalletBusyException();
+      if (generation != _walletGeneration || isBusy)
+        throw WalletBusyException();
       _memosByTxid.clear();
       for (final etx in engineTxs) {
         final m = etx.memo;
@@ -1036,9 +1055,15 @@ class WalletService {
     _checkBusy();
     final signingWalletId = _activeWalletId;
     final signingTestnet = isTestnet;
-    if ((expectedRevision != null && expectedRevision != _proposalRevision) ||
-        (expectedWalletId != null && expectedWalletId != _activeWalletId) ||
-        (expectedTestnet != null && expectedTestnet != isTestnet)) {
+    if (expectedRevision == null ||
+        expectedWalletId == null ||
+        expectedTestnet == null) {
+      throw StateError(
+          'A bound transaction review is required before signing.');
+    }
+    if ((expectedRevision != _proposalRevision) ||
+        (expectedWalletId != _activeWalletId) ||
+        (expectedTestnet != isTestnet)) {
       throw StateError(
           'Wallet or transaction changed. Review the transaction again.');
     }
@@ -1058,6 +1083,24 @@ class WalletService {
       _confirmingSend = false;
       _proposalRevision++;
     }
+  }
+
+  Future<rust_engine.IronwoodSdkPlan> planMigration() =>
+      _exclusivePayment(() async =>
+          rust_engine.engineIronwoodSdkPlan(seedPhrase: await _paymentSeed()));
+
+  Future<rust_engine.IronwoodSdkProgress> commitMigration({
+    required int expectedRevision,
+    required String expectedWalletId,
+    required bool expectedTestnet,
+  }) {
+    if (expectedRevision != _proposalRevision ||
+        expectedWalletId != _activeWalletId ||
+        expectedTestnet != isTestnet) {
+      throw StateError('Wallet or migration changed. Review the plan again.');
+    }
+    return _exclusivePayment(() async =>
+        rust_engine.engineIronwoodSdkCommit(seedPhrase: await _paymentSeed()));
   }
 
   Future<bool> isActiveFrostWallet() async {

@@ -1146,6 +1146,56 @@ class FrostService {
         ));
   }
 
+  static bool get remoteSigningEnabled => false;
+
+  static const signingUnavailable =
+      'Shared-wallet signing is paused until co-signers can independently verify the transaction.';
+
+  static void requireVerifiedSigning() => throw StateError(signingUnavailable);
+
+  static const _deletionQueueKey = 'frost_pending_deletions_v1';
+
+  /// Only explicit wallet deletion authorizes key destruction. A missing or
+  /// damaged registry (including a reinstall) must never erase retained keys.
+  Future<void> queueWalletDeletion(String walletId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final pending = {...?prefs.getStringList(_deletionQueueKey), walletId};
+    if (!await prefs.setStringList(_deletionQueueKey, pending.toList())) {
+      throw StateError(
+          'Could not persist wallet deletion. Nothing was removed.');
+    }
+  }
+
+  Future<void> resumeExplicitDeletions() async {
+    final prefs = await SharedPreferences.getInstance();
+    final pending = prefs.getStringList(_deletionQueueKey) ?? [];
+    for (final walletId in pending.toList()) {
+      await deleteWalletMaterial(walletId);
+      await deleteWalletMaterial('${walletId}_testnet');
+      pending.remove(walletId);
+      if (!await prefs.setStringList(_deletionQueueKey, pending)) {
+        throw StateError('Could not complete wallet deletion. Retry is safe.');
+      }
+    }
+  }
+
+  Future<void> deleteWalletMaterial(String walletId) async {
+    // No shared-wallet signing can run while the release guard is enabled.
+    _pendingCosignerApproval = null;
+    _pendingSigningCoordinator = null;
+    _pendingCoordinator = null;
+    _pendingJoiner = null;
+    await SecureKeyStore.deleteFrostMaterial(walletId);
+    final all = await loadAllMetadata();
+    all.remove(walletId);
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.setString(
+        _metadataKey, jsonEncode(all.map((k, v) => MapEntry(k, v.toJson()))))) {
+      throw StateError(
+          'Could not remove shared-wallet metadata. Retry deletion.');
+    }
+  }
+
   Future<String?> getWalletShare(String walletId) {
     return SecureKeyStore.getFrostKeyPackage(walletId);
   }
@@ -1169,6 +1219,7 @@ class FrostService {
   }
 
   Future<FrostPcztSigningBundle> createPcztSigningRequest() async {
+    requireVerifiedSigning();
     final pczt = await rust_engine.engineCreatePczt();
     final request = await rust_engine.engineFrostPcztSigningRequest(
       pcztBytes: pczt,
@@ -1177,6 +1228,7 @@ class FrostService {
   }
 
   Future<FrostPcztSigningBundle> createShieldPcztSigningRequest() async {
+    requireVerifiedSigning();
     final pczt = await rust_engine.engineCreateShieldPczt();
     final request = await rust_engine.engineFrostPcztSigningRequest(
       pcztBytes: pczt,
@@ -1319,7 +1371,8 @@ class FrostService {
         publicKeyHex: relayPub,
       );
     } catch (e) {
-      _log.w('[FROST] relay login failed wallet=${_redact(walletId, keep: 6)}: $e');
+      _log.w(
+          '[FROST] relay login failed wallet=${_redact(walletId, keep: 6)}: $e');
       return null;
     }
 
@@ -1349,9 +1402,11 @@ class FrostService {
   Future<FrostCosignerApprovalState> receiveSigningRequest({
     required String walletId,
   }) async {
+    requireVerifiedSigning();
     final pending = _pendingCosignerApproval;
     if (pending != null) {
-      _log.d('[FROST] reusing pending approval session=${_redact(pending.sessionId, keep: 6)}');
+      _log.d(
+          '[FROST] reusing pending approval session=${_redact(pending.sessionId, keep: 6)}');
       return pending;
     }
     final metadata = await loadMetadata(walletId);
@@ -1408,6 +1463,7 @@ class FrostService {
   Future<void> approveSigningRequest({
     required String walletId,
   }) async {
+    requireVerifiedSigning();
     final state = _pendingCosignerApproval;
     if (state == null) throw StateError('No pending signing request');
     final metadata = await loadMetadata(walletId);
@@ -1431,12 +1487,14 @@ class FrostService {
       recipientPublicKeyHex: state.coordinatorPubkey,
       messageHex: _hexEncode(utf8.encode(msg)),
     );
-    _log.i('[FROST] commitments sent session=${_redact(state.sessionId, keep: 6)}');
+    _log.i(
+        '[FROST] commitments sent session=${_redact(state.sessionId, keep: 6)}');
   }
 
   Future<void> cosignerFinishSigning({
     required String walletId,
   }) async {
+    requireVerifiedSigning();
     final state = _pendingCosignerApproval;
     if (state == null) throw StateError('No pending signing request');
     final metadata = await loadMetadata(walletId);
@@ -1495,7 +1553,8 @@ class FrostService {
       messageHex: _hexEncode(utf8.encode(reply)),
     );
     _pendingCosignerApproval = null;
-    _log.i('[FROST] signature shares sent session=${_redact(state.sessionId, keep: 6)}');
+    _log.i(
+        '[FROST] signature shares sent session=${_redact(state.sessionId, keep: 6)}');
   }
 
   Future<Uint8List> coordinatorFinishSigning() async {

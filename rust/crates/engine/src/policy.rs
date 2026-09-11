@@ -238,6 +238,15 @@ pub fn load_policy(data_dir: &str) -> SpendingPolicy {
     }
 }
 
+/// Signing must distinguish an absent policy from an unreadable/corrupt one.
+pub fn load_policy_checked(data_dir: &str) -> Result<SpendingPolicy> {
+    match std::fs::read_to_string(policy_path(data_dir)) {
+        Ok(contents) => Ok(toml::from_str(&contents)?),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(SpendingPolicy::default()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 pub fn save_policy(data_dir: &str, policy: &SpendingPolicy) -> Result<()> {
     let path = policy_path(data_dir);
     let contents = toml::to_string_pretty(policy)?;
@@ -272,7 +281,7 @@ pub fn check_proposal(
         });
     }
 
-    if policy.daily_limit > 0 && (daily_spent + amount) > policy.daily_limit {
+    if policy.daily_limit > 0 && daily_spent.checked_add(amount).map_or(true, |total| total > policy.daily_limit) {
         return Err(PolicyViolation::DailyLimitExceeded {
             limit: policy.daily_limit,
             spent_today: daily_spent,

@@ -15,7 +15,8 @@ import '../utils.dart';
 import '../widgets.dart';
 
 class SubmitTxPage extends StatefulWidget {
-  const SubmitTxPage({super.key});
+  final ({int revision, String walletId, bool testnet}) review;
+  const SubmitTxPage({super.key, required this.review});
   @override
   State<StatefulWidget> createState() => _SubmitTxState();
 }
@@ -29,7 +30,17 @@ class _SubmitTxState extends State<SubmitTxPage> {
     super.initState();
     Future(() async {
       try {
-        txId = await WalletService.instance.confirmSend();
+        final authorized = await requireSigningAuthorization(context,
+            actionSummary: 'Confirm the reviewed ZEC payment');
+        if (!authorized || !mounted) {
+          if (mounted)
+            setState(() => error = 'Payment cancelled. Review again to send.');
+          return;
+        }
+        txId = await WalletService.instance.confirmSend(
+            expectedRevision: widget.review.revision,
+            expectedWalletId: widget.review.walletId,
+            expectedTestnet: widget.review.testnet);
         await commitOutgoingMemo(txId!);
         if (shieldPending) {
           lastShieldSubmit = DateTime.now();

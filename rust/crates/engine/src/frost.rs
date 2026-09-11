@@ -589,6 +589,17 @@ pub fn frost_create_randomizer(public_key_package: String) -> Result<FrostRandom
 }
 
 pub fn frost_sign_round2(
+    _signing_package: String,
+    signing_nonces: String,
+    _key_package: String,
+    _randomizer_hex: String,
+) -> Result<String> {
+    SIGNING_NONCES.lock().unwrap().remove(&signing_nonces);
+    anyhow::bail!("Shared-wallet signing is disabled until PCZT-bound co-signer authorization is implemented")
+}
+
+#[cfg(test)]
+fn frost_sign_round2_test_only(
     signing_package: String,
     signing_nonces: String,
     key_package: String,
@@ -891,6 +902,12 @@ pub fn frost_relay_decrypt(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn unverified_native_signature_release_is_disabled() {
+        let result = super::frost_sign_round2("untrusted".into(), "unused".into(), "unused".into(), "unused".into());
+        assert!(result.unwrap_err().to_string().contains("disabled"));
+    }
+
     use super::*;
 
     fn pkg(id: u16, package: &str) -> (u16, String) {
@@ -982,14 +999,14 @@ mod tests {
         .unwrap();
         let randomizer = frost_create_randomizer(c1.public_key_package.clone()).unwrap();
 
-        let share1 = frost_sign_round2(
+        let share1 = frost_sign_round2_test_only(
             signing_package.clone(),
             s1.signing_nonces,
             c1.key_package,
             randomizer.randomizer_hex.clone(),
         )
         .unwrap();
-        let share2 = frost_sign_round2(
+        let share2 = frost_sign_round2_test_only(
             signing_package.clone(),
             s2.signing_nonces,
             c2.key_package,

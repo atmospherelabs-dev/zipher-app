@@ -14,6 +14,7 @@ use zcash_pool_migration::satisfiability::{
 };
 
 // Serialize migration mutation across UI, CLI and service calls in this process.
+static REVIEWED_PLAN: std::sync::Mutex<Option<(std::path::PathBuf, std::time::Instant, MigrationPlan)>> = std::sync::Mutex::new(None);
 static MIGRATION_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_pool_migration::engine::{
@@ -60,6 +61,8 @@ pub struct ProgressReport {
 
 /// Plan a transfer. Returns a summary for user consent (does NOT persist).
 pub async fn plan(seed_phrase: &secrecy::SecretString) -> Result<PlanSummary> {
+    let _operation = MIGRATION_OPERATION.lock().await;
+    *REVIEWED_PLAN.lock().unwrap() = None;
     use secrecy::ExposeSecret;
 
     let (db_data_path, params, db_cipher_key) = engine_params().await?;
@@ -96,7 +99,7 @@ pub async fn plan(seed_phrase: &secrecy::SecretString) -> Result<PlanSummary> {
     let estimated_total_fee =
         u64::from(plan.total_actions()) * zcash_primitives::transaction::fees::zip317::MARGINAL_FEE.into_u64();
 
-    Ok(PlanSummary {
+    let summary = PlanSummary {
         crossing_values,
         total_migrating_zat: total_migrating,
         estimated_total_fee_zat: estimated_total_fee,
@@ -104,7 +107,9 @@ pub async fn plan(seed_phrase: &secrecy::SecretString) -> Result<PlanSummary> {
         transfer_tx_count: plan.transfer_tx_count(),
         total_tx_count: plan.total_transactions(),
         prep_layers: plan.preparation_layer_count(),
-    })
+    };
+    *REVIEWED_PLAN.lock().unwrap() = Some((db_data_path.into(), std::time::Instant::now(), plan));
+    Ok(summary)
 }
 
 /// Commit: plan + build + sign all PCZTs in one pass. Durable in the wallet DB.
@@ -133,8 +138,12 @@ pub async fn commit(seed_phrase: &secrecy::SecretString) -> Result<ProgressRepor
         store,
     );
 
-    let plan = mig_engine::plan_migration(&params, &wallet_mig, &mut OsRng)
-        .map_err(|e| anyhow!("Plan failed: {}", e))?;
+    let (reviewed_path, reviewed_at, plan) = REVIEWED_PLAN.lock().unwrap().take()
+        .ok_or_else(|| anyhow!("Review a migration plan before committing"))?;
+    if reviewed_path != std::path::PathBuf::from(&db_data_path)
+        || reviewed_at.elapsed() > std::time::Duration::from_secs(600) {
+        return Err(anyhow!("Wallet changed or migration review expired; review again"));
+    }
 
     info!(
         "[Ironwood] Plan: {} crossings, {} prep txs ({} layers), {} total",

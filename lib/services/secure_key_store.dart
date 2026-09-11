@@ -146,17 +146,39 @@ class SecureKeyStore {
     }
   }
 
+  static Future<void> deleteFrostMaterial(String walletId) async {
+    await deleteFrostKeyPackage(walletId);
+    await _storage.delete(key: _frostRelayPrivateKeyKey(walletId));
+  }
+
   // ── DB encryption key ──
 
   static const _dbKeyPrefix = 'db_cipher_key_';
 
-  static Future<String> getOrCreateDbKey(int coin) async {
+  static final Map<int, Future<String>> _dbKeyRequests = {};
+
+  static Future<String> getOrCreateDbKey(int coin) =>
+      _dbKeyRequests.putIfAbsent(coin, () async {
+        try {
+          return await _readOrCreateDbKey(coin);
+        } finally {
+          _dbKeyRequests.remove(coin);
+        }
+      });
+
+  static Future<String> _readOrCreateDbKey(int coin) async {
     final key = '$_dbKeyPrefix$coin';
     try {
       final existing = await _storage.read(key: key);
-      if (existing != null && existing.isNotEmpty) return existing;
-    } on PlatformException catch (e) {
-      _logger.e('Keystore read DB key failed: $e');
+      if (existing != null) {
+        if (existing.isEmpty)
+          throw StateError(
+              'Stored database key is empty; refusing replacement.');
+        return existing;
+      }
+    } on PlatformException {
+      _logger.e('Keystore read DB key failed; refusing to replace it');
+      rethrow;
     }
     final rng = Random.secure();
     final bytes = List<int>.generate(32, (_) => rng.nextInt(256));

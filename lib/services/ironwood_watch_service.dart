@@ -69,19 +69,21 @@ class IronwoodWatchService {
 
   /// Plan a migration (preview only, not committed).
   Future<engine.IronwoodSdkPlan> planMigration() async {
-    final seed = await WalletService.instance.getSeedPhrase();
-    if (seed == null) throw Exception('Cannot access seed');
-    return engine.engineIronwoodSdkPlan(seedPhrase: seed);
+    return WalletService.instance.planMigration();
   }
 
   /// Commit the migration: plans, builds and signs all PCZTs in one pass.
   /// After this, call tick() periodically.
-  Future<engine.IronwoodSdkProgress> commitMigration() async {
-    final seed = await WalletService.instance.getSeedPhrase();
-    if (seed == null) throw Exception('Cannot access seed');
-
+  Future<engine.IronwoodSdkProgress> commitMigration({
+    required int expectedRevision,
+    required String expectedWalletId,
+    required bool expectedTestnet,
+  }) async {
     _log.i('[Ironwood] calling SDK commit...');
-    final result = await engine.engineIronwoodSdkCommit(seedPhrase: seed);
+    final result = await WalletService.instance.commitMigration(
+        expectedRevision: expectedRevision,
+        expectedWalletId: expectedWalletId,
+        expectedTestnet: expectedTestnet);
     _lastProgress = result;
     _log.i('[Ironwood] committed: ${_fmtProgress(result)}');
 
@@ -172,7 +174,9 @@ class IronwoodWatchService {
 
   static String _fmtProgress(engine.IronwoodSdkProgress p) {
     final zec = BigInt.from(100000000);
-    final crossings = p.crossingValues.map((v) => '${v ~/ zec}.${(v % zec).toString().padLeft(8, '0')}').join(', ');
+    final crossings = p.crossingValues
+        .map((v) => '${v ~/ zec}.${(v % zec).toString().padLeft(8, '0')}')
+        .join(', ');
     return 'status=${p.status} '
         'txs=${p.confirmedCount}/${p.totalTxCount} '
         'broadcast=${p.broadcastCount} '

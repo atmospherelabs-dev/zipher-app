@@ -17,31 +17,19 @@ use zcash_protocol::consensus::Network;
 
 #[derive(Clone)]
 enum SeedSource {
-    OwsVault { wallet_name: String, passphrase: String },
+    OwsVault,
     None,
 }
 
 impl SeedSource {
     fn label(&self) -> &'static str {
         match self {
-            SeedSource::OwsVault { .. } => "ows-vault",
+            SeedSource::OwsVault => "ows-vault",
             SeedSource::None => "none",
         }
     }
 
-    fn decrypt(&self) -> Option<SecretString> {
-        match self {
-            SeedSource::OwsVault { wallet_name, passphrase } => {
-                let exported = ows_lib::export_wallet(wallet_name, Some(passphrase), None).ok()?;
-                if exported.contains(' ') && !exported.starts_with('{') {
-                    Some(SecretString::new(exported))
-                } else {
-                    None
-                }
-            }
-            SeedSource::None => None,
-        }
-    }
+
 }
 
 // ---------------------------------------------------------------------------
@@ -118,15 +106,6 @@ fn err_code_response(code: &str, message: &str) -> String {
     .unwrap()
 }
 
-fn err_with_data<T: Serialize>(code: &str, message: &str, data: T) -> String {
-    serde_json::to_string_pretty(&ToolResponse {
-        error_code: code.to_string(),
-        message: Some(message.to_string()),
-        data: Some(data),
-    })
-    .unwrap()
-}
-
 // ---------------------------------------------------------------------------
 // Parameter structs for tools
 // ---------------------------------------------------------------------------
@@ -145,6 +124,8 @@ struct ProposeSendParams {
 
 #[derive(Deserialize, JsonSchema)]
 struct ConfirmSendParams {
+    /// Exact proposal_id returned by propose_send. Old or replaced IDs are rejected.
+    proposal_id: String,
     /// Context identifier for audit trail
     context_id: Option<String>,
 }
@@ -159,14 +140,6 @@ struct GetTransactionsParams {
 struct ValidateAddressParams {
     /// Zcash address to validate
     address: String,
-}
-
-#[derive(Deserialize, JsonSchema)]
-struct ApproveSendParams {
-    /// The approval ID returned by propose_send when APPROVAL_REQUIRED
-    approval_id: String,
-    /// Context identifier for audit trail
-    context_id: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -292,22 +265,6 @@ struct PolymarketPositionsParams {
 }
 
 #[derive(Deserialize, JsonSchema)]
-struct PolymarketBetParams {
-    /// Condition ID of the market to bet on
-    condition_id: String,
-    /// Outcome index (0 = YES/first outcome, 1 = NO/second outcome)
-    outcome: u32,
-    /// Amount in USDC (human readable, e.g. 5.0 = $5)
-    amount: f64,
-    /// Minimum fill price (0.0-1.0). Use to set limit orders. Default: market price.
-    min_price: Option<f64>,
-    /// Context identifier for audit trail
-    context_id: Option<String>,
-}
-
-// --- EVM balance/sweep params ---
-
-#[derive(Deserialize, JsonSchema)]
 struct EvmBalancesParams {
     /// Chain name: polygon, bsc, base, arb, eth, op
     chain: String,
@@ -375,6 +332,17 @@ struct HitlDecideParams {
 // MCP Server state
 // ---------------------------------------------------------------------------
 
+static PAYMENT_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+#[derive(Clone)]
+struct ReviewedSend {
+    id: String,
+    address: String,
+    amount: u64,
+    fee: u64,
+    context_id: Option<String>,
+}
+
 #[derive(Clone)]
 struct ZipherMcpServer {
     data_dir: String,
@@ -382,11 +350,32 @@ struct ZipherMcpServer {
     locked: Arc<std::sync::atomic::AtomicBool>,
     network: Network,
     seed_source: Arc<SeedSource>,
+    reviewed_send: Arc<tokio::sync::Mutex<Option<ReviewedSend>>>,
 }
 
 // ---------------------------------------------------------------------------
 // Tool implementations
 // ---------------------------------------------------------------------------
+
+impl ZipherMcpServer {
+    // Caller holds PAYMENT_OPERATION from proposal creation through broadcast.
+    async fn confirm_accounted(&self, seed: &SecretString, address: &str,
+        amount: u64, fee: u64, context_id: &Option<String>) -> Result<String> {
+        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
+            anyhow::bail!("WALLET_LOCKED");
+        }
+        let policy = zipher_engine::policy::load_policy_checked(&self.data_dir)?;
+        zipher_engine::policy::check_rate_limit(&policy)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let reservation = zipher_engine::audit::reserve_spend(
+            &self.data_dir, address, amount, fee, context_id, &policy)?;
+        // A failure may be an ambiguous broadcast. Never release its reserved
+        // budget automatically, or retry the payment on behalf of the caller.
+        let txid = zipher_engine::send::confirm_send(seed).await?;
+        zipher_engine::audit::settle_spend(&self.data_dir, reservation, &txid)?;
+        Ok(txid)
+    }
+}
 
 #[tool_router]
 impl ZipherMcpServer {
@@ -413,7 +402,9 @@ impl ZipherMcpServer {
             .await
             .ok()
             .and_then(|a| a.first().map(|info| info.address.clone()));
-        let policy = zipher_engine::policy::load_policy(&self.data_dir);
+        let policy = match zipher_engine::policy::load_policy_checked(&self.data_dir) {
+            Ok(p) => p, Err(e) => return err_response(&e),
+        };
 
         ok_response(WalletStatus {
             synced_height: progress.synced_height,
@@ -429,6 +420,8 @@ impl ZipherMcpServer {
 
     #[tool(description = "Lock the wallet — clears the seed from memory. All signing operations will fail until unlocked. Read-only tools (balance, status, transactions) still work.")]
     async fn wallet_lock(&self) -> String {
+        let _payment = PAYMENT_OPERATION.lock().await;
+        self.reviewed_send.lock().await.take();
         if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
             return err_code_response(WALLET_LOCKED, "Wallet is already locked.");
         }
@@ -443,31 +436,6 @@ impl ZipherMcpServer {
         ok_response(serde_json::json!({ "locked": true }))
     }
 
-    #[tool(description = "Unlock the wallet — re-decrypts the seed from its vault. Only the operator should call this.")]
-    async fn wallet_unlock(&self) -> String {
-        if !self.locked.load(std::sync::atomic::Ordering::SeqCst) {
-            return err_code_response(SUCCESS, "Wallet is already unlocked.");
-        }
-
-        match self.seed_source.decrypt() {
-            Some(seed) => {
-                {
-                    let mut seed_guard = self.seed.write().await;
-                    *seed_guard = Some(seed);
-                }
-                self.locked.store(false, std::sync::atomic::Ordering::SeqCst);
-                tracing::info!("Wallet unlocked — seed restored from {}", self.seed_source.label());
-                ok_response(serde_json::json!({ "locked": false, "source": self.seed_source.label() }))
-            }
-            None => {
-                err_code_response(
-                    INTERNAL_ERROR,
-                    "Failed to re-decrypt seed from vault. Check vault passphrase.",
-                )
-            }
-        }
-    }
-
     #[tool(description = "Get pool-specific wallet balance (shielded orchard, shielded sapling, transparent, unconfirmed)")]
     async fn get_balance(&self) -> String {
         match zipher_engine::query::get_wallet_balance().await {
@@ -478,53 +446,19 @@ impl ZipherMcpServer {
 
     #[tool(description = "Create a send proposal. Returns fee and amount for review before signing. Call confirm_send to broadcast.")]
     async fn propose_send(&self, Parameters(params): Parameters<ProposeSendParams>) -> String {
-        let policy = zipher_engine::policy::load_policy(&self.data_dir);
-        let daily_spent = zipher_engine::audit::daily_spent(&self.data_dir).unwrap_or(0);
+        let _payment = PAYMENT_OPERATION.lock().await;
+        self.reviewed_send.lock().await.take();
+        let policy = match zipher_engine::policy::load_policy_checked(&self.data_dir) {
+            Ok(p) => p, Err(e) => return err_response(&e),
+        };
+        let daily_spent = match zipher_engine::audit::daily_spent(&self.data_dir) {
+            Ok(v) => v, Err(e) => return err_response(&e),
+        };
 
         if let Err(violation) = zipher_engine::policy::check_proposal(
             &policy, &params.address, params.amount, &params.context_id, daily_spent,
         ) {
-            // Approval threshold triggers HITL flow instead of hard deny
-            if let zipher_engine::policy::PolicyViolation::ApprovalRequired { amount, threshold } = &violation {
-                let approval_id = zipher_engine::policy::store_pending_approval(
-                    &params.address,
-                    params.amount,
-                    params.memo.clone(),
-                    params.context_id.clone(),
-                );
-                zipher_engine::audit::log_event(
-                    &self.data_dir, "propose_send", Some(&params.address),
-                    Some(params.amount), None, params.context_id.as_deref(),
-                    None, Some(&format!("APPROVAL_REQUIRED: stored as {}", approval_id)),
-                ).ok();
 
-                #[derive(Serialize)]
-                struct ApprovalInfo {
-                    approval_id: String,
-                    address: String,
-                    amount: u64,
-                    amount_zec: f64,
-                    threshold: u64,
-                    expires_in_secs: u64,
-                }
-
-                return err_with_data(
-                    APPROVAL_REQUIRED,
-                    &format!(
-                        "Amount {} exceeds approval threshold {}. \
-                         Operator must call approve_send with approval_id to proceed.",
-                        amount, threshold,
-                    ),
-                    ApprovalInfo {
-                        approval_id,
-                        address: params.address,
-                        amount: *amount,
-                        amount_zec: *amount as f64 / 1e8,
-                        threshold: *threshold,
-                        expires_in_secs: 300,
-                    },
-                );
-            }
 
             zipher_engine::audit::log_event(
                 &self.data_dir, "propose_send", Some(&params.address),
@@ -534,6 +468,7 @@ impl ZipherMcpServer {
             let code = match &violation {
                 zipher_engine::policy::PolicyViolation::AddressNotAllowed { .. } => ADDRESS_NOT_ALLOWED,
                 zipher_engine::policy::PolicyViolation::ContextRequired => CONTEXT_REQUIRED,
+                zipher_engine::policy::PolicyViolation::ApprovalRequired { .. } => APPROVAL_REQUIRED,
                 _ => POLICY_EXCEEDED,
             };
             return err_code_response(code, &violation.to_string());
@@ -541,6 +476,12 @@ impl ZipherMcpServer {
 
         match zipher_engine::send::propose_send(&params.address, params.amount, params.memo, false, false).await {
             Ok((send_amount, fee, _)) => {
+                let proposal_id = uuid::Uuid::new_v4().to_string();
+                *self.reviewed_send.lock().await = Some(ReviewedSend {
+                    id: proposal_id.clone(),
+                    address: params.address.clone(), amount: send_amount, fee,
+                    context_id: params.context_id.clone(),
+                });
                 zipher_engine::audit::log_event(
                     &self.data_dir, "propose_send", Some(&params.address),
                     Some(send_amount), Some(fee), params.context_id.as_deref(),
@@ -549,6 +490,7 @@ impl ZipherMcpServer {
 
                 #[derive(Serialize)]
                 struct ProposalResult {
+                    proposal_id: String,
                     address: String,
                     send_amount: u64,
                     fee: u64,
@@ -558,6 +500,7 @@ impl ZipherMcpServer {
                 }
 
                 ok_response(ProposalResult {
+                    proposal_id,
                     address: params.address,
                     send_amount,
                     fee,
@@ -579,6 +522,7 @@ impl ZipherMcpServer {
 
     #[tool(description = "Sign and broadcast the pending send proposal. Uses seed from server memory — never pass seed as argument.")]
     async fn confirm_send(&self, Parameters(params): Parameters<ConfirmSendParams>) -> String {
+        let _payment = PAYMENT_OPERATION.lock().await;
         if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
             return err_code_response(WALLET_LOCKED, "Wallet is locked. Ask the operator to unlock.");
         }
@@ -587,12 +531,14 @@ impl ZipherMcpServer {
         let seed_str = match seed_guard.as_ref() {
             Some(s) => s.clone(),
             None => {
-                return err_code_response(WALLET_LOCKED, "No seed available. Run `zipher wallet init` to create an encrypted vault, or unlock with wallet_unlock.");
+                return err_code_response(WALLET_LOCKED, "No seed available. Run `zipher wallet init` to create an encrypted vault, then restart the server from the trusted operator terminal.");
             }
         };
         drop(seed_guard);
 
-        let policy = zipher_engine::policy::load_policy(&self.data_dir);
+        let policy = match zipher_engine::policy::load_policy_checked(&self.data_dir) {
+            Ok(p) => p, Err(e) => return err_response(&e),
+        };
         if let Err(violation) = zipher_engine::policy::check_rate_limit(&policy) {
             zipher_engine::audit::log_event(
                 &self.data_dir, "confirm_send", None,
@@ -602,12 +548,21 @@ impl ZipherMcpServer {
             return err_code_response(POLICY_EXCEEDED, &violation.to_string());
         }
 
-        match zipher_engine::send::confirm_send(&seed_str).await {
+        let reviewed = {
+            let mut pending = self.reviewed_send.lock().await;
+            match pending.as_ref() {
+                Some(p) if p.id == params.proposal_id && p.context_id == params.context_id => {}
+                _ => return err_code_response(INVALID_PROPOSAL, "Proposal replaced or context changed. Review again."),
+            }
+            pending.take().expect("matched pending proposal")
+        };
+        match self.confirm_accounted(&seed_str, &reviewed.address, reviewed.amount,
+            reviewed.fee, &reviewed.context_id).await {
             Ok(txid) => {
                 zipher_engine::policy::record_confirm();
                 zipher_engine::audit::log_event(
-                    &self.data_dir, "confirm_send", None,
-                    None, None, params.context_id.as_deref(),
+                    &self.data_dir, "confirm_send", Some(&reviewed.address),
+                    Some(reviewed.amount), Some(reviewed.fee), params.context_id.as_deref(),
                     Some(&txid), None,
                 ).ok();
 
@@ -626,86 +581,6 @@ impl ZipherMcpServer {
         }
     }
 
-    #[tool(description = "Approve a pending send that exceeded the approval threshold (operator-only). Takes the approval_id from the APPROVAL_REQUIRED response, creates the proposal, signs, and broadcasts.")]
-    async fn approve_send(&self, Parameters(params): Parameters<ApproveSendParams>) -> String {
-        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
-            return err_code_response(WALLET_LOCKED, "Wallet is locked. Ask the operator to unlock.");
-        }
-
-        let seed_guard = self.seed.read().await;
-        let seed_str = match seed_guard.as_ref() {
-            Some(s) => s.clone(),
-            None => {
-                return err_code_response(WALLET_LOCKED, "No seed available. Run `zipher wallet init` to create an encrypted vault, or unlock with wallet_unlock.");
-            }
-        };
-        drop(seed_guard);
-
-        let pending = match zipher_engine::policy::take_pending_approval(&params.approval_id) {
-            Some(p) => p,
-            None => {
-                return err_code_response(
-                    INVALID_PROPOSAL,
-                    "No pending approval with that ID, or it has expired (5 min TTL).",
-                );
-            }
-        };
-
-        let context_id = params.context_id.or(pending.context_id);
-
-        match zipher_engine::send::propose_send(
-            &pending.address, pending.amount, pending.memo, false, false,
-        ).await {
-            Ok((send_amount, fee, _)) => {
-                match zipher_engine::send::confirm_send(&seed_str).await {
-                    Ok(txid) => {
-                        zipher_engine::policy::record_confirm();
-                        zipher_engine::audit::log_event(
-                            &self.data_dir, "approve_send", Some(&pending.address),
-                            Some(send_amount), Some(fee), context_id.as_deref(),
-                            Some(&txid), None,
-                        ).ok();
-
-                        #[derive(Serialize)]
-                        struct ApprovedResult {
-                            txid: String,
-                            address: String,
-                            send_amount: u64,
-                            fee: u64,
-                            send_amount_zec: f64,
-                            approval_id: String,
-                        }
-
-                        ok_response(ApprovedResult {
-                            txid,
-                            address: pending.address,
-                            send_amount,
-                            fee,
-                            send_amount_zec: send_amount as f64 / 1e8,
-                            approval_id: params.approval_id,
-                        })
-                    }
-                    Err(e) => {
-                        zipher_engine::audit::log_event(
-                            &self.data_dir, "approve_send", Some(&pending.address),
-                            Some(send_amount), Some(fee), context_id.as_deref(),
-                            None, Some(&format!("{:#}", e)),
-                        ).ok();
-                        err_response(&e)
-                    }
-                }
-            }
-            Err(e) => {
-                zipher_engine::audit::log_event(
-                    &self.data_dir, "approve_send", Some(&pending.address),
-                    Some(pending.amount), None, context_id.as_deref(),
-                    None, Some(&format!("{:#}", e)),
-                ).ok();
-                err_response(&e)
-            }
-        }
-    }
-
     #[tool(description = "Get the current pending approval awaiting operator review, if any. Returns approval details or null.")]
     async fn get_pending_approval(&self) -> String {
         match zipher_engine::policy::get_pending_approval() {
@@ -716,32 +591,7 @@ impl ZipherMcpServer {
 
     #[tool(description = "Shield transparent funds into the shielded pool. Uses seed from server memory.")]
     async fn shield_funds(&self) -> String {
-        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
-            return err_code_response(WALLET_LOCKED, "Wallet is locked.");
-        }
-
-        let seed_guard = self.seed.read().await;
-        let seed_str = match seed_guard.as_ref() {
-            Some(s) => s.clone(),
-            None => {
-                return err_code_response(WALLET_LOCKED, "No seed available.");
-            }
-        };
-        drop(seed_guard);
-
-        match zipher_engine::send::shield_funds(&seed_str).await {
-            Ok(txid) => {
-                zipher_engine::audit::log_event(
-                    &self.data_dir, "shield_funds", None,
-                    None, None, None, Some(&txid), None,
-                ).ok();
-
-                #[derive(Serialize)]
-                struct ShieldResult { txid: String }
-                ok_response(ShieldResult { txid })
-            }
-            Err(e) => err_response(&e),
-        }
+        err_code_response(APPROVAL_REQUIRED, "Shield funds from the authenticated wallet UI or operator CLI.")
     }
 
     #[tool(description = "Get recent transaction history with memos")]
@@ -860,6 +710,8 @@ impl ZipherMcpServer {
 
     #[tool(description = "Execute a cross-chain swap: send ZEC to Near Intents deposit address and receive another asset. Requires seed. Privacy note: ZEC side is shielded, destination is public.")]
     async fn swap_execute(&self, Parameters(params): Parameters<SwapExecuteParams>) -> String {
+        let _payment = PAYMENT_OPERATION.lock().await;
+        self.reviewed_send.lock().await.take();
         if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
             return err_code_response(WALLET_LOCKED, "Wallet is locked.");
         }
@@ -907,8 +759,12 @@ impl ZipherMcpServer {
             return err_code_response(INTERNAL_ERROR, "No deposit address in quote");
         }
 
-        let policy = zipher_engine::policy::load_policy(&self.data_dir);
-        let daily_spent = zipher_engine::audit::daily_spent(&self.data_dir).unwrap_or(0);
+        let policy = match zipher_engine::policy::load_policy_checked(&self.data_dir) {
+            Ok(p) => p, Err(e) => return err_response(&e),
+        };
+        let daily_spent = match zipher_engine::audit::daily_spent(&self.data_dir) {
+            Ok(v) => v, Err(e) => return err_response(&e),
+        };
         if let Err(violation) = zipher_engine::policy::check_proposal(
             &policy, &quote.deposit_address, params.amount, &params.context_id, daily_spent,
         ) {
@@ -920,6 +776,7 @@ impl ZipherMcpServer {
             let code = match &violation {
                 zipher_engine::policy::PolicyViolation::AddressNotAllowed { .. } => ADDRESS_NOT_ALLOWED,
                 zipher_engine::policy::PolicyViolation::ContextRequired => CONTEXT_REQUIRED,
+                zipher_engine::policy::PolicyViolation::ApprovalRequired { .. } => APPROVAL_REQUIRED,
                 _ => POLICY_EXCEEDED,
             };
             return err_code_response(code, &violation.to_string());
@@ -940,7 +797,7 @@ impl ZipherMcpServer {
             Err(e) => return err_response(&e),
         };
 
-        let txid = match zipher_engine::send::confirm_send(&seed_str).await {
+        let txid = match self.confirm_accounted(&seed_str, &quote.deposit_address, send_amount, fee, &params.context_id).await {
             Ok(txid) => {
                 zipher_engine::policy::record_confirm();
                 zipher_engine::audit::log_event(
@@ -984,6 +841,8 @@ impl ZipherMcpServer {
 
     #[tool(description = "Open a prepaid session: send ZEC once, get a bearer token for many instant requests. Requires seed.")]
     async fn session_open(&self, Parameters(params): Parameters<SessionOpenParams>) -> String {
+        let _payment = PAYMENT_OPERATION.lock().await;
+        self.reviewed_send.lock().await.take();
         if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
             return err_code_response(WALLET_LOCKED, "Wallet is locked.");
         }
@@ -996,8 +855,12 @@ impl ZipherMcpServer {
         drop(seed_guard);
 
         let memo = format!("zipher:session:{}", params.merchant_id);
-        let policy = zipher_engine::policy::load_policy(&self.data_dir);
-        let daily_spent = zipher_engine::audit::daily_spent(&self.data_dir).unwrap_or(0);
+        let policy = match zipher_engine::policy::load_policy_checked(&self.data_dir) {
+            Ok(p) => p, Err(e) => return err_response(&e),
+        };
+        let daily_spent = match zipher_engine::audit::daily_spent(&self.data_dir) {
+            Ok(v) => v, Err(e) => return err_response(&e),
+        };
         if let Err(violation) = zipher_engine::policy::check_proposal(
             &policy, &params.pay_to, params.deposit, &params.context_id, daily_spent,
         ) {
@@ -1009,6 +872,7 @@ impl ZipherMcpServer {
             let code = match &violation {
                 zipher_engine::policy::PolicyViolation::AddressNotAllowed { .. } => ADDRESS_NOT_ALLOWED,
                 zipher_engine::policy::PolicyViolation::ContextRequired => CONTEXT_REQUIRED,
+                zipher_engine::policy::PolicyViolation::ApprovalRequired { .. } => APPROVAL_REQUIRED,
                 _ => POLICY_EXCEEDED,
             };
             return err_code_response(code, &violation.to_string());
@@ -1029,7 +893,7 @@ impl ZipherMcpServer {
             Err(e) => return err_response(&e),
         };
 
-        let txid = match zipher_engine::send::confirm_send(&seed_str).await {
+        let txid = match self.confirm_accounted(&seed_str, &params.pay_to, send_amount, fee, &params.context_id).await {
             Ok(txid) => {
                 zipher_engine::policy::record_confirm();
                 zipher_engine::audit::log_event(
@@ -1149,6 +1013,8 @@ impl ZipherMcpServer {
 
     #[tool(description = "Pay any 402 paywall by URL. Automatically detects x402 or MPP protocol, pays, retries the request, and returns the response. This is the simplest way to access a paid API.")]
     async fn pay_url(&self, Parameters(params): Parameters<PayUrlParams>) -> String {
+        let _payment = PAYMENT_OPERATION.lock().await;
+        self.reviewed_send.lock().await.take();
         if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
             return err_code_response(WALLET_LOCKED, "Wallet is locked.");
         }
@@ -1232,8 +1098,12 @@ impl ZipherMcpServer {
             Err(e) => return err_code_response(INVALID_PROPOSAL, &format!("{e}")),
         };
 
-        let policy = zipher_engine::policy::load_policy(&self.data_dir);
-        let daily_spent = zipher_engine::audit::daily_spent(&self.data_dir).unwrap_or(0);
+        let policy = match zipher_engine::policy::load_policy_checked(&self.data_dir) {
+            Ok(p) => p, Err(e) => return err_response(&e),
+        };
+        let daily_spent = match zipher_engine::audit::daily_spent(&self.data_dir) {
+            Ok(v) => v, Err(e) => return err_response(&e),
+        };
         if let Err(violation) = zipher_engine::policy::check_proposal(
             &policy, &address, amount, &params.context_id, daily_spent,
         ) {
@@ -1253,7 +1123,7 @@ impl ZipherMcpServer {
             Err(e) => return err_response(&e),
         };
 
-        let txid = match zipher_engine::send::confirm_send(&seed_str).await {
+        let txid = match self.confirm_accounted(&seed_str, &address, send_amount, fee, &params.context_id).await {
             Ok(txid) => {
                 zipher_engine::policy::record_confirm();
                 zipher_engine::audit::log_event(
@@ -1358,104 +1228,6 @@ impl ZipherMcpServer {
             Err(e) => err_response(&e),
         }
     }
-
-    #[tool(description = "Place a bet on Polymarket. Requires USDC on Polygon. Specify condition_id, outcome (0=YES, 1=NO), and amount in USDC. Uses the wallet's EVM key for signing. Returns a signed order ready for CLOB submission.")]
-    async fn polymarket_bet(&self, Parameters(params): Parameters<PolymarketBetParams>) -> String {
-        if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
-            return err_code_response(WALLET_LOCKED, "Wallet is locked.");
-        }
-
-        let seed_guard = self.seed.read().await;
-        let seed_str = match seed_guard.as_ref() {
-            Some(s) => s.clone(),
-            None => return err_code_response(WALLET_LOCKED, "No seed available."),
-        };
-        drop(seed_guard);
-
-        let seed_phrase = seed_str.expose_secret();
-        let address = match zipher_engine::polymarket::derive_address(seed_phrase) {
-            Ok(a) => a,
-            Err(e) => return err_response(&e),
-        };
-
-        let market = match zipher_engine::polymarket::polymarket_gamma_get_market_by_condition(&params.condition_id).await {
-            Ok(m) => m,
-            Err(e) => return err_code_response(INVALID_PROPOSAL, &format!("Market not found: {e}")),
-        };
-
-        let neg_risk = market.neg_risk_effective();
-        let token_ids = market.clob_token_ids_vec();
-        let token_id = if params.outcome == 0 {
-            token_ids.first().cloned().unwrap_or_default()
-        } else {
-            token_ids.get(1).cloned().unwrap_or_default()
-        };
-
-        if token_id.is_empty() {
-            return err_code_response(INVALID_PROPOSAL, "No token ID found for this outcome.");
-        }
-
-        let price = params.min_price.unwrap_or(if params.outcome == 0 {
-            market.best_ask_f().unwrap_or(0.5)
-        } else {
-            1.0 - market.best_bid_f().unwrap_or(0.5)
-        });
-
-        // USDC has 6 decimals: $5.00 = 5_000_000
-        let maker_amount = ((params.amount * 1_000_000.0) as u128).to_string();
-        // taker_amount = maker_amount / price (shares you get)
-        let taker_amount = ((params.amount / price * 1_000_000.0) as u128).to_string();
-
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        let salt = format!("{}", timestamp * 1000 + (timestamp % 997));
-
-        let order = zipher_engine::polymarket::PolymarketOrder {
-            salt,
-            maker: address.clone(),
-            signer: address.clone(),
-            token_id: token_id.clone(),
-            maker_amount: maker_amount.clone(),
-            taker_amount: taker_amount.clone(),
-            side: 0, // BUY
-            signature_type: 2, // EOA
-            timestamp: timestamp.to_string(),
-            metadata: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-            builder: "0x0000000000000000000000000000000000000000000000000000000000000000".to_string(),
-        };
-
-        let signature = match zipher_engine::polymarket::sign_order(seed_phrase, &order, neg_risk) {
-            Ok(s) => s,
-            Err(e) => return err_response(&e),
-        };
-
-        let usdc_raw = (params.amount * 1_000_000.0) as u64;
-        zipher_engine::audit::log_event(
-            &self.data_dir, "polymarket_bet", Some(&params.condition_id),
-            Some(usdc_raw), None, params.context_id.as_deref(),
-            None, Some(&format!("outcome={} price={:.4}", params.outcome, price)),
-        ).ok();
-
-        ok_response(serde_json::json!({
-            "status": "order_signed",
-            "condition_id": params.condition_id,
-            "token_id": token_id,
-            "outcome": params.outcome,
-            "amount_usdc": params.amount,
-            "price": price,
-            "maker_amount": maker_amount,
-            "taker_amount": taker_amount,
-            "address": address,
-            "signature": signature,
-            "neg_risk": neg_risk,
-            "note": "Order signed. Submit to Polymarket CLOB API to execute.",
-        }))
-    }
-
-    // --- EVM balance / sweep tools ---
 
     #[tool(description = "Get EVM token balances on a specific chain. Shows native balance and known ERC-20 tokens (USDC, USDT, etc.). Uses wallet's derived EVM address.")]
     async fn evm_balances(&self, Parameters(params): Parameters<EvmBalancesParams>) -> String {
@@ -1703,6 +1475,8 @@ impl ZipherMcpServer {
 
     #[tool(description = "Pay an HTTP 402 paywall. Pass the full 402 response body. Returns txid and a PAYMENT-SIGNATURE header value to include when retrying the original request.")]
     async fn pay_x402(&self, Parameters(params): Parameters<PayX402Params>) -> String {
+        let _payment = PAYMENT_OPERATION.lock().await;
+        self.reviewed_send.lock().await.take();
         if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
             return err_code_response(WALLET_LOCKED, "Wallet is locked. Ask the operator to unlock.");
         }
@@ -1711,7 +1485,7 @@ impl ZipherMcpServer {
         let seed_str = match seed_guard.as_ref() {
             Some(s) => s.clone(),
             None => {
-                return err_code_response(WALLET_LOCKED, "No seed available. Run `zipher wallet init` to create an encrypted vault, or unlock with wallet_unlock.");
+                return err_code_response(WALLET_LOCKED, "No seed available. Run `zipher wallet init` to create an encrypted vault, then restart the server from the trusted operator terminal.");
             }
         };
         drop(seed_guard);
@@ -1734,8 +1508,12 @@ impl ZipherMcpServer {
 
         let address = req.pay_to.clone();
 
-        let policy = zipher_engine::policy::load_policy(&self.data_dir);
-        let daily_spent = zipher_engine::audit::daily_spent(&self.data_dir).unwrap_or(0);
+        let policy = match zipher_engine::policy::load_policy_checked(&self.data_dir) {
+            Ok(p) => p, Err(e) => return err_response(&e),
+        };
+        let daily_spent = match zipher_engine::audit::daily_spent(&self.data_dir) {
+            Ok(v) => v, Err(e) => return err_response(&e),
+        };
 
         if let Err(violation) = zipher_engine::policy::check_proposal(
             &policy, &address, amount, &params.context_id, daily_spent,
@@ -1748,6 +1526,7 @@ impl ZipherMcpServer {
             let code = match &violation {
                 zipher_engine::policy::PolicyViolation::AddressNotAllowed { .. } => ADDRESS_NOT_ALLOWED,
                 zipher_engine::policy::PolicyViolation::ContextRequired => CONTEXT_REQUIRED,
+                zipher_engine::policy::PolicyViolation::ApprovalRequired { .. } => APPROVAL_REQUIRED,
                 _ => POLICY_EXCEEDED,
             };
             return err_code_response(code, &violation.to_string());
@@ -1774,7 +1553,7 @@ impl ZipherMcpServer {
             }
         };
 
-        match zipher_engine::send::confirm_send(&seed_str).await {
+        match self.confirm_accounted(&seed_str, &address, send_amount, fee, &params.context_id).await {
             Ok(txid) => {
                 zipher_engine::policy::record_confirm();
                 zipher_engine::audit::log_event(
@@ -1829,11 +1608,11 @@ impl ServerHandler for ZipherMcpServer {
             .with_instructions(
                 "Zipher: headless Zcash wallet + multi-chain agent toolkit for AI. \
                  Seed is secured in an encrypted vault (OWS or Zipher) — never pass it as a tool argument. \
-                 The operator can lock/unlock the wallet remotely via wallet_lock/wallet_unlock. \
+                 wallet_lock clears access; only a trusted operator restart can unlock. Threshold payments require the operator CLI, not an MCP approval tool. \
                  Paid APIs: pay_url auto-detects x402/MPP, pays, returns response. \
                  Cross-chain: swap_execute converts ZEC to any asset via Near Intents. \
                  EVM: evm_balances shows token holdings; sweep_quote previews bridging back to ZEC. \
-                 Prediction markets: polymarket_discover finds markets, polymarket_positions shows bets, polymarket_bet places orders. \
+                 Prediction markets: polymarket_discover finds markets, polymarket_positions shows bets, order signing is unavailable until per-asset operator authorization is implemented. \
                  Governance voting is unavailable in this version."
             )
     }
@@ -1949,6 +1728,7 @@ async fn main() -> Result<()> {
         locked: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         network,
         seed_source: Arc::new(seed_source),
+        reviewed_send: Arc::new(tokio::sync::Mutex::new(None)),
     };
 
     tracing::info!("Zipher MCP server starting on stdio (data_dir={})", data_dir);
@@ -1971,10 +1751,7 @@ fn resolve_seed(_data_dir: &str) -> (Option<SecretString>, SeedSource) {
     if let Ok(exported) = ows_lib::export_wallet(&ows_wallet, Some(&ows_passphrase), None) {
         if exported.contains(' ') && !exported.starts_with('{') {
             tracing::info!("Seed loaded from OWS vault (wallet: {})", ows_wallet);
-            let source = SeedSource::OwsVault {
-                wallet_name: ows_wallet,
-                passphrase: ows_passphrase,
-            };
+            let source = SeedSource::OwsVault;
             return (Some(SecretString::new(exported)), source);
         }
     }
@@ -1984,4 +1761,42 @@ fn resolve_seed(_data_dir: &str) -> (Option<SecretString>, SeedSource) {
          Run `zipher-cli wallet init`, or set OWS_WALLET / OWS_PASSPHRASE."
     );
     (None, SeedSource::None)
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+    #[tokio::test]
+    async fn replaced_proposal_cannot_be_confirmed_or_consumed() {
+        let dir = std::env::temp_dir().join(format!("zipher-mcp-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let server = ZipherMcpServer {
+            data_dir: dir.to_str().unwrap().to_string(),
+            seed: Arc::new(RwLock::new(Some(SecretString::new("dummy-test-secret".into())))),
+            locked: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            network: Network::MainNetwork,
+            seed_source: Arc::new(SeedSource::None),
+            reviewed_send: Arc::new(tokio::sync::Mutex::new(Some(ReviewedSend {
+                id: "proposal-b".into(), address: "b".into(), amount: 10, fee: 1, context_id: None,
+            }))),
+        };
+        let result = server.confirm_send(Parameters(ConfirmSendParams {
+            proposal_id: "proposal-a".into(), context_id: None,
+        })).await;
+        assert!(result.contains(INVALID_PROPOSAL));
+        assert_eq!(server.reviewed_send.lock().await.as_ref().unwrap().id, "proposal-b");
+        server.wallet_lock().await;
+        assert!(server.seed.read().await.is_none());
+        assert!(server.reviewed_send.lock().await.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn agent_cannot_invoke_operator_or_unbounded_signing_tools() {
+        let tools = ZipherMcpServer::tool_router().list_all();
+        for name in ["wallet_unlock", "approve_send", "polymarket_bet"] {
+            assert!(!tools.iter().any(|t| t.name == name), "unsafe tool exposed: {name}");
+        }
+        assert!(serde_json::from_str::<ConfirmSendParams>(r#"{"context_id":null}"#).is_err());
+    }
 }

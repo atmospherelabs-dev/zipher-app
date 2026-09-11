@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../coin/coins.dart';
 import '../../services/cipherpay_client.dart';
 import '../../services/wallet_service.dart';
 import '../../zipher_theme.dart';
@@ -162,15 +163,25 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
     if (invoice == null || _paying) return;
     if (_expired || _alreadyPaid) return;
 
+    final wallet = WalletService.instance;
+    final reviewedWallet = wallet.activeWalletId;
+    final reviewedNetwork = isTestnet;
+    setState(() => _paying = true);
     final authed = await requireSigningAuthorization(
       context,
       actionSummary: invoice.productName?.isNotEmpty == true
           ? 'Pay invoice for ${invoice.productName}'
           : 'Pay CipherPay invoice',
     );
-    if (!authed || !mounted) return;
-
-    setState(() => _paying = true);
+    if (!mounted) return;
+    if (!authed ||
+        reviewedWallet == null ||
+        wallet.activeWalletId != reviewedWallet ||
+        isTestnet != reviewedNetwork ||
+        _expired) {
+      setState(() => _paying = false);
+      return;
+    }
 
     try {
       final amountZat =
@@ -181,7 +192,10 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
         memo: invoice.memoCode,
         isMax: false,
       );
-      final txid = await WalletService.instance.confirmSend();
+      final txid = await wallet.confirmSend(
+          expectedRevision: wallet.proposalRevision,
+          expectedWalletId: reviewedWallet,
+          expectedTestnet: reviewedNetwork);
       if (!mounted) return;
       GoRouter.of(context).pushReplacement(
         '/invoice/status',

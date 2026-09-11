@@ -11,7 +11,8 @@ const _quoteWaitingTimeMs = 3000;
 const _affiliateAddress = 'cipherscan.near';
 const _affiliateFeeBps = 50; // 0.5%
 const _referral = 'zipher';
-const _apiKey = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjIwMjUtMDEtMTItdjEifQ.eyJ2IjoxLCJrZXlfdHlwZSI6ImRpc3RyaWJ1dGlvbl9jaGFubmVsIiwicGFydG5lcl9pZCI6ImNpcGhlcnNjYW4iLCJpYXQiOjE3NzEzMTg2NjEsImV4cCI6MTgwMjg1NDY2MX0.Lcyle1wo7WnNT8eXrL7oOk3cpZakyjkGqBYjCpoFCkxtQC_Et1FE_3mK0nRODoYwutOuDPkw-JIRl47hmGhSmdCl-5r8R3Tw4LrQk-UY0g5a6WWfyjlrqTPeyexnRyKN-ry6Mm3kDwJm4g9uDxUFhea11lOnbNyD4SyuWRi_6Tp3Ch_ucTV2O6il5m8ZRhWi3yKV9yl4SUf324chPtLefwiTxJB-psA05vU0jurKpjO18t37Vuty6On1rgAQqMfm_h2KOwtjxhFk5ey5vk6dvfMfTsvsH08_bYeK45nLihtDtsPyKQKV1snhSwyjdzWZB5R5fZHSn7x4gw_bEf91FA';
+const _apiKey =
+    'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IjIwMjUtMDEtMTItdjEifQ.eyJ2IjoxLCJrZXlfdHlwZSI6ImRpc3RyaWJ1dGlvbl9jaGFubmVsIiwicGFydG5lcl9pZCI6ImNpcGhlcnNjYW4iLCJpYXQiOjE3NzEzMTg2NjEsImV4cCI6MTgwMjg1NDY2MX0.Lcyle1wo7WnNT8eXrL7oOk3cpZakyjkGqBYjCpoFCkxtQC_Et1FE_3mK0nRODoYwutOuDPkw-JIRl47hmGhSmdCl-5r8R3Tw4LrQk-UY0g5a6WWfyjlrqTPeyexnRyKN-ry6Mm3kDwJm4g9uDxUFhea11lOnbNyD4SyuWRi_6Tp3Ch_ucTV2O6il5m8ZRhWi3yKV9yl4SUf324chPtLefwiTxJB-psA05vU0jurKpjO18t37Vuty6On1rgAQqMfm_h2KOwtjxhFk5ey5vk6dvfMfTsvsH08_bYeK45nLihtDtsPyKQKV1snhSwyjdzWZB5R5fZHSn7x4gw_bEf91FA';
 
 class NearIntentsService {
   static final NearIntentsService _instance = NearIntentsService._();
@@ -31,12 +32,15 @@ class NearIntentsService {
   Future<List<NearToken>> getTokens({bool forceRefresh = false}) async {
     if (_cachedTokens != null && !forceRefresh) return _cachedTokens!;
 
-    final resp = await http.get(
-      Uri.parse('$_baseUrl/tokens'),
-      headers: _headers(),
-    ).timeout(const Duration(seconds: 20));
+    final resp = await http
+        .get(
+          Uri.parse('$_baseUrl/tokens'),
+          headers: _headers(),
+        )
+        .timeout(const Duration(seconds: 20));
     if (resp.statusCode ~/ 100 != 2) {
-      throw NearIntentsException('Failed to fetch tokens: ${resp.statusCode}', resp.body);
+      throw NearIntentsException(
+          'Failed to fetch tokens: ${resp.statusCode}', resp.body);
     }
     final List<dynamic> data = jsonDecode(resp.body);
     _cachedTokens = data.map((j) => NearToken.fromJson(j)).toList();
@@ -45,9 +49,12 @@ class NearIntentsService {
 
   NearToken? findZecToken(List<NearToken> tokens) {
     return tokens.cast<NearToken?>().firstWhere(
-      (t) => t!.symbol.toUpperCase() == 'ZEC',
-      orElse: () => null,
-    );
+          (t) =>
+              t!.assetId == 'nep141:zec.omft.near' &&
+              t.blockchain.toLowerCase() == 'zec' &&
+              t.decimals == 8,
+          orElse: () => null,
+        );
   }
 
   List<NearToken> getSwappableTokens(List<NearToken> tokens) {
@@ -73,11 +80,26 @@ class NearIntentsService {
     final key = '$sym:$chain';
 
     const top = {
-      'BTC:btc': 0, 'ETH:eth': 1, 'SOL:sol': 2, 'BNB:bsc': 3,
-      'XRP:xrp': 4, 'DOGE:doge': 5, 'ADA:cardano': 6, 'TRX:tron': 7,
-      'AVAX:avax': 8, 'LTC:ltc': 9, 'BCH:bch': 10, 'LINK:eth': 11,
-      'SUI:sui': 12, 'APT:aptos': 13, 'TON:ton': 14, 'XLM:stellar': 15,
-      'NEAR:near': 16, 'ARB:arb': 17, 'OP:op': 18, 'POL:pol': 19,
+      'BTC:btc': 0,
+      'ETH:eth': 1,
+      'SOL:sol': 2,
+      'BNB:bsc': 3,
+      'XRP:xrp': 4,
+      'DOGE:doge': 5,
+      'ADA:cardano': 6,
+      'TRX:tron': 7,
+      'AVAX:avax': 8,
+      'LTC:ltc': 9,
+      'BCH:bch': 10,
+      'LINK:eth': 11,
+      'SUI:sui': 12,
+      'APT:aptos': 13,
+      'TON:ton': 14,
+      'XLM:stellar': 15,
+      'NEAR:near': 16,
+      'ARB:arb': 17,
+      'OP:op': 18,
+      'POL:pol': 19,
     };
     if (top.containsKey(key)) return top[key]!;
 
@@ -118,11 +140,13 @@ class NearIntentsService {
       'referral': _referral,
     };
 
-    final resp = await http.post(
-      Uri.parse('$_baseUrl/quote'),
-      headers: _headers(auth: true),
-      body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 30));
+    final resp = await http
+        .post(
+          Uri.parse('$_baseUrl/quote'),
+          headers: _headers(auth: true),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 30));
     if (resp.statusCode ~/ 100 != 2) {
       final errBody = _tryParseError(resp.body);
       throw NearIntentsException(
@@ -130,21 +154,27 @@ class NearIntentsService {
         resp.body,
       );
     }
-    return NearQuoteResponse.fromJson(jsonDecode(resp.body));
+    final quote = NearQuoteResponse.fromJson(jsonDecode(resp.body));
+    if (!quote.matchesRequest(body)) {
+      throw NearIntentsException('Quote does not match the requested swap');
+    }
+    return quote;
   }
 
   Future<void> submitDeposit({
     required String txHash,
     required String depositAddress,
   }) async {
-    final resp = await http.post(
-      Uri.parse('$_baseUrl/deposit/submit'),
-      headers: _headers(auth: true),
-      body: jsonEncode({
-        'txHash': txHash,
-        'depositAddress': depositAddress,
-      }),
-    ).timeout(const Duration(seconds: 20));
+    final resp = await http
+        .post(
+          Uri.parse('$_baseUrl/deposit/submit'),
+          headers: _headers(auth: true),
+          body: jsonEncode({
+            'txHash': txHash,
+            'depositAddress': depositAddress,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
     if (resp.statusCode ~/ 100 != 2) {
       throw NearIntentsException(
         'Deposit submit failed: ${resp.statusCode}',
@@ -157,7 +187,9 @@ class NearIntentsService {
     final uri = Uri.parse('$_baseUrl/status').replace(
       queryParameters: {'depositAddress': depositAddress},
     );
-    final resp = await http.get(uri, headers: _headers(auth: true)).timeout(const Duration(seconds: 20));
+    final resp = await http
+        .get(uri, headers: _headers(auth: true))
+        .timeout(const Duration(seconds: 20));
     if (resp.statusCode ~/ 100 != 2) {
       throw NearIntentsException(
         'Status check failed: ${resp.statusCode}',
@@ -171,7 +203,8 @@ class NearIntentsService {
     try {
       final json = jsonDecode(body);
       if (json is Map && json.containsKey('message')) return json['message'];
-      if (json is Map && json.containsKey('error')) return json['error'].toString();
+      if (json is Map && json.containsKey('error'))
+        return json['error'].toString();
     } catch (_) {}
     return null;
   }
@@ -231,15 +264,72 @@ class NearQuoteResponse {
 
   factory NearQuoteResponse.fromJson(Map<String, dynamic> json) {
     final quote = json['quote'] ?? json;
-    final request = json['quoteRequest'] ?? {};
     return NearQuoteResponse(
       depositAddress: quote['depositAddress'] ?? '',
       amountIn: BigInt.tryParse('${quote['amountIn'] ?? '0'}') ?? BigInt.zero,
       amountOut: BigInt.tryParse('${quote['amountOut'] ?? '0'}') ?? BigInt.zero,
       minAmountOut: BigInt.tryParse('${quote['minAmountOut'] ?? ''}'),
-      deadline: quote['deadline'] ?? request['deadline'] ?? '',
+      deadline: quote['deadline'] ?? '',
       raw: json,
     );
+  }
+
+  bool matchesRequest(Map<String, dynamic> expected) {
+    final echoed = raw['quoteRequest'];
+    if (echoed is! Map) return false;
+    for (final key in [
+      'dry',
+      'swapType',
+      'slippageTolerance',
+      'originAsset',
+      'destinationAsset',
+      'amount',
+      'refundTo',
+      'refundType',
+      'recipient',
+      'recipientType',
+      'depositType'
+    ]) {
+      if (echoed[key] != expected[key]) return false;
+    }
+    return _feesMatch(expected['appFees'], echoed['appFees']);
+  }
+
+  static bool _feesMatch(dynamic requested, dynamic returned) {
+    Map<String, int>? parse(dynamic value) {
+      if (value is! List) return null;
+      final fees = <String, int>{};
+      for (final entry in value) {
+        if (entry is! Map ||
+            entry['recipient'] is! String ||
+            entry['fee'] is! int) return null;
+        final recipient = entry['recipient'] as String;
+        final fee = entry['fee'] as int;
+        if (fee < 0 || fee > 500 || fees.containsKey(recipient)) return null;
+        fees[recipient] = fee;
+      }
+      return fees;
+    }
+
+    final expected = parse(requested);
+    final actual = parse(returned);
+    if (expected == null || actual == null) return false;
+    if (expected.length == actual.length &&
+        expected.entries.every((e) => actual[e.key] == e.value)) return true;
+
+    // 1Click documents a default 50/50 revenue split. This protocol account
+    // was verified against live dry quotes on 2026-09-10. Allow only that exact
+    // split, preserving the requested total, never arbitrary fee recipients.
+    // https://docs.near-intents.org/integration/distribution-channels/1click-api/fee-config
+    const protocol =
+        '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd';
+    if (expected.length != 1 || actual.length != 2) return false;
+    final fee = expected.entries.single;
+    return fee.value > 0 &&
+        fee.value.isEven &&
+        fee.key != protocol &&
+        actual[fee.key] == fee.value ~/ 2 &&
+        actual[protocol] == fee.value ~/ 2;
   }
 
   /// Fail closed on incomplete quotes. The provider's actual amount and
@@ -247,11 +337,15 @@ class NearQuoteResponse {
   bool isUsableExactInput(int amount, {DateTime? now}) {
     final expiry = DateTime.tryParse(deadline);
     final quote = raw['quote'] as Map<String, dynamic>? ?? raw;
-    return depositAddress.isNotEmpty && amountIn == BigInt.from(amount) &&
-        amountOut > BigInt.zero && minAmountOut != null &&
-        minAmountOut! > BigInt.zero && minAmountOut! <= amountOut &&
+    return depositAddress.isNotEmpty &&
+        amountIn == BigInt.from(amount) &&
+        amountOut > BigInt.zero &&
+        minAmountOut != null &&
+        minAmountOut! > BigInt.zero &&
+        minAmountOut! <= amountOut &&
         (quote['depositMemo'] == null || quote['depositMemo'] == '') &&
-        expiry != null && expiry.isAfter((now ?? DateTime.now()).add(const Duration(minutes: 2)));
+        expiry != null &&
+        expiry.isAfter((now ?? DateTime.now()).add(const Duration(minutes: 2)));
   }
 }
 
@@ -285,7 +379,10 @@ class NearSwapStatus {
   }
 
   bool get isPending => status == 'PENDING' || status == 'PENDING_DEPOSIT';
-  bool get isProcessing => status == 'PROCESSING' || status == 'CONFIRMING' || status == 'KNOWN_DEPOSIT_TX';
+  bool get isProcessing =>
+      status == 'PROCESSING' ||
+      status == 'CONFIRMING' ||
+      status == 'KNOWN_DEPOSIT_TX';
   bool get isSuccess => status == 'SUCCESS' || status == 'COMPLETED';
   bool get isFailed => status == 'FAILED' || status == 'EXPIRED';
   bool get isRefunded => status == 'REFUNDED';
@@ -296,6 +393,18 @@ class NearIntentsException implements Exception {
   final String message;
   final String? responseBody;
   NearIntentsException(this.message, [this.responseBody]);
+
+  /// Only extract a bounded native-unit number from the known provider error.
+  /// Never surface arbitrary remote text or request addresses in the chat.
+  int? get minimumZatoshis {
+    final match =
+        RegExp(r'^Amount is too low for bridge, try at least ([0-9]{1,16})$')
+            .firstMatch(message.trim());
+    final value = int.tryParse(match?.group(1) ?? '');
+    return value != null && value > 0 && value <= 2100000000000000
+        ? value
+        : null;
+  }
 
   @override
   String toString() => 'NearIntentsException: $message';
@@ -318,33 +427,97 @@ class TokenIcon extends StatelessWidget {
   });
 
   static const _symbolToAsset = {
-    'BTC': 'btc', 'ETH': 'eth', 'SOL': 'sol', 'BNB': 'bnb',
-    'USDT': 'usdt', 'USDC': 'usdc', 'XRP': 'xrp', 'DOGE': 'doge',
-    'ADA': 'ada', 'TRX': 'trx', 'AVAX': 'avax', 'LTC': 'ltc',
-    'BCH': 'bch', 'LINK': 'link', 'SUI': 'sui', 'TON': 'ton',
-    'XLM': 'xlm', 'APT': 'apt', 'NEAR': 'near', 'ARB': 'arb',
-    'OP': 'op', 'POL': 'pol', 'DAI': 'dai', 'UNI': 'uni',
-    'AAVE': 'aave', 'SHIB': 'shib', 'PEPE': 'pepe', 'TRUMP': 'trump',
-    'WBTC': 'wbtc', 'CBBTC': 'cbbtc', 'BERA': 'bera', 'STRK': 'strk',
-    'GNO': 'gno', 'FRAX': 'frax', 'WIF': 'wif', 'WNEAR': 'wnear',
-    'ZEC': 'zec', 'XMR': 'xmr',
-    '\$WIF': 'wif', 'XBTC': 'xbtc', 'MATIC': 'matic',
-    'AURORA': 'aurora', 'BOME': 'bome', 'BRETT': 'brett', 'CFI': 'cfi',
-    'COW': 'cow', 'EURE': 'eure', 'GBPE': 'gbpe', 'GMX': 'gmx',
-    'HAPI': 'hapi', 'INX': 'inx', 'KNC': 'knc', 'MELANIA': 'melania',
-    'MOG': 'mog', 'OKB': 'okb', 'PENGU': 'pengu', 'SAFE': 'safe',
-    'SPX': 'spx', 'TURBO': 'turbo', 'WETH': 'weth',
-    'SUSDC': 'susdc', 'USDCX': 'usdcx', 'USDF': 'usdf',
-    'USAD': 'usad', 'XDAI': 'xdai',
+    'BTC': 'btc',
+    'ETH': 'eth',
+    'SOL': 'sol',
+    'BNB': 'bnb',
+    'USDT': 'usdt',
+    'USDC': 'usdc',
+    'XRP': 'xrp',
+    'DOGE': 'doge',
+    'ADA': 'ada',
+    'TRX': 'trx',
+    'AVAX': 'avax',
+    'LTC': 'ltc',
+    'BCH': 'bch',
+    'LINK': 'link',
+    'SUI': 'sui',
+    'TON': 'ton',
+    'XLM': 'xlm',
+    'APT': 'apt',
+    'NEAR': 'near',
+    'ARB': 'arb',
+    'OP': 'op',
+    'POL': 'pol',
+    'DAI': 'dai',
+    'UNI': 'uni',
+    'AAVE': 'aave',
+    'SHIB': 'shib',
+    'PEPE': 'pepe',
+    'TRUMP': 'trump',
+    'WBTC': 'wbtc',
+    'CBBTC': 'cbbtc',
+    'BERA': 'bera',
+    'STRK': 'strk',
+    'GNO': 'gno',
+    'FRAX': 'frax',
+    'WIF': 'wif',
+    'WNEAR': 'wnear',
+    'ZEC': 'zec',
+    'XMR': 'xmr',
+    '\$WIF': 'wif',
+    'XBTC': 'xbtc',
+    'MATIC': 'matic',
+    'AURORA': 'aurora',
+    'BOME': 'bome',
+    'BRETT': 'brett',
+    'CFI': 'cfi',
+    'COW': 'cow',
+    'EURE': 'eure',
+    'GBPE': 'gbpe',
+    'GMX': 'gmx',
+    'HAPI': 'hapi',
+    'INX': 'inx',
+    'KNC': 'knc',
+    'MELANIA': 'melania',
+    'MOG': 'mog',
+    'OKB': 'okb',
+    'PENGU': 'pengu',
+    'SAFE': 'safe',
+    'SPX': 'spx',
+    'TURBO': 'turbo',
+    'WETH': 'weth',
+    'SUSDC': 'susdc',
+    'USDCX': 'usdcx',
+    'USDF': 'usdf',
+    'USAD': 'usad',
+    'XDAI': 'xdai',
   };
 
   static const _chainToAsset = {
-    'btc': 'btc', 'eth': 'eth', 'sol': 'sol', 'arb': 'arb',
-    'base': 'base', 'bsc': 'bsc', 'tron': 'tron', 'near': 'near',
-    'pol': 'pol', 'op': 'op', 'avax': 'avax', 'gnosis': 'gnosis',
-    'sui': 'sui', 'ton': 'ton', 'stellar': 'stellar', 'doge': 'doge',
-    'xrp': 'xrp', 'ltc': 'ltc', 'bch': 'bch', 'cardano': 'cardano',
-    'aptos': 'aptos', 'starknet': 'starknet', 'bera': 'bera',
+    'btc': 'btc',
+    'eth': 'eth',
+    'sol': 'sol',
+    'arb': 'arb',
+    'base': 'base',
+    'bsc': 'bsc',
+    'tron': 'tron',
+    'near': 'near',
+    'pol': 'pol',
+    'op': 'op',
+    'avax': 'avax',
+    'gnosis': 'gnosis',
+    'sui': 'sui',
+    'ton': 'ton',
+    'stellar': 'stellar',
+    'doge': 'doge',
+    'xrp': 'xrp',
+    'ltc': 'ltc',
+    'bch': 'bch',
+    'cardano': 'cardano',
+    'aptos': 'aptos',
+    'starknet': 'starknet',
+    'bera': 'bera',
   };
 
   @override
@@ -399,12 +572,28 @@ class TokenIcon extends StatelessWidget {
     final sym = token.symbol.toUpperCase();
     final chain = token.blockchain.toLowerCase();
     const nativePairs = {
-      'BTC': 'btc', 'ETH': 'eth', 'SOL': 'sol', 'BNB': 'bsc',
-      'DOGE': 'doge', 'XRP': 'xrp', 'ADA': 'cardano', 'TRX': 'tron',
-      'AVAX': 'avax', 'LTC': 'ltc', 'BCH': 'bch', 'SUI': 'sui',
-      'APT': 'aptos', 'TON': 'ton', 'XLM': 'stellar', 'NEAR': 'near',
-      'ARB': 'arb', 'OP': 'op', 'POL': 'pol', 'BERA': 'bera',
-      'STRK': 'starknet', 'GNO': 'gnosis',
+      'BTC': 'btc',
+      'ETH': 'eth',
+      'SOL': 'sol',
+      'BNB': 'bsc',
+      'DOGE': 'doge',
+      'XRP': 'xrp',
+      'ADA': 'cardano',
+      'TRX': 'tron',
+      'AVAX': 'avax',
+      'LTC': 'ltc',
+      'BCH': 'bch',
+      'SUI': 'sui',
+      'APT': 'aptos',
+      'TON': 'ton',
+      'XLM': 'stellar',
+      'NEAR': 'near',
+      'ARB': 'arb',
+      'OP': 'op',
+      'POL': 'pol',
+      'BERA': 'bera',
+      'STRK': 'starknet',
+      'GNO': 'gnosis',
     };
     return nativePairs[sym] == chain;
   }
@@ -426,13 +615,12 @@ class TokenIcon extends StatelessWidget {
 
   Widget _chainFallback(double s) {
     return Container(
-      width: s, height: s,
+      width: s,
+      height: s,
       color: Colors.white.withValues(alpha: 0.1),
       child: Center(
         child: Text(
-          token.blockchain.isNotEmpty
-              ? token.blockchain[0].toUpperCase()
-              : '?',
+          token.blockchain.isNotEmpty ? token.blockchain[0].toUpperCase() : '?',
           style: TextStyle(
             fontSize: s * 0.6,
             fontWeight: FontWeight.w700,
@@ -449,7 +637,8 @@ class TokenIcon extends StatelessWidget {
     final hue = (hash % 360).abs().toDouble();
     final color = HSLColor.fromAHSL(1, hue, 0.5, 0.3).toColor();
     return Container(
-      width: s, height: s,
+      width: s,
+      height: s,
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       child: Center(
         child: Text(
@@ -488,7 +677,9 @@ class CurrencyIcon extends StatelessWidget {
       child: assetKey != null
           ? Image.asset(
               'assets/tokens/$assetKey.png',
-              width: size, height: size, fit: BoxFit.cover,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
               errorBuilder: (_, __, ___) => _fallback(sym),
             )
           : _fallback(sym),
@@ -531,11 +722,26 @@ class CurrencyIcon extends StatelessWidget {
     if (blockchain == null) return true;
     final chain = blockchain!.toLowerCase();
     const nativePairs = {
-      'BTC': 'btc', 'ETH': 'eth', 'SOL': 'sol', 'BNB': 'bsc',
-      'DOGE': 'doge', 'XRP': 'xrp', 'ADA': 'cardano', 'TRX': 'tron',
-      'AVAX': 'avax', 'LTC': 'ltc', 'BCH': 'bch', 'SUI': 'sui',
-      'APT': 'aptos', 'TON': 'ton', 'XLM': 'stellar', 'NEAR': 'near',
-      'ARB': 'arb', 'OP': 'op', 'POL': 'pol', 'BERA': 'bera',
+      'BTC': 'btc',
+      'ETH': 'eth',
+      'SOL': 'sol',
+      'BNB': 'bsc',
+      'DOGE': 'doge',
+      'XRP': 'xrp',
+      'ADA': 'cardano',
+      'TRX': 'tron',
+      'AVAX': 'avax',
+      'LTC': 'ltc',
+      'BCH': 'bch',
+      'SUI': 'sui',
+      'APT': 'aptos',
+      'TON': 'ton',
+      'XLM': 'stellar',
+      'NEAR': 'near',
+      'ARB': 'arb',
+      'OP': 'op',
+      'POL': 'pol',
+      'BERA': 'bera',
       'ZEC': 'zec',
     };
     return nativePairs[sym] == chain;
@@ -547,7 +753,9 @@ class CurrencyIcon extends StatelessWidget {
     if (chainAsset != null) {
       return Image.asset(
         'assets/chains/$chainAsset.png',
-        width: s, height: s, fit: BoxFit.cover,
+        width: s,
+        height: s,
+        fit: BoxFit.cover,
         errorBuilder: (_, __, ___) => _chainFallback(s),
       );
     }
@@ -556,7 +764,8 @@ class CurrencyIcon extends StatelessWidget {
 
   Widget _chainFallback(double s) {
     return Container(
-      width: s, height: s,
+      width: s,
+      height: s,
       decoration: BoxDecoration(
         color: Colors.grey.shade800,
         shape: BoxShape.circle,
@@ -565,7 +774,8 @@ class CurrencyIcon extends StatelessWidget {
         child: Text(
           blockchain != null ? blockchain!.substring(0, 1).toUpperCase() : '?',
           style: TextStyle(
-            fontSize: s * 0.6, fontWeight: FontWeight.w700,
+            fontSize: s * 0.6,
+            fontWeight: FontWeight.w700,
             color: Colors.white.withValues(alpha: 0.7),
           ),
         ),
@@ -577,13 +787,15 @@ class CurrencyIcon extends StatelessWidget {
     final hue = (sym.hashCode % 360).abs().toDouble();
     final color = HSLColor.fromAHSL(1, hue, 0.5, 0.3).toColor();
     return Container(
-      width: size, height: size,
+      width: size,
+      height: size,
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       child: Center(
         child: Text(
           sym.substring(0, math.min(sym.length, 2)),
           style: TextStyle(
-            fontSize: size * 0.35, fontWeight: FontWeight.w700,
+            fontSize: size * 0.35,
+            fontWeight: FontWeight.w700,
             color: Colors.white.withValues(alpha: 0.8),
           ),
         ),
@@ -630,38 +842,38 @@ class StoredSwap {
   });
 
   Map<String, dynamic> toJson() => {
-    if (walletId != null) 'walletId': walletId,
-    if (testnet != null) 'testnet': testnet,
-    if (status != null) 'status': status,
-    'provider': provider,
-    'depositAddress': depositAddress,
-    'timestamp': timestamp,
-    'fromCurrency': fromCurrency,
-    'fromAmount': fromAmount,
-    'toCurrency': toCurrency,
-    'toAmount': toAmount,
-    'toAddress': toAddress,
-    if (txId != null) 'txId': txId,
-    if (fromBlockchain != null) 'fromBlockchain': fromBlockchain,
-    if (toBlockchain != null) 'toBlockchain': toBlockchain,
-  };
+        if (walletId != null) 'walletId': walletId,
+        if (testnet != null) 'testnet': testnet,
+        if (status != null) 'status': status,
+        'provider': provider,
+        'depositAddress': depositAddress,
+        'timestamp': timestamp,
+        'fromCurrency': fromCurrency,
+        'fromAmount': fromAmount,
+        'toCurrency': toCurrency,
+        'toAmount': toAmount,
+        'toAddress': toAddress,
+        if (txId != null) 'txId': txId,
+        if (fromBlockchain != null) 'fromBlockchain': fromBlockchain,
+        if (toBlockchain != null) 'toBlockchain': toBlockchain,
+      };
 
   factory StoredSwap.fromJson(Map<String, dynamic> json) => StoredSwap(
-    walletId: json['walletId'],
-    testnet: json['testnet'],
-    status: json['status'],
-    provider: json['provider'] ?? '',
-    depositAddress: json['depositAddress'] ?? '',
-    timestamp: json['timestamp'] ?? 0,
-    fromCurrency: json['fromCurrency'] ?? '',
-    fromAmount: json['fromAmount'] ?? '',
-    toCurrency: json['toCurrency'] ?? '',
-    toAmount: json['toAmount'] ?? '',
-    toAddress: json['toAddress'] ?? '',
-    txId: json['txId'],
-    fromBlockchain: json['fromBlockchain'],
-    toBlockchain: json['toBlockchain'],
-  );
+        walletId: json['walletId'],
+        testnet: json['testnet'],
+        status: json['status'],
+        provider: json['provider'] ?? '',
+        depositAddress: json['depositAddress'] ?? '',
+        timestamp: json['timestamp'] ?? 0,
+        fromCurrency: json['fromCurrency'] ?? '',
+        fromAmount: json['fromAmount'] ?? '',
+        toCurrency: json['toCurrency'] ?? '',
+        toAmount: json['toAmount'] ?? '',
+        toAddress: json['toAddress'] ?? '',
+        txId: json['txId'],
+        fromBlockchain: json['fromBlockchain'],
+        toBlockchain: json['toBlockchain'],
+      );
 }
 
 class SwapStore {
@@ -670,10 +882,16 @@ class SwapStore {
   static Future<List<StoredSwap>> load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_key) ?? [];
-    return raw.map((s) {
-      try { return StoredSwap.fromJson(jsonDecode(s)); }
-      catch (_) { return null; }
-    }).whereType<StoredSwap>().toList();
+    return raw
+        .map((s) {
+          try {
+            return StoredSwap.fromJson(jsonDecode(s));
+          } catch (_) {
+            return null;
+          }
+        })
+        .whereType<StoredSwap>()
+        .toList();
   }
 
   static Future<void> save(StoredSwap swap) async {
@@ -885,9 +1103,12 @@ class NearIntents {
       };
 
   Future<List<Map<String, dynamic>>> getTokens() async {
-    final resp = await http.get(Uri.parse('$_baseUrl/tokens'), headers: _headers);
-    if (resp.statusCode >= 300) throw Exception('Failed to fetch NEAR Intents tokens');
-    return (jsonDecode(resp.body) as List<dynamic>).cast<Map<String, dynamic>>();
+    final resp =
+        await http.get(Uri.parse('$_baseUrl/tokens'), headers: _headers);
+    if (resp.statusCode >= 300)
+      throw Exception('Failed to fetch NEAR Intents tokens');
+    return (jsonDecode(resp.body) as List<dynamic>)
+        .cast<Map<String, dynamic>>();
   }
 
   Map<String, dynamic>? findToken(
@@ -900,7 +1121,8 @@ class NearIntents {
         final sym = (t?['symbol'] as String? ?? '').toLowerCase();
         final chain = (t?['blockchain'] as String? ?? '').toLowerCase();
         if (sym != symbol.toLowerCase()) return false;
-        if (blockchain != null && chain != blockchain.toLowerCase()) return false;
+        if (blockchain != null && chain != blockchain.toLowerCase())
+          return false;
         return true;
       },
       orElse: () => null,
@@ -960,7 +1182,8 @@ class NearIntents {
     );
   }
 
-  Future<String> pollStatus(String depositAddress, {int maxWaitSec = 600}) async {
+  Future<String> pollStatus(String depositAddress,
+      {int maxWaitSec = 600}) async {
     final deadline = DateTime.now().add(Duration(seconds: maxWaitSec));
     int poll = 0;
     while (DateTime.now().isBefore(deadline)) {
@@ -974,20 +1197,23 @@ class NearIntents {
         if (resp.statusCode == 200) {
           final data = jsonDecode(resp.body);
           final status = (data['status'] as String? ?? '').toUpperCase();
-          _log.i('[NearIntents] poll #$poll status=$status for $depositAddress');
+          _log.i(
+              '[NearIntents] poll #$poll status=$status for $depositAddress');
           if (status == 'SUCCESS' || status == 'COMPLETED') return 'success';
           if (status == 'FAILED' || status == 'EXPIRED') return 'failed';
           if (status == 'REFUNDED') return 'refunded';
           if (status == 'INCOMPLETE_DEPOSIT') return 'incomplete';
           // PENDING_DEPOSIT, KNOWN_DEPOSIT_TX, PROCESSING → keep polling
         } else {
-          _log.w('[NearIntents] poll #$poll HTTP ${resp.statusCode} for $depositAddress');
+          _log.w(
+              '[NearIntents] poll #$poll HTTP ${resp.statusCode} for $depositAddress');
         }
       } catch (e) {
         _log.e('[NearIntents] poll #$poll error: $e');
       }
     }
-    _log.w('[NearIntents] poll timed out after ${maxWaitSec}s for $depositAddress');
+    _log.w(
+        '[NearIntents] poll timed out after ${maxWaitSec}s for $depositAddress');
     return 'timeout';
   }
 

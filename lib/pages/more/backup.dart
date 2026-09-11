@@ -7,6 +7,8 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:screen_protector/screen_protector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../utils.dart';
+import '../sensitive_qr.dart';
 import '../../accounts.dart';
 import '../../coin/coins.dart';
 import '../../services/wallet_service.dart';
@@ -66,6 +68,10 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   bool _uvkRevealed = false;
   bool _fvkRevealed = false;
   bool _obscured = false;
+  final String? _sourceWalletId = WalletService.instance.activeWalletId;
+  final bool _sourceNetwork = isTestnet;
+  int _revealEpoch = 0;
+  bool _authorizingReveal = false;
   int? _birthdayHeight;
   bool _verificationPassed = false;
 
@@ -173,7 +179,19 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
-      setState(() => _obscured = true);
+      setState(() {
+        _obscured = true;
+        _seedWordsVisible = false;
+        _skRevealed = false;
+        _tskRevealed = false;
+        _uvkRevealed = false;
+        _fvkRevealed = false;
+      });
+      if (state == AppLifecycleState.paused) {
+        _revealEpoch++;
+        final route = ModalRoute.of(context);
+        if (route != null) Navigator.of(context).popUntil((r) => r == route);
+      }
     } else if (state == AppLifecycleState.resumed) {
       setState(() => _obscured = false);
     }
@@ -261,8 +279,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
         ),
         centerTitle: true,
         leading: IconButton(
-          icon:
-              Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
           onPressed: () => GoRouter.of(context).pop(),
         ),
       ),
@@ -288,8 +305,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
               ),
             )
           : SingleChildScrollView(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -298,11 +314,9 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: ZipherColors.orange.withValues(alpha: 0.08),
-                      borderRadius:
-                          BorderRadius.circular(ZipherRadius.lg),
+                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
                       border: Border.all(
-                        color:
-                            ZipherColors.orange.withValues(alpha: 0.15),
+                        color: ZipherColors.orange.withValues(alpha: 0.15),
                       ),
                     ),
                     child: Row(
@@ -310,16 +324,14 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       children: [
                         Icon(Icons.warning_amber_rounded,
                             size: 18,
-                            color: ZipherColors.orange
-                                .withValues(alpha: 0.7)),
+                            color: ZipherColors.orange.withValues(alpha: 0.7)),
                         const Gap(10),
                         Expanded(
                           child: Text(
                             'Never share your seed phrase or spending keys. Anyone with access can steal your funds.',
                             style: TextStyle(
                               fontSize: 12,
-                              color: ZipherColors.orange
-                                  .withValues(alpha: 0.9),
+                              color: ZipherColors.orange.withValues(alpha: 0.9),
                               height: 1.4,
                             ),
                           ),
@@ -333,13 +345,10 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color:
-                            ZipherColors.orange.withValues(alpha: 0.06),
-                        borderRadius:
-                            BorderRadius.circular(ZipherRadius.lg),
+                        color: ZipherColors.orange.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
                         border: Border.all(
-                          color: ZipherColors.orange
-                              .withValues(alpha: 0.12),
+                          color: ZipherColors.orange.withValues(alpha: 0.12),
                         ),
                       ),
                       child: Row(
@@ -347,16 +356,16 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                         children: [
                           Icon(Icons.science_rounded,
                               size: 18,
-                              color: ZipherColors.orange
-                                  .withValues(alpha: 0.7)),
+                              color:
+                                  ZipherColors.orange.withValues(alpha: 0.7)),
                           const Gap(10),
                           Expanded(
                             child: Text(
                               'You are viewing a testnet wallet. This seed is independent from your mainnet seed. Testnet coins (TAZ) have no real value.',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: ZipherColors.orange
-                                    .withValues(alpha: 0.8),
+                                color:
+                                    ZipherColors.orange.withValues(alpha: 0.8),
                                 height: 1.4,
                               ),
                             ),
@@ -373,10 +382,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: ZipherColors.cardBg,
-                      borderRadius:
-                          BorderRadius.circular(ZipherRadius.lg),
-                      border:
-                          Border.all(color: ZipherColors.borderSubtle),
+                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                      border: Border.all(color: ZipherColors.borderSubtle),
                     ),
                     child: Column(
                       children: [
@@ -391,10 +398,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                           'Backup saved',
                           backup.saved ? 'Yes' : 'No',
                           valueColor: backup.saved
-                              ? ZipherColors.green
-                                  .withValues(alpha: 0.6)
-                              : ZipherColors.orange
-                                  .withValues(alpha: 0.9),
+                              ? ZipherColors.green.withValues(alpha: 0.6)
+                              : ZipherColors.orange.withValues(alpha: 0.9),
                         ),
                         if (_birthdayHeight != null) ...[
                           _divider(),
@@ -419,24 +424,21 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     const Gap(12),
                     ..._allWallets.map((w) {
                       final isCurrent = w.id == aa.walletId;
-                      final accountNames = w.visibleAccounts
-                          .map((a) => a.name)
-                          .join(', ');
+                      final accountNames =
+                          w.visibleAccounts.map((a) => a.name).join(', ');
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
                             color: isCurrent
-                                ? ZipherColors.cyan
-                                    .withValues(alpha: 0.04)
+                                ? ZipherColors.cyan.withValues(alpha: 0.04)
                                 : ZipherColors.cardBg,
-                            borderRadius: BorderRadius.circular(
-                                ZipherRadius.lg),
+                            borderRadius:
+                                BorderRadius.circular(ZipherRadius.lg),
                             border: Border.all(
                               color: isCurrent
-                                  ? ZipherColors.cyan
-                                      .withValues(alpha: 0.12)
+                                  ? ZipherColors.cyan.withValues(alpha: 0.12)
                                   : ZipherColors.borderSubtle,
                             ),
                           ),
@@ -446,15 +448,13 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                                 Icons.key_rounded,
                                 size: 14,
                                 color: isCurrent
-                                    ? ZipherColors.cyan
-                                        .withValues(alpha: 0.6)
+                                    ? ZipherColors.cyan.withValues(alpha: 0.6)
                                     : ZipherColors.text20,
                               ),
                               const Gap(10),
                               Expanded(
                                 child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Row(
                                       children: [
@@ -463,35 +463,27 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                                           style: TextStyle(
                                             fontSize: 13,
                                             fontWeight: FontWeight.w600,
-                                            color:
-                                                ZipherColors.text60,
+                                            color: ZipherColors.text60,
                                           ),
                                         ),
                                         if (isCurrent) ...[
                                           const Gap(6),
                                           Container(
-                                            padding: const EdgeInsets
-                                                .symmetric(
-                                                horizontal: 5,
-                                                vertical: 1),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 5, vertical: 1),
                                             decoration: BoxDecoration(
                                               color: ZipherColors.cyan
-                                                  .withValues(
-                                                      alpha: 0.08),
+                                                  .withValues(alpha: 0.08),
                                               borderRadius:
-                                                  BorderRadius
-                                                      .circular(4),
+                                                  BorderRadius.circular(4),
                                             ),
                                             child: Text(
                                               'viewing',
                                               style: TextStyle(
                                                 fontSize: 9,
-                                                fontWeight:
-                                                    FontWeight.w600,
-                                                color: ZipherColors
-                                                    .cyan
-                                                    .withValues(
-                                                        alpha: 0.7),
+                                                fontWeight: FontWeight.w600,
+                                                color: ZipherColors.cyan
+                                                    .withValues(alpha: 0.7),
                                               ),
                                             ),
                                           ),
@@ -528,13 +520,15 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
 
                   if (backup.uvk != null)
                     _KeyCard(
+                      onCopy: _copyRecovery,
                       label: 'Unified Viewing Key',
                       description:
                           'Reveals every past and future transaction across all pools — including amounts, memos, and counterparties. Anyone you share this with can audit your entire wallet history. They cannot spend funds.',
                       value: backup.uvk!,
                       icon: Icons.visibility_rounded,
                       revealed: _uvkRevealed,
-                      onToggleReveal: () => setState(() => _uvkRevealed = !_uvkRevealed),
+                      onToggleReveal: () => _toggleReveal(
+                          _uvkRevealed, () => _uvkRevealed = !_uvkRevealed),
                       onShowQR: () => _showQR(context, backup.uvk!,
                           '${s.unifiedViewingKey} of ${backup.name}'),
                     ),
@@ -542,13 +536,15 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                   if (backup.fvk != null) ...[
                     const Gap(12),
                     _KeyCard(
+                      onCopy: _copyRecovery,
                       label: 'Full Viewing Key',
                       description:
                           'Reveals every shielded (Sapling) transaction — amounts and memos. Anyone you share this with can audit your Sapling wallet history. They cannot spend.',
                       value: backup.fvk!,
                       icon: Icons.visibility_outlined,
                       revealed: _fvkRevealed,
-                      onToggleReveal: () => setState(() => _fvkRevealed = !_fvkRevealed),
+                      onToggleReveal: () => _toggleReveal(
+                          _fvkRevealed, () => _fvkRevealed = !_fvkRevealed),
                       onShowQR: () => _showQR(context, backup.fvk!,
                           '${s.viewingKey} of ${backup.name}'),
                     ),
@@ -560,10 +556,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
                         color: ZipherColors.cardBg,
-                        borderRadius:
-                            BorderRadius.circular(ZipherRadius.lg),
-                        border: Border.all(
-                            color: ZipherColors.borderSubtle),
+                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                        border: Border.all(color: ZipherColors.borderSubtle),
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -607,40 +601,37 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
-
                     if (_showSpendingKeys) ...[
                       const Gap(12),
 
                       if (backup.tsk != null)
                         _KeyCard(
+                          onCopy: _copyRecovery,
                           label: 'Transparent Key',
                           description:
                               'Can spend transparent (public) funds only.',
                           value: backup.tsk!,
                           icon: Icons.key_rounded,
                           revealed: _tskRevealed,
-                          onToggleReveal: () => setState(
-                              () => _tskRevealed = !_tskRevealed),
-                          onShowQR: () => _showQR(
-                              context,
-                              backup.tsk!,
+                          onToggleReveal: () => _toggleReveal(
+                              _tskRevealed, () => _tskRevealed = !_tskRevealed),
+                          onShowQR: () => _showQR(context, backup.tsk!,
                               '${s.transparentKey} of ${backup.name}'),
                         ),
 
                       if (backup.sk != null) ...[
                         const Gap(12),
                         _KeyCard(
+                          onCopy: _copyRecovery,
                           label: 'Secret Key',
                           description:
                               'Can spend all shielded funds in this account.',
                           value: backup.sk!,
                           icon: Icons.vpn_key_rounded,
                           revealed: _skRevealed,
-                          onToggleReveal: () => setState(
-                              () => _skRevealed = !_skRevealed),
-                          onShowQR: () => _showQR(
-                              context,
-                              backup.sk!,
+                          onToggleReveal: () => _toggleReveal(
+                              _skRevealed, () => _skRevealed = !_skRevealed),
+                          onShowQR: () => _showQR(context, backup.sk!,
                               '${s.secretKey} of ${backup.name}'),
                         ),
                       ],
@@ -649,11 +640,9 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       if ((_keychainSeed ?? backup.seed) != null) ...[
                         const Gap(12),
                         Builder(builder: (ctx) {
-                          final seedValue =
-                              _keychainSeed ?? backup.seed!;
-                          final seedLabel = isTestnet
-                              ? 'Testnet Seed Phrase'
-                              : 'Seed Phrase';
+                          final seedValue = _keychainSeed ?? backup.seed!;
+                          final seedLabel =
+                              isTestnet ? 'Testnet Seed Phrase' : 'Seed Phrase';
                           final seedDesc = isTestnet
                               ? 'Testnet-only seed \u2014 independent from your mainnet seed. Testnet coins have no value.'
                               : 'Master key \u2014 derives ALL accounts and keys. If lost, funds are unrecoverable. If stolen, everything is compromised.';
@@ -661,18 +650,17 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                             setActiveAccount(aa.coin, aa.id);
                           }
                           return _SeedCard(
+                            onCopy: _copyRecovery,
                             label: seedLabel,
                             description: seedDesc,
                             seedPhrase: backup.index != 0
                                 ? '$seedValue [${backup.index}]'
                                 : seedValue,
                             wordsVisible: _seedWordsVisible,
-                            onToggleWords: () => setState(() =>
-                                _seedWordsVisible =
-                                    !_seedWordsVisible),
-                            onShowQR: () => _showQR(
-                                context,
-                                seedValue,
+                            onToggleWords: () => _toggleReveal(
+                                _seedWordsVisible,
+                                () => _seedWordsVisible = !_seedWordsVisible),
+                            onShowQR: () => _showQR(context, seedValue,
                                 '${s.seed} of ${backup.name}'),
                           );
                         }),
@@ -684,21 +672,20 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                             child: InkWell(
                               onTap: () => _startVerification(
                                   (_keychainSeed ?? backup.seed)!),
-                              borderRadius: BorderRadius.circular(
-                                  ZipherRadius.lg),
+                              borderRadius:
+                                  BorderRadius.circular(ZipherRadius.lg),
                               child: Container(
                                 width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 14),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
                                 decoration: BoxDecoration(
-                                  color: ZipherColors.cyan
-                                      .withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(
-                                      ZipherRadius.lg),
+                                  color:
+                                      ZipherColors.cyan.withValues(alpha: 0.12),
+                                  borderRadius:
+                                      BorderRadius.circular(ZipherRadius.lg),
                                 ),
                                 child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.center,
+                                  mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(Icons.quiz_rounded,
                                         size: 18,
@@ -726,21 +713,18 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                           const Gap(16),
                           Container(
                             width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 14),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
                             decoration: BoxDecoration(
-                              color: ZipherColors.green
-                                  .withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(
-                                  ZipherRadius.lg),
+                              color: ZipherColors.green.withValues(alpha: 0.08),
+                              borderRadius:
+                                  BorderRadius.circular(ZipherRadius.lg),
                               border: Border.all(
-                                color: ZipherColors.green
-                                    .withValues(alpha: 0.15),
+                                color:
+                                    ZipherColors.green.withValues(alpha: 0.15),
                               ),
                             ),
                             child: Row(
-                              mainAxisAlignment:
-                                  MainAxisAlignment.center,
+                              mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Icon(Icons.check_circle_rounded,
                                     size: 18,
@@ -771,7 +755,41 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
     );
   }
 
-  void _startVerification(String seed) {
+  Future<bool> _authorizeReveal() async {
+    if (_authorizingReveal ||
+        _sourceWalletId != WalletService.instance.activeWalletId ||
+        _sourceNetwork != isTestnet) return false;
+    _authorizingReveal = true;
+    final epoch = _revealEpoch;
+    final walletId = WalletService.instance.activeWalletId;
+    final network = isTestnet;
+    try {
+      final ok =
+          await authenticate(context, 'Show wallet recovery information');
+      return ok &&
+          mounted &&
+          epoch == _revealEpoch &&
+          walletId == WalletService.instance.activeWalletId &&
+          network == isTestnet;
+    } finally {
+      _authorizingReveal = false;
+    }
+  }
+
+  Future<void> _copyRecovery(String value) async {
+    if (await _authorizeReveal() && mounted) {
+      _copyWithAutoClear(context, value, label: 'Recovery information');
+    }
+  }
+
+  Future<void> _toggleReveal(bool visible, VoidCallback reveal) async {
+    if (visible || await _authorizeReveal()) {
+      if (mounted) setState(reveal);
+    }
+  }
+
+  void _startVerification(String seed) async {
+    if (!await _authorizeReveal()) return;
     final words = seed.trim().split(RegExp(r'\s+'));
     if (words.length < 6) return;
 
@@ -796,12 +814,10 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: const Text('Backup verified successfully!'),
-                  backgroundColor:
-                      ZipherColors.green.withValues(alpha: 0.8),
+                  backgroundColor: ZipherColors.green.withValues(alpha: 0.8),
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(ZipherRadius.md)),
+                      borderRadius: BorderRadius.circular(ZipherRadius.md)),
                   duration: const Duration(seconds: 2),
                 ),
               );
@@ -810,12 +826,10 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                 SnackBar(
                   content: const Text(
                       'Incorrect words. Please check your seed phrase and try again.'),
-                  backgroundColor:
-                      ZipherColors.red.withValues(alpha: 0.8),
+                  backgroundColor: ZipherColors.red.withValues(alpha: 0.8),
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(ZipherRadius.md)),
+                      borderRadius: BorderRadius.circular(ZipherRadius.md)),
                   duration: const Duration(seconds: 3),
                 ),
               );
@@ -827,10 +841,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
   }
 
   bool _hasSpendingKeys(_Backup b) =>
-      _keychainSeed != null ||
-      b.seed != null ||
-      b.sk != null ||
-      b.tsk != null;
+      _keychainSeed != null || b.seed != null || b.sk != null || b.tsk != null;
 
   Widget _sectionHeader(String title, String subtitle, IconData icon,
       {Widget? trailing}) {
@@ -895,8 +906,11 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
     );
   }
 
-  void _showQR(BuildContext context, String value, String title) {
-    GoRouter.of(context).push('/showqr?title=$title', extra: value);
+  void _showQR(BuildContext context, String value, String title) async {
+    if (!await _authorizeReveal() || !context.mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => SensitiveQrPage(
+            title: title, value: value, authorize: _authorizeReveal)));
   }
 }
 
@@ -932,6 +946,7 @@ class _KeyCard extends StatelessWidget {
   final bool revealed;
   final VoidCallback? onToggleReveal;
   final VoidCallback? onShowQR;
+  final ValueChanged<String> onCopy;
 
   const _KeyCard({
     required this.label,
@@ -941,6 +956,7 @@ class _KeyCard extends StatelessWidget {
     this.revealed = false,
     this.onToggleReveal,
     this.onShowQR,
+    required this.onCopy,
   });
 
   bool get _isVisible => revealed;
@@ -971,7 +987,6 @@ class _KeyCard extends StatelessWidget {
                   ),
                 ),
               ),
-
             ],
           ),
           const Gap(6),
@@ -1001,8 +1016,7 @@ class _KeyCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     decoration: BoxDecoration(
                       color: ZipherColors.cardBgElevated,
-                      borderRadius:
-                          BorderRadius.circular(ZipherRadius.md),
+                      borderRadius: BorderRadius.circular(ZipherRadius.md),
                     ),
                     child: Column(
                       children: [
@@ -1028,7 +1042,7 @@ class _KeyCard extends StatelessWidget {
                 _actionButton(
                   Icons.copy_rounded,
                   'Copy',
-                  () => _copyWithAutoClear(context, value),
+                  () => onCopy(value),
                 ),
                 const Gap(8),
                 _actionButton(Icons.qr_code_rounded, 'QR', onShowQR),
@@ -1045,13 +1059,11 @@ class _KeyCard extends StatelessWidget {
     );
   }
 
-  Widget _actionButton(
-      IconData icon, String label, VoidCallback? onTap) {
+  Widget _actionButton(IconData icon, String label, VoidCallback? onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
           color: ZipherColors.cardBgElevated,
           borderRadius: BorderRadius.circular(ZipherRadius.sm),
@@ -1084,6 +1096,7 @@ class _SeedCard extends StatelessWidget {
   final bool wordsVisible;
   final VoidCallback? onToggleWords;
   final VoidCallback? onShowQR;
+  final ValueChanged<String> onCopy;
 
   const _SeedCard({
     required this.label,
@@ -1092,6 +1105,7 @@ class _SeedCard extends StatelessWidget {
     required this.wordsVisible,
     this.onToggleWords,
     this.onShowQR,
+    required this.onCopy,
   });
 
   @override
@@ -1108,8 +1122,7 @@ class _SeedCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.shield_rounded,
-                  size: 14, color: ZipherColors.text20),
+              Icon(Icons.shield_rounded, size: 14, color: ZipherColors.text20),
               const Gap(6),
               Expanded(
                 child: Text(
@@ -1172,15 +1185,13 @@ class _SeedCard extends StatelessWidget {
                 Icons.copy_rounded,
                 'Copy',
                 () {
-                  final clean = seedPhrase.replaceAll(
-                      RegExp(r'\s*\[\d+\]\s*$'), '');
-                  _copyWithAutoClear(context, clean,
-                      label: 'Seed phrase');
+                  final clean =
+                      seedPhrase.replaceAll(RegExp(r'\s*\[\d+\]\s*$'), '');
+                  onCopy(clean);
                 },
               ),
               const Gap(8),
-              _actionButton(
-                  context, Icons.qr_code_rounded, 'QR', onShowQR),
+              _actionButton(context, Icons.qr_code_rounded, 'QR', onShowQR),
             ],
           ),
         ],
@@ -1190,8 +1201,7 @@ class _SeedCard extends StatelessWidget {
 
   Widget _buildWordGrid() {
     // Parse seed words, strip optional account index suffix like " [1]"
-    final cleanSeed =
-        seedPhrase.replaceAll(RegExp(r'\s*\[\d+\]\s*$'), '');
+    final cleanSeed = seedPhrase.replaceAll(RegExp(r'\s*\[\d+\]\s*$'), '');
     final words = cleanSeed.trim().split(RegExp(r'\s+'));
     final rows = (words.length / 3).ceil();
 
@@ -1216,10 +1226,8 @@ class _SeedCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     decoration: BoxDecoration(
                       color: ZipherColors.cardBgElevated,
-                      borderRadius:
-                          BorderRadius.circular(ZipherRadius.sm),
-                      border: Border.all(
-                          color: ZipherColors.borderSubtle),
+                      borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                      border: Border.all(color: ZipherColors.borderSubtle),
                     ),
                     child: Row(
                       children: [
@@ -1236,7 +1244,9 @@ class _SeedCard extends StatelessWidget {
                         ),
                         Expanded(
                           child: Text(
-                            wordsVisible ? words[idx] : '\u2022\u2022\u2022\u2022',
+                            wordsVisible
+                                ? words[idx]
+                                : '\u2022\u2022\u2022\u2022',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
@@ -1244,8 +1254,7 @@ class _SeedCard extends StatelessWidget {
                                   ? ZipherColors.text90
                                   : ZipherColors.text20,
                               fontFamily: 'JetBrainsMono',
-                              letterSpacing:
-                                  wordsVisible ? 0 : 2,
+                              letterSpacing: wordsVisible ? 0 : 2,
                             ),
                           ),
                         ),
@@ -1261,13 +1270,12 @@ class _SeedCard extends StatelessWidget {
     );
   }
 
-  Widget _actionButton(BuildContext context, IconData icon,
-      String label, VoidCallback? onTap) {
+  Widget _actionButton(
+      BuildContext context, IconData icon, String label, VoidCallback? onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
           color: ZipherColors.cardBgElevated,
           borderRadius: BorderRadius.circular(ZipherRadius.sm),
@@ -1354,8 +1362,7 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         leading: IconButton(
-          icon:
-              Icon(Icons.close_rounded, color: ZipherColors.text60),
+          icon: Icon(Icons.close_rounded, color: ZipherColors.text60),
           onPressed: () {
             Navigator.of(context).pop();
             widget.onResult(null);
@@ -1379,8 +1386,7 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
             children: [
               const Spacer(flex: 2),
               Icon(Icons.quiz_rounded,
-                  size: 48,
-                  color: ZipherColors.cyan.withValues(alpha: 0.5)),
+                  size: 48, color: ZipherColors.cyan.withValues(alpha: 0.5)),
               const Gap(20),
               Text(
                 'Verify Your Seed',
@@ -1406,19 +1412,16 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
                 Container(
                   decoration: BoxDecoration(
                     color: ZipherColors.cardBg,
-                    borderRadius:
-                        BorderRadius.circular(ZipherRadius.lg),
-                    border:
-                        Border.all(color: ZipherColors.borderSubtle),
+                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                    border: Border.all(color: ZipherColors.borderSubtle),
                   ),
                   child: TextField(
                     controller: _controllers[i],
                     focusNode: _focusNodes[i],
                     autocorrect: false,
                     enableSuggestions: false,
-                    textInputAction: i < 2
-                        ? TextInputAction.next
-                        : TextInputAction.done,
+                    textInputAction:
+                        i < 2 ? TextInputAction.next : TextInputAction.done,
                     onSubmitted: (_) {
                       if (i < 2) {
                         _focusNodes[i + 1].requestFocus();
