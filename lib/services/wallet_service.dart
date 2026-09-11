@@ -1179,13 +1179,25 @@ class WalletService {
       _exclusivePayment(() => rust_wallet.sendFromAccount(
           accountIndex: accountIndex, recipients: recipients));
 
-  Future<String> shieldFunds() => _exclusivePayment(() async {
-        if (useNewEngine) {
-          final seed = await _paymentSeed();
-          return rust_engine.engineShieldFunds(seedPhrase: seed);
-        }
-        return rust_wallet.shieldFunds();
-      });
+  Future<String> shieldFunds({
+    required String expectedWalletId,
+    required bool expectedTestnet,
+    required int expectedGeneration,
+  }) {
+    if (!_walletOpen ||
+        expectedWalletId != _activeWalletId ||
+        expectedTestnet != isTestnet ||
+        expectedGeneration != _walletGeneration) {
+      throw StateError('Wallet changed. Review shielding again.');
+    }
+    return _exclusivePayment(() async {
+      if (useNewEngine) {
+        final seed = await _paymentSeed();
+        return rust_engine.engineShieldFunds(seedPhrase: seed);
+      }
+      return rust_wallet.shieldFunds();
+    });
+  }
 
   /// Converts the pending transparent -> shielded flow into a proved PCZT for
   /// threshold approval. This path does not read seed material.

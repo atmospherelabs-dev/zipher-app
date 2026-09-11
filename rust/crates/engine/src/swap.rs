@@ -136,7 +136,8 @@ pub async fn get_tokens() -> Result<Vec<SwapToken>> {
 
 /// Find the ZEC token from the token list.
 pub fn find_zec_token(tokens: &[SwapToken]) -> Option<&SwapToken> {
-    tokens.iter().find(|t| t.symbol.eq_ignore_ascii_case("ZEC"))
+    tokens.iter().find(|t| t.asset_id == "nep141:zec.omft.near"
+        && t.blockchain.eq_ignore_ascii_case("zec") && t.decimals == 8)
 }
 
 /// Filter tokens to only those swappable (non-ZEC, with price).
@@ -206,53 +207,96 @@ pub async fn get_quote(
         .await
         .map_err(|e| anyhow!("Failed to parse quote: {e}"))?;
 
-    let quote = json.get("quote").unwrap_or(&json);
-    let request = json
-        .get("quoteRequest")
-        .cloned()
-        .unwrap_or(serde_json::json!({}));
+    parse_quote_response(&json, &body)
+}
 
-    let deposit_address = quote
-        .get("depositAddress")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+fn positive_amount(value: &str) -> Result<u128> {
+    if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(anyhow!("Invalid quote amount"));
+    }
+    let amount = value.parse::<u128>().map_err(|_| anyhow!("Quote amount out of range"))?;
+    if amount == 0 { return Err(anyhow!("Quote amount must be positive")); }
+    Ok(amount)
+}
 
-    let amount_in = request
-        .get("amount")
-        .or_else(|| quote.get("amountIn"))
-        .and_then(|v| v.as_str().or_else(|| v.as_u64().map(|_| "0")))
-        .unwrap_or("0")
-        .to_string();
+impl SwapQuote {
+    /// Recheck immediately before funding, since proposal creation/authentication
+    /// may take longer than the provider's quote lifetime.
+    pub fn validate_for_funding(&self, expected_amount: u64) -> Result<()> {
+        if positive_amount(&self.amount_in)? != u128::from(expected_amount)
+            || self.deposit_address.trim().is_empty() {
+            return Err(anyhow!("Swap funding does not match the reviewed quote"));
+        }
+        validate_deadline(&self.deadline)
+    }
+}
 
-    let amount_out = quote
-        .get("amountOut")
-        .and_then(|v| v.as_str().or_else(|| v.as_u64().map(|_| "0")))
-        .unwrap_or("0")
-        .to_string();
+fn validate_deadline(deadline: &str) -> Result<()> {
+    let expiry = time::OffsetDateTime::parse(deadline, &time::format_description::well_known::Rfc3339)
+        .map_err(|_| anyhow!("Invalid quote deadline"))?;
+    if expiry <= time::OffsetDateTime::now_utc() {
+        return Err(anyhow!("Swap quote expired; request a new quote"));
+    }
+    Ok(())
+}
 
-    let min_amount_out = quote
-        .get("minAmountOut")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let deadline_str = request
-        .get("deadline")
-        .or_else(|| quote.get("deadline"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
+fn parse_quote_response(json: &serde_json::Value, expected: &serde_json::Value) -> Result<SwapQuote> {
+    let request = json.get("quoteRequest").ok_or_else(|| anyhow!("Missing quote request"))?;
+    for key in ["dry", "swapType", "slippageTolerance", "originAsset", "destinationAsset",
+        "amount", "refundTo", "refundType", "recipient", "recipientType", "depositType"] {
+        if expected.get(key).is_none() || request.get(key) != expected.get(key) {
+            return Err(anyhow!("Provider quote does not match requested {key}"));
+        }
+    }
+    let fees = request.get("appFees").and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow!("Missing quote fees"))?;
+    let mut parsed_fees = std::collections::BTreeMap::new();
+    for entry in fees {
+        let recipient = entry.get("recipient").and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Invalid fee recipient"))?;
+        let fee = entry.get("fee").and_then(|v| v.as_u64())
+            .ok_or_else(|| anyhow!("Invalid fee amount"))?;
+        if parsed_fees.insert(recipient, fee).is_some() {
+            return Err(anyhow!("Duplicate quote fee recipient"));
+        }
+    }
+    // NEAR normalizes our configured 50 bps into its documented 50/50 split.
+    const PROTOCOL: &str = "5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd";
+    let direct = std::collections::BTreeMap::from([(AFFILIATE_ADDRESS, u64::from(AFFILIATE_FEE_BPS))]);
+    let split = std::collections::BTreeMap::from([(AFFILIATE_ADDRESS, 25), (PROTOCOL, 25)]);
+    if parsed_fees != direct && parsed_fees != split {
+        return Err(anyhow!("Provider quote fees changed"));
+    }
+    let quote = json.get("quote").ok_or_else(|| anyhow!("Missing quote"))?;
+    let string = |key: &str| -> Result<String> {
+        quote.get(key).and_then(|v| v.as_str()).map(str::to_owned)
+            .ok_or_else(|| anyhow!("Missing quote {key}"))
+    };
+    let amount_in = string("amountIn")?;
+    let amount_out = string("amountOut")?;
+    let min_amount_out = string("minAmountOut")?;
+    if amount_in != request["amount"].as_str().unwrap_or("")
+        || positive_amount(&min_amount_out)? > positive_amount(&amount_out)? {
+        return Err(anyhow!("Provider quote amounts changed"));
+    }
+    positive_amount(&amount_in)?;
+    let deposit_address = string("depositAddress")?;
+    if deposit_address.trim().is_empty() {
+        return Err(anyhow!("Missing deposit address"));
+    }
+    if let Some(memo) = quote.get("depositMemo") {
+        if !memo.is_null() && memo.as_str() != Some("") {
+            return Err(anyhow!("Quotes requiring a deposit memo are unsupported"));
+        }
+    }
+    let deadline = string("deadline")?;
+    validate_deadline(&deadline)?;
     Ok(SwapQuote {
-        deposit_address,
-        amount_in,
-        amount_out,
-        min_amount_out,
-        deadline: deadline_str,
-        origin_asset: Some(origin_asset.to_string()),
-        destination_asset: Some(destination_asset.to_string()),
-        recipient: Some(recipient.to_string()),
-        refund_to: Some(refund_to.to_string()),
+        deposit_address, amount_in, amount_out, min_amount_out: Some(min_amount_out), deadline,
+        origin_asset: request["originAsset"].as_str().map(str::to_owned),
+        destination_asset: request["destinationAsset"].as_str().map(str::to_owned),
+        recipient: request["recipient"].as_str().map(str::to_owned),
+        refund_to: request["refundTo"].as_str().map(str::to_owned),
     })
 }
 
@@ -363,10 +407,60 @@ mod tests {
     use super::*;
 
     #[test]
+    fn quote_validation_rejects_tampering_and_missing_actual_fields() {
+        let request = serde_json::json!({"dry": false, "swapType": "EXACT_INPUT",
+            "slippageTolerance": 100, "originAsset": "zec", "destinationAsset": "sol",
+            "amount": "1000000", "refundTo": "refund", "refundType": "ORIGIN_CHAIN",
+            "recipient": "recipient", "recipientType": "DESTINATION_CHAIN", "depositType": "ORIGIN_CHAIN",
+            "deadline": chrono_deadline(2), "appFees": [{"recipient": AFFILIATE_ADDRESS, "fee": 50}]});
+        let response = serde_json::json!({"quoteRequest": request, "quote": {
+            "amountIn": "1000000", "amountOut": "100", "minAmountOut": "99",
+            "depositAddress": "deposit", "deadline": chrono_deadline(1)}});
+        let valid = parse_quote_response(&response, &request).unwrap();
+        assert!(valid.validate_for_funding(1000000).is_ok());
+        assert!(valid.validate_for_funding(1).is_err());
+        for key in request.as_object().unwrap().keys().filter(|k| k.as_str() != "deadline") {
+            let mut altered = response.clone();
+            altered["quoteRequest"][key] = serde_json::json!("tampered");
+            assert!(parse_quote_response(&altered, &request).is_err(), "{key}");
+        }
+        for key in ["amountIn", "amountOut", "minAmountOut", "depositAddress", "deadline"] {
+            let mut altered = response.clone();
+            altered["quote"].as_object_mut().unwrap().remove(key);
+            assert!(parse_quote_response(&altered, &request).is_err(), "{key}");
+        }
+        for (key, value) in [("amountIn", "1"), ("amountOut", "0"), ("minAmountOut", "101"),
+            ("deadline", "2020-01-01T00:00:00Z"), ("depositMemo", "required")] {
+            let mut altered = response.clone();
+            altered["quote"][key] = serde_json::json!(value);
+            assert!(parse_quote_response(&altered, &request).is_err(), "{key}");
+        }
+        let mut normalized = response.clone();
+        normalized["quoteRequest"]["appFees"] = serde_json::json!([
+            {"recipient": AFFILIATE_ADDRESS, "fee": 25, "limitOrderId": null},
+            {"recipient": "5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd", "fee": 25}]);
+        assert!(parse_quote_response(&normalized, &request).is_ok());
+        normalized["quoteRequest"]["appFees"][1]["recipient"] = serde_json::json!("attacker");
+        assert!(parse_quote_response(&normalized, &request).is_err());
+    }
+
+    #[test]
+    fn symbol_alone_cannot_select_native_zec() {
+        let fake = SwapToken { asset_id: "fake".into(), symbol: "ZEC".into(),
+            blockchain: "zec".into(), decimals: 8, price: None, icon: None };
+        assert!(find_zec_token(&[fake]).is_none());
+    }
+
+    #[test]
+    fn unverified_evm_execution_is_blocked() {
+        assert!(crate::evm_swap::require_verified_execution().is_err());
+    }
+
+    #[test]
     fn find_zec_in_token_list() {
         let tokens = vec![
             SwapToken {
-                asset_id: "nep141:zec.near".into(),
+                asset_id: "nep141:zec.omft.near".into(),
                 symbol: "ZEC".into(),
                 blockchain: "zec".into(),
                 decimals: 8,

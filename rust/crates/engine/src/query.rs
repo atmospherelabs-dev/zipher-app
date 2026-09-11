@@ -221,6 +221,11 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
 
     let conn = open_cipher_conn(&engine.db_data_path, &engine.db_cipher_key)?;
 
+    read_transactions(&conn)
+}
+
+fn read_transactions(conn: &rusqlite::Connection) -> Result<Vec<EngineTransactionRecord>> {
+
     // Ordering rationale:
     // 1. Active pending transactions (mined_height IS NULL, not expired)
     //    go to the top — these are sends the user just made / incoming
@@ -338,11 +343,9 @@ pub async fn get_transactions() -> Result<Vec<EngineTransactionRecord>> {
                 match zcash_protocol::memo::Memo::try_from(memo_obj) {
                     Ok(zcash_protocol::memo::Memo::Text(t)) => {
                         let text = String::from(t);
-                        tracing::info!(
-                            "[TX] memo found for {}: {}",
-                            &tx.txid[..12],
-                            &text[..text.len().min(40)]
-                        );
+                        // Memos are private, untrusted UTF-8. Never log their
+                        // plaintext or truncate them at arbitrary byte offsets.
+                        tracing::debug!("[TX] text memo loaded ({} bytes)", text.len());
                         tx.memo = Some(text);
                         memos_found += 1;
                     }
@@ -425,5 +428,55 @@ pub async fn export_uivk() -> Result<Option<String>> {
             Ok(uivk)
         }
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod transaction_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct Logs(Arc<Mutex<String>>);
+    impl tracing::Subscriber for Logs {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool { true }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            struct Visitor<'a>(&'a mut String);
+            impl tracing::field::Visit for Visitor<'_> {
+                fn record_debug(&mut self, _: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                    self.0.push_str(&format!("{value:?}"));
+                }
+            }
+            event.record(&mut Visitor(&mut self.0.lock().unwrap()));
+        }
+    }
+
+    #[test]
+    fn incoming_unicode_memo_loads_without_plaintext_logs() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE v_transactions (
+            txid BLOB, mined_height INTEGER, block_time INTEGER, account_balance_delta INTEGER,
+            fee_paid INTEGER, sent_note_count INTEGER, received_note_count INTEGER,
+            has_change INTEGER, is_shielding INTEGER, expired_unmined INTEGER, tx_index INTEGER);
+            CREATE TABLE v_tx_outputs (txid BLOB, memo BLOB);").unwrap();
+        let txid = vec![1u8; 32];
+        let memo = format!("{}🛡️ private message", "a".repeat(39));
+        conn.execute("INSERT INTO v_transactions VALUES (?1, 1, 1, 10000, NULL, 0, 1, 0, 0, 0, 0)",
+            rusqlite::params![txid]).unwrap();
+        conn.execute("INSERT INTO v_tx_outputs VALUES (?1, ?2)",
+            rusqlite::params![txid, memo.as_bytes()]).unwrap();
+        let logs = Logs(Arc::new(Mutex::new(String::new())));
+        let txs = tracing::subscriber::with_default(logs.clone(), || read_transactions(&conn).unwrap());
+        assert_eq!(txs[0].memo.as_deref(), Some(memo.as_str()));
+        let output = logs.0.lock().unwrap();
+        assert!(!output.contains(&"a".repeat(39)));
+        assert!(!output.contains("private message"));
     }
 }

@@ -194,36 +194,51 @@ fn parse_auth_params(input: &str) -> Result<std::collections::HashMap<String, St
         let key = remaining[..eq_pos].trim().to_lowercase();
         remaining = remaining[eq_pos + 1..].trim();
 
+        if key.is_empty() || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+            return Err(anyhow!("Invalid auth-param name"));
+        }
         let value;
         if remaining.starts_with('"') {
             remaining = &remaining[1..];
-            let mut end = 0;
+            let mut end = None;
             let mut escaped = false;
+            let mut decoded = String::new();
             for (i, c) in remaining.char_indices() {
+                if c.is_control() {
+                    return Err(anyhow!("Control character in auth-param"));
+                }
                 if escaped {
+                    decoded.push(c);
                     escaped = false;
-                    continue;
-                }
-                if c == '\\' {
+                } else if c == '\\' {
                     escaped = true;
-                    continue;
-                }
-                if c == '"' {
-                    end = i;
+                } else if c == '"' {
+                    end = Some(i);
                     break;
+                } else {
+                    decoded.push(c);
                 }
             }
-            value = remaining[..end].to_string();
+            let end = end.ok_or_else(|| anyhow!("Unterminated quoted auth-param"))?;
+            value = decoded;
             remaining = &remaining[end + 1..];
         } else {
             let end = remaining
                 .find(|c: char| c == ',' || c.is_whitespace())
                 .unwrap_or(remaining.len());
             value = remaining[..end].to_string();
+            if value.is_empty() || value.chars().any(|c| c.is_control() || c == '"' || c == '\\') {
+                return Err(anyhow!("Invalid unquoted auth-param"));
+            }
             remaining = &remaining[end..];
         }
-
-        params.insert(key, value);
+        remaining = remaining.trim_start();
+        if !remaining.is_empty() && !remaining.starts_with(',') {
+            return Err(anyhow!("Missing auth-param separator"));
+        }
+        if params.insert(key, value).is_some() {
+            return Err(anyhow!("Duplicate auth-param"));
+        }
     }
 
     Ok(params)
@@ -236,6 +251,15 @@ fn parse_auth_params(input: &str) -> Result<std::collections::HashMap<String, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn malformed_challenges_fail_without_panicking() {
+        for input in ["id=\"", "id=\"é", "id=\"trailing\\", "id=\"x\"realm=\"y\"", "id=x, id=y", "=value"] {
+            assert!(parse_auth_params(input).is_err(), "{input}");
+        }
+        let params = parse_auth_params(r#"id="é\"x", realm="api""#).unwrap();
+        assert_eq!(params["id"], "é\"x");
+    }
 
     #[test]
     fn parse_payment_challenge() {

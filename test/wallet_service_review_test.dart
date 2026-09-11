@@ -15,11 +15,11 @@ void main() {
     expect(WalletService.instance.isBusy, false);
   });
   test(
-      'shielding reserves the payment path and invalidates reviews even when key access fails',
+      'migration planning reserves the payment path and invalidates reviews even when key access fails',
       () async {
     final wallet = WalletService.instance;
     final revision = wallet.proposalRevision;
-    final result = expectLater(wallet.shieldFunds(), throwsException);
+    final result = expectLater(wallet.planMigration(), throwsException);
     expect(wallet.isBusy, true);
     await expectLater(wallet.proposeSend('unused', 1), throwsException);
     await result;

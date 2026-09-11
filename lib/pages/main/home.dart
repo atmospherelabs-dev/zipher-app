@@ -53,6 +53,7 @@ class _SwapEntry {
 
 class _HomeState extends State<HomePageInner> {
   bool _balanceHidden = false;
+  bool _authorizingShield = false;
   Map<String, _SwapEntry> _swapsByDepositAddr = {};
   Timer? _swapPollTimer;
   final _nearApi = NearIntentsService();
@@ -712,31 +713,34 @@ class _HomeState extends State<HomePageInner> {
   }
 
   void _shield(int transparentBal) async {
-    final authorized = await requireSigningAuthorization(context,
-        actionSummary: 'Shield transparent ZEC');
-    if (!authorized || !mounted) return;
-
-    final amtStr = amountToString2(transparentBal);
-    logger.i(
-        '[Shield] transparent=$transparentBal ($amtStr ZEC), fee=${coinSettings.feeT.fee}');
-
-    // Immediately show "Shielding..." state
-    setState(() {
-      lastShieldSubmit = DateTime.now();
-    });
-
+    if (_authorizingShield) return;
+    final wallet = WalletService.instance;
+    final walletId = wallet.activeWalletId;
+    final network = isTestnet;
+    final generation = wallet.walletGeneration;
+    if (walletId == null) return;
+    _authorizingShield = true;
     try {
-      final txId = await WalletService.instance.shieldFunds();
+      final authorized = await requireSigningAuthorization(context,
+          actionSummary: 'Shield transparent ZEC');
+      if (!authorized || !mounted) return;
+      // The service checks the captured identity before reading keys and holds
+      // its operation lock through broadcast, including an A -> B -> A switch.
+      setState(() => lastShieldSubmit = DateTime.now());
+      final txId = await wallet.shieldFunds(
+          expectedWalletId: walletId,
+          expectedTestnet: network,
+          expectedGeneration: generation);
       logger.i('[Shield] Broadcast OK: $txId');
     } catch (e) {
       logger.e('[Shield] Error: $e');
       if (!mounted) return;
-      setState(() {
-        lastShieldSubmit = null;
-      });
+      setState(() => lastShieldSubmit = null);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$e'), duration: const Duration(seconds: 3)),
       );
+    } finally {
+      _authorizingShield = false;
     }
   }
 }

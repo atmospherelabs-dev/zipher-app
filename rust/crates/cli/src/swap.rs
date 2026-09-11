@@ -202,6 +202,7 @@ pub async fn cmd_swap_execute(
         zipher_engine::send::propose_send(&quote.deposit_address, amount, None, false, false).await?;
 
     let seed = read_seed(&cfg.data_dir)?;
+    quote.validate_for_funding(send_amount)?;
     let txid = match zipher_engine::send::confirm_send(&seed).await {
         Ok(txid) => {
             zipher_engine::policy::record_confirm();

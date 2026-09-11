@@ -144,7 +144,11 @@ class WalletRegistry {
           .map((e) => WalletProfile.fromJson(e as Map<String, dynamic>))
           .toList();
     } catch (_) {
-      _cache = [];
+      // Treat unreadable profiles as a recovery error, never as a new install.
+      // Otherwise the next create/rename can overwrite the retained accounts.
+      _cache = null;
+      throw StateError('Wallet account data could not be read. '
+          'Existing data has been preserved.');
     }
     return _cache!;
   }
@@ -336,12 +340,16 @@ class WalletRegistry {
   void invalidateCache() => _cache = null;
 
   Future<void> _persist(List<WalletProfile> profiles) async {
-    _cache = profiles;
-    final prefs = await SharedPreferences.getInstance();
-    final json = jsonEncode(profiles.map((p) => p.toJson()).toList());
-    if (!await prefs.setString(_profilesKey, json)) {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final json = jsonEncode(profiles.map((p) => p.toJson()).toList());
+      if (!await prefs.setString(_profilesKey, json)) {
+        throw StateError('Wallet profiles could not be saved');
+      }
+      _cache = profiles;
+    } catch (_) {
       invalidateCache();
-      throw StateError('Wallet profiles could not be saved');
+      rethrow;
     }
     changes.value++;
   }

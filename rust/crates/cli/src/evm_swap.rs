@@ -47,6 +47,7 @@ pub async fn cmd_evm_swap(
     yes: bool,
     ows_wallet: String,
 ) -> Result<()> {
+    evm_swap::require_verified_execution()?;
     eprintln!();
 
     // ── Step 1: Resolve EVM address from OWS ─────────────────────────────
@@ -197,7 +198,7 @@ pub async fn cmd_evm_swap(
                 &address,
                 &src.1,
                 &quote.token_transfer_proxy,
-                u128::MAX,
+                amount_raw,
                 chain_cfg.chain_id,
                 &fees,
             )

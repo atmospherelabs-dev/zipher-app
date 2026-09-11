@@ -797,6 +797,9 @@ impl ZipherMcpServer {
             Err(e) => return err_response(&e),
         };
 
+        if let Err(e) = quote.validate_for_funding(send_amount) {
+            return err_response(&e);
+        }
         let txid = match self.confirm_accounted(&seed_str, &quote.deposit_address, send_amount, fee, &params.context_id).await {
             Ok(txid) => {
                 zipher_engine::policy::record_confirm();

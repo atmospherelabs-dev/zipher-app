@@ -123,14 +123,14 @@ pub async fn get_quote(
         return Err(anyhow!(
             "ParaSwap /prices returned {}: {}",
             status,
-            &text[..text.len().min(500)]
+            text.chars().take(500).collect::<String>()
         ));
     }
 
     let parsed: PriceResponse = serde_json::from_str(&text).map_err(|e| {
         anyhow!(
             "Failed to parse ParaSwap quote: {e} — body: {}",
-            &text[..text.len().min(300)]
+            text.chars().take(300).collect::<String>()
         )
     })?;
 
@@ -192,14 +192,14 @@ pub async fn build_swap_tx(
         return Err(anyhow!(
             "ParaSwap /transactions returned {}: {}",
             status,
-            &text[..text.len().min(500)]
+            text.chars().take(500).collect::<String>()
         ));
     }
 
     let tx_resp: TxResponse = serde_json::from_str(&text).map_err(|e| {
         anyhow!(
             "Failed to parse ParaSwap tx: {e} — body: {}",
-            &text[..text.len().min(300)]
+            text.chars().take(300).collect::<String>()
         )
     })?;
 
@@ -263,6 +263,7 @@ pub struct SwapResult {
 ///
 /// Prints step-by-step diagnostics for CLI debugging.
 pub async fn execute_swap(params: &SwapParams) -> Result<SwapResult> {
+    require_verified_execution()?;
     // Step 1: Quote
     info!("[swap] Getting quote...");
     let quote = get_quote(
@@ -310,7 +311,7 @@ pub async fn execute_swap(params: &SwapParams) -> Result<SwapResult> {
                 &params.user_address,
                 &params.src_token,
                 &quote.token_transfer_proxy,
-                u128::MAX,
+                needed,
                 params.chain_id,
                 &fees,
             )
@@ -395,4 +396,25 @@ pub async fn execute_swap(params: &SwapParams) -> Result<SwapResult> {
         src_amount: quote.src_amount.clone(),
         dest_amount_expected: quote.dest_amount.clone(),
     })
+}
+
+/// Provider-built calldata cannot be signed until its spender, router, chain,
+/// value, recipient and token amounts are independently verified.
+pub fn require_verified_execution() -> Result<()> {
+    Err(anyhow!("EVM swap execution is unavailable until provider transactions can be independently verified. No approval or transaction was signed."))
+}
+
+#[cfg(test)]
+mod security_tests {
+    #[tokio::test]
+    async fn native_swap_entry_rejects_before_any_provider_or_signing_call() {
+        let params = super::SwapParams {
+            rpc_url: "invalid-no-network".into(), seed_phrase: "not-a-seed".into(),
+            chain_id: 1, user_address: String::new(), src_token: String::new(),
+            src_decimals: 18, dest_token: String::new(), dest_decimals: 18,
+            amount_raw: "1".into(), slippage_bps: 100,
+        };
+        let error = super::execute_swap(&params).await.err().unwrap();
+        assert!(error.to_string().contains("independently verified"));
+    }
 }

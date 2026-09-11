@@ -100,9 +100,9 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
   @override
   void initState() {
     super.initState();
-    _didUpdateSendContext(widget.sendContext);
     _memoText = appSettings.memo;
     if (_memoText.isNotEmpty) _memoController.text = _memoText;
+    _didUpdateSendContext(widget.sendContext);
   }
 
   @override

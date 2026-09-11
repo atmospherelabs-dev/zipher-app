@@ -427,6 +427,7 @@ async fn pay_cross_chain(
                 .await?;
 
         let seed = read_seed(&cfg.data_dir)?;
+        quote.validate_for_funding(send_amount)?;
         let swap_txid = zipher_engine::send::confirm_send(&seed).await?;
         zipher_engine::policy::record_confirm();
 

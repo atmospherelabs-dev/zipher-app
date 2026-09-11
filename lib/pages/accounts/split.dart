@@ -3,8 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import '../../services/wallet_service.dart';
-import '../../src/rust/api/wallet.dart' as rust_wallet;
+import 'send.dart';
 
 import '../../accounts.dart';
 import '../../coin/coins.dart';
@@ -1264,32 +1263,20 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
       return;
     }
 
-    final recipients = _recipients.map((r) {
-      final addr = r.addressController.text.trim();
-      final memo = r.memoController.text;
-      return rust_wallet.PaymentRecipient(
-        address: addr,
-        amount: BigInt.from(r.amountZat),
-        memo: memo.isNotEmpty ? memo : null,
-      );
-    }).toList();
-
-    try {
-      final txid = await load(() => WalletService.instance.send(recipients));
-      logger.i('Split send OK: $txid');
-      await aa.updateBalance();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Transaction sent successfully'),
-            backgroundColor: ZipherColors.green,
-          ),
-        );
-        GoRouter.of(context).pop();
-      }
-    } catch (e) {
-      showMessageBox2(context, s.error, e.toString());
+    // The current engine supports one reviewed recipient. Never bypass its
+    // proposal/authorization flow or silently discard additional outputs.
+    if (_recipients.length != 1) {
+      _showError('Multiple-recipient payments are not supported yet. '
+          'Send each payment separately.');
+      return;
     }
+    final recipient = _recipients.single;
+    await GoRouter.of(context).push('/account/quick_send',
+        extra: SendContext(
+            recipient.addressController.text.trim(),
+            7,
+            Amount(recipient.amountZat, false),
+            MemoData(false, '', recipient.memoController.text)));
   }
 
   void _showError(String msg) {

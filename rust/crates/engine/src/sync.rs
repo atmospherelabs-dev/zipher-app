@@ -2018,7 +2018,11 @@ fn trim_log_error(message: &str) -> String {
     if message.len() <= MAX_LEN {
         message.to_string()
     } else {
-        format!("{}...", &message[..MAX_LEN])
+        let mut end = MAX_LEN;
+        while !message.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &message[..end])
     }
 }
 
@@ -3476,6 +3480,18 @@ async fn refresh_transparent_utxos(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_error_truncation_respects_utf8_boundaries() {
+        for prefix in 92..100 {
+            let message = format!("{}🛡️{}", "x".repeat(prefix), "é".repeat(50));
+            let shortened = trim_log_error(&message);
+            assert!(shortened.len() <= 99);
+            assert!(shortened.ends_with("..."));
+            assert!(message.starts_with(shortened.trim_end_matches("...")));
+        }
+        assert_eq!(trim_log_error("short 🛡️ error"), "short 🛡️ error");
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "manual Tor network verification; no keys, wallet data, or transaction submission"]
