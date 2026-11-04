@@ -9,6 +9,7 @@
 
 use orchard::keys::SpendAuthorizingKey;
 use pczt::roles::signer::{Error as SignerError, Signer};
+use rand_core::{CryptoRng, Rng};
 
 use super::BuildError;
 
@@ -16,11 +17,18 @@ use super::BuildError;
 /// signed (still unproven) PCZT. Spends the key does not own are left unsigned: the builder's
 /// fabricated zero-valued dummy spends, and any real spend belonging to another account.
 ///
+/// The published Common 4 PCZT signer obtains signature randomness from its OS CSPRNG.
+/// `rng` is retained for the 0.2 API; construction and scheduling still consume it.
+///
 /// # Errors
 ///
 /// Returns [`BuildError::Build`] if the signer cannot be initialized, or if a spend fails to sign
 /// for a reason other than the spend not being authorized by `ask`.
-pub fn sign_pczt(pczt: pczt::Pczt, ask: &SpendAuthorizingKey) -> Result<pczt::Pczt, BuildError> {
+pub fn sign_pczt<R: Rng + CryptoRng>(
+    _rng: R,
+    pczt: pczt::Pczt,
+    ask: &SpendAuthorizingKey,
+) -> Result<pczt::Pczt, BuildError> {
     let mut signer =
         Signer::new(pczt).map_err(|e| BuildError::Build(format!("signer init: {e:?}")))?;
     for index in 0.. {
@@ -69,6 +77,7 @@ mod tests {
         let params = regtest_network(true);
         let rng = ChaCha8Rng::seed_from_u64(note_seed);
         let expiry = u32::from(crate::scheduling::expiry_height(
+            &crate::scheduling::BlockSpacing::UNIFORM,
             zcash_protocol::consensus::BlockHeight::from_u32(TARGET_HEIGHT),
         ));
         let (pczt, _) = build_prep_tx(
@@ -104,7 +113,7 @@ mod tests {
             // each comparison builds a fresh (identical) unsigned PCZT.
             let unsigned = build_prep(&fvk, note_seed).serialize().expect("serialize");
 
-            let signed = sign_pczt(build_prep(&fvk, note_seed), &ask)
+            let signed = sign_pczt(ChaCha8Rng::seed_from_u64(note_seed), build_prep(&fvk, note_seed), &ask)
                 .expect("signing the account's own spend")
                 .serialize()
                 .expect("serialize");
@@ -112,7 +121,7 @@ mod tests {
 
             // A foreign key authorizes nothing: the real spend is skipped as a key mismatch.
             let foreign_ask = SpendAuthorizingKey::from(&spending_key(account_seed ^ 0x5a5a_5a5a));
-            let untouched = sign_pczt(build_prep(&fvk, note_seed), &foreign_ask)
+            let untouched = sign_pczt(ChaCha8Rng::seed_from_u64(note_seed), build_prep(&fvk, note_seed), &foreign_ask)
                 .expect("a foreign key signs nothing")
                 .serialize()
                 .expect("serialize");

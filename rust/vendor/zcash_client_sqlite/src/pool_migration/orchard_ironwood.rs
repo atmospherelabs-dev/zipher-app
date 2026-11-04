@@ -6,6 +6,11 @@
 //! [`PoolMigrationRead`] / [`PoolMigrationWrite`], and the `init_migration_tables` DDL its schema
 //! migration runs. The generic store type never leaks into this API.
 
+/// Narrow wallet-backed recovery for transactions invalidated by a scheduled
+/// consensus branch change. It never treats server absence as chain evidence.
+#[cfg(feature = "orchard")]
+pub mod upgrade;
+
 use std::{
     borrow::{Borrow, BorrowMut},
     collections::BTreeSet,
@@ -589,7 +594,10 @@ where
             // Parameters are the SPECIFIED defaults, exactly as the enhance path reasons: the only
             // wallet-overridable value is the anchor bucket interval, and this evidence source
             // cannot evaluate the anchor clause at all, so the override cannot change the answer.
-            let migration_params = PoolMigrationParams::from(AnchorRetentionInterval::default());
+            let migration_params = PoolMigrationParams::new(
+                zcash_protocol::zip318::BlockSpacing::for_network(&self.params),
+                AnchorRetentionInterval::default(),
+            );
             let classification = classify_decrypted_tx(
                 &tx,
                 decrypted.orchard_outputs(),

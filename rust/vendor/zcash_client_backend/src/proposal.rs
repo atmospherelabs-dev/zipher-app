@@ -1152,7 +1152,7 @@ impl<NoteRef> Step<NoteRef> {
                 .is_some_and(|value| params.is_canonical_denomination(value))
             && self
                 .anchor_height()
-                .is_some_and(|anchor| params.anchor_bucket_interval().is_boundary(anchor))
+                .is_some_and(|anchor| params.anchor_grid().is_boundary(anchor))
             // ZIP 318 forbids a non-standard fee, which would partition the anonymity set as
             // surely as a non-standard shape. A `ChangeStrategy` may be built on any fee rule,
             // including a fixed non-standard one, so a structurally perfect crossing can still

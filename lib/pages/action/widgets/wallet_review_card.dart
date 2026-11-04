@@ -148,7 +148,7 @@ class _WalletReviewCardState extends State<WalletReviewCard> {
                 ]),
                 Text(
                     _priority
-                        ? '4× fee rate · confirmation time is not guaranteed'
+                        ? '10× standard fee rate · confirmation time is not guaranteed'
                         : 'Standard fee · recommended',
                     style: const TextStyle(
                         fontSize: 11, height: 1.4, color: ZipherColors.text40)),

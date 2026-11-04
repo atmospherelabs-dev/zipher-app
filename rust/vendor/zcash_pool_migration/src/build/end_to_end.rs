@@ -74,9 +74,10 @@ fn migration_pipeline_end_to_end() {
     let tx = &prep.layers()[0][0];
     assert!(matches!(tx.inputs(), [PrepInput::Wallet { index: 0, .. }]));
     let (note, _path, _anchor) = single_note_witness(&fvk, balance, seed);
-    let prep_expiry = u32::from(crate::scheduling::expiry_height(BlockHeight::from_u32(
-        TARGET_HEIGHT,
-    )));
+    let prep_expiry = u32::from(crate::scheduling::expiry_height(
+        &crate::scheduling::BlockSpacing::UNIFORM,
+        BlockHeight::from_u32(TARGET_HEIGHT),
+    ));
     let (prep_pczt, placed) = build_prep_tx(
         &params,
         TARGET_HEIGHT,
@@ -129,7 +130,8 @@ fn migration_pipeline_end_to_end() {
         u64::from(expected_prep_fee),
         "the built preparation transaction pays exactly the canonical fee"
     );
-    sign_pczt(prep_pczt, &ask).expect("pre-signing the preparation transaction");
+    sign_pczt(ChaCha8Rng::seed_from_u64(seed + 2), prep_pczt, &ask)
+        .expect("pre-signing the preparation transaction");
 
     // 4. Build + pre-sign a pool-crossing transfer for one funding note (witnessed directly here, as
     //    it would be once the preparation transaction is mined). It sends exactly the canonical
@@ -197,7 +199,8 @@ fn migration_pipeline_end_to_end() {
         u64::from(expected_transfer_fee),
         "the built transfer pays exactly the canonical fee"
     );
-    sign_pczt(transfer_pczt, &ask).expect("pre-signing the transfer");
+    sign_pczt(ChaCha8Rng::seed_from_u64(seed + 4), transfer_pczt, &ask)
+        .expect("pre-signing the transfer");
 }
 
 /// The total output value a PCZT bundle carries (padded dummy outputs hold zero). Spend values are

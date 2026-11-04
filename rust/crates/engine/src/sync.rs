@@ -1390,6 +1390,7 @@ async fn sync_once(
             match pending::resubmit_unmined(
                 db_data_path,
                 db_cipher_key,
+                &params,
                 &mut maintenance_lwd,
                 latest_for_pending,
             )
@@ -3496,8 +3497,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "manual Tor network verification; no keys, wallet data, or transaction submission"]
     async fn verify_live_tor_transport() {
+        let _engine_test = crate::ENGINE_TEST_MUTEX.lock().await;
         let dir = tempfile::tempdir().unwrap();
         *ENGINE.lock().await = Some(crate::ZipherEngine {
+            generation: crate::next_engine_generation(),
             db_data_path: dir.path().join("unused.db"), params: Network::MainNetwork,
             server_url: "https://zec.rocks:443".into(), birthday: height(3_477_000),
             db_cipher_key: None, tor_required: false, tor_client: None,
@@ -3517,6 +3520,7 @@ mod tests {
     #[test]
     fn requested_tor_without_a_client_blocks_network_access() {
         let mut engine = crate::ZipherEngine {
+            generation: crate::next_engine_generation(),
             db_data_path: PathBuf::from("disposable.db"),
             params: Network::TestNetwork,
             server_url: "http://127.0.0.1:1".into(),
@@ -3727,8 +3731,10 @@ mod tests {
 
     #[tokio::test]
     async fn engine_rejects_overlapping_starts_and_restarts_after_stop() {
+        let _engine_test = crate::ENGINE_TEST_MUTEX.lock().await;
         let dir = tempfile::tempdir().unwrap();
         *ENGINE.lock().await = Some(crate::ZipherEngine {
+            generation: crate::next_engine_generation(),
             db_data_path: dir.path().join("wallet.db"),
             params: Network::TestNetwork,
             server_url: "http://127.0.0.1:1".to_string(),

@@ -3,9 +3,13 @@ pub mod cipherpay;
 pub mod evm;
 pub mod evm_pay;
 pub mod evm_swap;
+pub mod fees;
 pub mod frost;
 pub mod hitl;
+pub mod ironwood;
+pub mod ironwood_v2;
 pub mod mpp;
+pub mod network_upgrade;
 pub mod ows;
 pub mod payment;
 pub mod pending;
@@ -19,8 +23,6 @@ pub mod swap;
 pub mod sync;
 pub mod types;
 pub mod vault;
-pub mod ironwood;
-pub mod ironwood_v2;
 pub mod wallet;
 pub mod x402;
 
@@ -35,6 +37,39 @@ use zcash_protocol::consensus::{BlockHeight, Network};
 
 lazy_static::lazy_static! {
     pub(crate) static ref ENGINE: Mutex<Option<ZipherEngine>> = Mutex::new(None);
+    // Network intent outlives a wallet. Creation needs the route before there
+    // is an engine, and closing/replacing a wallet must not reset it to direct.
+    pub(crate) static ref WALLET_TRANSPORT: Mutex<WalletTransport> = Mutex::new(WalletTransport::default());
+}
+
+// Acquire before ENGINE/WALLET_TRANSPORT when mutating a wallet session. A
+// submission holds a shared read permit only across its bounded actual send,
+// so valid peer broadcasts remain concurrent while lifecycle writes wait.
+pub(crate) static SUBMISSION_LIFECYCLE: tokio::sync::RwLock<()> =
+    tokio::sync::RwLock::const_new(());
+
+// Tests that replace the process-wide wallet must not run against one another's
+// engine, even when the Rust test harness uses its default parallel execution.
+#[cfg(test)]
+pub(crate) static ENGINE_TEST_MUTEX: Mutex<()> = Mutex::const_new(());
+
+#[derive(Clone, Default)]
+pub(crate) struct WalletTransport {
+    pub(crate) tor_required: bool,
+    pub(crate) tor_client: Option<zcash_client_backend::tor::Client>,
+}
+
+pub(crate) fn checked_transport<T: Clone>(required: bool, client: &Option<T>) -> Result<Option<T>> {
+    if required && client.is_none() {
+        anyhow::bail!("Tor is required but unavailable. Retry Tor or explicitly disable it.");
+    }
+    Ok(client.clone())
+}
+
+impl WalletTransport {
+    pub(crate) fn route(&self) -> Result<Option<zcash_client_backend::tor::Client>> {
+        checked_transport(self.tor_required, &self.tor_client)
+    }
 }
 
 /// Core wallet engine built on zcash_client_sqlite + zcash_client_backend.
@@ -43,6 +78,7 @@ lazy_static::lazy_static! {
 /// on demand from the stored path — this avoids complex generic type parameters
 /// in the singleton while keeping SQLite connections short-lived and safe.
 pub struct ZipherEngine {
+    pub(crate) generation: u64,
     pub(crate) db_data_path: PathBuf,
     pub(crate) params: Network,
     pub(crate) server_url: String,
@@ -52,13 +88,17 @@ pub struct ZipherEngine {
     pub(crate) tor_client: Option<zcash_client_backend::tor::Client>,
 }
 
+/// Invalidates asynchronous proposals across close/reopen and route changes,
+/// even when the wallet database and server URL happen to be identical.
+pub(crate) fn next_engine_generation() -> u64 {
+    static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 impl ZipherEngine {
     /// A requested private route must never silently fall back to clearnet.
     pub(crate) fn tor_transport(&self) -> Result<Option<zcash_client_backend::tor::Client>> {
-        if self.tor_required && self.tor_client.is_none() {
-            anyhow::bail!("Tor is required but unavailable. Retry Tor or explicitly disable it.");
-        }
-        Ok(self.tor_client.clone())
+        checked_transport(self.tor_required, &self.tor_client)
     }
 }
 

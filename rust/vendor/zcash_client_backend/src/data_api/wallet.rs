@@ -35,11 +35,11 @@ to a wallet-internal shielded address, as described in [ZIP 316](https://zips.z.
 //! [`propose_transfer`]: crate::data_api::wallet::propose_transfer
 
 use nonempty::NonEmpty;
-use zipher_rng_compat::OS_RNG as OsRng;
 use std::{
     num::NonZeroU32,
     ops::{Add, Sub},
 };
+use zipher_rng_compat::OS_RNG as OsRng;
 
 use shardtree::error::{QueryError, ShardTreeError};
 
@@ -79,7 +79,7 @@ use zcash_protocol::{
     consensus::{self, BlockHeight},
     memo::MemoBytes,
     value::Zatoshis,
-    zip318::AnchorBucketInterval,
+    zip318::AnchorGrid,
 };
 use zip32::Scope;
 use zip321::Payment;
@@ -611,7 +611,7 @@ impl ConfirmationsPolicy {
     /// [ZIP 318]: https://zips.z.cash/zip-0318
     pub fn bucketed(
         &self,
-        interval: AnchorBucketInterval,
+        grid: AnchorGrid,
         target_height: TargetHeight,
         activation_height: BlockHeight,
     ) -> Option<Self> {
@@ -620,10 +620,8 @@ impl ConfirmationsPolicy {
         // newest admissible boundary, and the modal age under the migration's `Geometric(1/2)`
         // draw. Anchoring to the most recent boundary instead would be an age of 0, which no
         // migration transfer ever uses.
-        let most_recent = interval.boundary_at_or_below(self.anchor_height(target_height));
-        let boundary = BlockHeight::from_u32(
-            u32::from(most_recent).checked_sub(interval.block_count().get())?,
-        );
+        let most_recent = grid.boundary_at_or_below(self.anchor_height(target_height));
+        let boundary = grid.boundary_before(most_recent)?;
 
         // The boundary must lie strictly above the activation of the pool being crossed into.
         // Rounding down can otherwise land on a PRE-ACTIVATION boundary in the window between
@@ -811,7 +809,7 @@ where
     // wallet rather than the network defaults: the wallet is the side that retains the
     // checkpoints, so its grid is the only one a crossing can actually be proved against, and
     // every decision below that depends on the grid consults this one value.
-    let zip318 = wallet_db.pool_migration_params();
+    let zip318 = wallet_db.pool_migration_params(params);
 
     // A payment of a canonical ZIP 318 denomination across the Orchard turnstile is proposed
     // against a BUCKETED anchor and funded from a single Orchard note, so that the resulting
@@ -846,7 +844,7 @@ where
         .flatten()
         .and_then(|activation| {
             confirmations_policy.bucketed(
-                zip318.anchor_bucket_interval(),
+                zip318.anchor_grid(),
                 target_height,
                 activation,
             )
@@ -997,7 +995,7 @@ where
     ParamsT: consensus::Parameters,
 {
     crate::fees::canonical_crossing_fee(params, target_height.into())
-        .is_ok_and(|fee| step.is_canonical_crossing(&wallet_db.pool_migration_params(), fee))
+        .is_ok_and(|fee| step.is_canonical_crossing(&wallet_db.pool_migration_params(params), fee))
 }
 
 /// Proposes making a payment to the specified address from the given account.
@@ -1249,7 +1247,7 @@ where
             to_account,
             target_height,
             anchor_height,
-            &wallet_db.pool_migration_params(),
+            &wallet_db.pool_migration_params(params),
             confirmations_policy,
             output_filter,
         )
@@ -1943,6 +1941,7 @@ where
                     return Err(Error::ExpiryHeightConflictsWithCanonicalCrossing { requested });
                 }
                 None => Some(zcash_protocol::zip318::expiry_height(
+                    &zcash_protocol::zip318::BlockSpacing::for_network(params),
                     min_target_height.into(),
                 )),
             }

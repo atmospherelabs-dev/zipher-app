@@ -32,23 +32,42 @@ class _IronwoodState extends State<IronwoodPage> {
   engine.IronwoodSdkProgress? _sdkProgress;
   engine.IronwoodSdkPlan? _sdkPlan;
   ({int revision, String walletId, bool testnet})? _review;
+  late final int _walletGenerationAtOpen;
 
   int get _orchardBalance => aa.poolBalances.totalOrchard;
 
   @override
   void initState() {
     super.initState();
+    _walletGenerationAtOpen = WalletService.instance.walletGeneration;
     _loadPreferences();
+  }
+
+  bool _checkWallet() {
+    if (!mounted) return false;
+    if (_walletGenerationAtOpen == WalletService.instance.walletGeneration)
+      return true;
+    setState(() {
+      _error = 'Wallet changed. Reopen migration for the current wallet.';
+      _phase = _Phase.error;
+    });
+    return false;
   }
 
   Future<void> _loadPreferences() async {
     try {
       final progress = await IronwoodWatchService.instance.refreshStatus();
+      if (!_checkWallet()) return;
       _sdkProgress = progress;
       _log.i('[Ironwood/UI] status check: ${_fmtProgress(progress)}');
-      if (progress.status == 'committed' || progress.status == 'in_progress') {
+      if (progress.status == 'committed' ||
+          progress.status == 'in_progress' ||
+          progress.status == 'paused_by_upgrade' ||
+          progress.status == 'upgrade_review_required' ||
+          progress.status == 'stopped_by_upgrade') {
         _phase = _Phase.ready;
-        _autoMode = true;
+        _autoMode = progress.status != 'upgrade_review_required' &&
+            progress.status != 'stopped_by_upgrade';
       }
     } catch (e) {
       _log.d('[Ironwood/UI] no active migration: $e');
@@ -88,6 +107,7 @@ class _IronwoodState extends State<IronwoodPage> {
 
   /// Manually trigger the next SDK tick (prove + broadcast the next due tx).
   Future<void> _triggerTick() async {
+    if (!_checkWallet()) return;
     if (IronwoodWatchService.instance.isRoundInProgress) {
       _log.w('[Ironwood/UI] tick blocked — round already in progress');
       setState(() {
@@ -105,11 +125,8 @@ class _IronwoodState extends State<IronwoodPage> {
 
     IronwoodWatchService.instance.markRoundStarted();
     try {
-      final seed = await WalletService.instance.getSeedPhrase();
-      if (seed == null) throw Exception('Could not access wallet seed');
-      _log.d('[Ironwood/UI] seed obtained, calling engineIronwoodSdkTick...');
-
-      final result = await engine.engineIronwoodSdkTick(seedPhrase: seed);
+      final result = await WalletService.instance.tickMigration();
+      if (!_checkWallet()) return;
       _sdkProgress = result;
       _log.i('[Ironwood/UI] tick result: ${_fmtProgress(result)}');
 
@@ -119,6 +136,7 @@ class _IronwoodState extends State<IronwoodPage> {
         setState(() => _phase = _Phase.ready);
       }
     } catch (e) {
+      if (!_checkWallet()) return;
       _log.e('[Ironwood/UI] tick error: $e');
       final msg = e.toString();
       String userMessage;
@@ -138,6 +156,7 @@ class _IronwoodState extends State<IronwoodPage> {
   }
 
   Future<void> _fetchPlan() async {
+    if (!_checkWallet()) return;
     _log.i('[Ironwood/UI] fetching migration plan...');
     setState(() {
       _phase = _Phase.roundInProgress;
@@ -145,7 +164,7 @@ class _IronwoodState extends State<IronwoodPage> {
     });
     try {
       final plan = await IronwoodWatchService.instance.planMigration();
-      if (!mounted) return;
+      if (!_checkWallet()) return;
       final wallet = WalletService.instance;
       if (wallet.activeWalletId == null) throw StateError('No active wallet');
       _review = (
@@ -160,6 +179,7 @@ class _IronwoodState extends State<IronwoodPage> {
           'crossings=${plan.crossingValues.map((v) => v).toList()}');
       setState(() => _phase = _Phase.planReview);
     } catch (e) {
+      if (!_checkWallet()) return;
       _log.e('[Ironwood/UI] plan failed: $e');
       setState(() {
         _error = e.toString();
@@ -169,6 +189,7 @@ class _IronwoodState extends State<IronwoodPage> {
   }
 
   Future<void> _confirmAndCommit() async {
+    if (!_checkWallet()) return;
     if (_phase != _Phase.planReview || _review == null) return;
     final review = _review!;
     _log.i('[Ironwood/UI] authorizing reviewed plan...');
@@ -180,7 +201,7 @@ class _IronwoodState extends State<IronwoodPage> {
       final authorized = await requireSigningAuthorization(context,
           actionSummary:
               'Authorize the reviewed Ironwood migration and its fees');
-      if (!mounted) return;
+      if (!_checkWallet()) return;
       if (!authorized) {
         setState(() => _phase = _Phase.planReview);
         return;
@@ -189,6 +210,7 @@ class _IronwoodState extends State<IronwoodPage> {
           expectedRevision: review.revision,
           expectedWalletId: review.walletId,
           expectedTestnet: review.testnet);
+      if (!_checkWallet()) return;
       _sdkProgress = progress;
       _log.i('[Ironwood/UI] commit OK: ${_fmtProgress(progress)}');
       setState(() {
@@ -196,6 +218,7 @@ class _IronwoodState extends State<IronwoodPage> {
         _phase = _Phase.ready;
       });
     } catch (e) {
+      if (!_checkWallet()) return;
       _log.e('[Ironwood/UI] commit failed: $e');
       setState(() {
         _error = e.toString();
@@ -205,12 +228,21 @@ class _IronwoodState extends State<IronwoodPage> {
   }
 
   Future<void> _stopAutoMigration() async {
+    if (!_checkWallet()) return;
     _log.i('[Ironwood/UI] cancelling migration');
     try {
       await IronwoodWatchService.instance.cancelMigration();
     } catch (e) {
       _log.w('[Ironwood/UI] cancel error: $e');
+      if (!_checkWallet()) return;
+      setState(() {
+        _error =
+            'The migration was not cancelled. Retry after the current operation finishes.';
+        _phase = _Phase.error;
+      });
+      return;
     }
+    if (!_checkWallet()) return;
     setState(() {
       _autoMode = false;
       _sdkProgress = null;
@@ -222,6 +254,11 @@ class _IronwoodState extends State<IronwoodPage> {
     if (p == null) return 'Starting...';
 
     if (p.status == 'complete') return 'Complete — all funds in Ironwood';
+    if (p.status == 'paused_by_upgrade')
+      return 'Paused for the network upgrade';
+    if (p.status == 'upgrade_review_required' ||
+        p.status == 'stopped_by_upgrade')
+      return 'Network upgraded — review the remaining balance';
 
     final confirmed = p.confirmedCount;
     final total = p.totalTxCount;
@@ -260,6 +297,15 @@ class _IronwoodState extends State<IronwoodPage> {
   }
 
   Widget _buildBody() {
+    final status = _sdkProgress?.status;
+    if ((_phase == _Phase.ready ||
+            _phase == _Phase.warning ||
+            _phase == _Phase.success) &&
+        (status == 'paused_by_upgrade' ||
+            status == 'upgrade_review_required' ||
+            status == 'stopped_by_upgrade')) {
+      return _buildUpgradeRecoveryView(status!);
+    }
     switch (_phase) {
       case _Phase.warning:
         return _buildWarningView();
@@ -274,6 +320,47 @@ class _IronwoodState extends State<IronwoodPage> {
       case _Phase.error:
         return _buildErrorView();
     }
+  }
+
+  Widget _buildUpgradeRecoveryView(String status) {
+    final stopped = status == 'stopped_by_upgrade';
+    final waiting = status == 'upgrade_review_required';
+    return ListView(children: [
+      const Gap(24),
+      Icon(Icons.pause_circle_outline, color: ZipherColors.warm, size: 48),
+      const Gap(16),
+      Text(
+          stopped
+              ? 'Review remaining funds'
+              : waiting
+                  ? 'Verifying earlier transfers'
+                  : 'Migration paused',
+          style: const TextStyle(
+              color: ZipherColors.textPrimary,
+              fontSize: 20,
+              fontWeight: FontWeight.w600)),
+      const Gap(12),
+      Text(
+          stopped
+              ? 'The network upgrade ended the old migration plan. Confirmed transfers remain complete. '
+                  'Review a new plan for the remaining available balance before authorizing another transfer.'
+              : waiting
+                  ? 'The network upgrade interrupted this migration. Keep the wallet synced while it verifies earlier transfers. '
+                      'Confirmed transfers remain complete. A new plan becomes available once this check finishes.'
+                  : 'Migration transfers are paused while the network upgrade approaches. '
+                      'Confirmed transfers remain complete. Keep the wallet synced and check again after the upgrade.',
+          style: const TextStyle(
+              color: ZipherColors.text60, fontSize: 14, height: 1.5)),
+      const Gap(24),
+      if (stopped)
+        FilledButton(
+            onPressed: _fetchPlan,
+            child: const Text('Review remaining balance'))
+      else
+        OutlinedButton(
+            onPressed: _triggerTick,
+            child: Text(waiting ? 'Check recovery' : 'Check again')),
+    ]);
   }
 
   Widget _buildWarningView() {

@@ -7,14 +7,15 @@ import 'wallet_service.dart';
 
 enum NetworkPrivacyState { direct, connecting, tor, error }
 
-/// Only describes Zipher's Zcash transport. An external VPN cannot be verified
-/// here, and market prices, other chains and swap providers use separate clients.
+/// Covers the native Zcash transport. External VPNs
+/// cannot be verified; prices and other-chain balance clients remain separate.
 class NetworkPrivacy extends ChangeNotifier {
   NetworkPrivacy({
     required this.enable,
     required this.disable,
     required this.verify,
     required this.savePreference,
+    this.loadPreference = _loadPreference,
   });
 
   static const preferenceKey =
@@ -26,7 +27,9 @@ class NetworkPrivacy extends ChangeNotifier {
     verify: () async => (await engine.engineVerifyTor()).toInt(),
     savePreference: (enabled) async {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(preferenceKey, enabled);
+      if (!await prefs.setBool(preferenceKey, enabled)) {
+        throw StateError('The connection preference could not be saved.');
+      }
     },
   );
 
@@ -34,6 +37,22 @@ class NetworkPrivacy extends ChangeNotifier {
   final Future<void> Function() disable;
   final Future<int> Function() verify;
   final Future<void> Function(bool) savePreference;
+  final Future<bool> Function() loadPreference;
+  static Future<bool> _loadPreference() async =>
+      (await SharedPreferences.getInstance()).getBool(preferenceKey) ?? false;
+  bool _ready = false;
+  String? _serverUrl;
+  Future<void>? _preparation;
+  int _walletEpoch = 0;
+
+  /// A reopened native wallet must pass the saved-policy gate again.
+  void invalidateWallet() {
+    _walletEpoch++;
+    _ready = false;
+    _serverUrl = null;
+    verifiedHeight = null;
+  }
+
   NetworkPrivacyState state = NetworkPrivacyState.direct;
   int? verifiedHeight;
   bool get busy => state == NetworkPrivacyState.connecting;
@@ -44,22 +63,51 @@ class NetworkPrivacy extends ChangeNotifier {
         NetworkPrivacyState.error => 'Tor needs attention',
       };
 
-  Future<void> restore() async {
-    final prefs = await SharedPreferences.getInstance();
-    verifiedHeight = null;
-    state = NetworkPrivacyState.direct;
-    notifyListeners();
-    if (prefs.getBool(preferenceKey) ?? false) {
-      try {
-        await setTor(true);
-      } catch (_) {
-        // Keep the user's preference and the engine's fail-closed policy.
-      }
+  /// Establish the saved route before the first wallet network operation.
+  /// The pre-wallet verifier uses the guarded height API, which needs no DB.
+  Future<void> ensureReady({
+    String? serverUrl,
+    Future<int> Function()? verifyConnection,
+  }) async {
+    final epoch = _walletEpoch;
+    final pending = _preparation;
+    if (pending != null) await pending;
+    _requireWalletEpoch(epoch);
+    if (_ready && (serverUrl == null || serverUrl == _serverUrl)) return;
+    final preparation = restore(verifyConnection: verifyConnection);
+    _preparation = preparation;
+    try {
+      await preparation;
+      _requireWalletEpoch(epoch);
+      _serverUrl = serverUrl;
+    } finally {
+      if (identical(_preparation, preparation)) _preparation = null;
     }
   }
 
-  Future<void> setTor(bool enabled) async {
+  Future<void> restore({Future<int> Function()? verifyConnection}) async {
+    final epoch = _walletEpoch;
+    _ready = false;
+    verifiedHeight = null;
+    final bool enabled;
+    try {
+      enabled = await loadPreference();
+      _requireWalletEpoch(epoch);
+    } catch (_) {
+      state = NetworkPrivacyState.error;
+      notifyListeners();
+      rethrow;
+    }
+    // Apply direct explicitly as well: another wallet may have required Tor.
+    // Errors propagate, so lifecycle/autosync cannot proceed after a failure.
+    await setTor(enabled, verifyConnection: verifyConnection);
+  }
+
+  Future<void> setTor(bool enabled,
+      {Future<int> Function()? verifyConnection}) async {
+    final epoch = _walletEpoch;
     if (busy) throw StateError('A connection change is already in progress.');
+    _ready = false;
     verifiedHeight = null;
     state = NetworkPrivacyState.connecting;
     notifyListeners();
@@ -70,22 +118,37 @@ class NetworkPrivacy extends ChangeNotifier {
       // turn an unavailable private route into a direct connection.
       if (enabled) {
         await savePreference(true);
+        _requireWalletEpoch(epoch);
         await enable();
-        verifiedHeight = await verify().timeout(const Duration(seconds: 40));
+        _requireWalletEpoch(epoch);
+        final height = await (verifyConnection ?? verify)()
+            .timeout(const Duration(seconds: 40));
+        _requireWalletEpoch(epoch);
+        verifiedHeight = height;
       } else {
         await disable();
+        _requireWalletEpoch(epoch);
         await savePreference(false);
+        _requireWalletEpoch(epoch);
       }
       state = enabled ? NetworkPrivacyState.tor : NetworkPrivacyState.direct;
+      _ready = true;
       AppLog.instance
           .event('privacy', enabled ? 'tor_verified' : 'direct_enabled');
     } catch (error) {
+      verifiedHeight = null;
       state = NetworkPrivacyState.error;
       AppLog.instance
           .event('privacy', 'connection_change_failed', detail: '$error');
       rethrow;
     } finally {
       notifyListeners();
+    }
+  }
+
+  void _requireWalletEpoch(int epoch) {
+    if (epoch != _walletEpoch) {
+      throw StateError('Wallet changed while preparing its connection. Retry.');
     }
   }
 }

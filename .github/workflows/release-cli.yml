@@ -11,6 +11,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Ship the reviewed bundled XZ implementation, independent of runner Homebrew.
+  LZMA_API_STATIC: "1"
 
 jobs:
   build:
@@ -60,16 +62,45 @@ jobs:
             rust/target
           key: ${{ matrix.target }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
 
+      - name: Install pinned advisory auditor
+        uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2, reviewed 2026-11-04
+        with:
+          tool: cargo-audit@0.22.1
+
       - name: Verify wallet dependency graph
         run: |
           mkdir -p target
           cargo metadata --locked --format-version 1 > target/wallet-stack.json
           python3 ../scripts/verify-wallet-stack.py target/wallet-stack.json
+          audit_status=0
+          cargo audit --json > target/security-audit.json || audit_status=$?
+          # Evaluate every finding; the only source-reviewed exception is RSA's
+          # newly published fix while RustSec still lists patched=[].
+          python3 ../scripts/verify-dependency-security.py target/wallet-stack.json target/security-audit.json
+          test "$audit_status" -le 1
+          python3 -m unittest discover -s ../scripts/tests -p test_dependency_security.py
 
       - name: Build release binaries
         run: cargo build --locked --release --target ${{ matrix.target }} -p zipher-cli -p zipher-mcp-server
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Smoke test release binaries and macOS runtime dependencies
+        run: |
+          for binary in zipher-cli zipher-mcp-server; do
+            executable="target/${{ matrix.target }}/release/${binary}"
+            "$executable" --version
+            "$executable" --help > /dev/null
+            if [[ "$RUNNER_OS" == "macOS" ]]; then
+              otool -L "$executable"
+              while IFS= read -r dependency; do
+                case "$dependency" in
+                  /usr/lib/*|/System/Library/*) ;;
+                  *) echo "Unbundled runtime dependency: $dependency" >&2; exit 1 ;;
+                esac
+              done < <(otool -L "$executable" | awk 'NR > 1 {print $1}')
+            fi
+          done
 
       - name: Package binaries
         run: |

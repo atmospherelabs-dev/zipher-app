@@ -15,6 +15,7 @@ import '../src/rust/api/engine_api.dart' as rust_engine;
 import '../src/rust/frb_generated.dart';
 import '../store2.dart' show isSyncBoosted;
 import 'ironwood_watch_service.dart';
+import 'network_privacy.dart';
 import 'wallet_registry.dart';
 import 'secure_key_store.dart';
 import 'frost_service.dart';
@@ -140,7 +141,14 @@ class WalletService {
   // -----------------------------------------------------------------------
 
   /// Fetch the latest block height from the server (no wallet needed).
+  Future<void> _prepareWalletPrivacy() => NetworkPrivacy.instance.ensureReady(
+        serverUrl: serverUrl,
+        verifyConnection: () =>
+            rust_engine.engineGetLatestBlockHeight(serverUrl: serverUrl),
+      );
+
   Future<int> getLatestBlockHeight() async {
+    await _prepareWalletPrivacy();
     if (useNewEngine) {
       return rust_engine.engineGetLatestBlockHeight(serverUrl: serverUrl);
     }
@@ -154,6 +162,7 @@ class WalletService {
   /// Creates a WalletProfile in the registry and stores the seed securely.
   Future<String> createNewWallet(String name) async {
     _checkBusy();
+    await _prepareWalletPrivacy();
     _log.i('[WS] createNewWallet "$name" server=$serverUrl');
     final registry = WalletRegistry.instance;
     final profile = await registry.create(name);
@@ -212,6 +221,7 @@ class WalletService {
   Future<void> restoreWallet(
       String name, String seedPhrase, int birthday) async {
     _checkBusy();
+    await _prepareWalletPrivacy();
     _log.i('[WS] restoreWallet "$name" birthday=$birthday server=$serverUrl');
     final registry = WalletRegistry.instance;
     final profile = await registry.create(name);
@@ -256,6 +266,7 @@ class WalletService {
   Future<void> restoreWalletFromUfvk(
       String name, String ufvk, int birthday) async {
     _checkBusy();
+    await _prepareWalletPrivacy();
     final registry = WalletRegistry.instance;
     final profile = await registry.create(name, watchOnly: true);
 
@@ -302,6 +313,7 @@ class WalletService {
   Future<FrostRelayWalletResult> createFrostWallet(
       String name, int birthday) async {
     _checkBusy();
+    await _prepareWalletPrivacy();
     final registry = WalletRegistry.instance;
     final profile = await registry.create(name, watchOnly: true);
     final dir = await walletDir(walletId: profile.id);
@@ -365,6 +377,7 @@ class WalletService {
   }
 
   Future<void> _openWalletByIdInternal(String walletId) async {
+    await _prepareWalletPrivacy();
     _walletGeneration++;
     _memosByTxid.clear();
     final dir = await walletDir(walletId: walletId);
@@ -400,6 +413,7 @@ class WalletService {
   /// a fresh wallet is auto-created with an independent seed.
   Future<void> switchWallet(String targetWalletId) async {
     _checkBusy();
+    await _prepareWalletPrivacy();
     _log.i('[WS] switchWallet from=$_activeWalletId to=$targetWalletId');
     if (_activeWalletId == targetWalletId && _walletOpen) return;
     _busy = true;
@@ -456,6 +470,7 @@ class WalletService {
   /// Restore a wallet by ID using its seed from the Keychain, then open it.
   /// Used for DB recovery after schema migration failures.
   Future<void> restoreAndOpenWalletById(String walletId) async {
+    await _prepareWalletPrivacy();
     final seed =
         await SecureKeyStore.getSeedForWallet(networkSeedKey(walletId));
     if (seed == null || seed.isEmpty) {
@@ -583,6 +598,7 @@ class WalletService {
   /// Legacy: create wallet without registry (used during migration).
   Future<String> createWallet({int? chainHeight}) async {
     _checkBusy();
+    await _prepareWalletPrivacy();
     final dir = await walletDir();
     final height = chainHeight ?? 0;
     final String seed;
@@ -612,6 +628,7 @@ class WalletService {
   /// Legacy: restore from seed without registry.
   Future<void> restoreFromSeed(String seedPhrase, int birthday) async {
     _checkBusy();
+    await _prepareWalletPrivacy();
     final dir = await walletDir();
     if (useNewEngine) {
       final dbKey = await _getDbCipherKey();
@@ -640,6 +657,7 @@ class WalletService {
   /// Legacy: restore from UFVK without registry.
   Future<void> restoreFromUfvk(String ufvk, int birthday) async {
     _checkBusy();
+    await _prepareWalletPrivacy();
     final dir = await walletDir();
     if (useNewEngine) {
       final dbKey = await _getDbCipherKey();
@@ -668,6 +686,7 @@ class WalletService {
   /// Legacy: open wallet without specifying ID.
   Future<void> openWallet() async {
     _checkBusy();
+    await _prepareWalletPrivacy();
     final dir = await walletDir();
     if (useNewEngine) {
       final dbKey = await _getDbCipherKey();
@@ -691,6 +710,7 @@ class WalletService {
 
   Future<void> closeWallet() async {
     if (_confirmingSend || _proposingSend) throw WalletBusyException();
+    IronwoodWatchService.instance.stop();
     _walletGeneration++;
     _memosByTxid.clear();
     final closingId = _activeWalletId;
@@ -706,6 +726,7 @@ class WalletService {
       _log.w('[WS] closeWallet error (proceeding anyway): $e');
     }
     sw.stop();
+    NetworkPrivacy.instance.invalidateWallet();
     _walletOpen = false;
     _log.i('[WS] closeWallet done in ${sw.elapsedMilliseconds}ms');
   }
@@ -714,6 +735,7 @@ class WalletService {
   /// existing WalletProfile.  Uses a brand-new seed so that testnet keys are
   /// completely independent of mainnet — preventing accidental seed leakage.
   Future<void> createNetworkWalletForProfile(String walletId) async {
+    await _prepareWalletPrivacy();
     final dir = await walletDir(walletId: walletId);
     final height = await getLatestBlockHeight();
     if (height <= 0) {
@@ -839,6 +861,7 @@ class WalletService {
   // -----------------------------------------------------------------------
 
   Future<void> startSync() async {
+    await _prepareWalletPrivacy();
     _checkBusy();
     if (useNewEngine) {
       await rust_engine.engineStartSync();
@@ -1014,7 +1037,7 @@ class WalletService {
 
   /// Step 1: Create a proposal and return exact fee info.
   /// When [isMax] is true, [amount] is ignored and the SDK computes the max.
-  /// When [priority] is true, a 4x marginal fee is applied; confirmation time is not guaranteed.
+  /// When [priority] is true, a 10x standard marginal fee is applied; confirmation time is not guaranteed.
   Future<({int sendAmount, int fee, bool isExact})> proposeSend(
     String address,
     int amount, {
@@ -1089,6 +1112,23 @@ class WalletService {
       _exclusivePayment(() async =>
           rust_engine.engineIronwoodSdkPlan(seedPhrase: await _paymentSeed()));
 
+  Future<rust_engine.IronwoodSdkProgress> tickMigration() =>
+      _exclusivePayment(() async =>
+          rust_engine.engineIronwoodSdkTick(seedPhrase: await _paymentSeed()));
+
+  Future<void> cancelMigration() {
+    final generation = _walletGeneration;
+    return _exclusivePayment(() async {
+      if (!_walletOpen || generation != _walletGeneration) {
+        throw StateError('Wallet changed during migration.');
+      }
+      await rust_engine.engineIronwoodSdkCancel();
+      if (generation != _walletGeneration) {
+        throw StateError('Wallet changed during migration.');
+      }
+    });
+  }
+
   Future<rust_engine.IronwoodSdkProgress> commitMigration({
     required int expectedRevision,
     required String expectedWalletId,
@@ -1146,11 +1186,14 @@ class WalletService {
   Future<String> _paymentSeed() async {
     final walletId = _activeWalletId;
     final network = isTestnet;
+    final generation = _walletGeneration;
     if (await isActiveFrostWallet()) {
       throw StateError('Shared wallets require the FROST approval flow.');
     }
     final seed = await _getSeedForSend();
-    if (_activeWalletId != walletId || network != isTestnet) {
+    if (_activeWalletId != walletId ||
+        network != isTestnet ||
+        generation != _walletGeneration) {
       throw StateError('Wallet changed before signing. Review again.');
     }
     return seed;
