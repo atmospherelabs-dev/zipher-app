@@ -11,6 +11,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Ship the reviewed bundled XZ implementation, independent of runner Homebrew.
+  LZMA_API_STATIC: "1"
 
 jobs:
   build:
@@ -82,6 +84,23 @@ jobs:
         run: cargo build --locked --release --target ${{ matrix.target }} -p zipher-cli -p zipher-mcp-server
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Smoke test release binaries and macOS runtime dependencies
+        run: |
+          for binary in zipher-cli zipher-mcp-server; do
+            executable="target/${{ matrix.target }}/release/${binary}"
+            "$executable" --version
+            "$executable" --help > /dev/null
+            if [[ "$RUNNER_OS" == "macOS" ]]; then
+              otool -L "$executable"
+              while IFS= read -r dependency; do
+                case "$dependency" in
+                  /usr/lib/*|/System/Library/*) ;;
+                  *) echo "Unbundled runtime dependency: $dependency" >&2; exit 1 ;;
+                esac
+              done < <(otool -L "$executable" | awk 'NR > 1 {print $1}')
+            fi
+          done
 
       - name: Package binaries
         run: |
