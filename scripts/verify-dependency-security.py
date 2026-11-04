@@ -70,7 +70,12 @@ def validate_audit(audit, rsa_verified=False):
             errors.append(f"Unresolved advisory: {advisory} {package['name']} {package['version']}.")
         for kind, findings in audit.get("warnings", {}).items():
             if kind != "unmaintained" and findings:
-                errors.append(f"Unresolved audit warning category: {kind}.")
+                packages = ", ".join(
+                    f"{finding.get('package', {}).get('name', 'unknown')} "
+                    f"{finding.get('package', {}).get('version', 'unknown')}"
+                    for finding in findings
+                )
+                errors.append(f"Unresolved audit warning category: {kind}: {packages}.")
         return errors
     except (KeyError, TypeError):
         return ["Audit input must contain a completed cargo-audit JSON report."]

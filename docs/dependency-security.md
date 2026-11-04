@@ -42,6 +42,10 @@ release. Planned artifacts are CLI/MCP **0.3.1-rc.1** and iOS **1.16.0 (741)**.
   the application's `rust/Cargo.lock` is authoritative. Unused upstream SSH
   private-key integration fixtures are omitted from the vendored distribution
   to preserve repository push protection; runtime library code is unchanged.
+- The fresh CI registry audit also caught yanked `chacha20 0.10.1`; the
+  lockfile now selects **0.10.2**, whose [upstream patch](https://github.com/RustCrypto/stream-ciphers/pull/580)
+  fixes an SSE4.1 intrinsic in the SSE2 RNG/legacy backend. The security gate
+  continues to reject all yanked dependencies and now names the affected package.
 - A fresh pub.dev advisory query covered **188** locked hosted dependencies;
   none of their locked versions is in the published affected-version lists.
   Unmaintained Rust package warnings remain for atomic-polyfill, bincode and

@@ -147,6 +147,8 @@ class DependencySecurityTests(unittest.TestCase):
         self.assertTrue(GUARD.validate_audit({"error": "database unavailable"}))
         audit = {"vulnerabilities": {"list": []}, "warnings": {"unsound": [{}]}}
         self.assertTrue(GUARD.validate_audit(audit))
+        audit["warnings"] = {"yanked": [{"package": {"name": "chacha20", "version": "0.10.1"}}]}
+        self.assertIn("yanked: chacha20 0.10.1", GUARD.validate_audit(audit)[0])
         audit = {"vulnerabilities": {"list": [{"advisory": {"id": "NEW"},
                  "package": {"name": "other", "version": "1.0.0"}}]}}
         self.assertTrue(GUARD.validate_audit(audit, rsa_verified=True))
