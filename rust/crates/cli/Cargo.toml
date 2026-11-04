@@ -1,6 +1,6 @@
 [package]
 name = "zipher-cli"
-version = "0.3.0"
+version = "0.3.1-rc.1"
 edition = "2021"
 
 [[bin]]
@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 zipher-engine = { path = "../engine" }
-ows-lib = { path = "../../../ows-core/ows/crates/ows-lib" }
+ows-lib = { path = "../../vendor/ows-lib" }
 clap = { version = "4", features = ["derive", "env"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

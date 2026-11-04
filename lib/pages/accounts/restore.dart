@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../accounts.dart';
 import '../../coin/coins.dart';
 import '../../services/wallet_service.dart';
+import '../../services/restore_birthday.dart';
 import '../../store2.dart';
 import '../../zipher_theme.dart';
 import 'bip39_wordlist.dart';
@@ -57,7 +58,9 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
         } else if (_activeSuggestionIndex == i) {
           // Delay clearing so tap on suggestion registers first
           Future.delayed(const Duration(milliseconds: 200), () {
-            if (mounted && _activeSuggestionIndex == i && !_focusNodes[i].hasFocus) {
+            if (mounted &&
+                _activeSuggestionIndex == i &&
+                !_focusNodes[i].hasFocus) {
               setState(() {
                 _activeSuggestionIndex = null;
                 _suggestions = [];
@@ -153,10 +156,8 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
       });
       return;
     }
-    final matches = bip39English
-        .where((w) => w.startsWith(text))
-        .take(5)
-        .toList();
+    final matches =
+        bip39English.where((w) => w.startsWith(text)).take(5).toList();
     // Don't show suggestions if the word already matches exactly
     if (matches.length == 1 && matches[0] == text) {
       setState(() {
@@ -281,7 +282,8 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                     Row(
                       children: [
                         GestureDetector(
-                          onTap: () => setState(() => _seedVisible = !_seedVisible),
+                          onTap: () =>
+                              setState(() => _seedVisible = !_seedVisible),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -358,22 +360,20 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
 
   String get _restoreButtonLabel {
     if (_blockHeightController.text.trim().isNotEmpty) {
-      return 'Restore from block ${_blockHeightController.text.trim()}';
-    }
-    if (_selectedDate != null) {
-      return 'Restore from ${DateFormat.yMMM().format(_selectedDate!)}';
+      return 'Restore after block ${_blockHeightController.text.trim()}';
     }
     return 'Restore (full scan)';
   }
 
   String get _birthdayInfoText {
     if (_blockHeightController.text.trim().isNotEmpty) {
-      return 'Scanning from block ${_blockHeightController.text.trim()}. '
-          'Transactions before this height won\'t appear.';
+      return 'Scanning after block ${_blockHeightController.text.trim()}. '
+          'Transactions at or before this height won\'t appear.';
     }
     if (_selectedDate != null) {
-      return 'Scanning from ${DateFormat.yMMM().format(_selectedDate!)}. '
-          'Transactions before this date won\'t appear.';
+      return 'The selected date cannot safely determine a block height. '
+          'A full history scan takes longer and recovers earlier transactions too. '
+          'Enter a known block height to shorten the scan.';
     }
     return 'Full scan from chain activation. '
         'This is thorough but takes longer.';
@@ -435,7 +435,8 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
               Row(
                 children: List.generate(3, (col) {
                   final idx = row * 3 + col;
-                  if (idx >= _wordCount) return const Expanded(child: SizedBox());
+                  if (idx >= _wordCount)
+                    return const Expanded(child: SizedBox());
                   return Expanded(
                     child: Padding(
                       padding: EdgeInsets.only(
@@ -505,8 +506,10 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
               ),
             ),
           ),
-          prefixIconConstraints: const BoxConstraints(minWidth: 28, maxWidth: 28),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+          prefixIconConstraints:
+              const BoxConstraints(minWidth: 28, maxWidth: 28),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
           filled: true,
           fillColor: isInvalid
               ? ZipherColors.red.withValues(alpha: 0.06)
@@ -553,8 +556,8 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
               child: GestureDetector(
                 onTap: () => _selectSuggestion(word),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: ZipherColors.cyan.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(ZipherRadius.sm),
@@ -635,8 +638,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
           }),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
               color: _selectedDate != null
                   ? ZipherColors.cyan.withValues(alpha: 0.04)
@@ -809,20 +811,17 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                             horizontal: 12, vertical: 10),
                         isDense: true,
                         border: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(ZipherRadius.sm),
+                          borderRadius: BorderRadius.circular(ZipherRadius.sm),
                           borderSide:
                               BorderSide(color: ZipherColors.borderSubtle),
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(ZipherRadius.sm),
+                          borderRadius: BorderRadius.circular(ZipherRadius.sm),
                           borderSide:
                               BorderSide(color: ZipherColors.borderSubtle),
                         ),
                         focusedBorder: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(ZipherRadius.sm),
+                          borderRadius: BorderRadius.circular(ZipherRadius.sm),
                           borderSide: BorderSide(
                             color: ZipherColors.cyan.withValues(alpha: 0.4),
                           ),
@@ -880,8 +879,8 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
                 }),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 150),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
                     color: isExpanded
                         ? ZipherColors.cyan.withValues(alpha: 0.12)
@@ -928,8 +927,18 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
 
   Widget _buildMonthGrid(int year, DateTime now) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
 
     return GridView.builder(
@@ -1014,8 +1023,8 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
         .where((w) => w.isNotEmpty)
         .toList();
     if (![12, 15, 18, 21, 24].contains(filledWords.length)) {
-      setState(() =>
-          _error = 'Seed phrase must be 12, 15, 18, 21, or 24 words');
+      setState(
+          () => _error = 'Seed phrase must be 12, 15, 18, 21, or 24 words');
       return;
     }
 
@@ -1032,38 +1041,10 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
         return;
       }
 
-      const saplingHeight = 419200;
-      int birthday = saplingHeight;
-
-      // Block height takes priority over date
-      final blockText = _blockHeightController.text.trim();
-      if (blockText.isNotEmpty) {
-        final parsed = int.tryParse(blockText);
-        if (parsed != null && parsed >= saplingHeight) {
-          birthday = parsed;
-        } else if (parsed != null) {
-          birthday = saplingHeight;
-        }
-        print('[Restore] using block height: $birthday');
-      } else if (_selectedDate != null) {
-        try {
-          final chainTip =
-              await WalletService.instance.getLatestBlockHeight();
-          final now = DateTime.now();
-          final secondsAgo = now.difference(_selectedDate!).inSeconds;
-          final blocksAgo = secondsAgo ~/ 75;
-          birthday = chainTip - blocksAgo;
-          if (birthday < saplingHeight) birthday = saplingHeight;
-          print(
-              '[Restore] estimated birthday: chainTip=$chainTip - $blocksAgo blocks = $birthday');
-        } catch (e) {
-          final saplingTime = DateTime(2018, 10, 29);
-          final seconds = _selectedDate!.difference(saplingTime).inSeconds;
-          birthday = saplingHeight + (seconds ~/ 75);
-          print(
-              '[Restore] fallback birthday estimate: $birthday (server unreachable: $e)');
-        }
-      }
+      final birthday = restoreBirthdayFromInput(
+        blockHeight: _blockHeightController.text,
+        selectedDate: _selectedDate,
+      );
 
       final walletName = isTestnet ? 'Testnet Wallet' : 'Restored Wallet';
       print(

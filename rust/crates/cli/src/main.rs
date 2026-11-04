@@ -339,18 +339,25 @@ enum SessionCmd {
 #[derive(Subcommand)]
 enum WalletCmd {
     /// One-command setup: creates OWS vault + Zcash wallet + default policy.
-    /// Prints seed phrase once, then MCP config JSON for Claude/Cursor.
+    /// Recovery material is encrypted in OWS and omitted from JSON/stdout.
     Init,
 
     /// Restore wallet from an existing seed phrase
     Restore {
-        /// 24-word BIP39 seed phrase
+        /// Read the mnemonic from redirected/piped stdin; terminal echo and argv seeds are refused
         #[arg(long)]
-        seed: String,
+        seed_stdin: bool,
 
         /// Wallet birthday (block height to scan from)
         #[arg(long, default_value_t = 419200)]
         birthday: u32,
+    },
+
+    /// Display recovery words only in an explicitly opted-in private terminal
+    Backup {
+        /// Requires --human and interactive stdin/stdout; never use a recorded/shared terminal
+        #[arg(long)]
+        show_recovery: bool,
     },
 
     /// Delete wallet data from disk
@@ -409,7 +416,7 @@ enum SendCmd {
         #[arg(long)]
         memo: Option<String>,
 
-        /// Use priority fee (4x marginal fee for faster confirmation during congestion)
+        /// Pay 10x the standard marginal fee for inclusion priority (not guaranteed)
         #[arg(long, default_value_t = false)]
         priority: bool,
 
@@ -743,6 +750,12 @@ fn resolve_config(cli: &Cli) -> Config {
 }
 
 pub fn ensure_data_dir(data_dir: &str) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(data_dir)?;
+    }
+    #[cfg(not(unix))]
     std::fs::create_dir_all(data_dir)?;
     Ok(())
 }
@@ -753,6 +766,10 @@ pub fn ensure_data_dir(data_dir: &str) -> Result<()> {
 
 #[tokio::main]
 async fn main() {
+    if std::env::args_os().any(|arg| helpers::unsafe_seed_argument(&arg)) {
+        eprintln!("--seed is no longer accepted: command arguments and shell history expose recovery words. Use `zipher wallet restore --seed-stdin` with protected redirected input and a nonempty OWS_PASSPHRASE. See docs/cli-wallet-security.md. The supplied value is not echoed or used.");
+        std::process::exit(2);
+    }
     let cli = Cli::parse();
     let cfg = resolve_config(&cli);
 
@@ -776,7 +793,10 @@ async fn main() {
         }
         Commands::Wallet(sub) => match sub {
             WalletCmd::Init => wallet::cmd_wallet_init(&cfg).await,
-            WalletCmd::Restore { seed, birthday } => wallet::cmd_wallet_restore(&cfg, &seed, birthday).await,
+            WalletCmd::Restore { seed_stdin, birthday } => {
+                wallet::cmd_wallet_restore(&cfg, seed_stdin, birthday).await
+            }
+            WalletCmd::Backup { show_recovery } => wallet::cmd_wallet_backup(&cfg, show_recovery),
             WalletCmd::Delete { confirm } => wallet::cmd_wallet_delete(&cfg, confirm).await,
         },
         Commands::Sync(sub) => match sub {
@@ -987,42 +1007,50 @@ async fn main() {
             IronwoodCmd::Pause => wallet::cmd_ironwood_pause(&cfg).await,
             IronwoodCmd::Resume => wallet::cmd_ironwood_resume(&cfg).await,
         },
-        Commands::Pair { device_name, relay_url } => {
-            match zipher_engine::hitl::generate_pairing_code(&cfg.data_dir) {
-                Ok((channel_id, pairing_code)) => {
-                    match zipher_engine::hitl::complete_pairing(
-                        &cfg.data_dir,
-                        &channel_id,
-                        &device_name,
-                        relay_url.as_deref(),
-                    ) {
-                        Ok(_) => {
-                            print_ok(
-                                serde_json::json!({
-                                    "channel_id": channel_id,
-                                    "pairing_code": pairing_code,
-                                    "device_name": device_name,
-                                }),
-                                cfg.human,
-                                |d| {
-                                    eprintln!("Paired successfully!");
-                                    eprintln!();
-                                    eprintln!("  Scan this in Zipher mobile app (Settings > Agent Pairing):");
-                                    eprintln!();
-                                    eprintln!("  {}", d.get("pairing_code").and_then(|v| v.as_str()).unwrap_or(""));
-                                    eprintln!();
-                                    eprintln!("  Channel: {}", d.get("channel_id").and_then(|v| v.as_str()).unwrap_or(""));
-                                },
-                            );
-                            Ok(())
-                        }
-                        Err(e) => Err(e),
+        Commands::Pair {
+            device_name,
+            relay_url,
+        } => match zipher_engine::hitl::generate_pairing_code(&cfg.data_dir) {
+            Ok((channel_id, pairing_code)) => {
+                match zipher_engine::hitl::complete_pairing(
+                    &cfg.data_dir,
+                    &channel_id,
+                    &device_name,
+                    relay_url.as_deref(),
+                ) {
+                    Ok(_) => {
+                        print_ok(
+                            serde_json::json!({
+                                "channel_id": channel_id,
+                                "pairing_code": pairing_code,
+                                "device_name": device_name,
+                            }),
+                            cfg.human,
+                            |d| {
+                                eprintln!("Paired successfully!");
+                                eprintln!();
+                                eprintln!(
+                                    "  Scan this in Zipher mobile app (Settings > Agent Pairing):"
+                                );
+                                eprintln!();
+                                eprintln!(
+                                    "  {}",
+                                    d.get("pairing_code").and_then(|v| v.as_str()).unwrap_or("")
+                                );
+                                eprintln!();
+                                eprintln!(
+                                    "  Channel: {}",
+                                    d.get("channel_id").and_then(|v| v.as_str()).unwrap_or("")
+                                );
+                            },
+                        );
+                        Ok(())
                     }
+                    Err(e) => Err(e),
                 }
-                Err(e) => Err(e),
             }
-        }
-
+            Err(e) => Err(e),
+        },
     };
 
     if let Err(e) = result {

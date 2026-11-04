@@ -1,5 +1,14 @@
 --- a/Cargo.toml
 +++ b/Cargo.toml
+@@ -145,7 +145,7 @@
+ optional = true
+ 
+ [dependencies.bip32]
+-version = "=0.6.0-pre.1"
++version = "0.6"
+ features = ["alloc"]
+ optional = true
+ default-features = false
 @@ -168,7 +168,7 @@
  version = "0.2"
  
@@ -9,141 +18,1338 @@
  
  [dependencies.hex]
  version = "0.4"
-@@ -180,7 +180,9 @@
+@@ -180,8 +180,10 @@
  default-features = false
  
  [dependencies.jubjub]
 -version = "0.10"
-+version = "=1.2.0"
+-
++version = "=4.0.0"
++
 +
 +package = "zakura-jubjub"
- 
  [dependencies.maybe-rayon]
  version = "0.1.0"
-@@ -191,9 +193,11 @@
+ default-features = false
+@@ -191,18 +193,22 @@
  default-features = false
  
  [dependencies.orchard]
 -version = "0.15.0"
 -optional = true
 -default-features = false
-+version = "=1.2.0"
+-
++version = "=4.0.0"
 +optional = true
 +default-features = false
 +
++
 +package = "zakura-orchard"
- 
++features = ["wallet", "backend-halo2"]
  [dependencies.pastey]
  version = "0.2"
-@@ -237,9 +241,10 @@
+ optional = true
+ 
+ [dependencies.pczt]
+-version = "0.9.3"
+-default-features = false
+-
++version = "=0.1.0-rc9"
++default-features = false
++
++package = "zakura-pczt"
+ [dependencies.prost]
+ version = "0.14"
+ 
+@@ -237,10 +243,12 @@
  ]
  
  [dependencies.sapling]
 -version = "0.7"
 -default-features = false
 -package = "sapling-crypto"
-+version = "=1.2.0"
+-
++version = "=4.0.0"
 +default-features = false
 +
++
 +package = "zakura-sapling-crypto"
- 
++features = ["wallet"]
  [dependencies.schemerz]
  version = "0.2"
-@@ -311,16 +316,20 @@
+ 
+@@ -248,7 +256,7 @@
+ version = "0.370"
+ 
+ [dependencies.secp256k1]
+-version = "0.29"
++version = "0.33"
+ features = ["alloc"]
+ optional = true
+ default-features = false
+@@ -286,18 +294,19 @@
+ default-features = false
+ 
+ [dependencies.transparent]
+-version = "0.10.0"
+-default-features = false
+-package = "zcash_transparent"
+-
++version = "=4.0.0"
++default-features = false
++
++package = "zakura-transparent"
+ [dependencies.uuid]
+ version = "1.1"
+ features = ["v4"]
+ 
+ [dependencies.zcash_address]
+-version = "0.13.0"
+-default-features = false
+-
++version = "=4.0.0"
++default-features = false
++
++package = "zakura-address"
+ [dependencies.zcash_client_backend]
+ version = "0.24.0"
+ features = [
+@@ -311,23 +320,29 @@
  default-features = false
  
  [dependencies.zcash_keys]
 -version = "0.16.1"
-+version = "=1.2.0"
- features = ["sapling"]
- default-features = false
+-features = ["sapling"]
+-default-features = false
+-
++version = "=4.0.0"
++features = ["zip32-addresses", "wallet", "backend-halo2", "sapling"]
++default-features = false
++
 +
 +package = "zakura-keys"
- 
  [dependencies.zcash_pool_migration]
- version = "0.1.0"
+-version = "0.1.0"
++version = "0.2.0"
  
  [dependencies.zcash_primitives]
 -version = "0.30.1"
 -default-features = false
-+version = "=1.2.0"
+-
++version = "=4.0.0"
 +default-features = false
 +
++
 +package = "zakura-primitives"
- 
++features = ["wallet", "backend-halo2"]
  [dependencies.zcash_protocol]
- version = "0.10.5"
-@@ -345,7 +354,9 @@
+-version = "0.10.5"
+-default-features = false
+-
++version = "=4.0.0"
++default-features = false
++
++package = "zakura-protocol"
+ [dependencies.zcash_script]
+-version = "0.4.3"
++version = "0.6"
+ default-features = false
+ 
+ [dependencies.zewif]
+@@ -345,8 +360,10 @@
  version = "1.5"
  
  [dev-dependencies.bls12_381]
 -version = "0.8"
-+version = "=1.2.0"
+-
++version = "=4.0.0"
++
 +
 +package = "zakura-bls12-381"
- 
  [dev-dependencies.incrementalmerkletree]
  version = "0.8.2"
-@@ -356,12 +367,16 @@
+ features = ["test-dependencies"]
+@@ -356,21 +373,26 @@
  version = "0.3"
  
  [dev-dependencies.orchard]
 -version = "0.15.0"
-+version = "=1.2.0"
+-features = ["test-dependencies"]
+-default-features = false
+-
++version = "=4.0.0"
++features = ["wallet", "backend-halo2", "test-dependencies"]
++default-features = false
++
++
++package = "zakura-orchard"
+ [dev-dependencies.pasta_curves]
+-version = "0.5"
+-
++version = "=4.0.0"
++
++
++package = "zakura-pasta-curves"
+ [dev-dependencies.pczt]
+-version = "0.9.3"
++version = "=0.1.0-rc9"
+ features = [
+     "orchard",
+     "tx-extractor",
+ ]
+ default-features = false
+ 
++package = "zakura-pczt"
+ [dev-dependencies.proptest]
+ version = ">=1,<1.7"
+ 
+@@ -382,7 +404,7 @@
+ default-features = false
+ 
+ [dev-dependencies.secp256k1]
+-version = "0.29"
++version = "0.33"
+ features = [
+     "alloc",
+     "rand",
+@@ -400,10 +422,11 @@
+ version = "3.5.0"
+ 
+ [dev-dependencies.zcash_address]
+-version = "0.13.0"
++version = "=4.0.0"
  features = ["test-dependencies"]
  default-features = false
  
-+package = "zakura-orchard"
-+
- [dev-dependencies.pasta_curves]
--version = "0.5"
-+version = "=1.2.0"
-+
-+package = "zakura-pasta-curves"
- 
- [dev-dependencies.pczt]
- version = "0.9.3"
-@@ -414,9 +429,11 @@
++package = "zakura-address"
+ [dev-dependencies.zcash_client_backend]
+ version = "0.24.0"
+ features = [
+@@ -414,38 +437,47 @@
  default-features = false
  
  [dev-dependencies.zcash_keys]
 -version = "0.16.1"
-+version = "=1.2.0"
- features = ["test-dependencies"]
- default-features = false
++version = "=4.0.0"
++features = ["zip32-addresses", "wallet", "backend-halo2", "test-dependencies"]
++default-features = false
++
 +
 +package = "zakura-keys"
- 
- [dev-dependencies.zcash_note_encryption]
- version = "0.4.1"
-@@ -426,17 +443,21 @@
++[dev-dependencies.zcash_note_encryption]
++version = "=4.0.0"
++
++package = "zakura-note-encryption"
++[dev-dependencies.zcash_pool_migration]
++version = "0.2.0"
  features = ["test-dependencies"]
+-default-features = false
+-
+-[dev-dependencies.zcash_note_encryption]
+-version = "0.4.1"
+-
+-[dev-dependencies.zcash_pool_migration]
+-version = "0.1.0"
+-features = ["test-dependencies"]
  
  [dev-dependencies.zcash_primitives]
 -version = "0.30.1"
-+version = "=1.2.0"
- features = [
+-features = [
++version = "=4.0.0"
++features = ["wallet", "backend-halo2",
      "test-dependencies",
      "non-standard-fees",
  ]
  default-features = false
  
-+package = "zakura-primitives"
 +
++package = "zakura-primitives"
  [dev-dependencies.zcash_proofs]
 -version = "0.30.0"
-+version = "=1.2.0"
++version = "=4.0.0"
  features = ["bundled-prover"]
  default-features = false
+ 
 +
 +package = "zakura-proofs"
- 
  [dev-dependencies.zcash_protocol]
- version = "0.10.5"
-@@ -454,3 +475,6 @@
+-version = "0.10.5"
++version = "=4.0.0"
+ features = ["local-consensus"]
+ default-features = false
+ 
++package = "zakura-protocol"
+ [dev-dependencies.zip321]
+-version = "0.9.0"
+-
++version = "=4.0.0"
++
++package = "zakura-zip321"
+ [lints.rust.unexpected_cfgs]
+ level = "warn"
+ priority = 0
+@@ -454,3 +486,6 @@
      'cfg(zcash_unstable, values("nu7"))',
      "cfg(live_network_tests)",
  ]
 +
 +[dependencies.zipher-rng-compat]
 +path = "../../crates/rng-compat"
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -642,10 +642,13 @@
+     /// rescanned in order to correct missing witness data.
+     ///
+     /// This method is intended for repairing wallets that broke due to bugs in `shardtree`.
+-    pub fn check_witnesses(&mut self) -> Result<Vec<Range<BlockHeight>>, SqliteClientError> {
++    pub fn check_witnesses(&mut self) -> Result<Vec<Range<BlockHeight>>, SqliteClientError>
++    where
++        P: consensus::Parameters,
++    {
+         self.transactionally(|wdb| {
+             if let Some(anchor_height) = chain_tip_height(wdb.conn.0)? {
+-                wallet::commitment_tree::check_witnesses(wdb.conn.0, anchor_height)
++                wallet::commitment_tree::check_witnesses(wdb.conn.0, &wdb.params, anchor_height)
+             } else {
+                 Ok(vec![])
+             }
+@@ -980,6 +983,7 @@
+     ) -> Result<Option<WalletTransparentOutput<Self::AccountId>>, Self::Error> {
+         wallet::transparent::get_wallet_transparent_output(
+             self.conn.borrow(),
++            &self.params,
+             outpoint,
+             Some(target_height),
+         )
+@@ -1064,6 +1068,7 @@
+     ) -> Result<AccountMeta, Self::Error> {
+         let sapling_pool_meta = unspent_notes_meta(
+             self.conn.borrow(),
++            &self.params,
+             ShieldedPool::Sapling,
+             target_height,
+             account_id,
+@@ -1075,6 +1080,7 @@
+         #[cfg(feature = "orchard")]
+         let orchard_pool_meta = unspent_notes_meta(
+             self.conn.borrow(),
++            &self.params,
+             ShieldedPool::Orchard,
+             target_height,
+             account_id,
+@@ -1088,6 +1094,7 @@
+         #[cfg(feature = "orchard")]
+         let ironwood_pool_meta = unspent_notes_meta(
+             self.conn.borrow(),
++            &self.params,
+             ShieldedPool::Ironwood,
+             target_height,
+             account_id,
+@@ -1440,7 +1447,8 @@
+ 
+     fn transaction_data_requests(&self) -> Result<Vec<TransactionDataRequest>, Self::Error> {
+         if let Some(_chain_tip_height) = wallet::chain_tip_height(self.conn.borrow())? {
+-            let iter = wallet::transaction_data_requests(self.conn.borrow())?.into_iter();
++            let iter =
++                wallet::transaction_data_requests(self.conn.borrow(), &self.params)?.into_iter();
+ 
+             #[cfg(feature = "transparent-inputs")]
+             let iter = iter.chain(wallet::transparent::transaction_data_requests(
+@@ -1597,6 +1605,7 @@
+     > {
+         wallet::transparent::get_wallet_transparent_output(
+             self.conn.borrow(),
++            &self.params,
+             outpoint,
+             target_height,
+         )
+@@ -2276,6 +2285,7 @@
+                 )?;
+                 Ok::<_, SqliteClientError>(AnchorRetention::union(
+                     from_height,
++                    zcash_protocol::zip318::BlockSpacing::for_network(&self.params),
+                     core::iter::once(self.anchor_retention_interval).chain(committed),
+                 ))
+             })
+@@ -2372,7 +2382,7 @@
+         // would have to be revisited if `PoolMigrationParams` ever gained a second overridable
+         // value.
+         #[cfg(feature = "orchard")]
+-        let zip318 = self.pool_migration_params();
++        let zip318 = self.pool_migration_params(&self.params);
+         #[cfg(feature = "orchard")]
+         let chain_tip = chain_tip_height(self.conn.0)?;
+ 
+@@ -2672,6 +2682,7 @@
+     ) -> Result<Option<WalletTransparentOutput<Self::AccountId>>, Self::Error> {
+         wallet::transparent::get_wallet_transparent_output(
+             self.conn.borrow(),
++            &self.params,
+             outpoint,
+             target_height,
+         )
+--- a/src/pool_migration/error.rs
++++ b/src/pool_migration/error.rs
+@@ -69,7 +69,7 @@
+ impl fmt::Display for FinalizeError {
+     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+         match self {
+-            FinalizeError::Parse(e) => write!(f, "parsing the stored proven PCZT failed: {e}"),
++            FinalizeError::Parse(e) => write!(f, "parsing the stored proven PCZT failed: {e:?}"),
+             FinalizeError::Spends(e) => write!(f, "finalizing the PCZT's spends failed: {e:?}"),
+             FinalizeError::Extract(e) => {
+                 write!(f, "extracting the finalized transaction failed: {e:?}")
+--- /dev/null
++++ b/src/pool_migration/orchard_ironwood/upgrade.rs
+@@ -0,0 +1,215 @@
++//! Authoritative retirement of a presigned migration's ended consensus branch.
++//!
++//! This adapter is deliberately scoped to the wallet database and the released
++//! mainnet/testnet parameters. A server rejection or an unknown transaction is
++//! insufficient: every old-branch block, and the first new-branch block, must
++//! have been fully scanned before any unmined transaction can release inputs.
++//! Raw transactions and spend links are retained so a reorg can discover an
++//! earlier inclusion through the normal scanner.
++
++use rusqlite::{params, Connection, OptionalExtension};
++use zcash_pool_migration::engine::{MigrationStatus, MigrationTxState, PoolMigrationRead};
++use zcash_primitives::transaction::Transaction;
++use zcash_protocol::consensus::{BranchId, Network};
++
++use super::{Error, PoolMigrations};
++use crate::{util::SystemClock, AccountUuid};
++
++/// A durable receipt for a run stopped by an actual, fully scanned upgrade.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct UpgradeStop {
++    /// The first block of the new branch, already fully scanned by the wallet.
++    pub activation_height: u32,
++    /// Unmined old-branch transactions whose wallet metadata was retired.
++    pub invalidated_transactions: u32,
++}
++
++/// Stops only the latest active migration of `account`, atomically with freeing
++/// its old-branch unmined inputs. Returns `None` until the wallet's own scan
++/// establishes that the branch ended, or when no old-branch work remains.
++///
++/// The transaction uses a database snapshot for migration identity, inclusion,
++/// full scan coverage and input ownership. Another process cannot race a new
++/// run into the middle of the operation. No submitted signature is changed.
++pub fn stop_invalidated_migration(
++    connection: &mut Connection,
++    network: &Network,
++    account: AccountUuid,
++) -> Result<Option<UpgradeStop>, Error> {
++    let view = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
++    let Some(scanned) = crate::wallet::fully_scanned_height(&view)? else {
++        return Ok(None);
++    };
++    let scanned = u32::from(scanned);
++    let state = {
++        let conn: &Connection = &view;
++        let store = PoolMigrations::for_account(*network, SystemClock, conn, account)?;
++        match store.get_migration()? {
++            Some(state) => state,
++            None => return Ok(None),
++        }
++    };
++    let migration_id: i64 = view.query_row(
++        "SELECT m.id FROM orchard_ironwood_migrations m
++         JOIN accounts a ON a.id = m.account_id
++         WHERE a.uuid = ? AND m.status = ? ORDER BY m.id DESC LIMIT 1",
++        params![account.expose_uuid(), state.status().wire_name()],
++        |row| row.get(0),
++    )?;
++    let mut invalidated = Vec::new();
++    let mut mined = Vec::new();
++    for part in state.transactions() {
++        let pczt = pczt::Pczt::parse(part.pczt())
++            .map_err(|_| Error::Corrupt("migration PCZT during upgrade recovery"))?;
++        let effecting_txid = zcash_pool_migration::pczt_txid::pczt_txid(&pczt)
++            .map_err(|_| Error::Corrupt("migration PCZT identity during upgrade recovery"))?;
++        if effecting_txid != part.txid() {
++            return Err(Error::Corrupt(
++                "cached migration identity during upgrade recovery",
++            ));
++        }
++        let signed_branch = BranchId::try_from(*pczt.global().consensus_branch_id())
++            .map_err(|_| Error::Corrupt("migration branch during upgrade recovery"))?;
++        let record: Option<(Option<u32>, Option<Vec<u8>>)> = view
++            .query_row(
++                "SELECT mined_height, raw FROM transactions WHERE txid = ?",
++                params![part.txid().as_ref()],
++                |row| Ok((row.get(0)?, row.get(1)?)),
++            )
++            .optional()?;
++        if let Some((Some(height), _)) = record.as_ref() {
++            if *height > scanned {
++                // Enhancement may know an inclusion ahead of scanning. Wait
++                // for the corresponding nullifier and reorg evidence as well.
++                return Ok(None);
++            }
++            mined.push((u32::from(part.id()), *height));
++            continue;
++        }
++        if matches!(part.state(), MigrationTxState::Mined { .. }) {
++            // A rewind must reconcile this record before it can be stopped.
++            return Ok(None);
++        }
++        let Some((_, Some(activation))) = signed_branch.height_bounds(network) else {
++            // A still-live or future branch cannot be retired merely because
++            // another part belongs to an ended branch.
++            return Ok(None);
++        };
++        let activation = u32::from(activation);
++        if scanned < activation {
++            return Ok(None);
++        }
++        if let Some((_, raw)) = record {
++            let raw = raw.ok_or(Error::Corrupt("missing raw migration transaction"))?;
++            let mut remaining = raw.as_slice();
++            let tx = Transaction::read(&mut remaining, signed_branch)
++                .map_err(|_| Error::Corrupt("raw migration transaction during upgrade recovery"))?;
++            if !remaining.is_empty()
++                || tx.consensus_branch_id() != signed_branch
++                || tx.txid() != part.txid()
++            {
++                return Err(Error::Corrupt(
++                    "migration transaction identity during upgrade recovery",
++                ));
++            }
++        } else if matches!(part.state(), MigrationTxState::Broadcast { .. }) {
++            return Err(Error::Corrupt(
++                "broadcast migration has no wallet transaction",
++            ));
++        }
++        invalidated.push((part.txid(), part.lock_owner(), activation));
++    }
++    if invalidated.is_empty() {
++        return Ok(None);
++    }
++    // Mark chain-backed inclusion first. A terminal receipt must still report
++    // every part that moved before activation, including an accepted-but-not-
++    // recorded submission that remained Proved when the app stopped.
++    for (id, height) in mined {
++        view.execute(
++            "UPDATE orchard_ironwood_migration_transactions
++             SET state = 'mined', mined_height = ?
++             WHERE migration_id = ? AND transfer_id = ?",
++            params![height, migration_id, id],
++        )?;
++    }
++    for (txid, owner, activation) in &invalidated {
++        let branch_end = activation.saturating_sub(1);
++        // This is wallet metadata, never the signed transaction's bytes. Its
++        // effective last mineable height is the ended branch's last block.
++        // Keep all spend links and raw bytes for ordinary reorg re-discovery.
++        view.execute(
++            "UPDATE transactions SET expiry_height = CASE
++                WHEN expiry_height IS NULL OR expiry_height = 0 OR expiry_height > ? THEN ?
++                ELSE expiry_height END, confirmed_unmined_at_height = ?
++             WHERE txid = ? AND mined_height IS NULL",
++            params![branch_end, branch_end, scanned, txid.as_ref()],
++        )?;
++        if let Some(owner) = owner {
++            view.execute(
++                "UPDATE orchard_received_notes SET lock_expiry_height = NULL, lock_owner = NULL
++                 WHERE lock_owner = ? AND account_id = (SELECT id FROM accounts WHERE uuid = ?)",
++                params![owner.as_bytes(), account.expose_uuid()],
++            )?;
++        }
++    }
++    let activation_height = invalidated
++        .iter()
++        .map(|(_, _, a)| *a)
++        .max()
++        .ok_or(Error::Corrupt("empty migration invalidation set"))?;
++    view.execute_batch(
++        "CREATE TABLE IF NOT EXISTS orchard_ironwood_migration_upgrade_stops (
++            migration_id INTEGER PRIMARY KEY REFERENCES orchard_ironwood_migrations(id) ON DELETE CASCADE,
++            activation_height INTEGER NOT NULL,
++            invalidated_transactions INTEGER NOT NULL
++        )",
++    )?;
++    let receipt = UpgradeStop {
++        activation_height,
++        invalidated_transactions: invalidated.len() as u32,
++    };
++    view.execute(
++        "INSERT INTO orchard_ironwood_migration_upgrade_stops
++         (migration_id, activation_height, invalidated_transactions) VALUES (?, ?, ?)",
++        params![
++            migration_id,
++            receipt.activation_height,
++            receipt.invalidated_transactions
++        ],
++    )?;
++    view.execute(
++        "UPDATE orchard_ironwood_migrations SET status = ? WHERE id = ?",
++        params![MigrationStatus::Superseded.wire_name(), migration_id],
++    )?;
++    view.commit()?;
++    Ok(Some(receipt))
++}
++
++/// The latest run's upgrade-stop receipt. Read-only and safe before this
++/// optional extension has ever been needed in an existing wallet database.
++pub fn latest_upgrade_stop(
++    connection: &Connection,
++    account: AccountUuid,
++) -> Result<Option<UpgradeStop>, Error> {
++    let installed: bool = connection.query_row(
++        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table'
++         AND name = 'orchard_ironwood_migration_upgrade_stops')",
++        [],
++        |row| row.get(0),
++    )?;
++    if !installed {
++        return Ok(None);
++    }
++    Ok(connection.query_row(
++        "SELECT s.activation_height, s.invalidated_transactions
++         FROM orchard_ironwood_migration_upgrade_stops s
++         JOIN orchard_ironwood_migrations m ON m.id = s.migration_id
++         JOIN accounts a ON a.id = m.account_id
++         WHERE a.uuid = ? AND m.id = (
++            SELECT MAX(latest.id) FROM orchard_ironwood_migrations latest WHERE latest.account_id = a.id
++         )",
++        params![account.expose_uuid()],
++        |row| Ok(UpgradeStop { activation_height: row.get(0)?, invalidated_transactions: row.get(1)? }),
++    ).optional()?)
++}
+--- a/src/pool_migration/orchard_ironwood.rs
++++ b/src/pool_migration/orchard_ironwood.rs
+@@ -5,6 +5,11 @@
+ //! store with this pool's table names, exposing a concrete [`PoolMigrations`] that implements
+ //! [`PoolMigrationRead`] / [`PoolMigrationWrite`], and the `init_migration_tables` DDL its schema
+ //! migration runs. The generic store type never leaks into this API.
++
++/// Narrow wallet-backed recovery for transactions invalidated by a scheduled
++/// consensus branch change. It never treats server absence as chain evidence.
++#[cfg(feature = "orchard")]
++pub mod upgrade;
+ 
+ use std::{
+     borrow::{Borrow, BorrowMut},
+@@ -589,7 +594,10 @@
+             // Parameters are the SPECIFIED defaults, exactly as the enhance path reasons: the only
+             // wallet-overridable value is the anchor bucket interval, and this evidence source
+             // cannot evaluate the anchor clause at all, so the override cannot change the answer.
+-            let migration_params = PoolMigrationParams::from(AnchorRetentionInterval::default());
++            let migration_params = PoolMigrationParams::new(
++                zcash_protocol::zip318::BlockSpacing::for_network(&self.params),
++                AnchorRetentionInterval::default(),
++            );
+             let classification = classify_decrypted_tx(
+                 &tx,
+                 decrypted.orchard_outputs(),
+--- a/src/wallet/commitment_tree.rs
++++ b/src/wallet/commitment_tree.rs
+@@ -1328,13 +1328,14 @@
+     Ok(())
+ }
+ 
+-pub(crate) fn check_witnesses(
++pub(crate) fn check_witnesses<P: zcash_protocol::consensus::Parameters>(
+     conn: &rusqlite::Transaction<'_>,
++    params: &P,
+     anchor_height: BlockHeight,
+ ) -> Result<Vec<Range<BlockHeight>>, SqliteClientError> {
+     let wallet_birthday = super::wallet_birthday(conn)?.ok_or(SqliteClientError::AccountUnknown)?;
+     let unspent_sapling_note_meta =
+-        super::sapling::select_unspent_note_meta(conn, wallet_birthday, anchor_height)?;
++        super::sapling::select_unspent_note_meta(conn, params, wallet_birthday, anchor_height)?;
+ 
+     let mut scan_ranges = vec![];
+     let mut sapling_incomplete = vec![];
+@@ -1359,7 +1360,7 @@
+     #[cfg(feature = "orchard")]
+     {
+         let unspent_orchard_note_meta =
+-            super::orchard::select_unspent_note_meta(conn, wallet_birthday, anchor_height)?;
++            super::orchard::select_unspent_note_meta(conn, params, wallet_birthday, anchor_height)?;
+         let mut orchard_incomplete = vec![];
+         let orchard_tree = orchard_tree(conn)?;
+         for m in unspent_orchard_note_meta.iter() {
+@@ -1381,6 +1382,7 @@
+ 
+         let unspent_ironwood_note_meta = super::common::select_unspent_note_meta(
+             conn,
++            params,
+             ShieldedPool::Ironwood,
+             wallet_birthday,
+             anchor_height,
+--- a/src/wallet/common.rs
++++ b/src/wallet/common.rs
+@@ -12,10 +12,10 @@
+     },
+     wallet::ReceivedNote,
+ };
+-use zcash_primitives::transaction::{TxId, builder::DEFAULT_TX_EXPIRY_DELTA, fees::zip317};
++use zcash_primitives::transaction::{TxId, builder::default_tx_expiry_delta, fees::zip317};
+ use zcash_protocol::{
+     PoolType, ShieldedPool,
+-    consensus::{self, BlockHeight},
++    consensus::{self, BlockHeight, NetworkUpgrade},
+     value::{BalanceError, Zatoshis},
+ };
+ 
+@@ -97,6 +97,29 @@
+     }
+ }
+ 
++/// Generates an SQL expression for the default expiry delta of a transaction that targets the
++/// height given by the SQL expression `height`.
++///
++/// The result is the [`default_tx_expiry_delta`] for the consensus branch that `params` puts in
++/// effect at that height.
++pub(crate) fn default_tx_expiry_delta_sql<P: consensus::Parameters>(
++    params: &P,
++    height: &str,
++) -> String {
++    // Common 4 exposes the same policy by network and target height, rather
++    // than by branch ID as librustzcash 0.31 does.
++    let base_delta = zcash_primitives::transaction::builder::PRE_NU7_DEFAULT_TX_EXPIRY_DELTA;
++    if let Some(activation) = params.activation_height(NetworkUpgrade::Nu7) {
++        let delta = default_tx_expiry_delta(params, activation);
++        format!(
++            "(CASE WHEN {height} >= {} THEN {delta} ELSE {base_delta} END)",
++            u32::from(activation)
++        )
++    } else {
++        base_delta.to_string()
++    }
++}
++
+ /// Generates an SQL condition that a transaction is unexpired.
+ ///
+ /// # Usage requirements
+@@ -105,13 +128,15 @@
+ /// - The parent is responsible for enclosing this condition in parentheses as appropriate.
+ ///
+ /// If the wallet doesn't know an actual mined height or expiry height for a transaction, it will
+-/// be treated as unexpired _only_ if we just observed it in the last DEFAULT_TX_EXPIRY_DELTA
+-/// blocks, guessing that the wallet creating the transaction used the same expiry delta as our
++/// be treated as unexpired _only_ if we observed it within the default expiry delta for the height
++/// at which we first observed it, guessing that the wallet creating the transaction used that
+ /// default. If our guess is wrong (and the wallet used a larger expiry delta or disabled expiry),
+ /// then the transaction will be treated as unexpired when it shouldn't be for as long as it takes
+ /// this wallet to either observe the transaction being mined, or enhance it to learn its expiry
+ /// height.
+-pub(crate) fn tx_unexpired_condition(tx: &str) -> String {
++pub(crate) fn tx_unexpired_condition<P: consensus::Parameters>(params: &P, tx: &str) -> String {
++    let default_expiry_delta =
++        default_tx_expiry_delta_sql(params, &format!("{tx}.min_observed_height"));
+     format!(
+         r#"
+         {tx}.mined_height < :target_height  -- the transaction is mined
+@@ -119,7 +144,7 @@
+         OR {tx}.expiry_height >= :target_height  -- the tx is unexpired
+         OR (
+             {tx}.expiry_height IS NULL -- the expiry height is unknown
+-            AND {tx}.min_observed_height + {DEFAULT_TX_EXPIRY_DELTA} >= :target_height
++            AND {tx}.min_observed_height + {default_expiry_delta} >= :target_height
+         )
+         "#
+     )
+@@ -132,7 +157,10 @@
+ ///   query is being performed.
+ /// - The parent must provide `:target_height` as a named argument.
+ /// - The parent is responsible for enclosing this condition in parentheses as appropriate.
+-pub(crate) fn spent_notes_clause(table_prefix: &str) -> String {
++pub(crate) fn spent_notes_clause<P: consensus::Parameters>(
++    params: &P,
++    table_prefix: &str,
++) -> String {
+     format!(
+         r#"
+         SELECT rns.{table_prefix}_received_note_id
+@@ -140,7 +168,7 @@
+         JOIN transactions stx ON stx.id_tx = rns.transaction_id
+         WHERE {}
+         "#,
+-        tx_unexpired_condition("stx")
++        tx_unexpired_condition(params, "stx")
+     )
+ }
+ 
+@@ -285,7 +313,7 @@
+              AND rn.id NOT IN ({}) -- the note is unspent
+              AND ({}) -- the note is eligible under the lock filter
+              GROUP BY rn.id",
+-            spent_notes_clause(table_prefix),
++            spent_notes_clause(params, table_prefix),
+             output_eligible_condition(lock_filter, "rn"),
+         ),
+         &sql_params[..],
+@@ -509,8 +537,8 @@
+          AND rn.id NOT IN ({})  -- the note is unspent
+          AND ({}) -- the note is eligible under the lock filter
+          GROUP BY rn.id",
+-        tx_unexpired_condition("t"),
+-        spent_notes_clause(table_prefix),
++        tx_unexpired_condition(params, "t"),
++        spent_notes_clause(params, table_prefix),
+         output_eligible_condition(lock_filter, "rn")
+     ))?;
+ 
+@@ -789,7 +817,7 @@
+              GROUP BY rn.id
+          )
+          {selection_tail}",
+-        spent_notes_clause(table_prefix),
++        spent_notes_clause(params, table_prefix),
+     ))?;
+ 
+     let excluded: Vec<Value> = exclude
+@@ -910,8 +938,9 @@
+     }
+ }
+ 
+-pub(crate) fn select_unspent_note_meta(
++pub(crate) fn select_unspent_note_meta<P: consensus::Parameters>(
+     conn: &rusqlite::Connection,
++    params: &P,
+     protocol: ShieldedPool,
+     wallet_birthday: BlockHeight,
+     anchor_height: BlockHeight,
+@@ -946,7 +975,7 @@
+             -- exclude unscanned ranges that end below the wallet birthday
+             AND unscanned.block_range_end > :wallet_birthday
+          )",
+-         spent_notes_clause(table_prefix)
++         spent_notes_clause(params, table_prefix)
+     ))?;
+ 
+     let res = stmt
+@@ -972,8 +1001,10 @@
+     Ok(res)
+ }
+ 
+-pub(crate) fn unspent_notes_meta(
++#[allow(clippy::too_many_arguments)]
++pub(crate) fn unspent_notes_meta<P: consensus::Parameters>(
+     conn: &rusqlite::Connection,
++    params: &P,
+     protocol: ShieldedPool,
+     target_height: TargetHeight,
+     account: AccountUuid,
+@@ -1030,7 +1061,7 @@
+                  AND rn.id NOT IN rarray(:exclude)
+                  AND rn.id NOT IN ({}) -- the note is unspent
+                  AND ({eligible_condition}) -- the note is eligible under the lock filter",
+-                spent_notes_clause(table_prefix),
++                spent_notes_clause(params, table_prefix),
+             ),
+             &sql_params[..],
+             |row| {
+@@ -1044,8 +1075,9 @@
+ 
+     // Evaluates the provided note filter conditions against the wallet database in order to
+     // determine the minimum value of notes to be produced by note splitting.
+-    fn min_note_value(
++    fn min_note_value<P: consensus::Parameters>(
+         conn: &rusqlite::Connection,
++        params: &P,
+         account: AccountUuid,
+         filter: &NoteFilter,
+         target_height: TargetHeight,
+@@ -1106,7 +1138,7 @@
+                             JOIN transactions stx ON stx.id_tx = rns.transaction_id
+                             WHERE ({})  -- the spending transaction is unexpired
+                          )",
+-                        tx_unexpired_condition("stx")
++                        tx_unexpired_condition(params, "stx")
+                     ),
+                     named_params![
+                         ":account_uuid": account.0,
+@@ -1127,8 +1159,8 @@
+             NoteFilter::Combine(a, b) => {
+                 // All the existing note selectors set lower bounds on note value, so the "and"
+                 // operation is just taking the maximum of the two lower bounds.
+-                let a_min_value = min_note_value(conn, account, a.as_ref(), target_height)?;
+-                let b_min_value = min_note_value(conn, account, b.as_ref(), target_height)?;
++                let a_min_value = min_note_value(conn, params, account, a.as_ref(), target_height)?;
++                let b_min_value = min_note_value(conn, params, account, b.as_ref(), target_height)?;
+                 Ok(a_min_value
+                     .zip(b_min_value)
+                     .map(|(av, bv)| std::cmp::max(av, bv))
+@@ -1139,9 +1171,10 @@
+                 condition,
+                 fallback,
+             } => {
+-                let cond = min_note_value(conn, account, condition.as_ref(), target_height)?;
++                let cond =
++                    min_note_value(conn, params, account, condition.as_ref(), target_height)?;
+                 if cond.is_none() {
+-                    min_note_value(conn, account, fallback, target_height)
++                    min_note_value(conn, params, account, fallback, target_height)
+                 } else {
+                     Ok(cond)
+                 }
+@@ -1151,7 +1184,7 @@
+ 
+     // TODO: Simplify the query before executing it. Not worrying about this now because queries
+     // will be developer-configured, not end-user defined.
+-    if let Some(min_value) = min_note_value(conn, account, filter, target_height)? {
++    if let Some(min_value) = min_note_value(conn, params, account, filter, target_height)? {
+         let (note_count, total_value) = run_selection(min_value)?;
+ 
+         Ok(Some(PoolMeta::new(
+@@ -1165,13 +1198,69 @@
+ 
+ #[cfg(test)]
+ mod tests {
++    use rusqlite::Connection;
+     use zcash_client_backend::data_api::testing::{
+         AddressType, TestBuilder, pool::ShieldedPoolTester, sapling::SaplingPoolTester,
+     };
+-    use zcash_primitives::block::BlockHash;
+-    use zcash_protocol::{ShieldedPool, value::Zatoshis};
++    use zcash_primitives::{block::BlockHash, transaction::builder::default_tx_expiry_delta};
++    use zcash_protocol::{
++        ShieldedPool,
++        consensus::{BlockHeight, BranchId},
++        local_consensus::LocalNetwork,
++        value::Zatoshis,
++    };
+ 
+     use crate::testing::{BlockCache, db::TestDbFactory};
++
++    use super::default_tx_expiry_delta_sql;
++
++    /// The highest height at which the SQL expression is compared against the default delta.
++    /// It lies above every activation height that the test networks set.
++    const LAST_CHECKED_HEIGHT: u32 = 20;
++
++    fn local_network(nu7: Option<BlockHeight>) -> LocalNetwork {
++        LocalNetwork {
++            overwinter: Some(BlockHeight::from_u32(1)),
++            sapling: Some(BlockHeight::from_u32(2)),
++            blossom: Some(BlockHeight::from_u32(3)),
++            heartwood: Some(BlockHeight::from_u32(4)),
++            canopy: Some(BlockHeight::from_u32(5)),
++            nu5: Some(BlockHeight::from_u32(6)),
++            nu6: Some(BlockHeight::from_u32(7)),
++            nu6_1: Some(BlockHeight::from_u32(8)),
++            nu6_2: Some(BlockHeight::from_u32(9)),
++            nu6_3: Some(BlockHeight::from_u32(10)),
++            nu7,
++            #[cfg(zcash_unstable = "nutachyon")]
++            nu_tachyon: None,
++        }
++    }
++
++    #[test]
++    fn default_tx_expiry_delta_sql_matches_default_tx_expiry_delta() {
++        let conn = Connection::open_in_memory().unwrap();
++        for params in [
++            local_network(Some(BlockHeight::from_u32(11))),
++            local_network(None),
++        ] {
++            let expr = default_tx_expiry_delta_sql(&params, ":height");
++            for height in 0..=LAST_CHECKED_HEIGHT {
++                let sql_delta: u32 = conn
++                    .query_row(
++                        &format!("SELECT {expr}"),
++                        rusqlite::named_params![":height": height],
++                        |row| row.get(0),
++                    )
++                    .unwrap();
++                let height = BlockHeight::from_u32(height);
++                assert_eq!(
++                    sql_delta,
++                    default_tx_expiry_delta(&params, height),
++                    "default expiry delta at height {height:?}",
++                );
++            }
++        }
++    }
+ 
+     #[test]
+     fn select_unspent_note_meta() {
+@@ -1192,6 +1281,7 @@
+ 
+         let unspent_note_meta = super::select_unspent_note_meta(
+             st.wallet().conn(),
++            st.network(),
+             ShieldedPool::Sapling,
+             birthday_height,
+             h,
+--- a/src/wallet/init/migrations/orchard_ironwood_migration_unsatisfiability.rs
++++ b/src/wallet/init/migrations/orchard_ironwood_migration_unsatisfiability.rs
+@@ -151,7 +151,7 @@
+ fn real_spend_nullifiers(pczt_bytes: &[u8]) -> Result<Vec<[u8; 32]>, WalletMigrationError> {
+     let pczt = pczt::Pczt::parse(pczt_bytes).map_err(|e| {
+         WalletMigrationError::CorruptedData(format!(
+-            "stored pool-migration PCZT does not parse: {e}"
++            "stored pool-migration PCZT does not parse: {e:?}"
+         ))
+     })?;
+     Ok(pczt
+--- a/src/wallet/init/migrations/transparent_gap_limit_handling.rs
++++ b/src/wallet/init/migrations/transparent_gap_limit_handling.rs
+@@ -36,7 +36,7 @@
+     ReceiverRequirement::*,
+     transparent::keys::TransparentKeyScope,
+     zcash_keys::{encoding::AddressCodec as _, keys::ReceiverRequirement},
+-    zcash_primitives::transaction::builder::DEFAULT_TX_EXPIRY_DELTA,
++    zcash_primitives::transaction::builder::PRE_NU7_DEFAULT_TX_EXPIRY_DELTA as DEFAULT_TX_EXPIRY_DELTA,
+     zip32::DiversifierIndex,
+ };
+ 
+--- a/src/wallet/init/migrations/tx_retrieval_queue.rs
++++ b/src/wallet/init/migrations/tx_retrieval_queue.rs
+@@ -5,7 +5,7 @@
+ use std::collections::HashSet;
+ use uuid::Uuid;
+ 
+-use zcash_primitives::transaction::builder::DEFAULT_TX_EXPIRY_DELTA;
++use zcash_primitives::transaction::builder::PRE_NU7_DEFAULT_TX_EXPIRY_DELTA as DEFAULT_TX_EXPIRY_DELTA;
+ use zcash_protocol::consensus;
+ 
+ use crate::wallet::init::WalletMigrationError;
+--- a/src/wallet/init/migrations/tx_retrieval_queue_expiry.rs
++++ b/src/wallet/init/migrations/tx_retrieval_queue_expiry.rs
+@@ -4,7 +4,7 @@
+ use schemerz_rusqlite::RusqliteMigration;
+ use std::collections::HashSet;
+ use uuid::Uuid;
+-use zcash_primitives::transaction::builder::DEFAULT_TX_EXPIRY_DELTA;
++use zcash_primitives::transaction::builder::PRE_NU7_DEFAULT_TX_EXPIRY_DELTA as DEFAULT_TX_EXPIRY_DELTA;
+ 
+ use crate::wallet::{chain_tip_height, init::WalletMigrationError};
+ 
+--- a/src/wallet/orchard.rs
++++ b/src/wallet/orchard.rs
+@@ -437,13 +437,15 @@
+     }
+ }
+ 
+-pub(crate) fn select_unspent_note_meta(
++pub(crate) fn select_unspent_note_meta<P: zcash_protocol::consensus::Parameters>(
+     conn: &Connection,
++    params: &P,
+     wallet_birthday: BlockHeight,
+     anchor_height: BlockHeight,
+ ) -> Result<Vec<UnspentNoteMeta>, SqliteClientError> {
+     super::common::select_unspent_note_meta(
+         conn,
++        params,
+         ShieldedPool::Orchard,
+         wallet_birthday,
+         anchor_height,
+--- a/src/wallet/sapling.rs
++++ b/src/wallet/sapling.rs
+@@ -209,13 +209,15 @@
+     )
+ }
+ 
+-pub(crate) fn select_unspent_note_meta(
++pub(crate) fn select_unspent_note_meta<P: zcash_protocol::consensus::Parameters>(
+     conn: &Connection,
++    params: &P,
+     wallet_birthday: BlockHeight,
+     anchor_height: BlockHeight,
+ ) -> Result<Vec<UnspentNoteMeta>, SqliteClientError> {
+     super::common::select_unspent_note_meta(
+         conn,
++        params,
+         ShieldedPool::Sapling,
+         wallet_birthday,
+         anchor_height,
+--- a/src/wallet/transparent.rs
++++ b/src/wallet/transparent.rs
+@@ -42,7 +42,7 @@
+     },
+ };
+ #[cfg(not(feature = "spend-index"))]
+-use zcash_primitives::transaction::builder::DEFAULT_TX_EXPIRY_DELTA;
++use zcash_primitives::transaction::builder::default_tx_expiry_delta;
+ use zcash_primitives::transaction::fees::{
+     FeeRule,
+     transparent::{InputSize, InputView},
+@@ -1184,7 +1184,7 @@
+ /// # Usage requirements
+ /// - The parent must provide `:target_height` as a named argument.
+ /// - The parent is responsible for enclosing this condition in parentheses as appropriate.
+-pub(crate) fn spent_utxos_clause() -> String {
++pub(crate) fn spent_utxos_clause<P: consensus::Parameters>(params: &P) -> String {
+     format!(
+         r#"
+         SELECT txo_spends.transparent_received_output_id
+@@ -1192,7 +1192,7 @@
+         JOIN transactions stx ON stx.id_tx = txo_spends.transaction_id
+         WHERE {}
+         "#,
+-        super::common::tx_unexpired_condition("stx")
++        super::common::tx_unexpired_condition(params, "stx")
+     )
+ }
+ 
+@@ -1307,8 +1307,9 @@
+ /// - `outpoint`: The identifier for the output to be retrieved.
+ /// - `target_height`: The target height of a transaction under construction that will spend the
+ ///   returned output. If this is `None`, no spendability checks are performed.
+-pub(crate) fn get_wallet_transparent_output(
++pub(crate) fn get_wallet_transparent_output<P: zcash_protocol::consensus::Parameters>(
+     conn: &rusqlite::Connection,
++    params: &P,
+     outpoint: &OutPoint,
+     target_height: Option<TargetHeight>,
+ ) -> Result<Option<WalletTransparentOutput<AccountUuid>>, SqliteClientError> {
+@@ -1338,8 +1339,8 @@
+                  AND ({}) -- exclude likely-spent wallet-internal ephemeral outputs
+              )
+          )",
+-        tx_unexpired_condition("t"),
+-        spent_utxos_clause(),
++        tx_unexpired_condition(params, "t"),
++        spent_utxos_clause(params),
+         excluding_wallet_internal_ephemeral_outputs("u", "addresses", "t", "accounts"),
+     ))?;
+ 
+@@ -1372,7 +1373,8 @@
+ /// on a single address, a set of addresses, or an account; and can order by address+index
+ /// (per-address determinism) or by value descending (value-bounded selection), optionally prefixed
+ /// with a lock-tier preference key.
+-fn spendable_transparent_outputs_query(
++fn spendable_transparent_outputs_query<P: consensus::Parameters>(
++    params: &P,
+     address_predicate_sql: &str,
+     lock_eligible_sql: &str,
+     order_by_sql: &str,
+@@ -1410,7 +1412,7 @@
+            -- key material exists with which a spend could be constructed
+          ORDER BY {order_by_sql}",
+         tx_unexpired_condition_minconf_0("t"),
+-        spent_utxos_clause(),
++        spent_utxos_clause(params),
+         excluding_wallet_internal_ephemeral_outputs("u", "addresses", "t", "accounts"),
+         excluding_immature_coinbase_outputs("t"),
+         foreign_scope = KeyScope::Foreign.encode(),
+@@ -1498,6 +1500,7 @@
+     // This returns all matching outputs (no value target), so only the eligibility filter
+     // (Part A) applies; no lock-tier ordering is imposed.
+     let mut stmt_utxos = conn.prepare_cached(&spendable_transparent_outputs_query(
++        params,
+         "addresses.cached_transparent_receiver_address IN rarray(:addresses)",
+         &output_eligible_condition(lock_filter, "u"),
+         "addresses.cached_transparent_receiver_address, u.output_index",
+@@ -1614,6 +1617,7 @@
+     // `:coinbase_filter`, so that there is a single query text regardless of whether an
+     // allow list is present.
+     let mut stmt_utxos = conn.prepare_cached(&spendable_transparent_outputs_query(
++        params,
+         "accounts.uuid = :account_uuid
+          AND (
+              :has_address_allow_list = 0
+@@ -1744,7 +1748,7 @@
+          AND u.id NOT IN ({}) -- and the output is unspent
+          AND ({}) -- exclude likely-spent wallet-internal ephemeral outputs",
+         tx_unexpired_condition_minconf_0("t"),
+-        spent_utxos_clause(),
++        spent_utxos_clause(params),
+         excluding_wallet_internal_ephemeral_outputs("u", "addresses", "t", "accounts"),
+     ))?;
+ 
+@@ -1804,7 +1808,7 @@
+              )
+              AND u.id NOT IN ({}) -- and the output is unspent
+              AND ({}) -- exclude likely-spent wallet-internal ephemeral outputs",
+-            spent_utxos_clause(),
++            spent_utxos_clause(params),
+             excluding_wallet_internal_ephemeral_outputs("u", "addresses", "t", "accounts")
+         ))?;
+ 
+@@ -1833,9 +1837,10 @@
+     Ok(result)
+ }
+ 
+-#[tracing::instrument(skip(conn, account_balances))]
+-pub(crate) fn add_transparent_account_balances(
++#[tracing::instrument(skip(conn, params, account_balances))]
++pub(crate) fn add_transparent_account_balances<P: zcash_protocol::consensus::Parameters>(
+     conn: &rusqlite::Connection,
++    params: &P,
+     target_height: TargetHeight,
+     confirmations_policy: ConfirmationsPolicy,
+     account_balances: &mut HashMap<AccountUuid, AccountBalance>,
+@@ -1862,7 +1867,7 @@
+          AND ({}) -- exclude likely-spent wallet-internal ephemeral outputs
+          GROUP BY accounts.uuid, lock_expiry_height, is_coinbase, is_mature",
+         tx_unexpired_condition_minconf_0("t"),
+-        spent_utxos_clause(),
++        spent_utxos_clause(params),
+         excluding_wallet_internal_ephemeral_outputs("u", "addresses", "t", "accounts"),
+     ))?;
+ 
+@@ -1941,7 +1946,7 @@
+              AND u.id NOT IN ({}) -- and the received txo is unspent
+              AND ({}) -- exclude likely-spent wallet-internal ephemeral outputs
+              GROUP BY accounts.uuid, lock_expiry_height, is_coinbase",
+-            spent_utxos_clause(),
++            spent_utxos_clause(params),
+             excluding_wallet_internal_ephemeral_outputs("u", "addresses", "t", "accounts"),
+         ))?;
+ 
+@@ -2376,7 +2381,9 @@
+                         .get::<_, Option<u32>>(1)?
+                         .map(BlockHeight::from)
+                         .unwrap_or(chain_tip_height);
+-                    let max_end_height = block_range_start + DEFAULT_TX_EXPIRY_DELTA + 1;
++                    let max_end_height = block_range_start
++                        + default_tx_expiry_delta(params, block_range_start + 1)
++                        + 1;
+                     Ok::<TransactionDataRequest, SqliteClientError>(
+                         TransactionDataRequest::transactions_involving_address(
+                             address,
+--- a/src/wallet.rs
++++ b/src/wallet.rs
+@@ -127,7 +127,7 @@
+ use zcash_primitives::{
+     block::BlockHash,
+     merkle_tree::{HashSer, read_commitment_tree},
+-    transaction::{Transaction, TransactionData, builder::DEFAULT_TX_EXPIRY_DELTA, fees::zip317},
++    transaction::{Transaction, TransactionData, fees::zip317},
+ };
+ use zcash_protocol::{
+     PoolType, ShieldedPool, TxId,
+@@ -2746,8 +2746,9 @@
+         })
+         .collect::<Result<HashMap<AccountUuid, AccountBalance>, _>>()?;
+ 
+-    fn with_pool_balances<F>(
++    fn with_pool_balances<P: consensus::Parameters, F>(
+         tx: &rusqlite::Transaction,
++        params: &P,
+         target_height: TargetHeight,
+         anchor_height: Option<BlockHeight>,
+         confirmations_policy: ConfirmationsPolicy,
+@@ -2822,8 +2823,8 @@
+              WHERE ({}) -- the transaction is unexpired
+              AND rn.id NOT IN ({}) -- and the received note is unspent
+              GROUP BY rn.id",
+-            common::tx_unexpired_condition("t"),
+-            common::spent_notes_clause(table_prefix),
++            common::tx_unexpired_condition(params, "t"),
++            common::spent_notes_clause(params, table_prefix),
+         ))?;
+ 
+         let mut rows = stmt_select_notes.query(named_params![
+@@ -2948,6 +2949,7 @@
+         let orchard_trace = tracing::info_span!("orchard_balances").entered();
+         with_pool_balances(
+             tx,
++            params,
+             target_height,
+             anchor_height,
+             confirmations_policy,
+@@ -2977,6 +2979,7 @@
+         let ironwood_trace = tracing::info_span!("ironwood_balances").entered();
+         with_pool_balances(
+             tx,
++            params,
+             target_height,
+             anchor_height,
+             confirmations_policy,
+@@ -3004,6 +3007,7 @@
+     let sapling_trace = tracing::info_span!("sapling_balances").entered();
+     with_pool_balances(
+         tx,
++        params,
+         target_height,
+         anchor_height,
+         confirmations_policy,
+@@ -3030,6 +3034,7 @@
+     #[cfg(feature = "transparent-inputs")]
+     transparent::add_transparent_account_balances(
+         tx,
++        params,
+         target_height,
+         confirmations_policy,
+         &mut account_balances,
+@@ -3914,7 +3919,7 @@
+ 
+ pub(crate) fn set_transaction_status<P: consensus::Parameters>(
+     conn: &rusqlite::Transaction,
+-    _params: &P,
++    params: &P,
+     #[cfg(feature = "transparent-inputs")] gap_limits: &GapLimits,
+     txid: TxId,
+     status: TransactionStatus,
+@@ -3939,7 +3944,8 @@
+             // confirmed to be terminal.
+             delete_retrieval_queue_entry(conn, txid, TxQueryType::Enhancement)?;
+             conn.execute(
+-                "DELETE FROM tx_retrieval_queue
++                &format!(
++                    "DELETE FROM tx_retrieval_queue
+                  WHERE txid = :txid
+                  AND query_type = :status_type
+                  AND NOT EXISTS (
+@@ -3956,14 +3962,16 @@
+                         OR (
+                             t.expiry_height IS NULL
+                             AND t.confirmed_unmined_at_height
+-                                < t.min_observed_height + :certainty_depth
++                                < t.min_observed_height + :pruning_depth + {}
+                         )
+                     )
+                  )",
++                    common::default_tx_expiry_delta_sql(params, "t.min_observed_height")
++                ),
+                 named_params![
+                     ":txid": txid.as_ref(),
+                     ":status_type": TxQueryType::Status.code(),
+-                    ":certainty_depth": PRUNING_DEPTH + DEFAULT_TX_EXPIRY_DELTA,
++                    ":pruning_depth": PRUNING_DEPTH,
+                 ],
+             )?;
+         }
+@@ -4000,7 +4008,7 @@
+             )?;
+ 
+             #[cfg(feature = "transparent-inputs")]
+-            transparent::update_gap_limits(conn, _params, gap_limits, txid, height)?;
++            transparent::update_gap_limits(conn, params, gap_limits, txid, height)?;
+ 
+             delete_retrieval_queue_entry(conn, txid, TxQueryType::Enhancement)?;
+         }
+@@ -5429,10 +5437,11 @@
+ 
+ /// Returns the vector of [`TransactionDataRequest`]s that represents the information needed by the
+ /// wallet backend in order to be able to present a complete view of wallet history and memo data.
+-pub(crate) fn transaction_data_requests(
++pub(crate) fn transaction_data_requests<P: consensus::Parameters>(
+     conn: &rusqlite::Connection,
++    params: &P,
+ ) -> Result<Vec<TransactionDataRequest>, SqliteClientError> {
+-    let mut tx_retrieval_stmt = conn.prepare_cached(
++    let mut tx_retrieval_stmt = conn.prepare_cached(&format!(
+         "SELECT q.txid, q.query_type
+          FROM tx_retrieval_queue q
+          LEFT JOIN transactions t ON t.txid = q.txid
+@@ -5450,18 +5459,19 @@
+                 OR (
+                     t.expiry_height IS NULL
+                     AND t.confirmed_unmined_at_height
+-                        < t.min_observed_height + :certainty_depth
++                        < t.min_observed_height + :pruning_depth + {}
+                 )
+             )
+          )",
+-    )?;
++        common::default_tx_expiry_delta_sql(params, "t.min_observed_height")
++    ))?;
+ 
+     let result = tx_retrieval_stmt
+         .query_and_then(
+             named_params![
+                 ":status_type": TxQueryType::Status.code(),
+                 ":enhancement_type": TxQueryType::Enhancement.code(),
+-                ":certainty_depth": PRUNING_DEPTH + DEFAULT_TX_EXPIRY_DELTA
++                ":pruning_depth": PRUNING_DEPTH
+             ],
+             |row| {
+                 let txid = row.get(0).map(TxId::from_bytes)?;

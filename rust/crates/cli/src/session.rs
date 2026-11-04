@@ -12,6 +12,8 @@ pub async fn cmd_session_open(
     pay_to: String,
     context_id: Option<String>,
 ) -> Result<()> {
+    // Refuse an unusable token store before any deposit or wallet operation.
+    zipher_engine::session::validate_session_storage(&cfg.data_dir)?;
     ensure_sapling_params(&cfg.data_dir).await?;
     sync_if_needed(cfg).await?;
 
@@ -107,6 +109,7 @@ pub async fn cmd_session_open(
 }
 
 pub async fn cmd_session_request(cfg: &Config, url: String, method: String) -> Result<()> {
+    zipher_engine::session::validate_session_storage(&cfg.data_dir)?;
     let host = url
         .split("//")
         .nth(1)
@@ -134,7 +137,9 @@ pub async fn cmd_session_request(cfg: &Config, url: String, method: String) -> R
         {
             s.balance_remaining = rem;
         }
-        zipher_engine::session::save_sessions(&cfg.data_dir, &store).ok();
+        zipher_engine::session::save_sessions(&cfg.data_dir, &store).map_err(|error| {
+            anyhow::anyhow!("Remote session request already completed and may have consumed credit, but its balance could not be saved. Reconcile session usage before retrying. Storage error: {error}")
+        })?;
     }
 
     #[derive(Serialize)]

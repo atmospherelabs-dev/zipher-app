@@ -953,7 +953,10 @@ where
     // future clause ever consults the grid.
     #[cfg(feature = "orchard")]
     {
-        let params = PoolMigrationParams::from(AnchorRetentionInterval::default());
+        let params = PoolMigrationParams::new(
+            zcash_protocol::zip318::BlockSpacing::for_network(params),
+            AnchorRetentionInterval::default(),
+        );
         let classification = crate::data_api::zip318::classify_decrypted_tx(
             d_tx.tx(),
             d_tx.orchard_outputs(),

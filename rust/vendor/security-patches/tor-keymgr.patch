@@ -1,0 +1,11 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -148,7 +148,7 @@
+ version = "2"
+ 
+ [dependencies.ssh-key]
+-version = "0.6.1"
++version = "=0.7.0-rc.11"
+ features = ["std"]
+ 
+ [dependencies.thiserror]

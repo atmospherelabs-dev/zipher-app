@@ -92,6 +92,15 @@ pub struct ChainSpec {}
 /// Empty is for gRPCs that take no arguments, currently only GetLightdInfo.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Empty {}
+/// Standard fee per logical action, from lightwallet-protocol v0.6.0.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct StandardFee {
+    #[prost(uint64, tag = "1")]
+    pub fee_zat: u64,
+    #[prost(uint32, tag = "2")]
+    pub estimator_version: u32,
+}
+
 /// LightdInfo returns various information about this lightwalletd instance
 /// and the state of the blockchain.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -1035,6 +1044,33 @@ pub mod compact_tx_streamer_client {
                     GrpcMethod::new(
                         "cash.z.wallet.sdk.rpc.CompactTxStreamer",
                         "GetLightdInfo",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Return the standard fee per logical action for the next block.
+        pub async fn get_standard_fee(
+            &mut self,
+            request: impl tonic::IntoRequest<super::Empty>,
+        ) -> std::result::Result<tonic::Response<super::StandardFee>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic_prost::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetStandardFee",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "cash.z.wallet.sdk.rpc.CompactTxStreamer",
+                        "GetStandardFee",
                     ),
                 );
             self.inner.unary(req, path, codec).await

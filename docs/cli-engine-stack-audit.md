@@ -1,5 +1,10 @@
 # Shared wallet stack upgrade — 2026-09-09
 
+> Historical September 9 audit. The October 30 implementation updates Common,
+> PCZT, migration timing, fee discovery and recovery. Current contracts and
+> verification commands are in [nu7-wallet-upgrade.md](nu7-wallet-upgrade.md);
+> the dependency versions and receipts below describe the earlier cohort.
+
 The Flutter app calls `zipher-engine` through Flutter Rust Bridge. The CLI and MCP
 server link the same engine directly. The app does not execute the CLI. Each client
 must be rebuilt to receive an engine update; Dart chat routing and UI polling are

@@ -1,0 +1,72 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -132,46 +132,6 @@
+ name = "ssh_key"
+ path = "src/lib.rs"
+ 
+-[[test]]
+-name = "algorithm_name"
+-path = "tests/algorithm_name.rs"
+-
+-[[test]]
+-name = "authorized_keys"
+-path = "tests/authorized_keys.rs"
+-
+-[[test]]
+-name = "certificate"
+-path = "tests/certificate.rs"
+-
+-[[test]]
+-name = "certificate_builder"
+-path = "tests/certificate_builder.rs"
+-
+-[[test]]
+-name = "dot_ssh"
+-path = "tests/dot_ssh.rs"
+-
+-[[test]]
+-name = "encrypted_private_key"
+-path = "tests/encrypted_private_key.rs"
+-
+-[[test]]
+-name = "known_hosts"
+-path = "tests/known_hosts.rs"
+-
+-[[test]]
+-name = "private_key"
+-path = "tests/private_key.rs"
+-
+-[[test]]
+-name = "public_key"
+-path = "tests/public_key.rs"
+-
+-[[test]]
+-name = "sshsig"
+-path = "tests/sshsig.rs"
+-
+ [dependencies.argon2]
+ version = "0.6.0-rc.8"
+ features = ["alloc"]
+@@ -252,8 +212,7 @@
+ default-features = false
+ 
+ [dependencies.rsa]
+-version = "0.10.0-rc.18"
+-features = ["sha2"]
++version = "=0.10.0-rc.20"
+ optional = true
+ default-features = false
+ 
+--- a/src/private/rsa.rs
++++ b/src/private/rsa.rs
+@@ -300,8 +300,8 @@
+         let private = RsaPrivateKey {
+             d: key.d().into(),
+             iqmp: iqmp.into(),
+-            p: p.into(),
+-            q: q.into(),
++            p: p.as_ref().into(),
++            q: q.as_ref().into(),
+         };
+ 
+         Ok(RsaKeypair { public, private })

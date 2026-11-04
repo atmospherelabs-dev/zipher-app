@@ -6,6 +6,7 @@ use secrecy::{ExposeSecret, SecretString};
 use tracing::{debug, error, info, warn};
 use zeroize::Zeroize;
 
+use super::fees::{self, FeeSnapshot};
 use super::sync::known_lightwalletd_servers;
 use super::wallet::{connect_lwd, connect_lwd_tor};
 use super::{open_wallet_db, ENGINE};
@@ -21,26 +22,24 @@ async fn connect_lwd_with_tor(
         connect_lwd(server_url).await
     }
 }
+use orchard::circuit::OrchardCircuitVersion;
 use zcash_address::ZcashAddress;
+use zcash_client_backend::data_api::wallet::input_selection::LockedInputPolicy;
 use zcash_client_backend::data_api::wallet::{
-    create_pczt_from_proposal,
-    create_proposed_transactions,
+    create_pczt_from_proposal, create_proposed_transactions,
     extract_and_store_transaction_from_pczt, propose_send_max_transfer, propose_shielding,
-    propose_standard_transfer_to_address,
     ConfirmationsPolicy, SpendingKeys,
 };
-use zcash_client_backend::data_api::wallet::input_selection::LockedInputPolicy;
-use zcash_client_backend::data_api::{CoinbaseFilter, InputSource, MaxSpendMode, OutputLockStore, WalletRead};
-use zcash_client_backend::fees::StandardFeeRule;
+use zcash_client_backend::data_api::{
+    CoinbaseFilter, InputSource, MaxSpendMode, OutputLockStore, WalletRead,
+};
 use zcash_client_backend::proposal::Proposal;
-use zcash_client_backend::proto::service::RawTransaction;
 use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
 use zcash_client_backend::wallet::OvkPolicy;
 use zcash_client_sqlite::ReceivedNoteId;
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::address::Address;
 use zcash_keys::keys::UnifiedSpendingKey;
-use orchard::circuit::OrchardCircuitVersion;
 use zcash_primitives::transaction::builder::BundlePadding;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::consensus::Network;
@@ -48,90 +47,240 @@ use zcash_protocol::value::Zatoshis;
 use zcash_protocol::ShieldedPool;
 
 pub(crate) type DbType = WalletDb<rusqlite::Connection, Network, SystemClock, rand::rngs::OsRng>;
-pub(crate) type ProposalType = Proposal<zcash_primitives::transaction::fees::zip317::FeeRule, ReceivedNoteId>;
+pub(crate) type ProposalType =
+    Proposal<zcash_primitives::transaction::fees::zip317::FeeRule, ReceivedNoteId>;
 
 use zcash_client_sqlite::util::SystemClock;
 
-fn wallet_fee_rule(priority: bool) -> zcash_primitives::transaction::fees::zip317::FeeRule {
-    use zcash_primitives::transaction::fees::zip317;
-    if priority {
-        zip317::FeeRule::non_standard(
-            Zatoshis::from_u64(20_000).expect("valid marginal fee"),
-            zip317::GRACE_ACTIONS, zip317::P2PKH_STANDARD_INPUT_SIZE,
-            zip317::P2PKH_STANDARD_OUTPUT_SIZE,
-        ).expect("standard nonzero sizes")
-    } else { zip317::FeeRule::standard() }
-}
-
 /// SDK selection, change and construction use the same reviewed fee rule.
 fn propose_wallet_transfer(
-    db: &mut DbType, params: &Network,
+    db: &mut DbType,
+    params: &Network,
     fee_rule: zcash_primitives::transaction::fees::zip317::FeeRule,
     account: <DbType as InputSource>::AccountId,
-    confirmations: ConfirmationsPolicy, to: &Address, amount: Zatoshis,
+    confirmations: ConfirmationsPolicy,
+    to: &Address,
+    amount: Zatoshis,
     memo: Option<zcash_protocol::memo::MemoBytes>,
 ) -> Result<ProposalType> {
-    use zcash_client_backend::data_api::wallet::{propose_transfer, input_selection::{GreedyInputSelector, SpendPolicy}};
+    use zcash_client_backend::data_api::wallet::{
+        input_selection::{GreedyInputSelector, SpendPolicy},
+        propose_transfer,
+    };
     let request = zip321::TransactionRequest::new(vec![zip321::Payment::new(
-        to.to_zcash_address(params), Some(amount), memo, None, None, vec![],
-    ).map_err(|e| anyhow::anyhow!("Invalid payment: {:?}", e))?])
-        .map_err(|e| anyhow::anyhow!("Invalid request: {:?}", e))?;
+        to.to_zcash_address(params),
+        Some(amount),
+        memo,
+        None,
+        None,
+        vec![],
+    )
+    .map_err(|e| anyhow::anyhow!("Invalid payment: {:?}", e))?])
+    .map_err(|e| anyhow::anyhow!("Invalid request: {:?}", e))?;
     let selector = GreedyInputSelector::<DbType>::new();
     let change = zcash_client_backend::fees::zip317::SingleOutputChangeStrategy::<_, DbType>::new(
-        fee_rule, None, ShieldedPool::Orchard,
+        fee_rule,
+        None,
+        ShieldedPool::Orchard,
         zcash_client_backend::fees::DustOutputPolicy::default(),
     );
     propose_transfer::<_, _, _, _, std::convert::Infallible>(
-        db, params, account, &selector, &change, request, confirmations,
-        &SpendPolicy::default(), None, None,
-    ).map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))
+        db,
+        params,
+        account,
+        &selector,
+        &change,
+        request,
+        confirmations,
+        &SpendPolicy::default(),
+        None,
+        None,
+    )
+    .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))
 }
 
 // ---------------------------------------------------------------------------
 // Pending proposal state
 // ---------------------------------------------------------------------------
 
-pub(crate) static PENDING_SEND: StdMutex<Option<ProposalType>> = StdMutex::new(None);
+pub(crate) struct PendingSend {
+    proposal: ProposalType,
+    fee_snapshot: FeeSnapshot,
+    revision: u64,
+}
+
+pub(crate) static PENDING_SEND: StdMutex<Option<PendingSend>> = StdMutex::new(None);
+
+/// Read the reviewed proposal's actual consensus branch for persisted approval
+/// binding. This does not consume the proposal or access keys or the network.
+pub fn pending_review_branch() -> Result<u32> {
+    let guard = PENDING_SEND
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Pending proposal unavailable"))?;
+    let pending = guard
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("No pending proposal — review a payment first"))?;
+    pending
+        .fee_snapshot
+        .review_branch(u32::from(pending.proposal.min_target_height()))
+}
+
+fn ensure_single_step(step_count: usize) -> Result<()> {
+    if step_count != 1 {
+        anyhow::bail!("Payments requiring multiple transactions, including TEX addresses, are not supported yet");
+    }
+    Ok(())
+}
+
+fn replace_single_step_pending<T>(slot: &mut Option<T>, step_count: usize, value: T) -> Result<()> {
+    ensure_single_step(step_count)?;
+    *slot = Some(value);
+    Ok(())
+}
+
+async fn store_pending_send(proposal: ProposalType, fee_snapshot: FeeSnapshot) -> Result<()> {
+    ensure_single_step(proposal.steps().len())?;
+    let guard = ENGINE.lock().await;
+    let engine = guard
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Wallet closed during proposal creation"))?;
+    fee_snapshot.validate_engine(engine)?;
+    fee_snapshot.expiry_at_review(u32::from(proposal.min_target_height()))?;
+    let steps = proposal.steps().len();
+    static REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let revision = REVISION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    replace_single_step_pending(
+        &mut *PENDING_SEND
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Pending proposal unavailable"))?,
+        steps,
+        PendingSend {
+            proposal,
+            fee_snapshot,
+            revision,
+        },
+    )
+}
+
+/// Validate a review before an interface reserves its spending budget. This
+/// makes no keys, signatures or wallet writes, and never consumes the proposal.
+pub async fn preflight_confirm_send() -> Result<()> {
+    let (snapshot, target, revision) = {
+        let guard = PENDING_SEND
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Pending proposal unavailable"))?;
+        let pending = guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No pending proposal — review a payment first"))?;
+        ensure_single_step(pending.proposal.steps().len())?;
+        (
+            pending.fee_snapshot.clone(),
+            u32::from(pending.proposal.min_target_height()),
+            pending.revision,
+        )
+    };
+    snapshot.fresh_expiry(target).await?;
+    let guard = PENDING_SEND
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Pending proposal unavailable"))?;
+    if guard.as_ref().map(|pending| pending.revision) != Some(revision) {
+        anyhow::bail!(
+            "Proposal replaced during validation; review the new payment before confirming"
+        );
+    }
+    Ok(())
+}
+
+fn proposal_totals<F, N>(proposal: &Proposal<F, N>) -> Result<(u64, u64)> {
+    let mut amount = 0u64;
+    let mut fee = 0u64;
+    for step in proposal.steps() {
+        fee = fee
+            .checked_add(u64::from(step.balance().fee_required()))
+            .ok_or_else(|| anyhow::anyhow!("Proposal fee overflow"))?;
+        for payment in step.transaction_request().payments().values() {
+            amount = amount
+                .checked_add(payment.amount().map(u64::from).unwrap_or(0))
+                .ok_or_else(|| anyhow::anyhow!("Proposal amount overflow"))?;
+        }
+    }
+    Ok((amount, fee))
+}
 
 // ---------------------------------------------------------------------------
 // Multi-server broadcast
 // ---------------------------------------------------------------------------
 
-/// Broadcast a raw transaction to all known lightwalletd servers concurrently.
-/// Returns success if at least one server accepts. Falls back to single-server
-/// if the primary is not in our known list (e.g. self-hosted node).
-pub(crate) async fn broadcast_multi(
-    primary_url: &str,
-    params: &Network,
-    tx_bytes: Vec<u8>,
-) -> Result<()> {
-    let tor = {
-        let guard = ENGINE.lock().await;
-        guard.as_ref().map(|e| e.tor_transport()).transpose()?.flatten()
-    };
-    broadcast_with_transport(primary_url, params, tx_bytes, tor).await
-}
-
-pub(crate) async fn broadcast_with_transport(
+/// Broadcast through the captured private route and wallet session. Every peer
+/// checks its own fresh tip; a custom primary is contacted on its own.
+pub(crate) async fn broadcast_for_generation(
     primary_url: &str,
     params: &Network,
     tx_bytes: Vec<u8>,
     tor: Option<zcash_client_backend::tor::Client>,
+    generation: u64,
 ) -> Result<()> {
+    broadcast_scoped(primary_url, params, tx_bytes, tor, Some(generation)).await
+}
+
+async fn broadcast_scoped(
+    primary_url: &str,
+    params: &Network,
+    tx_bytes: Vec<u8>,
+    tor: Option<zcash_client_backend::tor::Client>,
+    expected_generation: Option<u64>,
+) -> Result<()> {
+    let (wallet_path, cipher_key) = {
+        let guard = ENGINE.lock().await;
+        let engine = guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Wallet closed before broadcast"))?;
+        if expected_generation.is_some_and(|generation| generation != engine.generation) {
+            anyhow::bail!("Wallet session changed before broadcast");
+        }
+        if &engine.params != params || engine.server_url != primary_url {
+            anyhow::bail!("Wallet or server changed before broadcast");
+        }
+        if engine.tor_required && tor.is_none() {
+            anyhow::bail!("Private route changed before broadcast; review again");
+        }
+        engine.tor_transport()?;
+        (engine.db_data_path.clone(), engine.db_cipher_key.clone())
+    };
+    // Sync progress is process-global and can still describe a previous
+    // network. Only this wallet's persisted chain height may bound a peer tip.
+    let known_tip = u32::from(
+        open_wallet_db(&wallet_path, *params, &cipher_key)?
+            .chain_height()
+            .map_err(|e| anyhow::anyhow!("Read wallet height before broadcast: {e:?}"))?
+            .ok_or_else(|| anyhow::anyhow!("Sync before broadcasting a transaction"))?,
+    );
     let known = known_lightwalletd_servers(params);
     let is_known_primary = known.iter().any(|s| s == primary_url);
 
     if !is_known_primary || known.len() <= 1 {
-        let mut lwd = connect_lwd_with_tor(primary_url, tor.as_ref()).await?;
-        let resp = lwd
-            .send_transaction(RawTransaction { data: tx_bytes, height: 0 })
+        let resp = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            let mut lwd = connect_lwd_with_tor(primary_url, tor.as_ref()).await?;
+            crate::network_upgrade::submit_transaction_with_generation(
+                &mut lwd,
+                params,
+                tx_bytes,
+                known_tip,
+                expected_generation,
+            )
             .await
-            .map_err(|e| anyhow::anyhow!("Broadcast failed: {:?}", e))?
-            .into_inner();
+        })
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "Broadcast timed out; check this transaction's status before another payment"
+            )
+        })??;
         if resp.error_code != 0 {
             return Err(anyhow::anyhow!(
                 "Broadcast rejected: {} (code {})",
-                resp.error_message, resp.error_code
+                resp.error_message,
+                resp.error_code
             ));
         }
         return Ok(());
@@ -143,23 +292,42 @@ pub(crate) async fn broadcast_with_transport(
         let url = server.clone();
         let data = tx_bytes.clone();
         let tor = tor.clone();
+        let params = *params;
         handles.push(tokio::spawn(async move {
-            let client = connect_lwd_with_tor(&url, tor.as_ref()).await;
+            let request = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+                let mut lwd = connect_lwd_with_tor(&url, tor.as_ref()).await?;
+                crate::network_upgrade::submit_transaction_with_generation(
+                    &mut lwd,
+                    &params,
+                    data,
+                    known_tip,
+                    expected_generation,
+                )
+                .await
+            })
+            .await;
+            let client = match request {
+                Ok(result) => result,
+                Err(_) => {
+                    return Err(format!(
+                        "{}: broadcast timed out; outcome may be pending",
+                        url
+                    ))
+                }
+            };
             match client {
-                Ok(mut lwd) => {
-                    match lwd.send_transaction(RawTransaction { data, height: 0 }).await {
-                        Ok(resp) => {
-                            let r = resp.into_inner();
-                            if r.error_code == 0 {
-                                Ok(url)
-                            } else {
-                                Err(format!("{}: rejected code={} msg={}", url, r.error_code, r.error_message))
-                            }
-                        }
-                        Err(e) => Err(format!("{}: rpc error {:?}", url, e)),
+                Ok(resp) => {
+                    let r = resp;
+                    if r.error_code == 0 {
+                        Ok(url)
+                    } else {
+                        Err(format!(
+                            "{}: rejected code={} msg={}",
+                            url, r.error_code, r.error_message
+                        ))
                     }
                 }
-                Err(e) => Err(format!("{}: connect failed {:?}", url, e)),
+                Err(e) => Err(format!("{}: broadcast failed {:?}", url, e)),
             }
         }));
     }
@@ -177,9 +345,15 @@ pub(crate) async fn broadcast_with_transport(
     }
 
     if successes.is_empty() {
-        error!("Multi-server broadcast: all {} servers rejected", failures.len());
+        error!(
+            "Multi-server broadcast: all {} servers rejected",
+            failures.len()
+        );
         let first_err = failures.into_iter().next().unwrap_or_default();
-        return Err(anyhow::anyhow!("Broadcast failed on all servers: {}", first_err));
+        return Err(anyhow::anyhow!(
+            "Broadcast failed on all servers: {}",
+            first_err
+        ));
     }
 
     info!(
@@ -254,7 +428,7 @@ fn clear_stale_note_locks(db_data: &mut DbType, db_data_path: &Path) {
 
     if let Some(id) = account_id {
         match db_data.clear_locked_outputs(id) {
-            Ok(0) => {},
+            Ok(0) => {}
             Ok(n) => info!("Cleared {} stale note lock(s)", n),
             Err(e) => warn!("Failed to clear note locks: {:?}", e),
         }
@@ -273,9 +447,8 @@ fn clear_stale_note_locks(db_data: &mut DbType, db_data_path: &Path) {
 /// When `is_max` is true the SDK's `propose_send_max_transfer` is used and
 /// `amount` is ignored — the returned `send_amount` is computed by the SDK.
 ///
-/// When `priority` is true, a 4x marginal fee is used (20000 zat vs 5000 zat
-/// standard). This makes the transaction more likely to be mined quickly but
-/// costs more.
+/// One relay fee snapshot is used for selection, change, review and construction.
+/// Priority pays 10x that snapshot's marginal fee; it does not guarantee inclusion.
 pub async fn propose_send(
     address: &str,
     amount: u64,
@@ -284,13 +457,15 @@ pub async fn propose_send(
     priority: bool,
 ) -> Result<(u64, u64, bool)> {
     super::sync::ensure_synced().await?;
-    let fee_rule = wallet_fee_rule(priority);
+    let fee_snapshot = fees::snapshot(priority).await?;
+    let fee_rule = fee_snapshot.fee_rule()?;
 
     let engine_guard = ENGINE.lock().await;
     let engine = engine_guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
 
+    fee_snapshot.validate_engine(engine)?;
     let db_data_path = engine.db_data_path.clone();
     let params = engine.params;
     let db_cipher_key = engine.db_cipher_key.clone();
@@ -335,77 +510,15 @@ pub async fn propose_send(
     );
 
     if is_max {
-        // librustzcash 0.21 has a bug in `propose_send_max_transfer` for transparent
-        // recipients: it never inserts `PoolType::Transparent` into the payment_pools
-        // map, causing `PaymentPoolsMismatch`. Workaround: probe the fee with a
-        // standard transfer, adjusting the amount until it fits.
-        if is_transparent_dest {
-            let summary_opt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                db_data.get_wallet_summary(ConfirmationsPolicy::MIN)
-            }))
-            .map_err(|_| anyhow::anyhow!("wallet summary unavailable"))?
-            .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-            let summary =
-                summary_opt.ok_or_else(|| anyhow::anyhow!("wallet summary not yet available"))?;
-            let ab = summary
-                .account_balances()
-                .get(&account_id)
-                .ok_or_else(|| anyhow::anyhow!("account balance missing"))?;
-            let spendable: u64 = u64::from(ab.sapling_balance().spendable_value())
-                + u64::from(ab.orchard_balance().spendable_value())
-                + u64::from(ab.ironwood_balance().spendable_value());
-
-            // Probe progressively larger fee buffers until the proposal succeeds.
-            // ZIP-317 base is 5_000 zat and most max-to-transparent sends fit within
-            // 25_000 zat. Any over-estimate ends up as shielded change, which is fine.
-            let mut last_err: Option<anyhow::Error> = None;
-            for base_buffer in [10_000u64, 15_000, 20_000, 25_000, 30_000, 40_000] {
-                let fee_buffer = base_buffer * if priority { 4 } else { 1 };
-                if spendable <= fee_buffer {
-                    continue;
-                }
-                let target = spendable - fee_buffer;
-                let send_zat = match Zatoshis::from_u64(target) {
-                    Ok(z) => z,
-                    Err(_) => continue,
-                };
-                let attempt = propose_wallet_transfer(
-                    &mut db_data,
-                    &params,
-                    fee_rule.clone(),
-                    account_id,
-                    confirmations,
-                    &to,
-                    send_zat,
-                    memo_bytes.clone(),
-                );
-                match attempt {
-                    Ok(proposal) => {
-                        let fee = u64::from(proposal.steps().first().balance().fee_required());
-                        info!(
-                            "Max-to-transparent proposal: send {:.8} ZEC + {:.8} ZEC fee (buffer {})",
-                            target as f64 / 1e8,
-                            fee as f64 / 1e8,
-                            fee_buffer,
-                        );
-                        *PENDING_SEND.lock().unwrap() = Some(proposal);
-                        return Ok((target, fee, true));
-                    }
-                    Err(e) => {
-                        last_err = Some(anyhow::anyhow!("{:?}", e));
-                    }
-                }
-            }
-            return Err(last_err.unwrap_or_else(|| {
-                anyhow::anyhow!("Insufficient balance for max-to-transparent send")
-            }));
-        }
-
         let proposal = propose_send_max_transfer::<_, _, _, std::convert::Infallible>(
             &mut db_data,
             &params,
             account_id,
-            &[ShieldedPool::Sapling, ShieldedPool::Orchard, ShieldedPool::Ironwood],
+            &[
+                ShieldedPool::Sapling,
+                ShieldedPool::Orchard,
+                ShieldedPool::Ironwood,
+            ],
             &fee_rule.clone(),
             zaddr,
             memo_bytes,
@@ -416,22 +529,14 @@ pub async fn propose_send(
         )
         .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))?;
 
-        let fee = u64::from(proposal.steps().first().balance().fee_required());
-        let send_amount: u64 = proposal
-            .steps()
-            .first()
-            .transaction_request()
-            .payments()
-            .values()
-            .filter_map(|p| p.amount().map(|a| u64::from(a)))
-            .sum();
+        let (send_amount, fee) = proposal_totals(&proposal)?;
 
         info!(
             "Proposal ready: {:.8} ZEC + {:.8} ZEC fee",
             send_amount as f64 / 1e8,
             fee as f64 / 1e8
         );
-        *PENDING_SEND.lock().unwrap() = Some(proposal);
+        store_pending_send(proposal, fee_snapshot).await?;
         Ok((send_amount, fee, true))
     } else {
         let send_zat = Zatoshis::from_u64(amount).map_err(|_| anyhow::anyhow!("Invalid amount"))?;
@@ -454,10 +559,10 @@ pub async fn propose_send(
             }
         })?;
 
-        let fee = u64::from(proposal.steps().first().balance().fee_required());
+        let (_, fee) = proposal_totals(&proposal)?;
         if priority {
             info!(
-                "Priority proposal ready: {:.8} ZEC + {:.8} ZEC fee (4x marginal fee)",
+                "Priority proposal ready: {:.8} ZEC + {:.8} ZEC fee (10x marginal fee)",
                 amount as f64 / 1e8,
                 fee as f64 / 1e8
             );
@@ -468,7 +573,7 @@ pub async fn propose_send(
                 fee as f64 / 1e8
             );
         }
-        *PENDING_SEND.lock().unwrap() = Some(proposal);
+        store_pending_send(proposal, fee_snapshot).await?;
         Ok((amount, fee, true))
     }
 }
@@ -483,16 +588,22 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
             .ok_or_else(|| anyhow::anyhow!("No pending proposal — call propose_send first"))?
     };
 
+    ensure_single_step(pending.proposal.steps().len())?;
     let engine_guard = ENGINE.lock().await;
     let engine = engine_guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
 
+    pending.fee_snapshot.validate_engine(engine)?;
     let db_data_path = engine.db_data_path.clone();
     let params = engine.params;
     let server_url = engine.server_url.clone();
     let db_cipher_key = engine.db_cipher_key.clone();
     drop(engine_guard);
+    let expiry = pending
+        .fee_snapshot
+        .fresh_expiry(u32::from(pending.proposal.min_target_height()))
+        .await?;
 
     let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase.expose_secret())
         .map_err(|_| anyhow::anyhow!("Invalid seed phrase"))?;
@@ -521,8 +632,8 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
         &prover,
         &spending_keys,
         OvkPolicy::Sender,
-        &pending,
-        None,
+        &pending.proposal,
+        Some(expiry),
     )
     .map_err(|e| {
         error!("Transaction creation failed: {:?}", e);
@@ -552,7 +663,15 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
 
     info!("Broadcasting to network...");
     let raw_tx = tx_bytes.clone();
-    broadcast_multi(&server_url, &params, tx_bytes).await?;
+    let tor = pending.fee_snapshot.broadcast_transport().await?;
+    broadcast_for_generation(
+        &server_url,
+        &params,
+        tx_bytes,
+        tor,
+        pending.fee_snapshot.generation(),
+    )
+    .await?;
 
     clear_pczt_lock(
         db_data_path
@@ -585,15 +704,21 @@ pub async fn create_pczt() -> Result<Vec<u8>> {
             .ok_or_else(|| anyhow::anyhow!("No pending proposal — call propose_send first"))?
     };
 
+    ensure_single_step(proposal.proposal.steps().len())?;
     let engine_guard = ENGINE.lock().await;
     let engine = engine_guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
 
+    proposal.fee_snapshot.validate_engine(engine)?;
     let db_data_path = engine.db_data_path.clone();
     let params = engine.params;
     let db_cipher_key = engine.db_cipher_key.clone();
     drop(engine_guard);
+    let expiry = proposal
+        .fee_snapshot
+        .fresh_expiry(u32::from(proposal.proposal.min_target_height()))
+        .await?;
 
     let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
 
@@ -617,8 +742,8 @@ pub async fn create_pczt() -> Result<Vec<u8>> {
         &params,
         account_id,
         OvkPolicy::Sender,
-        &proposal,
-        None,
+        &proposal.proposal,
+        Some(expiry),
         BundlePadding::DEFAULT,
     )
     .map_err(|e| anyhow::anyhow!("PCZT creation failed: {:?}", e))?;
@@ -627,6 +752,7 @@ pub async fn create_pczt() -> Result<Vec<u8>> {
     let bytes = proved_pczt
         .serialize()
         .map_err(|e| anyhow::anyhow!("PCZT serialize failed: {:?}", e))?;
+    proposal.fee_snapshot.validate_current().await?;
     set_pczt_lock(&db_data_path);
     info!(
         "PCZT ready ({} bytes) — awaiting external signing",
@@ -661,6 +787,7 @@ async fn store_signed_pczt_inner(signed_pczt_bytes: &[u8], broadcast: bool) -> R
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
 
+    let generation = engine.generation;
     let db_data_path = engine.db_data_path.clone();
     let params = engine.params;
     let server_url = engine.server_url.clone();
@@ -670,9 +797,12 @@ async fn store_signed_pczt_inner(signed_pczt_bytes: &[u8], broadcast: bool) -> R
     let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
 
     let sapling_keys = if !signed_pczt.sapling().spends().is_empty()
-        || !signed_pczt.sapling().outputs().is_empty() {
+        || !signed_pczt.sapling().outputs().is_empty()
+    {
         Some(load_prover_from_path(&db_data_path)?.verifying_keys())
-    } else { None };
+    } else {
+        None
+    };
 
     info!("Extracting and storing signed transaction in wallet DB...");
     let txid = extract_and_store_transaction_from_pczt::<DbType, Network>(
@@ -697,11 +827,24 @@ async fn store_signed_pczt_inner(signed_pczt_bytes: &[u8], broadcast: bool) -> R
             .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
 
         let raw_tx = tx_bytes.clone();
-        broadcast_multi(&server_url, &params, tx_bytes).await?;
+        let tor = {
+            let guard = ENGINE.lock().await;
+            let engine = guard
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Wallet closed during PCZT processing"))?;
+            if engine.generation != generation {
+                anyhow::bail!("Wallet session changed during PCZT processing");
+            }
+            engine.tor_transport()?
+        };
+        broadcast_for_generation(&server_url, &params, tx_bytes, tor, generation).await?;
         if let Err(e) =
             super::pending::record_broadcast(&db_data_path, &db_cipher_key, txid, &raw_tx)
         {
-            debug!("Failed to record pending PCZT transaction {}: {:?}", txid, e);
+            debug!(
+                "Failed to record pending PCZT transaction {}: {:?}",
+                txid, e
+            );
         }
         super::sync::emit_transaction_event(txid.to_string(), "pending");
     }
@@ -715,11 +858,20 @@ async fn store_signed_pczt_inner(signed_pczt_bytes: &[u8], broadcast: bool) -> R
 /// Compute the maximum sendable amount to a given address.
 /// Only considers shielded funds (transparent must be shielded first).
 pub async fn get_max_sendable(address: &str) -> Result<u64> {
+    get_max_sendable_with_priority(address, false).await
+}
+
+/// A priority-aware estimate for interfaces that already know the selected fee tier.
+/// A subsequent send still makes its own fresh proposal and returns its exact amount.
+pub async fn get_max_sendable_with_priority(address: &str, priority: bool) -> Result<u64> {
+    let fee_snapshot = fees::snapshot(priority).await?;
+    let fee_rule = fee_snapshot.fee_rule()?;
     let engine_guard = ENGINE.lock().await;
     let engine = engine_guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
 
+    fee_snapshot.validate_engine(engine)?;
     let db_data_path = engine.db_data_path.clone();
     let params = engine.params;
     let db_cipher_key = engine.db_cipher_key.clone();
@@ -739,64 +891,16 @@ pub async fn get_max_sendable(address: &str) -> Result<u64> {
     let zaddr: ZcashAddress = address
         .parse()
         .map_err(|e| anyhow::anyhow!("Invalid address: {:?}", e))?;
-    let to = Address::try_from_zcash_address(&params, zaddr.clone())
-        .map_err(|e| anyhow::anyhow!("Address conversion: {:?}", e))?;
-    let is_transparent_dest = matches!(to, Address::Transparent(_));
-
-    // librustzcash 0.21 bug: `propose_send_max_transfer` to a transparent
-    // recipient always errors with `PaymentPoolsMismatch`. Estimate via probing.
-    if is_transparent_dest {
-        let summary_opt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            db_data.get_wallet_summary(ConfirmationsPolicy::MIN)
-        }))
-        .map_err(|_| anyhow::anyhow!("wallet summary unavailable"))?
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
-        let summary = match summary_opt {
-            Some(s) => s,
-            None => return Ok(0),
-        };
-        let ab = match summary.account_balances().get(&account_id) {
-            Some(ab) => ab,
-            None => return Ok(0),
-        };
-        let spendable: u64 = u64::from(ab.sapling_balance().spendable_value())
-            + u64::from(ab.orchard_balance().spendable_value());
-        for fee_buffer in [10_000u64, 15_000, 20_000, 25_000, 30_000, 40_000] {
-            if spendable <= fee_buffer {
-                continue;
-            }
-            let target = spendable - fee_buffer;
-            let send_zat = match Zatoshis::from_u64(target) {
-                Ok(z) => z,
-                Err(_) => continue,
-            };
-            let attempt = propose_standard_transfer_to_address::<_, _, std::convert::Infallible>(
-                &mut db_data,
-                &params,
-                StandardFeeRule::Zip317,
-                account_id,
-                confirmations,
-                &to,
-                send_zat,
-                None,
-                None,
-                ShieldedPool::Orchard,
-                None,
-                None,
-            );
-            if attempt.is_ok() {
-                return Ok(target);
-            }
-        }
-        return Ok(0);
-    }
-
     let proposal_result = propose_send_max_transfer::<_, _, _, std::convert::Infallible>(
         &mut db_data,
         &params,
         account_id,
-        &[ShieldedPool::Sapling, ShieldedPool::Orchard, ShieldedPool::Ironwood],
-        &StandardFeeRule::Zip317,
+        &[
+            ShieldedPool::Sapling,
+            ShieldedPool::Orchard,
+            ShieldedPool::Ironwood,
+        ],
+        &fee_rule,
         zaddr,
         None,
         MaxSpendMode::MaxSpendable,
@@ -804,17 +908,13 @@ pub async fn get_max_sendable(address: &str) -> Result<u64> {
         &LockedInputPolicy::default(),
         None,
     );
+    fee_snapshot.validate_current().await?;
 
     match proposal_result {
         Ok(proposal) => {
-            let send_amount: u64 = proposal
-                .steps()
-                .first()
-                .transaction_request()
-                .payments()
-                .values()
-                .filter_map(|p| p.amount().map(|a| u64::from(a)))
-                .sum();
+            ensure_single_step(proposal.steps().len())?;
+            fee_snapshot.expiry_at_review(u32::from(proposal.min_target_height()))?;
+            let (send_amount, _) = proposal_totals(&proposal)?;
             Ok(send_amount)
         }
         Err(e) => {
@@ -835,6 +935,7 @@ pub async fn get_max_sendable(address: &str) -> Result<u64> {
 fn propose_and_create_send(
     db_data: &mut DbType,
     params: &Network,
+    fee_snapshot: &FeeSnapshot,
     account_id: <DbType as InputSource>::AccountId,
     to: &Address,
     amount: Zatoshis,
@@ -842,22 +943,19 @@ fn propose_and_create_send(
     prover: &LocalTxProver,
     usk: UnifiedSpendingKey,
 ) -> Result<nonempty::NonEmpty<zcash_primitives::transaction::TxId>> {
-    let proposal = propose_standard_transfer_to_address::<_, _, std::convert::Infallible>(
+    let proposal = propose_wallet_transfer(
         db_data,
         params,
-        StandardFeeRule::Zip317,
+        fee_snapshot.fee_rule()?,
         account_id,
         ConfirmationsPolicy::MIN,
         to,
         amount,
         memo,
-        None,
-        ShieldedPool::Orchard,
-        None,
-        None,
-    )
-    .map_err(|e| anyhow::anyhow!("Proposal failed: {:?}", e))?;
+    )?;
 
+    ensure_single_step(proposal.steps().len())?;
+    let expiry = fee_snapshot.expiry_at_review(u32::from(proposal.min_target_height()))?;
     let spending_keys = SpendingKeys::from_unified_spending_key(usk);
 
     create_proposed_transactions::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(
@@ -868,7 +966,7 @@ fn propose_and_create_send(
         &spending_keys,
         OvkPolicy::Sender,
         &proposal,
-        None,
+        Some(expiry),
     )
     .map_err(|e| anyhow::anyhow!("Create tx failed: {:?}", e))
 }
@@ -876,13 +974,14 @@ fn propose_and_create_send(
 fn propose_and_create_shielding(
     db_data: &mut DbType,
     params: &Network,
+    fee_snapshot: &FeeSnapshot,
     from_addrs: &[zcash_transparent::address::TransparentAddress],
     to_account: <DbType as InputSource>::AccountId,
     prover: &LocalTxProver,
     usk: UnifiedSpendingKey,
 ) -> Result<nonempty::NonEmpty<zcash_primitives::transaction::TxId>> {
     let change_strategy = zcash_client_backend::fees::zip317::SingleOutputChangeStrategy::new(
-        StandardFeeRule::Zip317,
+        fee_snapshot.fee_rule()?,
         None,
         ShieldedPool::Orchard,
         zcash_client_backend::fees::DustOutputPolicy::default(),
@@ -904,6 +1003,8 @@ fn propose_and_create_shielding(
     )
     .map_err(|e| anyhow::anyhow!("Shielding proposal failed: {:?}", e))?;
 
+    ensure_single_step(proposal.steps().len())?;
+    let expiry = fee_snapshot.expiry_at_review(u32::from(proposal.min_target_height()))?;
     let spending_keys = SpendingKeys::from_unified_spending_key(usk);
 
     create_proposed_transactions::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(
@@ -914,7 +1015,7 @@ fn propose_and_create_shielding(
         &spending_keys,
         OvkPolicy::Sender,
         &proposal,
-        None,
+        Some(expiry),
     )
     .map_err(|e| anyhow::anyhow!("Create shielding tx failed: {:?}", e))
 }
@@ -925,11 +1026,14 @@ fn propose_and_create_shielding(
 /// shielding proposal and then runs the same Creator + Prover PCZT roles used
 /// by normal sends, without reading any seed material.
 pub async fn create_shield_pczt() -> Result<Vec<u8>> {
+    let fee_snapshot = fees::snapshot(false).await?;
+    let fee_rule = fee_snapshot.fee_rule()?;
     let engine_guard = ENGINE.lock().await;
     let engine = engine_guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
 
+    fee_snapshot.validate_engine(engine)?;
     let db_data_path = engine.db_data_path.clone();
     let params = engine.params;
     let db_cipher_key = engine.db_cipher_key.clone();
@@ -956,7 +1060,7 @@ pub async fn create_shield_pczt() -> Result<Vec<u8>> {
     }
 
     let change_strategy = zcash_client_backend::fees::zip317::SingleOutputChangeStrategy::new(
-        StandardFeeRule::Zip317,
+        fee_rule,
         None,
         ShieldedPool::Orchard,
         zcash_client_backend::fees::DustOutputPolicy::default(),
@@ -978,6 +1082,8 @@ pub async fn create_shield_pczt() -> Result<Vec<u8>> {
     )
     .map_err(|e| anyhow::anyhow!("Shielding proposal failed: {:?}", e))?;
 
+    ensure_single_step(proposal.steps().len())?;
+    let expiry = fee_snapshot.expiry_at_review(u32::from(proposal.min_target_height()))?;
     let pczt = create_pczt_from_proposal::<
         _,
         _,
@@ -991,7 +1097,7 @@ pub async fn create_shield_pczt() -> Result<Vec<u8>> {
         account_id,
         OvkPolicy::Sender,
         &proposal,
-        None,
+        Some(expiry),
         BundlePadding::DEFAULT,
     )
     .map_err(|e| anyhow::anyhow!("Shield PCZT creation failed: {:?}", e))?;
@@ -1000,13 +1106,15 @@ pub async fn create_shield_pczt() -> Result<Vec<u8>> {
     let bytes = proved_pczt
         .serialize()
         .map_err(|e| anyhow::anyhow!("PCZT serialize failed: {:?}", e))?;
+    fee_snapshot.validate_current().await?;
     set_pczt_lock(&db_data_path);
     Ok(bytes)
 }
 
 fn orchard_circuit_version(branch: u32) -> Result<OrchardCircuitVersion> {
     use zcash_protocol::consensus::{BranchId, OrchardProtocolRevision};
-    let revision = BranchId::try_from(branch).ok()
+    let revision = BranchId::try_from(branch)
+        .ok()
         .and_then(|b| b.orchard_protocol_revision())
         .ok_or_else(|| anyhow::anyhow!("Unsupported Orchard consensus branch"))?;
     Ok(match revision {
@@ -1023,8 +1131,14 @@ mod circuit_tests {
 
     #[test]
     fn selects_the_transaction_circuit_and_rejects_unknown_branches() {
-        assert_eq!(orchard_circuit_version(u32::from(BranchId::Nu6_2)).unwrap(), OrchardCircuitVersion::FixedPostNu6_2);
-        assert_eq!(orchard_circuit_version(u32::from(BranchId::Nu6_3)).unwrap(), OrchardCircuitVersion::PostNu6_3);
+        assert_eq!(
+            orchard_circuit_version(u32::from(BranchId::Nu6_2)).unwrap(),
+            OrchardCircuitVersion::FixedPostNu6_2
+        );
+        assert_eq!(
+            orchard_circuit_version(u32::from(BranchId::Nu6_3)).unwrap(),
+            OrchardCircuitVersion::PostNu6_3
+        );
         assert!(orchard_circuit_version(u32::from(BranchId::Sapling)).is_err());
         assert!(orchard_circuit_version(0xffff_ffff).is_err());
     }
@@ -1036,17 +1150,22 @@ fn prove_pczt(pczt: pczt::Pczt, path: &Path) -> Result<pczt::Pczt> {
     let mut prover = pczt::roles::prover::Prover::new(pczt);
     if prover.requires_sapling_proofs() {
         let sapling = load_prover_from_path(path)?;
-        prover = prover.create_sapling_proofs(&sapling, &sapling)
+        prover = prover
+            .create_sapling_proofs(&sapling, &sapling)
             .map_err(|e| anyhow::anyhow!("Sapling proving failed: {e:?}"))?;
     }
     if prover.requires_orchard_proof() {
-        let key = cached_orchard_proving_key(orchard_circuit_version(branch)?);
-        prover = prover.create_orchard_proof(key)
+        let key = cached_orchard_proving_key(orchard_circuit_version(branch)?)
+            .map_err(|e| anyhow::anyhow!("Unsupported Orchard proving circuit: {e:?}"))?;
+        prover = prover
+            .create_orchard_proof(key)
             .map_err(|e| anyhow::anyhow!("Orchard proving failed: {e:?}"))?;
     }
     if prover.requires_ironwood_proof() {
-        let key = cached_orchard_proving_key(OrchardCircuitVersion::PostNu6_3);
-        prover = prover.create_ironwood_proof(key)
+        let key = cached_orchard_proving_key(OrchardCircuitVersion::PostNu6_3)
+            .map_err(|e| anyhow::anyhow!("Unsupported Ironwood proving circuit: {e:?}"))?;
+        prover = prover
+            .create_ironwood_proof(key)
             .map_err(|e| anyhow::anyhow!("Ironwood proving failed: {e:?}"))?;
     }
     Ok(prover.finish())
@@ -1084,11 +1203,13 @@ pub async fn send_payment(
     seed_phrase: &SecretString,
     recipients: Vec<(String, u64, Option<String>)>,
 ) -> Result<String> {
+    let fee_snapshot = fees::snapshot(false).await?;
     let engine_guard = ENGINE.lock().await;
     let engine = engine_guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
 
+    fee_snapshot.validate_engine(engine)?;
     let db_data_path = engine.db_data_path.clone();
     let params = engine.params;
     let server_url = engine.server_url.clone();
@@ -1142,6 +1263,7 @@ pub async fn send_payment(
     let txids = propose_and_create_send(
         &mut db_data,
         &params,
+        &fee_snapshot,
         account_id,
         &to,
         amount,
@@ -1160,7 +1282,15 @@ pub async fn send_payment(
         .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
 
     let raw_tx = tx_bytes.clone();
-    broadcast_multi(&server_url, &params, tx_bytes).await?;
+    let tor = fee_snapshot.broadcast_transport().await?;
+    broadcast_for_generation(
+        &server_url,
+        &params,
+        tx_bytes,
+        tor,
+        fee_snapshot.generation(),
+    )
+    .await?;
 
     if let Err(e) = super::pending::record_broadcast(&db_data_path, &db_cipher_key, *txid, &raw_tx)
     {
@@ -1175,11 +1305,13 @@ pub async fn send_payment(
 // ---------------------------------------------------------------------------
 
 pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
+    let fee_snapshot = fees::snapshot(false).await?;
     let engine_guard = ENGINE.lock().await;
     let engine = engine_guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
 
+    fee_snapshot.validate_engine(engine)?;
     let db_data_path = engine.db_data_path.clone();
     let params = engine.params;
     let server_url = engine.server_url.clone();
@@ -1215,8 +1347,15 @@ pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
 
     let prover = load_prover_from_path(&db_data_path)?;
 
-    let txids =
-        propose_and_create_shielding(&mut db_data, &params, &from_addrs, account_id, &prover, usk)?;
+    let txids = propose_and_create_shielding(
+        &mut db_data,
+        &params,
+        &fee_snapshot,
+        &from_addrs,
+        account_id,
+        &prover,
+        usk,
+    )?;
 
     let txid = txids.first();
 
@@ -1230,7 +1369,15 @@ pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
         .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
 
     let raw_tx = tx_bytes.clone();
-    broadcast_multi(&server_url, &params, tx_bytes).await?;
+    let tor = fee_snapshot.broadcast_transport().await?;
+    broadcast_for_generation(
+        &server_url,
+        &params,
+        tx_bytes,
+        tor,
+        fee_snapshot.generation(),
+    )
+    .await?;
 
     if let Err(e) = super::pending::record_broadcast(&db_data_path, &db_cipher_key, *txid, &raw_tx)
     {
@@ -1246,17 +1393,19 @@ pub async fn shield_funds(seed_phrase: &SecretString) -> Result<String> {
 // denominations, boundary-aligned anchors, and unpadded Ironwood bundles.
 
 #[cfg(test)]
-mod fee_tier_tests {
+mod proposal_shape_tests {
     use super::*;
-    use zcash_primitives::transaction::fees::FeeRule;
+
     #[test]
-    fn priority_scales_the_fee_used_by_the_builder() {
-        for actions in [2, 3, 8] {
-            let fee = |priority| wallet_fee_rule(priority).fee_required(
-                &Network::MainNetwork, 3_477_000u32.into(), [], [], 0, 0, actions, 0,
-            ).unwrap();
-            assert_eq!(u64::from(fee(false)), 5_000 * actions as u64);
-            assert_eq!(u64::from(fee(true)), 4 * u64::from(fee(false)));
+    fn unsupported_shapes_preserve_the_previously_reviewed_proposal() {
+        let mut pending = Some("reviewed payment");
+        for steps in [0, 2, 3] {
+            let error = replace_single_step_pending(&mut pending, steps, "unsupported payment")
+                .unwrap_err();
+            assert!(error.to_string().contains("multiple transactions"));
+            assert_eq!(pending, Some("reviewed payment"));
         }
+        replace_single_step_pending(&mut pending, 1, "new reviewed payment").unwrap();
+        assert_eq!(pending, Some("new reviewed payment"));
     }
 }

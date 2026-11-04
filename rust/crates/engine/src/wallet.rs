@@ -6,10 +6,12 @@ use zcash_client_backend::proto::service::{
     compact_tx_streamer_client::CompactTxStreamerClient, BlockId, ChainSpec,
 };
 use zcash_client_sqlite::wallet::init::init_wallet_db;
-use zcash_protocol::consensus::{BlockHeight, Network};
+use zcash_protocol::consensus::{BlockHeight, Network, NetworkUpgrade, Parameters};
 
 use super::vault::Vault;
-use super::{db_paths, migrate_to_encrypted, open_wallet_db, ZipherEngine, ENGINE};
+use super::{
+    db_paths, migrate_to_encrypted, open_wallet_db, ZipherEngine, ENGINE, WALLET_TRANSPORT,
+};
 
 // ---------------------------------------------------------------------------
 // lightwalletd gRPC helpers
@@ -50,7 +52,7 @@ pub(crate) async fn fetch_tree_state(
     server_url: &str,
     height: u64,
 ) -> Result<zcash_client_backend::proto::service::TreeState> {
-    let mut client = connect_lwd(server_url).await?;
+    let mut client = connect_wallet_lwd(server_url).await?;
     let resp = client
         .get_tree_state(BlockId {
             height,
@@ -62,12 +64,24 @@ pub(crate) async fn fetch_tree_state(
 }
 
 pub async fn fetch_latest_height(server_url: &str) -> Result<u64> {
-    let mut client = connect_lwd(server_url).await?;
+    let mut client = connect_wallet_lwd(server_url).await?;
     let resp = client
         .get_latest_block(ChainSpec {})
         .await
         .map_err(|e| anyhow::anyhow!("get_latest_block failed: {:?}", e))?;
     Ok(resp.into_inner().height)
+}
+
+/// Also used before wallet creation: a failed private route cannot fall back
+/// to the direct helpers while fetching the initial tip or birthday tree.
+async fn connect_wallet_lwd(
+    server_url: &str,
+) -> Result<CompactTxStreamerClient<tonic::transport::Channel>> {
+    let tor = WALLET_TRANSPORT.lock().await.route()?;
+    match tor {
+        Some(client) => connect_lwd_tor(&client, server_url).await,
+        None => connect_lwd(server_url).await,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -82,11 +96,19 @@ static TOR_TRANSITION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(()
 pub async fn enable_tor(data_dir: &str) -> Result<()> {
     let _transition = TOR_TRANSITION.lock().await;
     let identity = {
+        let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
+        {
+            let mut transport = WALLET_TRANSPORT.lock().await;
+            transport.tor_required = true;
+            transport.tor_client = None;
+        }
         let mut guard = ENGINE.lock().await;
-        let engine = guard.as_mut().ok_or_else(|| anyhow::anyhow!("Wallet is not open"))?;
-        engine.tor_required = true;
-        engine.tor_client = None;
-        engine.db_data_path.clone()
+        guard.as_mut().map(|engine| {
+            engine.generation = super::next_engine_generation();
+            engine.tor_required = true;
+            engine.tor_client = None;
+            (engine.db_data_path.clone(), engine.generation)
+        })
     };
     let was_running = super::sync::is_running();
     // Existing HTTP/2 channels retain their route. Join both workers before
@@ -95,33 +117,63 @@ pub async fn enable_tor(data_dir: &str) -> Result<()> {
     let tor_dir = std::path::PathBuf::from(data_dir).join("tor");
     tokio::fs::create_dir_all(&tor_dir).await?;
     tracing::info!("Bootstrapping Tor for Zcash connections");
-    let client = tokio::time::timeout(std::time::Duration::from_secs(120),
+    let client = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
         zcash_client_backend::tor::Client::create(&tor_dir, |perms| {
             perms.ignore_prefix(&tor_dir);
-        })
-    ).await.map_err(|_| anyhow::anyhow!("Tor bootstrap timed out"))?
-        .map_err(|e| anyhow::anyhow!("Tor bootstrap failed: {e}"))?;
+        }),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("Tor bootstrap timed out"))?
+    .map_err(|e| anyhow::anyhow!("Tor bootstrap failed: {e}"))?;
     {
-        let mut guard = ENGINE.lock().await;
-        let engine = guard.as_mut().ok_or_else(|| anyhow::anyhow!("Wallet closed"))?;
-        if engine.db_data_path != identity {
-            anyhow::bail!("Wallet changed while connecting to Tor");
+        let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
+        if let Some(ref identity) = identity {
+            let mut guard = ENGINE.lock().await;
+            let engine = guard
+                .as_mut()
+                .ok_or_else(|| anyhow::anyhow!("Wallet closed"))?;
+            if (&engine.db_data_path, engine.generation) != (&identity.0, identity.1) {
+                anyhow::bail!("Wallet changed while connecting to Tor");
+            }
+            engine.tor_client = Some(client.clone());
         }
-        engine.tor_client = Some(client);
+        // Publish only after checking that an existing wallet still matches.
+        // A close raced with bootstrap must leave the process route closed.
+        WALLET_TRANSPORT.lock().await.tor_client = Some(client);
     }
     // Failure leaves Tor required; callers cannot retry over a direct route.
-    let verification = tokio::time::timeout(std::time::Duration::from_secs(30), verify_tor_connection())
-        .await.map_err(|_| anyhow::anyhow!("Tor verification timed out"))
-        .and_then(|result| result);
+    // Before creation the caller verifies its chosen server using the guarded
+    // height API. An open wallet can verify its own server here.
+    let verification = if identity.is_some() {
+        tokio::time::timeout(std::time::Duration::from_secs(30), verify_tor_connection())
+            .await
+            .map_err(|_| anyhow::anyhow!("Tor verification timed out"))
+            .and_then(|result| result)
+    } else {
+        Ok(0)
+    };
     if let Err(error) = verification {
+        let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
+        WALLET_TRANSPORT.lock().await.tor_client = None;
         let mut guard = ENGINE.lock().await;
-        if let Some(engine) = guard.as_mut().filter(|e| e.db_data_path == identity) {
+        if let Some(engine) = guard.as_mut().filter(|e| {
+            identity.as_ref().is_some_and(|(path, generation)| {
+                &e.db_data_path == path && e.generation == *generation
+            })
+        }) {
             engine.tor_client = None;
         }
         return Err(error);
     }
-    if was_running { super::sync::start().await?; }
-    tracing::info!("Tor verified; Zcash connections use Tor");
+    if was_running {
+        super::sync::start().await?;
+    }
+    if identity.is_some() {
+        tracing::info!("Tor verified; Zcash connections use Tor");
+    } else {
+        tracing::info!("Tor bootstrapped; verify the selected server before wallet creation");
+    }
     Ok(())
 }
 
@@ -131,8 +183,17 @@ pub async fn disable_tor() {
     let was_running = super::sync::is_running();
     super::sync::stop().await;
     {
+        let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
+        {
+            let mut transport = WALLET_TRANSPORT.lock().await;
+            if let Some(client) = transport.tor_client.take() {
+                client.set_dormant(zcash_client_backend::tor::DormantMode::Soft);
+            }
+            transport.tor_required = false;
+        }
         let mut guard = ENGINE.lock().await;
         if let Some(ref mut engine) = *guard {
+            engine.generation = super::next_engine_generation();
             if let Some(ref client) = engine.tor_client {
                 client.set_dormant(zcash_client_backend::tor::DormantMode::Soft);
             }
@@ -150,9 +211,7 @@ pub async fn disable_tor() {
 /// Returns whether Tor is currently active.
 pub async fn is_tor_enabled() -> bool {
     let guard = ENGINE.lock().await;
-    guard
-        .as_ref()
-        .map_or(false, |e| e.tor_client.is_some())
+    guard.as_ref().map_or(false, |e| e.tor_client.is_some())
 }
 
 /// Verify Tor is working by fetching the chain tip through the Tor circuit.
@@ -194,6 +253,21 @@ async fn resolve_height(server_url: &str, height: u32) -> Result<u64> {
     }
 }
 
+/// Select the prior chain state for restore without estimating a date from
+/// average block spacing. Zero requests full supported shielded history; the
+/// state immediately before Sapling ensures its first block is scanned too.
+/// Explicit positive anchors retain their existing meaning and are never
+/// advanced, including anchors needed for older transparent history.
+fn restore_tree_height<P: Parameters>(params: &P, requested: u32) -> Result<u64> {
+    if requested != 0 {
+        return Ok(u64::from(requested));
+    }
+    let activation = params
+        .activation_height(NetworkUpgrade::Sapling)
+        .ok_or_else(|| anyhow::anyhow!("Sapling activation is not configured for this network"))?;
+    Ok(u64::from(u32::from(activation).saturating_sub(1)))
+}
+
 /// Fetch tree state and build an AccountBirthday.
 /// `recover_until`: if `true`, also fetches the chain tip for recover-until
 /// (used by restore flows that need to scan from birthday to tip).
@@ -222,15 +296,37 @@ async fn activate_engine(
     birthday_height: u64,
     db_cipher_key: Option<String>,
 ) {
-    *ENGINE.lock().await = Some(ZipherEngine {
+    let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
+    let transport = WALLET_TRANSPORT.lock().await.clone();
+    *ENGINE.lock().await = Some(engine_with_transport(
+        db_data_path,
+        params,
+        server_url,
+        BlockHeight::from_u32(birthday_height as u32),
+        db_cipher_key,
+        transport,
+    ));
+}
+
+/// Shared by first activation and ordinary reopen; neither may reset privacy.
+fn engine_with_transport(
+    db_data_path: std::path::PathBuf,
+    params: Network,
+    server_url: &str,
+    birthday: BlockHeight,
+    db_cipher_key: Option<String>,
+    transport: super::WalletTransport,
+) -> ZipherEngine {
+    ZipherEngine {
+        generation: super::next_engine_generation(),
         db_data_path,
         params,
         server_url: server_url.to_string(),
-        birthday: BlockHeight::from_u32(birthday_height as u32),
+        birthday,
         db_cipher_key,
-        tor_required: false,
-        tor_client: None,
-    });
+        tor_required: transport.tor_required,
+        tor_client: transport.tor_client,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +346,7 @@ pub async fn create(
     db_cipher_key: Option<String>,
     vault_passphrase: Option<&str>,
 ) -> Result<String> {
+    let _transition = TOR_TRANSITION.lock().await;
     let (db_data_path, _) = db_paths(data_dir);
 
     let height = resolve_height(server_url, chain_height).await?;
@@ -289,13 +386,14 @@ pub async fn restore(
     db_cipher_key: Option<String>,
     vault_passphrase: Option<&str>,
 ) -> Result<()> {
+    let _transition = TOR_TRANSITION.lock().await;
     let (db_data_path, _) = db_paths(data_dir);
 
     let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_phrase(seed_phrase)
         .map_err(|_| anyhow::anyhow!("Invalid seed phrase"))?;
     let seed = SecretVec::new(mnemonic.to_seed("").to_vec());
 
-    let height = resolve_height(server_url, birthday_height).await?;
+    let height = restore_tree_height(&params, birthday_height)?;
     let (birthday, _) = build_birthday(server_url, height, true).await?;
 
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
@@ -306,7 +404,11 @@ pub async fn restore(
         .map_err(|e| anyhow::anyhow!("create_account: {:?}", e))?;
 
     if let Some(passphrase) = vault_passphrase {
-        Vault::create(data_dir, &SecretString::new(seed_phrase.to_string()), passphrase)?;
+        Vault::create(
+            data_dir,
+            &SecretString::new(seed_phrase.to_string()),
+            passphrase,
+        )?;
     }
 
     activate_engine(db_data_path, params, server_url, height, db_cipher_key).await;
@@ -322,9 +424,10 @@ pub async fn restore_from_ufvk(
     birthday_height: u32,
     db_cipher_key: Option<String>,
 ) -> Result<()> {
+    let _transition = TOR_TRANSITION.lock().await;
     let (db_data_path, _) = db_paths(data_dir);
 
-    let height = resolve_height(server_url, birthday_height).await?;
+    let height = restore_tree_height(&params, birthday_height)?;
     let (birthday, _) = build_birthday(server_url, height, true).await?;
 
     let ufvk = zcash_keys::keys::UnifiedFullViewingKey::decode(&params, ufvk_str)
@@ -354,6 +457,7 @@ pub async fn open(
     params: Network,
     db_cipher_key: Option<String>,
 ) -> Result<()> {
+    let _transition = TOR_TRANSITION.lock().await;
     let (db_data_path, _) = db_paths(data_dir);
 
     if !db_data_path.exists() {
@@ -378,16 +482,16 @@ pub async fn open(
     }));
 
     match init_result {
-        Ok(Ok(_)) => {},
+        Ok(Ok(_)) => {}
         Ok(Err(e)) => {
             return Err(anyhow::anyhow!("database schema migration failed: {:?}", e));
-        },
+        }
         Err(_panic) => {
             return Err(anyhow::anyhow!(
                 "database schema migration panicked — the wallet database is incompatible with this version. \
                  Delete and restore from seed to fix."
             ));
-        },
+        }
     }
 
     let account_ids = db
@@ -402,15 +506,16 @@ pub async fn open(
         .map_err(|e| anyhow::anyhow!("get_account_birthday error: {:?}", e))?;
     tracing::debug!("opened wallet, birthday={}", u32::from(birthday));
 
-    *ENGINE.lock().await = Some(ZipherEngine {
+    let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
+    let transport = WALLET_TRANSPORT.lock().await.clone();
+    *ENGINE.lock().await = Some(engine_with_transport(
         db_data_path,
         params,
-        server_url: server_url.to_string(),
+        server_url,
         birthday,
         db_cipher_key,
-        tor_required: false,
-        tor_client: None,
-    });
+        transport,
+    ));
 
     Ok(())
 }
@@ -420,6 +525,7 @@ pub async fn close() {
     tracing::info!("[engine] close wallet — stopping sync first");
     super::sync::stop().await;
 
+    let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
     *ENGINE.lock().await = None;
     tracing::info!("[engine] wallet closed");
 }
@@ -428,11 +534,13 @@ pub async fn close() {
 /// sync start uses the new URL instead of a stale in-flight client.
 pub async fn set_server(server_url: &str) -> Result<()> {
     super::sync::stop().await;
+    let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
     let mut engine = ENGINE.lock().await;
     let engine = engine
         .as_mut()
         .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
     engine.server_url = server_url.to_string();
+    engine.generation = super::next_engine_generation();
     tracing::info!("[engine] lightwalletd server updated");
     Ok(())
 }
@@ -464,4 +572,93 @@ pub fn delete(data_dir: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod privacy_tests {
+    use super::*;
+    use crate::{checked_transport, WalletTransport};
+
+    #[test]
+    fn full_restore_starts_at_the_first_sapling_block_on_both_networks() {
+        use zcash_client_backend::data_api::chain::ChainState;
+        for network in [Network::MainNetwork, Network::TestNetwork] {
+            let sapling = network.activation_height(NetworkUpgrade::Sapling).unwrap();
+            let tree_height = restore_tree_height(&network, 0).unwrap();
+            assert_eq!(tree_height + 1, u64::from(u32::from(sapling)));
+            let birthday = AccountBirthday::from_parts(
+                ChainState::empty(
+                    BlockHeight::from_u32(tree_height as u32),
+                    zcash_primitives::block::BlockHash([0; 32]),
+                ),
+                None,
+            );
+            assert_eq!(birthday.height(), sapling);
+            let nu7 = u32::from(network.activation_height(NetworkUpgrade::Nu7).unwrap());
+            for first_payment in [nu7 - 100_000, nu7 - 1, nu7, nu7 + 100_000] {
+                assert!(u32::from(birthday.height()) < first_payment);
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_restore_anchors_are_preserved_across_nu7_and_before_sapling() {
+        for network in [Network::MainNetwork, Network::TestNetwork] {
+            let nu7 = u32::from(network.activation_height(NetworkUpgrade::Nu7).unwrap());
+            let sapling = u32::from(network.activation_height(NetworkUpgrade::Sapling).unwrap());
+            for explicit in [1, sapling - 1, sapling, nu7 - 1, nu7, nu7 + 1] {
+                assert_eq!(
+                    restore_tree_height(&network, explicit).unwrap(),
+                    u64::from(explicit)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unavailable_private_route_never_dispatches_a_direct_request() {
+        let mut direct_calls = 0;
+        let mut tor_calls = 0;
+        let mut dispatch = |required, client: Option<&str>| -> Result<()> {
+            match checked_transport(required, &client)? {
+                Some(_) => tor_calls += 1,
+                None => direct_calls += 1,
+            }
+            Ok(())
+        };
+        assert!(dispatch(true, None).is_err());
+        dispatch(true, Some("mock verified Tor client")).unwrap();
+        dispatch(false, None).unwrap();
+        assert_eq!(direct_calls, 1);
+        assert_eq!(tor_calls, 1);
+    }
+
+    #[test]
+    fn activation_and_reopen_preserve_required_transport_after_failure() {
+        let required = WalletTransport {
+            tor_required: true,
+            tor_client: None,
+        };
+        for _ in 0..2 {
+            let engine = engine_with_transport(
+                "disposable-unopened-fixture.sqlite".into(),
+                Network::TestNetwork,
+                "https://unused.invalid:443",
+                BlockHeight::from_u32(100),
+                None,
+                required.clone(),
+            );
+            assert!(engine.tor_required);
+            assert!(engine.tor_transport().is_err());
+        }
+        let direct = engine_with_transport(
+            "disposable-unopened-fixture.sqlite".into(),
+            Network::TestNetwork,
+            "https://unused.invalid:443",
+            BlockHeight::from_u32(100),
+            None,
+            WalletTransport::default(),
+        );
+        assert!(direct.tor_transport().unwrap().is_none());
+    }
 }
