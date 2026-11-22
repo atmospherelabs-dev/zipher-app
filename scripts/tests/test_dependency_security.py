@@ -19,7 +19,7 @@ SPEC.loader.exec_module(GUARD)
 def graph():
     packages = [
         {"id": "rustls@0.23.46", "name": "rustls", "version": "0.23.46"},
-        {"id": "rmcp@1.8.0", "name": "rmcp", "version": "1.8.0"},
+        {"id": "rmcp@3.11.0", "name": "rmcp", "version": "3.11.0"},
     ]
     return {
         "packages": packages,

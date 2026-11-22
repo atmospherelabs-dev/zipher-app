@@ -138,7 +138,7 @@ def validate(metadata, repo_root):
 
     bounds = {
         "rustls": ((0, 23, 46), (0, 24, 0)),
-        "rmcp": ((1, 8, 0), (2, 0, 0)),
+        "rmcp": ((3, 9, 0), (4, 0, 0)),
         "zip": ((9, 0, 0), None),
         "crypto-bigint": ((0, 7, 10), (0, 8, 0)),
     }
