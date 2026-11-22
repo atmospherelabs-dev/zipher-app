@@ -99,4 +99,37 @@ void main() {
     await pending;
     expect(saved, isFalse);
   });
+
+  test('a swap with no recorded deposit stops counting as in progress', () {
+    var clock = DateTime.fromMillisecondsSinceEpoch(1000 * 1000);
+    StoredSwap started({String? txid}) => StoredSwap(
+        walletId: 'one',
+        testnet: false,
+        provider: 'near_intents',
+        depositAddress: 'deposit',
+        timestamp: 1000,
+        fromCurrency: 'ZEC',
+        fromAmount: '1.5',
+        toCurrency: 'USDC',
+        toAmount: '1185.82',
+        toAddress: 'recipient',
+        txId: txid);
+    final unfunded = WalletSwapActivity(started(), now: () => clock);
+    expect(unfunded.isLive, isTrue);
+    clock = clock.add(const Duration(minutes: 31));
+    expect(unfunded.neverFunded, isFalse,
+        reason: 'an unread status is not evidence of anything');
+    unfunded.status = state('PENDING_DEPOSIT');
+    expect(unfunded.neverFunded, isTrue);
+    expect(unfunded.isLive, isFalse);
+    expect(unfunded.label, 'No deposit was sent');
+    expect(unfunded.isOpen, isTrue, reason: 'a late deposit is still noticed');
+    // Evidence of a deposit, from the wallet or the provider, keeps it live.
+    unfunded.status = state('KNOWN_DEPOSIT_TX');
+    expect(unfunded.isLive, isTrue);
+    expect(unfunded.label, 'Confirming deposit');
+    final funded = WalletSwapActivity(started(txid: 'tx'), now: () => clock);
+    expect(funded.isLive, isTrue);
+    expect(funded.label, 'Checking status…');
+  });
 }

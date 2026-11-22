@@ -16,71 +16,85 @@ class ZChatMessage extends StatelessWidget {
       this.card,
       this.footer});
 
+  /// One unbroken value too long to read in a bubble, such as an address.
+  static bool isLongValue(String text) =>
+      RegExp(r'^\S{30,}$').hasMatch(text.trim());
+
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: EdgeInsets.only(top: isUser ? 10 : 6, bottom: 6),
         child: Align(
             alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
             child: ConstrainedBox(
                 constraints: BoxConstraints(
                     maxWidth: isUser
-                        ? MediaQuery.sizeOf(context).width * .85
+                        ? MediaQuery.sizeOf(context).width * .82
                         : MediaQuery.sizeOf(context).width - 32),
                 child: Column(
                     crossAxisAlignment: isUser
                         ? CrossAxisAlignment.end
                         : CrossAxisAlignment.start,
                     children: [
-                      if (text.isNotEmpty)
+                      if (text.isNotEmpty && isUser)
                         Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 10),
+                                horizontal: 14, vertical: 9),
                             decoration: BoxDecoration(
-                                color: isUser
-                                    ? ZipherColors.cyan.withValues(alpha: .15)
-                                    : ZipherColors.cardBg,
-                                borderRadius: BorderRadius.only(
-                                    topLeft: const Radius.circular(16),
-                                    topRight: const Radius.circular(16),
-                                    bottomLeft:
-                                        Radius.circular(isUser ? 16 : 4),
-                                    bottomRight:
-                                        Radius.circular(isUser ? 4 : 16)),
-                                border: Border.all(
-                                    color: isUser
-                                        ? ZipherColors.cyan
-                                            .withValues(alpha: .2)
-                                        : ZipherColors.borderSubtle)),
-                            child: isUser &&
-                                    RegExp(r'^(u1|utest1|t1|t3)[A-Za-z0-9]{40,}$')
-                                        .hasMatch(text.trim())
-                                ? ExpansionTile(
-                                    tilePadding: EdgeInsets.zero,
-                                    childrenPadding: EdgeInsets.zero,
-                                    title: Text(
-                                        '${text.substring(0, 12)}…${text.substring(text.length - 12)}',
-                                        style: const TextStyle(
-                                            fontFamily: 'JetBrains Mono',
-                                            fontSize: 12,
-                                            color: ZipherColors.textPrimary)),
-                                    children: [
-                                        SelectableText(text,
-                                            style: const TextStyle(
-                                                fontFamily: 'JetBrains Mono',
-                                                fontSize: 11,
-                                                height: 1.5))
-                                      ])
+                                color: ZipherColors.cyan.withValues(alpha: .14),
+                                borderRadius: const BorderRadius.only(
+                                    topLeft: Radius.circular(18),
+                                    topRight: Radius.circular(18),
+                                    bottomLeft: Radius.circular(18),
+                                    bottomRight: Radius.circular(5))),
+                            child: isLongValue(text)
+                                ? _LongValue(text.trim())
                                 : Text(text,
-                                    style: TextStyle(
-                                        color: isUser
-                                            ? ZipherColors.textPrimary
-                                            : ZipherColors.textSecondary,
-                                        fontSize: 14,
-                                        height: 1.5))),
+                                    style: const TextStyle(
+                                        color: ZipherColors.textPrimary,
+                                        fontSize: 15,
+                                        height: 1.4))),
+                      // The wallet speaks in plain text; only cards are boxed.
+                      if (text.isNotEmpty && !isUser)
+                        Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            child: Text(text,
+                                style: const TextStyle(
+                                    color: ZipherColors.textPrimary,
+                                    fontSize: 15,
+                                    height: 1.45))),
                       if (card != null) card!,
                       if (footer != null) footer!,
                     ]))),
       );
+}
+
+class _LongValue extends StatefulWidget {
+  const _LongValue(this.value);
+  final String value;
+  @override
+  State<_LongValue> createState() => _LongValueState();
+}
+
+class _LongValueState extends State<_LongValue> {
+  bool _open = false;
+  @override
+  Widget build(BuildContext context) {
+    final v = widget.value;
+    return Semantics(
+        button: true,
+        label: _open ? 'Hide full value' : 'Show full value',
+        child: InkWell(
+            onTap: () => setState(() => _open = !_open),
+            child: Text(
+                _open
+                    ? v
+                    : '${v.substring(0, 12)}…${v.substring(v.length - 12)}',
+                style: const TextStyle(
+                    fontFamily: 'JetBrains Mono',
+                    fontSize: 12,
+                    height: 1.5,
+                    color: ZipherColors.textPrimary))));
+  }
 }
 
 class ZChatShortcut extends StatelessWidget {
@@ -139,6 +153,45 @@ class ZChatShortcut extends StatelessWidget {
                               fontWeight: FontWeight.w500)),
                     ])))),
       );
+}
+
+/// What is being prepared, pinned above the composer with a way out.
+class ZChatDraftBar extends StatelessWidget {
+  const ZChatDraftBar(
+      {super.key,
+      required this.icon,
+      required this.label,
+      required this.onCancel});
+  final IconData icon;
+  final String label;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) => Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+      padding: const EdgeInsets.only(left: 12),
+      decoration: BoxDecoration(
+          color: ZipherColors.cardBg,
+          borderRadius: BorderRadius.circular(ZipherRadius.md),
+          border: Border.all(color: ZipherColors.borderSubtle)),
+      child: Row(children: [
+        Icon(icon, size: 14, color: ZipherColors.cyan),
+        const SizedBox(width: 8),
+        Expanded(
+            child: Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: ZipherColors.textSecondary))),
+        TextButton(
+            style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                foregroundColor: ZipherColors.text40),
+            onPressed: onCancel,
+            child: const Text('Cancel')),
+      ]));
 }
 
 class ZChatComposer extends StatelessWidget {

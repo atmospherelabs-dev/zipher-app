@@ -102,15 +102,40 @@ void main() {
     expect(chat.accept('receive').request!.command, WalletCommand.receive);
     expect(chat.pending, isNull);
   });
-  test('guided swaps retain amount while collecting token', () {
+  test('swap requests are parsed in one line and never held as a send draft',
+      () {
     final chat = WalletConversation();
-    expect(chat.accept('swap').prompt, contains('How much'));
-    expect(chat.accept('0.5 zec').prompt, contains('Which token'));
-    final request = chat.accept('btc').request!;
-    expect(request.token, 'BTC');
-    expect(request.zatoshis, 50000000);
+    final bare = chat.accept('swap');
+    expect(bare.prompt, isNull);
+    expect(bare.request!.command, WalletCommand.swap);
+    expect(bare.request!.zatoshis, isNull);
+    expect(chat.pending, isNull);
     expect(chat.accept('swap 1 ZEC to USDC').request!.token, 'USDC');
     expect(chat.accept('1 ZEC to ETH').request!.token, 'ETH');
+    final full = chat.accept('swap 0.5 zec to usdc on solana').request!;
+    expect((full.zatoshis, full.token, full.network),
+        (50000000, 'USDC', 'solana'));
+    // Starting a swap replaces a send draft rather than mixing with it.
+    chat.accept('send 1');
+    expect(chat.accept('swap').request!.command, WalletCommand.swap);
+    expect(chat.pending, isNull);
+  });
+  test('looking something up keeps a send draft', () {
+    final chat = WalletConversation();
+    chat.accept('send 1');
+    for (final lookup in ['balance', 'pools', 'help', 'memos', 'privacy']) {
+      expect(chat.accept(lookup).request, isNotNull, reason: lookup);
+      expect(chat.pending!.zatoshis, 100000000, reason: lookup);
+    }
+    expect(chat.accept(address).request!.recipient, address);
+  });
+  test('a pasted address or amount corrects the send draft', () {
+    final chat = WalletConversation();
+    final other = 'u1${'b' * 100}';
+    chat.accept('send to $address');
+    expect(chat.accept(other).prompt, contains('How much'));
+    expect(chat.pending!.recipient, other);
+    expect(chat.accept('0.25').request!.recipient, other);
   });
   test('all address families are collected without mutating case', () {
     for (final prefix in [

@@ -16,9 +16,43 @@ import 'package:zipher/pages/utils.dart';
 import 'package:zipher/store2.dart';
 import 'package:zipher/services/evm_portfolio_balance.dart';
 import 'package:zipher/services/chain_config.dart';
+import 'package:zipher/services/near_intents.dart';
 import 'package:zipher/services/network_privacy.dart';
 import 'package:zipher/src/rust/api/engine_api.dart';
 import 'package:zipher/router.dart' as app_router;
+
+const _solana = 'GbGAFmHmMJmqT6pZ1cQy6dS1wqK5v2ZcEmWGDRoNabcd';
+
+class _FakeNear extends NearIntentsService {
+  _FakeNear() : super.forTesting();
+  bool failTokens = false;
+
+  @override
+  Future<List<NearToken>> getTokens({bool forceRefresh = false}) async {
+    if (failTokens) throw NearIntentsException('Failed to fetch tokens: 503');
+    NearToken token(String symbol, String chain, [int decimals = 6]) =>
+        NearToken(
+            assetId: 'asset:$symbol:$chain',
+            symbol: symbol,
+            blockchain: chain,
+            decimals: decimals,
+            price: 1);
+    return [
+      NearToken(
+          assetId: 'nep141:zec.omft.near',
+          symbol: 'ZEC',
+          blockchain: 'zec',
+          decimals: 8,
+          price: 790),
+      for (final chain in ['eth', 'sol', 'base', 'arb']) token('USDC', chain),
+      for (final chain in ['eth', 'sol', 'tron']) token('USDT', chain),
+      token('BTC', 'btc', 8),
+      token('ETH', 'eth', 18),
+      token('SOL', 'sol', 9),
+      token('USAD', 'near'),
+    ];
+  }
+}
 
 void main() {
   testWidgets('privacy icon opens an opaque sheet with scoped Tor controls',
@@ -62,7 +96,8 @@ void main() {
     syncTimer = null;
     aa = nullAccount;
   });
-  Future<void> open(WidgetTester tester, {EvmBalanceReader? reader}) async {
+  Future<void> open(WidgetTester tester,
+      {EvmBalanceReader? reader, NearIntentsService? near}) async {
     if (const bool.fromEnvironment('CHAT_SCREENSHOT')) {
       await tester.runAsync(() async {
         final root = Platform.environment['FLUTTER_ROOT']!;
@@ -84,14 +119,15 @@ void main() {
       localizationsDelegates: const [S.delegate],
       home: RepaintBoundary(
           key: const ValueKey('chat-preview'),
-          child: WalletChatPage(balanceReader: reader)),
+          child: WalletChatPage(balanceReader: reader, swapService: near)),
     ));
     if (const bool.fromEnvironment('CHAT_SCREENSHOT')) {
       await tester.runAsync(() async {
         final context = tester.element(find.byType(WalletChatPage));
         for (final asset in [
-          'assets/tokens/zec.png',
-          ...['btc', 'sol', 'bsc', 'pol', 'eth', 'arb', 'base', 'op']
+          ...['zec', 'usdc', 'usdt', 'btc', 'eth', 'sol']
+              .map((id) => 'assets/tokens/$id.png'),
+          ...['btc', 'sol', 'bsc', 'pol', 'eth', 'arb', 'base', 'op', 'tron']
               .map((id) => 'assets/chains/$id.png')
         ]) {
           await precacheImage(AssetImage(asset), context);
@@ -388,7 +424,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(app_router.router.routerDelegate.currentConfiguration.uri.path,
         '/account');
-    expect(find.text('How much ZEC would you like to swap?'), findsOneWidget);
+    // The old route lands in the chat's swap flow, which first checks that
+    // this wallet can sign here.
+    expect(find.text('swap'), findsOneWidget);
+    expect(find.textContaining('dedicated signing flow'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -623,5 +662,162 @@ void main() {
     await tester.tap(find.widgetWithText(ZChatShortcut, 'Send'));
     await tester.pumpAndSettle();
     expect(find.text('0.5 ZEC available · fee applies'), findsOneWidget);
+  });
+
+  group('swap in chat', () {
+    setUp(() {
+      aa = ActiveAccount2(
+          coin: 0, id: 1, name: 'Test wallet', address: '', canPay: true);
+      aa.poolBalances = PoolBalance(orchard: 250000000, totalOrchard: 250000000);
+      aa.diversifiedAddress = 'u1${'a' * 100}';
+      aa.chainAddresses = EngineMultiChainAddresses(
+          evm: '0x${'1' * 40}', solana: _solana, bitcoin: 'bc1qfixture');
+    });
+    Future<void> say(WidgetTester tester, String text) async {
+      await tester.enterText(find.byType(TextField), text);
+      await tester.tap(find.byTooltip('Send message'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> phone(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+    }
+
+    // Derived chain addresses would otherwise start real balance requests.
+    Future<void> swapChat(WidgetTester tester, NearIntentsService near) => open(
+        tester,
+        near: near,
+        reader: EvmBalanceReader(
+            readPrices: () async => {}, readAsset: (_, __, ___) async => 0));
+
+    String draftBar(WidgetTester tester) =>
+        tester.widget<ZChatDraftBar>(find.byType(ZChatDraftBar)).label;
+
+    testWidgets('a mistyped token keeps the amount and offers what was meant',
+        (tester) async {
+      await phone(tester);
+      await swapChat(tester, _FakeNear());
+      await say(tester, 'swap 1.5 zec to used');
+      expect(
+          find.text(
+              'I couldn’t find a token called “USED”. Did you mean one of these?'),
+          findsOneWidget);
+      expect(find.widgetWithText(ZChatShortcut, 'USDC'), findsOneWidget);
+      expect(find.widgetWithText(ZChatShortcut, 'USDT'), findsOneWidget);
+      expect(draftBar(tester), 'Swap 1.5 ZEC');
+      await preview(tester, 'chat-swap-typo-preview');
+
+      await tester.tap(find.widgetWithText(ZChatShortcut, 'USDC'));
+      await tester.pumpAndSettle();
+      expect(find.text('Which network should receive your USDC?'),
+          findsOneWidget);
+      expect(draftBar(tester), 'Swap 1.5 ZEC to USDC');
+      await preview(tester, 'chat-swap-network-preview');
+
+      await tester.tap(find.widgetWithText(ZChatShortcut, 'Solana'));
+      await tester.pumpAndSettle();
+      expect(find.text('Where should the USDC go? Paste a Solana address.'),
+          findsOneWidget);
+      expect(find.widgetWithText(ZChatShortcut, 'My Solana address'),
+          findsOneWidget);
+      expect(draftBar(tester), 'Swap 1.5 ZEC to USDC · Solana');
+
+      // Retyping one field changes only that field.
+      await say(tester, 'usdt');
+      expect(
+          find.text(
+              'Token changed to USDT. Where should the USDT go? Paste a Solana address.'),
+          findsOneWidget);
+      await say(tester, '2');
+      expect(find.textContaining('Amount changed to 2 ZEC.'), findsOneWidget);
+      expect(draftBar(tester), 'Swap 2 ZEC to USDT · Solana');
+      await say(tester, '0x${'1' * 40}');
+      expect(find.textContaining('That doesn’t look like a Solana address.'),
+          findsOneWidget);
+      expect(draftBar(tester), 'Swap 2 ZEC to USDT · Solana');
+      await preview(tester, 'chat-swap-recipient-preview');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a complete one-line request goes straight to the recipient',
+        (tester) async {
+      await swapChat(tester, _FakeNear());
+      await say(tester, 'swap 0.5 zec to usdc on base');
+      expect(find.text('Where should the USDC go? Paste a Base address.'),
+          findsOneWidget);
+      expect(find.widgetWithText(ZChatShortcut, 'My Base address'),
+          findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('swap options that fail to load are retried without retyping',
+        (tester) async {
+      final near = _FakeNear()..failTokens = true;
+      await swapChat(tester, near);
+      await say(tester, 'swap 1 zec to usdc');
+      expect(find.textContaining('Swap options couldn’t be loaded'),
+          findsOneWidget);
+      near.failTokens = false;
+      await tester.tap(find.widgetWithText(ZChatShortcut, 'Try again'));
+      await tester.pumpAndSettle();
+      expect(find.text('Which network should receive your USDC?'),
+          findsOneWidget);
+      expect(draftBar(tester), 'Swap 1 ZEC to USDC');
+    });
+
+    testWidgets('amounts that are not exact ZEC are asked for again',
+        (tester) async {
+      await swapChat(tester, _FakeNear());
+      await say(tester, r'swap $10 to usdc');
+      expect(find.textContaining('Amounts are in ZEC'), findsOneWidget);
+      expect(find.textContaining('How much ZEC would you like to swap?'),
+          findsOneWidget);
+      expect(draftBar(tester), 'Swap to USDC');
+      await say(tester, '0.1');
+      expect(find.text('Which network should receive your USDC?'),
+          findsOneWidget);
+    });
+
+    testWidgets('the draft bar cancels a swap and old choices stop working',
+        (tester) async {
+      await swapChat(tester, _FakeNear());
+      await say(tester, 'swap 1 zec to usdc');
+      await tester.tap(find.descendant(
+          of: find.byType(ZChatDraftBar), matching: find.text('Cancel')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ZChatDraftBar), findsNothing);
+      expect(find.text('Cancelled. What would you like to do next?'),
+          findsOneWidget);
+      await tester.tap(find.widgetWithText(ZChatShortcut, 'Solana'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Where should the USDC go?'), findsNothing);
+    });
+
+    testWidgets('checking the balance does not discard a draft',
+        (tester) async {
+      await swapChat(tester, _FakeNear());
+      await say(tester, 'swap 1 zec to usdc');
+      await say(tester, 'pools');
+      expect(find.text('Your ZEC by pool'), findsOneWidget);
+      expect(draftBar(tester), 'Swap 1 ZEC to USDC');
+      await say(tester, 'cancel');
+      await say(tester, 'send 0.5');
+      expect(draftBar(tester), 'Send 0.5 ZEC');
+      await say(tester, 'pools');
+      expect(draftBar(tester), 'Send 0.5 ZEC');
+    });
+  });
+
+  testWidgets('funds waiting for confirmation are shown, not hidden',
+      (tester) async {
+    await open(tester);
+    expect(find.text('0.5 ZEC available'), findsOneWidget);
+    expect(find.text('0.25 ZEC pending confirmation'), findsOneWidget);
+    aa.poolBalances = PoolBalance(sapling: 50000000, totalSapling: 50000000);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('pending confirmation'), findsNothing);
   });
 }

@@ -54,6 +54,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ChainType dco_decode_chain_type(dynamic raw);
 
   @protected
+  EngineBroadcastStatus dco_decode_engine_broadcast_status(dynamic raw);
+
+  @protected
   EngineDelegationResult dco_decode_engine_delegation_result(dynamic raw);
 
   @protected
@@ -115,6 +118,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   EngineMultiChainAddresses dco_decode_engine_multi_chain_addresses(
       dynamic raw);
+
+  @protected
+  EngineSendOutcome dco_decode_engine_send_outcome(dynamic raw);
 
   @protected
   EngineSharePayload dco_decode_engine_share_payload(dynamic raw);
@@ -341,6 +347,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ChainType sse_decode_chain_type(SseDeserializer deserializer);
 
   @protected
+  EngineBroadcastStatus sse_decode_engine_broadcast_status(
+      SseDeserializer deserializer);
+
+  @protected
   EngineDelegationResult sse_decode_engine_delegation_result(
       SseDeserializer deserializer);
 
@@ -405,6 +415,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EngineMultiChainAddresses sse_decode_engine_multi_chain_addresses(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineSendOutcome sse_decode_engine_send_outcome(
       SseDeserializer deserializer);
 
   @protected
@@ -659,6 +673,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_chain_type(ChainType self, SseSerializer serializer);
 
   @protected
+  void sse_encode_engine_broadcast_status(
+      EngineBroadcastStatus self, SseSerializer serializer);
+
+  @protected
   void sse_encode_engine_delegation_result(
       EngineDelegationResult self, SseSerializer serializer);
 
@@ -724,6 +742,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_engine_multi_chain_addresses(
       EngineMultiChainAddresses self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_send_outcome(
+      EngineSendOutcome self, SseSerializer serializer);
 
   @protected
   void sse_encode_engine_share_payload(

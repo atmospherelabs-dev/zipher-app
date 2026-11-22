@@ -4,15 +4,34 @@ import 'app_log.dart';
 import 'near_intents.dart';
 
 class WalletSwapActivity {
-  WalletSwapActivity(this.swap)
+  WalletSwapActivity(this.swap, {this.now = DateTime.now})
       : status = swap.status == null
             ? null
             : NearSwapStatus(status: swap.status!, raw: const {});
   StoredSwap swap;
   NearSwapStatus? status;
   bool unavailable = false;
-  bool get isLive => status?.isTerminal != true;
+  final DateTime Function() now;
+
+  /// How long a swap with no recorded deposit still counts as in progress.
+  static const fundingGrace = Duration(minutes: 30);
+
+  /// The provider has not reported a final result, so it is still asked.
+  bool get isOpen => status?.isTerminal != true;
+
+  /// Started long ago, yet this wallet recorded no deposit transaction and the
+  /// provider reports it is still waiting for one. Shown as history rather than
+  /// as work in progress; it keeps being checked, so a late deposit still
+  /// surfaces. An unread status proves nothing and never qualifies.
+  bool get neverFunded =>
+      swap.txId == null &&
+      status?.isPending == true &&
+      now().millisecondsSinceEpoch ~/ 1000 - swap.timestamp >
+          fundingGrace.inSeconds;
+
+  bool get isLive => isOpen && !neverFunded;
   String get label {
+    if (neverFunded) return 'No deposit was sent';
     if (unavailable) return 'Status unavailable · retrying';
     final current = status;
     if (current == null) return 'Checking status…';
@@ -39,7 +58,8 @@ class WalletSwapTracker extends ChangeNotifier {
       required this.canPoll,
       required this.readStatus,
       this.load = SwapStore.load,
-      this.saveStatus = SwapStore.updateStatus});
+      this.saveStatus = SwapStore.updateStatus,
+      this.now = DateTime.now});
   final String? walletId;
   final bool testnet;
   final Set<String> Function() transactionIds;
@@ -47,6 +67,7 @@ class WalletSwapTracker extends ChangeNotifier {
   final Future<NearSwapStatus> Function(String) readStatus;
   final Future<List<StoredSwap>> Function() load;
   final Future<void> Function(String, String) saveStatus;
+  final DateTime Function() now;
   final _entries = <String, WalletSwapActivity>{};
   List<WalletSwapActivity> get entries => _entries.values.toList()
     ..sort((a, b) => b.swap.timestamp.compareTo(a.swap.timestamp));
@@ -77,7 +98,7 @@ class WalletSwapTracker extends ChangeNotifier {
     if (_disposed || !_belongs(swap)) return;
     final entry = _entries[swap.depositAddress];
     if (entry == null) {
-      _entries[swap.depositAddress] = WalletSwapActivity(swap);
+      _entries[swap.depositAddress] = WalletSwapActivity(swap, now: now);
     } else {
       entry.swap = swap;
     }
@@ -92,11 +113,11 @@ class WalletSwapTracker extends ChangeNotifier {
       if (_disposed || !canPoll()) return;
       for (final swap in saved.where(_belongs)) {
         final entry = _entries.putIfAbsent(
-            swap.depositAddress, () => WalletSwapActivity(swap));
+            swap.depositAddress, () => WalletSwapActivity(swap, now: now));
         entry.swap = swap;
       }
       notifyListeners();
-      for (final entry in entries.where((entry) => entry.isLive)) {
+      for (final entry in entries.where((entry) => entry.isOpen)) {
         if (_disposed || !canPoll()) return;
         try {
           final status = await readStatus(entry.swap.depositAddress)

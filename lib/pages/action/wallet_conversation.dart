@@ -25,10 +25,21 @@ class WalletRequest {
   final int? zatoshis;
   final String? recipient;
   final String? token;
+
+  /// Destination network named in a swap request, as typed.
+  final String? network;
   final String? memo;
 
+  /// A swap amount was typed but is not an exact ZEC amount.
+  final bool unreadAmount;
+
   const WalletRequest(this.command,
-      {this.zatoshis, this.recipient, this.token, this.memo});
+      {this.zatoshis,
+      this.recipient,
+      this.token,
+      this.network,
+      this.memo,
+      this.unreadAmount = false});
 
   WalletRequest withFields({int? zatoshis, String? recipient, String? token}) =>
       WalletRequest(command,
@@ -79,7 +90,9 @@ class WalletConversation {
       return WalletCommand.send;
     if (RegExp(r'\b(swap|convert|exchange)\b').hasMatch(s))
       return WalletCommand.swap;
-    if (RegExp(r'^(?:\d*\.)?\d+\s+zec\s+(?:to|into)\s+\w+$').hasMatch(s)) {
+    if (RegExp(
+            r'^(?:\d*\.)?\d+\s*(?:zec|zcash)\s+(?:to|into|for)\s+\$?[a-z][a-z0-9.]{0,11}(?:\s+(?:on\s+)?[a-z][a-z0-9 ]{1,24}|\s*\([a-z0-9 ]{2,24}\))?$')
+        .hasMatch(s)) {
       return WalletCommand.swap;
     }
     if (RegExp(
@@ -134,15 +147,69 @@ class WalletConversation {
           r'^(?:u1|utest1|uregtest1|zs1|ztestsapling1|tex1|textest1|t1|t3|tm|t2)[a-zA-Z0-9]{20,}$')
       .hasMatch(text.trim());
 
+  /// Reading these never changes a payment, so a draft survives them.
+  static const informational = {
+    WalletCommand.balance,
+    WalletCommand.pools,
+    WalletCommand.privacy,
+    WalletCommand.memos,
+    WalletCommand.help,
+  };
+
+  /// Whatever a one-line swap request already says. Amounts are exact ZEC only;
+  /// the token and network are returned as typed and resolved by the swap flow.
+  static WalletRequest parseSwap(String text) {
+    var body = text
+        .trim()
+        .replaceFirst(RegExp(r'^/'), '')
+        .replaceFirst(
+            RegExp(r'^.*?\b(?:swap|convert|exchange)\b\s*',
+                caseSensitive: false),
+            '')
+        .trim();
+    String? token;
+    String? network;
+    final place = RegExp(
+            r'(?:\s+(?:on|via)\s+|\s*\()([A-Za-z][A-Za-z0-9 ]{1,24}?)\)?\s*$',
+            caseSensitive: false)
+        .firstMatch(body);
+    if (place != null) {
+      network = place.group(1)!.trim();
+      body = body.substring(0, place.start).trim();
+    }
+    const symbol = r'\$?[A-Za-z][A-Za-z0-9.]{0,11}';
+    final target = RegExp(
+            '(?:^|\\s+)(?:to|into|for)\\s+($symbol)(?:\\s+([A-Za-z][A-Za-z0-9]{1,15}))?\\s*\$',
+            caseSensitive: false)
+        .firstMatch(body);
+    if (target != null) {
+      token = target.group(1);
+      network ??= target.group(2);
+      body = body.substring(0, target.start).trim();
+    } else if (RegExp('^$symbol\$').hasMatch(body) &&
+        !RegExp(r'^(?:zec|zcash)$', caseSensitive: false).hasMatch(body)) {
+      token = body;
+      body = '';
+    }
+    if (RegExp(r'^(?:(?:my|some)\s+)?(?:zec|zcash)$', caseSensitive: false)
+        .hasMatch(body)) {
+      body = '';
+    }
+    final amount = body.isEmpty ? null : parseZatoshis(body);
+    return WalletRequest(WalletCommand.swap,
+        zatoshis: amount,
+        token: token?.toUpperCase(),
+        network: network,
+        unreadAmount: body.isNotEmpty && amount == null);
+  }
+
   void cancel() => pending = null;
 
   String get hint {
     final p = pending;
     if (p == null) return 'What would you like to do?';
-    if (p.command == WalletCommand.send && p.recipient == null)
-      return 'Paste a Zcash address';
-    if (p.zatoshis == null) return 'Amount in ZEC';
-    return 'Which token? e.g. BTC, ETH, USDC';
+    if (p.recipient == null) return 'Paste a Zcash address';
+    return 'Amount in ZEC';
   }
 
   ConversationReply accept(String text) {
@@ -154,8 +221,15 @@ class WalletConversation {
           prompt: 'Cancelled. What would you like to do next?');
     }
     if (cmd != WalletCommand.unknown) {
+      if (informational.contains(cmd)) {
+        return ConversationReply(request: WalletRequest(cmd));
+      }
       cancel();
-      if (cmd != WalletCommand.send && cmd != WalletCommand.swap) {
+      if (cmd == WalletCommand.swap) {
+        // The swap flow collects what is missing and lets any field be retyped.
+        return ConversationReply(request: parseSwap(input));
+      }
+      if (cmd != WalletCommand.send) {
         return ConversationReply(request: WalletRequest(cmd));
       }
       String body = input.replaceFirst(RegExp(r'^/'), '');
@@ -167,27 +241,22 @@ class WalletConversation {
         body = body.substring(0, memoMatch.start);
       }
       String? recipient;
-      String? token;
       final target = RegExp(r'\s+(?:to|into)\s+(\S+)\s*$', caseSensitive: false)
           .firstMatch(body);
       if (target != null) {
         final value = target.group(1)!;
-        if (cmd == WalletCommand.send && looksLikeAddress(value))
-          recipient = value;
-        if (cmd == WalletCommand.swap &&
-            RegExp(r'^[a-zA-Z][a-zA-Z0-9.]{0,11}$').hasMatch(value))
-          token = value.toUpperCase();
+        if (looksLikeAddress(value)) recipient = value;
         body = body.substring(0, target.start);
       }
       body = body
           .replaceFirst(
-              RegExp(r'^.*?\b(?:send|transfer|pay|swap|convert|exchange)\b\s*',
+              RegExp(r'^.*?\b(?:send|transfer|pay)\b\s*',
                   caseSensitive: false),
               '')
           .trim();
       final amount = parseZatoshis(body);
       pending = WalletRequest(cmd,
-          zatoshis: amount, recipient: recipient, token: token, memo: memo);
+          zatoshis: amount, recipient: recipient, memo: memo);
       if (body.isNotEmpty && amount == null) {
         return const ConversationReply(
             prompt:
@@ -195,16 +264,11 @@ class WalletConversation {
       }
     } else if (pending != null) {
       var p = pending!;
-      if (p.command == WalletCommand.send &&
-          p.recipient == null &&
-          looksLikeAddress(input)) {
+      if (looksLikeAddress(input)) {
+        // A pasted address replaces the recipient, so a wrong one is fixable.
         p = p.withFields(recipient: input);
-      } else if (p.zatoshis == null && parseZatoshis(input) != null) {
+      } else if (parseZatoshis(input) != null) {
         p = p.withFields(zatoshis: parseZatoshis(input));
-      } else if (p.command == WalletCommand.swap &&
-          p.token == null &&
-          RegExp(r'^[a-zA-Z][a-zA-Z0-9.]{0,11}$').hasMatch(input)) {
-        p = p.withFields(token: input.toUpperCase());
       } else {
         return ConversationReply(
             prompt: '${_prompt(p)} You can also type cancel.');
@@ -220,22 +284,14 @@ class WalletConversation {
       }
     }
     final p = pending!;
-    if (p.zatoshis == null ||
-        (p.command == WalletCommand.send && p.recipient == null) ||
-        (p.command == WalletCommand.swap && p.token == null)) {
+    if (p.zatoshis == null || p.recipient == null) {
       return ConversationReply(prompt: _prompt(p));
     }
     pending = null;
     return ConversationReply(request: p);
   }
 
-  String _prompt(WalletRequest p) {
-    if (p.command == WalletCommand.send && p.recipient == null)
-      return 'Who would you like to send to? Paste their Zcash address.';
-    if (p.zatoshis == null)
-      return p.command == WalletCommand.swap
-          ? 'How much ZEC would you like to swap?'
-          : 'How much ZEC would you like to send?';
-    return 'Which token would you like to receive? For example: BTC, ETH, SOL, or USDC.';
-  }
+  String _prompt(WalletRequest p) => p.recipient == null
+      ? 'Who would you like to send to? Paste their Zcash address.'
+      : 'How much ZEC would you like to send?';
 }

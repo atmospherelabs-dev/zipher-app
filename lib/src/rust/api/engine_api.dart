@@ -232,7 +232,7 @@ Future<void> engineClearInactiveWallets() =>
 
 /// Step 1: Create a proposal and return exact fee info.
 /// When `is_max` is true, `amount` is ignored and the SDK computes the max sendable.
-/// When `priority` is true, a 4x marginal fee is applied for faster confirmation.
+/// When `priority` is true, a 4x marginal fee is applied; confirmation time is not guaranteed.
 Future<ProposalResult> engineProposeSend(
         {required String address,
         required BigInt amount,
@@ -385,6 +385,13 @@ Future<String> engineFrostRelayDecrypt(
 Future<String> engineConfirmSend({required String seedPhrase}) =>
     RustLib.instance.api
         .crateApiEngineApiEngineConfirmSend(seedPhrase: seedPhrase);
+
+/// Step 2 with an explicit outcome. An error means nothing was created; after
+/// creation the result always carries the txid and what the network answered.
+Future<EngineSendOutcome> engineConfirmSendDetailed(
+        {required String seedPhrase}) =>
+    RustLib.instance.api
+        .crateApiEngineApiEngineConfirmSendDetailed(seedPhrase: seedPhrase);
 
 /// Legacy single-step send (still used for multi-recipient or fallback).
 Future<String> engineSendPayment(
@@ -940,6 +947,19 @@ class AutoMigrationStatus {
           denominations == other.denominations;
 }
 
+/// Network answer for a transaction that already exists in the wallet.
+enum EngineBroadcastStatus {
+  /// At least one server accepted it.
+  accepted,
+
+  /// No server confirmed receipt. It may not have left the device.
+  unreachable,
+
+  /// A node examined it and refused it.
+  rejected,
+  ;
+}
+
 class EngineDelegationResult {
   final Uint8List proof;
   final Uint8List rk;
@@ -1442,6 +1462,40 @@ class EngineMultiChainAddresses {
           evm == other.evm &&
           solana == other.solana &&
           bitcoin == other.bitcoin;
+}
+
+/// Outcome of a confirmed send. The transaction is stored and its inputs are
+/// spent in the wallet regardless of `status`.
+class EngineSendOutcome {
+  final String txid;
+  final EngineBroadcastStatus status;
+
+  /// Saved for automatic resubmission until mined or expired.
+  final bool resubmits;
+
+  /// Engine-side reason when not accepted. For logs only.
+  final String? detail;
+
+  const EngineSendOutcome({
+    required this.txid,
+    required this.status,
+    required this.resubmits,
+    this.detail,
+  });
+
+  @override
+  int get hashCode =>
+      txid.hashCode ^ status.hashCode ^ resubmits.hashCode ^ detail.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineSendOutcome &&
+          runtimeType == other.runtimeType &&
+          txid == other.txid &&
+          status == other.status &&
+          resubmits == other.resubmits &&
+          detail == other.detail;
 }
 
 class EngineSharePayload {
