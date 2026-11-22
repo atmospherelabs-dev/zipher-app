@@ -536,7 +536,11 @@ mod tests {
 
     #[tokio::test]
     async fn agent_and_phone_complete_an_approval_over_a_real_relay() {
-        let relay = spawn_relay().await;
+        // ZIPHER_TEST_RELAY=<url> runs the same flow against a deployed relay.
+        let relay = match std::env::var("ZIPHER_TEST_RELAY") {
+            Ok(url) => url,
+            Err(_) => spawn_relay().await,
+        };
         let dir = temp_dir();
 
         let session = start_pairing(Some(&relay), "test agent").await.unwrap();
