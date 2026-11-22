@@ -1,0 +1,215 @@
+{
+  "date": "2026-11-04",
+  "scope": "API adapters to published RustCrypto security fixes; preserve Arti networking and OWS storage/wire formats.",
+  "adapters": [
+    {
+      "name": "ows-signer",
+      "version": "1.0.0",
+      "origin": {
+        "repository": "https://github.com/Kenbak/core",
+        "revision": "ede3e58a393afd19bdcae3beca555fdae1bcf2cc",
+        "path": "ows/crates/ows-signer"
+      },
+      "patch": "security-patches/ows-signer.patch",
+      "patch_sha256": "5dd0fa3290c40f0825b4066291bbdf2af1030044ae8fec636a2883f8b71023b5",
+      "source_sha256": {
+        "Cargo.toml": "49fde32151bfc315e2e03310c711361e57d1dfcffa074e17b32691d794ccb78a",
+        "src/chains/bitcoin.rs": "81012dc23865f379e60bc168338f62b6c7e0f033d0a373e32e0ee25bd5ddfc7c",
+        "src/chains/cosmos.rs": "ad54caec3d20e7d4d5fac1306d29f4eb950a6610816e9122bf24c42dae431f0c",
+        "src/chains/evm.rs": "240ce3aebc936f5219986724cee71aad7f019b89c61ad73475719f3f84fa76a4",
+        "src/chains/filecoin.rs": "7e19a22fa37ffa7bd2bee9a44b87775a5249b49f5fd836a29c262dca2bdb4472",
+        "src/chains/mod.rs": "748cf48ac5fdd407f7b8aa79e2c671a09bcecec788fa3655566fe85c5bb5f856",
+        "src/chains/solana.rs": "4a119ca6d9aeab0aa30a58124d1548233c64ba25540829ab838818ed697dd123",
+        "src/chains/spark.rs": "fc2f9e0ff1e34d33b44367ec7ecb79b8616baaa3ec363808724f9ea13e40f589",
+        "src/chains/sui.rs": "ba4efb020daa045245abd8f51095a7e579dec74584e11c9939b7f1e277c8fc4b",
+        "src/chains/ton.rs": "3277d6f16113b9bdb9f121e4751722c0525bd3b33bf100e7b78618d5558ec660",
+        "src/chains/tron.rs": "8999db10d883d53610c0b8a5f211f979b47bd309b3ceb126a630964f2887a26f",
+        "src/chains/zcash.rs": "3fa2affd3ac93163d39a764d90f9698685a5d7bba06979327f5e79f17e6a4355",
+        "src/crypto.rs": "7f0d904629fa307744a665a1c0e48d0a9597a1db47b9aaf74540ccbf4810cd51",
+        "src/curve.rs": "388985b8e4000b9025376d8c0fa8443ef37d66daed0fa844b73d518f77ae8f72",
+        "src/eip712.rs": "4e01108c65c803c414732e14c1a1806a0918de9fc54f63d39caf59ec34eb9922",
+        "src/hd.rs": "56632c9f18460fb3bde1492fa912bdd6888dec8a1b37fff8c28e1367a422b911",
+        "src/key_cache.rs": "ef929a117bcb75f83fa004a06ea7b049a6d8197665b2487c599e948b16ad8b3d",
+        "src/lib.rs": "b60c770a92c89c859b471825c0b2928d1e9981ca779b39a7bdf8ab024b39ba0a",
+        "src/mnemonic.rs": "4a04c43ff2f7b91a85d14231f5d48dff179115fd5de084740a90ef2465ba47a9",
+        "src/process_hardening.rs": "f1a15112879ab5c405d2ed39e8692d8a9d914e0888ff0acad90d8975d4d3e155",
+        "src/rlp.rs": "365352f2e97c15839a0cf53d498e1c0ba4a1775cc0afe191094fb7d577b1ada3",
+        "src/traits.rs": "3f7540e943538b393e156398c224a8ba9a67eea532369d93245ee5c2882443b9",
+        "src/zeroizing.rs": "eeb2df5df3276ca1dd6d1be1d97cfc120eeb06c3136dc9e0183e1cbb864f5069"
+      }
+    },
+    {
+      "name": "ows-lib",
+      "version": "1.0.0",
+      "origin": {
+        "repository": "https://github.com/Kenbak/core",
+        "revision": "ede3e58a393afd19bdcae3beca555fdae1bcf2cc",
+        "path": "ows/crates/ows-lib"
+      },
+      "patch": "security-patches/ows-lib.patch",
+      "patch_sha256": "d96cdfb831ee46ac0f74580ecf06035d47370a046e0b96c542e92e5af72225d2",
+      "source_sha256": {
+        "Cargo.toml": "ccfe1bce8639a4cd2bf12708043427b96b7c9978cbad3757e7af5e89cf7d9272",
+        "src/error.rs": "2b2c7de735372b1e777e393877653c4cbcd1da15e58f9900de29fca4f61ac6d4",
+        "src/key_ops.rs": "f50f9d2c7d0af4ef7df58b5c9d62401bac8b0c78bd3d040c8400430f2daab145",
+        "src/key_store.rs": "54d3615c6993e1f4f43909502d5834e5ea2656dfdc391bb17ba1ca54e225a3d8",
+        "src/lib.rs": "00738801439689d33a43b77d5a30f07a07c5def45d7f76c47f973760968222ee",
+        "src/lwd_grpc.rs": "8975b0f7583fbcd4bc8af0490fc3e0b07eeca60e9deb1b4548ac775d934c8424",
+        "src/migrate.rs": "b063873b5ff3d86c90c67f20dcf1c831ac490a7fac8471ffa3ef593e48729bf8",
+        "src/ops.rs": "e775ecbd9ae214258a0e828d482c65f64cd5f97433615b71c07ed2cee3b0caa1",
+        "src/policy_engine.rs": "12333160e2a77877d7dbb8bd3952ba6fe70c3041978cfa99be0ef04ef953ca2f",
+        "src/policy_store.rs": "7ffd145f4a3b889caab74fd9c0e8f2fb64999c396bc0b65304cf30f4c3c7f5fb",
+        "src/sui_grpc.rs": "5617dc28892b556d1060c4f96ad558c0d1f9d6b91e260d4ca8dfa3be2e405c67",
+        "src/types.rs": "98bfc025abe08d9d94d74af9ce2ec9eb7d77674637a2e2688f0404f4fec8f2d7",
+        "src/vault.rs": "848e7eb7815285d592b354d3ab5715d5b8f15a1237e133f270ec0373824918c1"
+      }
+    },
+    {
+      "name": "tor-llcrypto",
+      "version": "0.35.0",
+      "origin": {
+        "archive": "https://static.crates.io/crates/tor-llcrypto/tor-llcrypto-0.35.0.crate",
+        "archive_sha256": "95cb3920ea326ba2bb7c2674293655d045a1112eb93cc8ddcbf948bb59307a97"
+      },
+      "patch": "security-patches/tor-llcrypto.patch",
+      "patch_sha256": "54a63a311f1bb7c094205dc8b62fd9709fd08be65114287160e422fe934288ed",
+      "source_sha256": {
+        "Cargo.toml": "3ed9703ad0c6b8b143fc1e0bf6425715aedddaefbda3ea4785b8c4efaba4303b",
+        "src/cipher.rs": "1704d0c2c3155fbd47996831900b21e6bc37d292a654f5064aebbee5dbf41495",
+        "src/d.rs": "7056bf5a88f769e51be63deb666296a26509097256ab5dc2c1c3372a43afc06a",
+        "src/lib.rs": "f42900f420e5e58091de346c4324994a718e2ccc1b436ed3f59aa6395168924a",
+        "src/pk/ed25519.rs": "205e75c3f09e05a972d30256c51630bd66a474aa197e6ad2053d16d0a2e8ae6b",
+        "src/pk/keymanip.rs": "340039fcf127432e9ee21e78df37afba3623c33dfb498413b0672b16d2463e54",
+        "src/pk/rsa.rs": "565d87e878b6e8c7a3833e086679f938458c82ba6afbbc84f337a9528bc87eef",
+        "src/pk.rs": "55edfe8db34144de0c9b1c7b3fede3be7345b9dacf2902278c629fa9ae0b9fa3",
+        "src/rng.rs": "dc6e91ae99f6437b1ca90f55fbe0f3928f1f13df77e261e950d9dba7952d4303",
+        "src/traits.rs": "f82c55150509dcfcd6f370356387add7c1a4e74f4490545b9fff079624afa4bd",
+        "src/util/ct.rs": "672dbab6d363edc5dbda7e8113e2173f1e9ce109d2116b6bf349b82e769864c8",
+        "src/util/rng.rs": "b64ef502e6346fc5340379c341b203066c93087a6db7557934bcbcc84b501196",
+        "src/util.rs": "599730dbaa53b0b397c1c0c34aa9fdfa5319d48f3518920eb586b7f5254b1894",
+        "tests/misc.rs": "8e7515f01b8098876eb4a1f12b8752d5a30791d0121766ee49e8342acf3aca3a",
+        "tests/testvec.rs": "2b4729be8284d9c58839651675877c338661658d3f7ddac61b07da12863a6d08"
+      }
+    },
+    {
+      "name": "tor-key-forge",
+      "version": "0.35.0",
+      "origin": {
+        "archive": "https://static.crates.io/crates/tor-key-forge/tor-key-forge-0.35.0.crate",
+        "archive_sha256": "5aa30066b80ade55a1b88a82b5320dfc50d1724918ad614ded8ecb4820c32062"
+      },
+      "patch": "security-patches/tor-key-forge.patch",
+      "patch_sha256": "1dd367be979561f91a23b6137b4eb1f8a006b0978124cf684bae4c11b0f2114a",
+      "source_sha256": {
+        "Cargo.toml": "f0ecb6700eb4e4ed385a6912f2ecc17ddd5963fb3ad97ad53e13991bb5d6248c",
+        "src/certs.rs": "e3f7fadbcde840147ca4b15c9e34985caaf7a378f6bc241a83b39b4c2be0594d",
+        "src/err.rs": "3cbce1b8952cb9fc8b979aaf9eefa72455e248333ad10f2c0846f75a92ed9c3b",
+        "src/key_type.rs": "539020f56a88802618acce36a7d6acb251e0a2ba8547a893489bda66a4abbd87",
+        "src/lib.rs": "14438ce5cee10249e769d21003a2d389f783fc59927a28a5dee361435bf32591",
+        "src/macros.rs": "b133c9366e6cc428bd1a0e357cc9a353e5b879e6f56a808c161a28dd893c3ad6",
+        "src/ssh.rs": "2b59124e0f0ce6cc972f26a26abb3a5a96c06a1b1ad2aff748817e0d9161e47d",
+        "src/traits.rs": "122c6b018f0890b82b913878fc301bf3563b7ce11e9cb820589f095d21e90db6"
+      }
+    },
+    {
+      "name": "tor-keymgr",
+      "version": "0.35.0",
+      "origin": {
+        "archive": "https://static.crates.io/crates/tor-keymgr/tor-keymgr-0.35.0.crate",
+        "archive_sha256": "e331dede46246977ae6722888329a60ef446df437f1a13ad2addcdff840692cc"
+      },
+      "patch": "security-patches/tor-keymgr.patch",
+      "patch_sha256": "c8aed42003bf7c073c6cfa4121abec3ef1394acdaddc9fc242c7ab525f67b669",
+      "source_sha256": {
+        "Cargo.toml": "64fb834cc36741980579eca3901e5b4019066833020a88416f65cd758e277793",
+        "src/arti_path.rs": "6642dbe69498d99818e217692b94d490f90849968d76a430ae24f806bd3a342d",
+        "src/config.rs": "d1d0108ae8c7138278a2c6237a6e55019324c9cdca6c95d47c61ae6dab8673fc",
+        "src/dummy.rs": "9c3f1e6ef1cf9cf1d0cdca24b619ca1e616321fa8419a8806db4c964610e39f8",
+        "src/err.rs": "10d1af31a1fd9c8e098fd108830471468c9124483c5f2f25015610ae756b14cc",
+        "src/key_specifier/derive.rs": "a974b60cbfcb81290f9ab1086ff8181753456715bdae2d8600680a3d95f44bcf",
+        "src/key_specifier.rs": "b618537c0ec026412c7094a8d2423afe37d5446f65b8ab445daafd74b545d675",
+        "src/keystore/arti/certs.rs": "586b086d280863b91249fff2f857d2d8c6914e8553e17cbfb7251e60e6f3dca5",
+        "src/keystore/arti/err.rs": "c96b19cfe73f16f2aedc89129253d913ca29c02c04737bb4a3a5ad24abeb4e19",
+        "src/keystore/arti/ssh.rs": "58f77f8fb51c923e6153df438287184bee181510728861cc436522f2d3e6283c",
+        "src/keystore/arti.rs": "0dbaa76ed2382e73cf3397aadecd3a3a7996720d49875101afd7acbf106b3197",
+        "src/keystore/ctor/client.rs": "5fa31c28bf3fc7fbdef800eb61d38c503fedb1549a65f7a22a8bbe123e71d33d",
+        "src/keystore/ctor/err.rs": "08e26984e64de67bc260061385a700ea59fdacc5205fc9d7dc0d3da83dc26fa1",
+        "src/keystore/ctor/service.rs": "3bc99e6250496e4068a55cc5621a764733291c8c6800feaab1583c9fc24f2e98",
+        "src/keystore/ctor.rs": "3d9fe50494f062629c11982121288c64609f818334b9abc1e5a166e870453df4",
+        "src/keystore/ephemeral/err.rs": "a2985bfed13959a7d652fdfa8e0a842c75497cd475ddf680726bcc6f5f9a2716",
+        "src/keystore/ephemeral.rs": "57c436872a805cc540cd9c761c7458dc041371de6caf1897d122833b7a6017dd",
+        "src/keystore/fs_utils.rs": "7a8f1f1bbe7120d20c7305eb08c53de639592259dc7610883fdc10ef34cfad86",
+        "src/keystore.rs": "2124593705e3d9d4e26d05afddc53c9c0cedfb93dcb43ae1b50fa3ba4830eb5e",
+        "src/lib.rs": "15208fc582add44f42e379bf30c3144c6d5f3e1e99f7e8fb58e3ce8a1f012ac4",
+        "src/mgr.rs": "06ba8e656befb0a694c0faef5dd6e12e9f04a37460f5750389f24d6d2afac70e",
+        "src/raw.rs": "96589abf558fa18c114b1296e9a12349c05ae007d443e0444959e43ee462fd1e",
+        "src/test_utils.rs": "74c7e7e7f8717b6c1f44bee202fd6574bd5acad0ebf028d77106b6ba49ba3f1c"
+      },
+      "omitted_upstream_paths": [
+        "testdata/"
+      ]
+    },
+    {
+      "name": "ssh-key",
+      "version": "0.7.0-rc.11",
+      "origin": {
+        "archive": "https://static.crates.io/crates/ssh-key/ssh-key-0.7.0-rc.11.crate",
+        "archive_sha256": "f9a32fae177b74a22aa9c5b01bf7e68b33545be32d9e381e248058d2adc15ce3"
+      },
+      "patch": "security-patches/ssh-key.patch",
+      "patch_sha256": "8d0ba82551504ba68509be06ac64ae03024f656493b09238bf0c2adba1eee2c0",
+      "source_sha256": {
+        "Cargo.toml": "6fe64b52252782ef24dea5d06b1aba618dfc00102607b5b669a2bd31f6ea8bc5",
+        "src/algorithm/name.rs": "f35c3fec1f658e5e76d2e31b268c456703072768b66905ea08a1627733b05943",
+        "src/algorithm.rs": "ba24031b60efaf35953d3ff722db41cbeaf2eb2072013e9535ff93cb16a86cc1",
+        "src/authorized_keys.rs": "7078e737c53b6c17e6d46d65b3ba53b86b51dd3ab6d91b7ab29176503ac38e2b",
+        "src/certificate/builder.rs": "16cb9111fcd9b9385c9667d693f81f9d9d13f8b20261d0cf916715bded2c7d33",
+        "src/certificate/cert_type.rs": "ac10da13a7f253115122da2a70633ec39ffdcacd8f96685c3a3478f68c90e0ce",
+        "src/certificate/field.rs": "1af9c91bc4a00c9dfb36b1639f27462aca73fdea7f1b475c22ad9b5394ef98f1",
+        "src/certificate/options_map.rs": "8f4878061a6e2cde2aa97930d9bd3cb16291ec6c0d125534323fd3a950f1b4b7",
+        "src/certificate/signing_key.rs": "3faded9b055f9470ad11016bc4552c73473fc3cfedb2a80a2c5f688013d96204",
+        "src/certificate/unix_time.rs": "8bf8a9a2e9bdcc43dd688f75bdc34e11c379afd5ea5c91c1285ed0a5f629e56c",
+        "src/certificate.rs": "988580437802fee882206e45027bd6e3718b1fdb64c0f72f46a3e91fd5af3146",
+        "src/comment.rs": "22070809e21bbb7814a8b1efcf1e6012b77bf3cb90194e21b6f0bce47f4223af",
+        "src/dot_ssh.rs": "8187917602a3f6c769fb803b1ff946fffe400ad00812dc9c8a2faa2e50c176f9",
+        "src/error.rs": "e35de7781860751b85cc4ab6737fc24d9bf6f4348849e6bb1263dc1b3aacb29d",
+        "src/fingerprint/randomart.rs": "680a69eb8a53fe9c496cdc2f8ce9ab64025e1dca0fa208e683c3de74839fbff8",
+        "src/fingerprint.rs": "7b40cf0f315c4c11347b716f533bd2609e9aa66cf7d7d94c4b3fcda55765fb34",
+        "src/kdf.rs": "4fdcca7f8c0a4b02800842fc64fc29f056648391f0f91e5e190d7463ad030f41",
+        "src/known_hosts.rs": "dac2c0e98e1d0f9073645e20622768554dda0ce21d8ca0a5aea44b1fa517aa23",
+        "src/lib.rs": "09d6888a837ff418ecf61368c4c3b4bb90c0e5d90a203de63ba394dce2a308d7",
+        "src/ppk.rs": "de284697074443673ebb13f1f9727865ec767d3891964e9b017df6bf02190deb",
+        "src/private/dsa.rs": "23398a525edc96e399eca902c9536b010959bd0156e5e8eb335c3dd8e20c3229",
+        "src/private/ecdsa.rs": "cbc7ca93ddb028e37f68cbdb6bf1f28ba729d3ad4af585e055d64a7013d43bb5",
+        "src/private/ed25519.rs": "a0892f257439b208eccd63b32695f8fd02bd5f91617851f0480592451f7a5af5",
+        "src/private/keypair.rs": "b91076f0cd1210361d9a074cda1420904ece328fa3364dbbab834fa37c2f2555",
+        "src/private/opaque.rs": "a98c39eb7af28030ddba0f62a81a71f9b38d4b291901bd58e3fe028ba7a046e5",
+        "src/private/rsa.rs": "534a35776e3cb40daef8306d898a2bb1f5ec97c76b0669d17cb7ea27f4f01d95",
+        "src/private/sk.rs": "4016bb7e2f140c74fa393a7ee81d378d327e7447cb301a25db2211ca60c877ce",
+        "src/private.rs": "f9900deccda5a916e659a2d1fe618931efca82176ce417fc18c1fc3e8743f99f",
+        "src/public/dsa.rs": "4b97756b3952249b8e0b5e70c267453cd222826135fe9dc6869b23648e3594a8",
+        "src/public/ecdsa.rs": "9ed67139f4567b8126a7a7d3505d39fc9808d553aa4b533510ca0ac04ca0ea09",
+        "src/public/ed25519.rs": "c6a795027b924848dc0c23e677664710c4c8bbf10b32528c182e00f13f9504f9",
+        "src/public/key_data.rs": "1351e586fcf991bb24733bc03cbd25ca118a473a76e022f98acd287fd118ca52",
+        "src/public/opaque.rs": "442267efab45ab959705163121ceee1ef9a51e759c522ffc8c72590ed9b239f0",
+        "src/public/rsa.rs": "b0eb1a02b832a9fd20b234e357fcbd82f9cf201efcb26a7b921165e7aa97b1be",
+        "src/public/sk.rs": "122191bc9a690ab78401c50e05fdabe9063f14be25bf9257443cd78b00fb715c",
+        "src/public/ssh_format.rs": "7c31dc3a96e2e5904051926ca488d35ba8d4ca52ade3fca47ca03132686a07de",
+        "src/public.rs": "9bfc91de2d4a007b4b2f333540eaeb6f41d6e725861ce0eed644c7a063b85b9d",
+        "src/signature.rs": "46025c2fb58b8d1a8046c4673f2799100cc6b81893d59afd8e4155263700ac19",
+        "src/sshsig.rs": "df1c8716fa143aacbbd2e9df8cd6549236aafea58e8461bb7042455a6d4e822d"
+      },
+      "omitted_upstream_paths": [
+        "tests/",
+        "benches/",
+        "examples/"
+      ]
+    }
+  ],
+  "packaging_exclusions": [
+    "Cargo.lock",
+    ".cargo-ok",
+    ".cargo-checksum.json"
+  ],
+  "packaging_note": "Standalone upstream lockfiles are omitted. rust/Cargo.lock selects the application dependencies. Public upstream SSH private-key integration fixtures are omitted to respect repository push protection; runtime library sources are unchanged."
+}

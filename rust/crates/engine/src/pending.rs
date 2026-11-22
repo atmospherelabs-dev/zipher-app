@@ -3,10 +3,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use rusqlite::OptionalExtension;
-use zcash_client_backend::proto::service::{
-    compact_tx_streamer_client::CompactTxStreamerClient, RawTransaction,
-};
+use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
 use zcash_primitives::transaction::TxId;
+use zcash_protocol::consensus::Network;
 
 use super::open_cipher_conn;
 
@@ -17,6 +16,7 @@ pub struct PendingResubmitSummary {
     pub resubmitted: u32,
     pub confirmed: u32,
     pub expired: u32,
+    pub needs_review: u32,
 }
 
 fn now_secs() -> i64 {
@@ -92,9 +92,20 @@ pub fn record_broadcast(
 pub async fn resubmit_unmined(
     db_data_path: &Path,
     db_cipher_key: &Option<String>,
+    params: &Network,
     lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
     latest_height: u32,
 ) -> Result<PendingResubmitSummary> {
+    let generation = {
+        let guard = crate::ENGINE.lock().await;
+        let engine = guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Wallet closed before pending reconciliation"))?;
+        if engine.db_data_path != db_data_path || engine.params != *params {
+            anyhow::bail!("Wallet changed before pending reconciliation");
+        }
+        engine.generation
+    };
     let pending = {
         let conn = open_cipher_conn(db_data_path, db_cipher_key)?;
         ensure_pending_table(&conn)?;
@@ -153,14 +164,27 @@ pub async fn resubmit_unmined(
             continue;
         }
 
-        let resp = lwd
-            .send_transaction(RawTransaction {
-                data: raw_tx,
-                height: 0,
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("resubmit send_transaction: {:?}", e))?
-            .into_inner();
+        let resp = match super::network_upgrade::submit_transaction_with_generation(
+            lwd,
+            params,
+            raw_tx,
+            latest_height,
+            Some(generation),
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(error) if is_review_refusal(&error) => {
+                // A branch or expiry refusal does not prove this transaction
+                // failed: an earlier submission may have mined beyond this
+                // wallet's scan. Keep its bytes and reservations until sync
+                // reconciles the actual chain. Never create a replacement.
+                summary.needs_review += 1;
+                crate::sync::emit_transaction_event(txid_hex, "needs_review");
+                continue;
+            }
+            Err(error) => return Err(error.context("Rebroadcast pending transaction")),
+        };
 
         if resp.error_code == 0 {
             let conn = open_cipher_conn(db_data_path, db_cipher_key)?;
@@ -181,4 +205,27 @@ pub async fn resubmit_unmined(
     }
 
     Ok(summary)
+}
+
+fn is_review_refusal(error: &anyhow::Error) -> bool {
+    let message = error.to_string();
+    message.starts_with("NETWORK_UPGRADE_") || message.starts_with("TRANSACTION_EXPIRED:")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transient_server_failures_are_not_reported_as_payment_failure() {
+        assert!(!is_review_refusal(&anyhow::anyhow!(
+            "submission server unavailable"
+        )));
+        assert!(is_review_refusal(&anyhow::anyhow!(
+            "NETWORK_UPGRADE_REVIEW: signed for an old branch"
+        )));
+        assert!(is_review_refusal(&anyhow::anyhow!(
+            "TRANSACTION_EXPIRED: review required"
+        )));
+    }
 }

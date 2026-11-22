@@ -12,7 +12,7 @@ use frost_core::{
     Ciphersuite, Field, Group, Identifier, Scalar, Signature, SigningPackage, VerifyingKey,
 };
 use rand::{rngs::OsRng, RngCore};
-use reddsa::frost::redpallas::PallasBlake2b512;
+use reddsa_frost::redpallas::PallasBlake2b512;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use xeddsa::{xed25519, Sign as _, Verify as _};
 use zcash_keys::keys::{UnifiedAddressRequest, UnifiedFullViewingKey};

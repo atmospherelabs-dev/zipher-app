@@ -1,0 +1,267 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -13,11 +13,11 @@
+ zcash-shielded = ["zcash_keys", "zcash_protocol", "zip32", "pczt", "sapling-crypto", "orchard", "zcash_transparent"]
+ 
+ [dependencies]
+-ows-core = { path = "../ows-core", version = "=1.0.0" }
+-k256 = { version = "0.13", features = ["ecdsa", "arithmetic"] }
++ows-core = { path = "../../../ows-core/ows/crates/ows-core", version = "=1.0.0" }
++k256 = { version = "0.14", features = ["ecdsa", "arithmetic"] }
+ ed25519-dalek = { version = "2", features = ["hazmat"] }
+-coins-bip32 = "0.11"
+-coins-bip39 = "0.11"
++coins-bip32 = "0.17.1"
++coins-bip39 = "0.17"
+ sha2 = "0.10"
+ sha3 = "0.10"
+ ripemd = "0.1"
+@@ -49,3 +49,7 @@
+ zcash_transparent = { version = "0.6", optional = true }
+ 
+ [dev-dependencies]
++
++# Delegate the existing CSPRNG to the current RustCrypto RNG traits.
++[dependencies.zipher-rng-compat]
++path = "../../crates/rng-compat"
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2026 MoonPay, Inc.
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+--- a/src/chains/bitcoin.rs
++++ b/src/chains/bitcoin.rs
+@@ -73,7 +73,7 @@
+         let verifying_key = signing_key.verifying_key();
+ 
+         // Compressed public key (33 bytes)
+-        let pubkey_compressed = verifying_key.to_encoded_point(true);
++        let pubkey_compressed = verifying_key.to_sec1_point(true);
+         let pubkey_bytes = pubkey_compressed.as_bytes();
+ 
+         // Hash160
+@@ -99,8 +99,7 @@
+ 
+         let signing_key = Self::signing_key(private_key)?;
+         let (signature, recovery_id) = signing_key
+-            .sign_prehash_recoverable(message)
+-            .map_err(|e| SignerError::SigningFailed(e.to_string()))?;
++            .sign_prehash_recoverable(message);
+ 
+         let mut sig_bytes = signature.to_bytes().to_vec();
+         sig_bytes.push(recovery_id.to_byte());
+--- a/src/chains/cosmos.rs
++++ b/src/chains/cosmos.rs
+@@ -52,7 +52,7 @@
+         let verifying_key = signing_key.verifying_key();
+ 
+         // Compressed public key
+-        let pubkey_compressed = verifying_key.to_encoded_point(true);
++        let pubkey_compressed = verifying_key.to_sec1_point(true);
+         let pubkey_bytes = pubkey_compressed.as_bytes();
+ 
+         // Hash160 (same as Bitcoin)
+@@ -77,8 +77,7 @@
+ 
+         let signing_key = Self::signing_key(private_key)?;
+         let (signature, recovery_id) = signing_key
+-            .sign_prehash_recoverable(message)
+-            .map_err(|e| SignerError::SigningFailed(e.to_string()))?;
++            .sign_prehash_recoverable(message);
+ 
+         let mut sig_bytes = signature.to_bytes().to_vec();
+         sig_bytes.push(recovery_id.to_byte());
+@@ -155,7 +154,7 @@
+ 
+         let signing_key = SigningKey::from_slice(&privkey).unwrap();
+         let verifying_key = signing_key.verifying_key();
+-        let pubkey_compressed = verifying_key.to_encoded_point(true);
++        let pubkey_compressed = verifying_key.to_sec1_point(true);
+         let pubkey_bytes = pubkey_compressed.as_bytes();
+         let hash = CosmosSigner::hash160(pubkey_bytes);
+ 
+--- a/src/chains/evm.rs
++++ b/src/chains/evm.rs
+@@ -76,7 +76,7 @@
+         let verifying_key = signing_key.verifying_key();
+ 
+         // Get uncompressed public key (65 bytes: 0x04 || x || y)
+-        let pubkey_bytes = verifying_key.to_encoded_point(false);
++        let pubkey_bytes = verifying_key.to_sec1_point(false);
+         let pubkey_uncompressed = pubkey_bytes.as_bytes();
+ 
+         // Keccak256 hash of the public key (skip the 0x04 prefix byte)
+@@ -99,8 +99,7 @@
+ 
+         let signing_key = Self::signing_key(private_key)?;
+         let (signature, recovery_id) = signing_key
+-            .sign_prehash_recoverable(message)
+-            .map_err(|e| SignerError::SigningFailed(e.to_string()))?;
++            .sign_prehash_recoverable(message);
+ 
+         let r_bytes = signature.r().to_bytes();
+         let s_bytes = signature.s().to_bytes();
+--- a/src/chains/filecoin.rs
++++ b/src/chains/filecoin.rs
+@@ -80,7 +80,7 @@
+         let verifying_key = signing_key.verifying_key();
+ 
+         // Get uncompressed public key (65 bytes: 0x04 || x || y)
+-        let pubkey_bytes = verifying_key.to_encoded_point(false);
++        let pubkey_bytes = verifying_key.to_sec1_point(false);
+         let pubkey_uncompressed = pubkey_bytes.as_bytes();
+ 
+         // Blake2b-160 hash of the full uncompressed pubkey (65 bytes)
+@@ -108,8 +108,7 @@
+ 
+         let signing_key = Self::signing_key(private_key)?;
+         let (signature, recovery_id) = signing_key
+-            .sign_prehash_recoverable(message)
+-            .map_err(|e| SignerError::SigningFailed(e.to_string()))?;
++            .sign_prehash_recoverable(message);
+ 
+         let r_bytes = signature.r().to_bytes();
+         let s_bytes = signature.s().to_bytes();
+--- a/src/chains/spark.rs
++++ b/src/chains/spark.rs
+@@ -33,7 +33,7 @@
+     fn derive_address(&self, private_key: &[u8]) -> Result<String, SignerError> {
+         let signing_key = Self::signing_key(private_key)?;
+         let verifying_key = signing_key.verifying_key();
+-        let pubkey_compressed = verifying_key.to_encoded_point(true);
++        let pubkey_compressed = verifying_key.to_sec1_point(true);
+         Ok(format!(
+             "spark:{}",
+             hex::encode(pubkey_compressed.as_bytes())
+@@ -50,8 +50,7 @@
+ 
+         let signing_key = Self::signing_key(private_key)?;
+         let (signature, recovery_id) = signing_key
+-            .sign_prehash_recoverable(message)
+-            .map_err(|e| SignerError::SigningFailed(e.to_string()))?;
++            .sign_prehash_recoverable(message);
+ 
+         let mut sig_bytes = signature.to_bytes().to_vec();
+         sig_bytes.push(recovery_id.to_byte());
+--- a/src/chains/tron.rs
++++ b/src/chains/tron.rs
+@@ -19,7 +19,7 @@
+         let signing_key = Self::signing_key(private_key)?;
+         let verifying_key = signing_key.verifying_key();
+ 
+-        let pubkey_bytes = verifying_key.to_encoded_point(false);
++        let pubkey_bytes = verifying_key.to_sec1_point(false);
+         let pubkey_uncompressed = pubkey_bytes.as_bytes();
+ 
+         let hash = Keccak256::digest(&pubkey_uncompressed[1..]);
+@@ -63,8 +63,7 @@
+ 
+         let signing_key = Self::signing_key(private_key)?;
+         let (signature, recovery_id) = signing_key
+-            .sign_prehash_recoverable(message)
+-            .map_err(|e| SignerError::SigningFailed(e.to_string()))?;
++            .sign_prehash_recoverable(message);
+ 
+         let r_bytes = signature.r().to_bytes();
+         let s_bytes = signature.s().to_bytes();
+@@ -148,7 +147,7 @@
+         // Get EVM's 20-byte hash (same algorithm)
+         let signing_key = SigningKey::from_slice(&privkey).unwrap();
+         let verifying_key = signing_key.verifying_key();
+-        let pubkey_bytes = verifying_key.to_encoded_point(false);
++        let pubkey_bytes = verifying_key.to_sec1_point(false);
+         let pubkey_uncompressed = pubkey_bytes.as_bytes();
+         let hash = Keccak256::digest(&pubkey_uncompressed[1..]);
+         let evm_hash = &hash[12..];
+--- a/src/chains/zcash.rs
++++ b/src/chains/zcash.rs
+@@ -275,7 +275,7 @@
+         let signing_key = Self::signing_key(private_key)?;
+         let verifying_key = signing_key.verifying_key();
+ 
+-        let pubkey_compressed = verifying_key.to_encoded_point(true);
++        let pubkey_compressed = verifying_key.to_sec1_point(true);
+         let pubkey_bytes = pubkey_compressed.as_bytes();
+ 
+         let hash = Self::hash160(pubkey_bytes);
+@@ -301,8 +301,7 @@
+ 
+         let signing_key = Self::signing_key(private_key)?;
+         let (signature, recovery_id) = signing_key
+-            .sign_prehash_recoverable(message)
+-            .map_err(|e| SignerError::SigningFailed(e.to_string()))?;
++            .sign_prehash_recoverable(message);
+ 
+         let mut sig_bytes = signature.to_bytes().to_vec();
+         sig_bytes.push(recovery_id.to_byte());
+--- a/src/mnemonic.rs
++++ b/src/mnemonic.rs
+@@ -1,5 +1,5 @@
+ use crate::zeroizing::SecretBytes;
+-use coins_bip39::{English, Mnemonic as Bip39Mnemonic};
++use coins_bip39::{English, Mnemonic as Bip39Mnemonic, WordCount};
+ 
+ /// Mnemonic strength / word count.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+@@ -21,12 +21,13 @@
+     /// Generate a new random mnemonic with the given strength.
+     pub fn generate(strength: MnemonicStrength) -> Result<Self, MnemonicError> {
+         let word_count = match strength {
+-            MnemonicStrength::Words12 => 12usize,
+-            MnemonicStrength::Words24 => 24usize,
++            MnemonicStrength::Words12 => WordCount::Twelve,
++            MnemonicStrength::Words24 => WordCount::TwentyFour,
+         };
+-        let mnemonic =
+-            Bip39Mnemonic::<English>::new_with_count(&mut rand::thread_rng(), word_count)
+-                .map_err(|e| MnemonicError::GenerationFailed(e.to_string()))?;
++        let mnemonic = Bip39Mnemonic::<English>::random(
++            word_count,
++            &mut zipher_rng_compat::From06(rand::thread_rng()),
++        );
+         Ok(Mnemonic { inner: mnemonic })
+     }
+ 
+@@ -40,7 +41,7 @@
+     /// Get the mnemonic phrase as SecretBytes.
+     pub fn phrase(&self) -> SecretBytes {
+         let phrase_str = self.inner.to_phrase();
+-        SecretBytes::new(phrase_str.into_bytes())
++        SecretBytes::new(phrase_str.as_bytes().to_vec())
+     }
+ 
+     /// Derive a BIP-39 seed from this mnemonic with an optional passphrase.
+@@ -59,11 +60,9 @@
+ 
+     /// Returns the number of words in this mnemonic.
+     pub fn word_count(&self) -> usize {
+-        let mut phrase = self.inner.to_phrase();
+-        let count = phrase.split_whitespace().count();
+-        // Zeroize the temporary string to prevent mnemonic leaking in memory.
+-        zeroize::Zeroize::zeroize(unsafe { phrase.as_mut_vec() });
+-        count
++        // coins-bip39 returns a Zeroizing<String>, including on this read path.
++        let phrase = self.inner.to_phrase();
++        phrase.split_whitespace().count()
+     }
+ }
+ 

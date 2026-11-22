@@ -4,7 +4,6 @@
       "command": "zipher-mcp-server",
       "env": {
         "OWS_WALLET": "default",
-        "OWS_PASSPHRASE": "",
         "ZIPHER_DATA_DIR": "/path/to/.zipher/mainnet",
         "FIRECRAWL_API_KEY": "fc-..."
       }

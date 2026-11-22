@@ -1,0 +1,66 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -155,7 +155,7 @@
+ package = "rand_core"
+ 
+ [dependencies.rsa]
+-version = "0.9.0"
++version = "=0.10.0-rc.20"
+ 
+ [dependencies.safelog]
+ version = "0.6.0"
+@@ -230,3 +230,6 @@
+ 
+ [target.wasm32-unknown-unknown.dependencies.getrandom]
+ version = "0.3.2"
++
++[dependencies.zipher-rng-compat]
++path = "../../crates/rng-compat"
+--- a/src/pk/rsa.rs
++++ b/src/pk/rsa.rs
+@@ -223,7 +223,7 @@
+         // Returning tor_error::Bug clearly indicates that the caller won't be able to do anything
+         // in particular about this error, without hiding a panic anywhere unexpected.
+         Ok(Self(
+-            rsa::RsaPrivateKey::new(&mut RngCompat::new(csprng), 1024).map_err(|_| {
++            rsa::RsaPrivateKey::new(&mut zipher_rng_compat::From06(RngCompat::new(csprng)), 1024).map_err(|_| {
+                 tor_error::internal!("Generating RSA key failed, despite fixed exponent and size")
+             })?,
+         ))
+@@ -254,12 +254,12 @@
+     /// number as 'e'.
+     pub fn exponent_is(&self, e: u32) -> bool {
+         use rsa::traits::PublicKeyParts;
+-        *self.0.e() == rsa::BigUint::new(vec![e])
++        *self.0.e() == rsa::BoxedUint::from(e)
+     }
+     /// Return the number of bits in the modulus for this key.
+     pub fn bits(&self) -> usize {
+         use rsa::traits::PublicKeyParts;
+-        self.0.n().bits()
++        self.0.n().bits() as usize
+     }
+     /// Try to check a signature (as used in Tor.)  The signed hash
+     /// should be in 'hashed', and the alleged signature in 'sig'.
+@@ -288,14 +288,19 @@
+         use der_parser::ber::BerObject;
+         use rsa::traits::PublicKeyParts;
+ 
+-        let mut n = self.0.n().to_bytes_be();
++        // BoxedUint serializes its full precision. DER INTEGERs require the
++        // shortest unsigned encoding before the sign-protection byte; retaining
++        // zero padding here would change Tor's identity fingerprint.
++        let n_bytes = self.0.n().to_be_bytes();
++        let mut n: Vec<u8> = n_bytes.iter().copied().skip_while(|b| *b == 0).collect();
+         // prepend 0 if high bit is 1 to ensure correct signed encoding
+         if n[0] & 0b10000000 != 0 {
+             n.insert(0, 0_u8);
+         }
+         let n = BerObject::from_int_slice(&n);
+ 
+-        let mut e = self.0.e().to_bytes_be();
++        let e_bytes = self.0.e().to_be_bytes();
++        let mut e: Vec<u8> = e_bytes.iter().copied().skip_while(|b| *b == 0).collect();
+         // prepend 0 if high bit is 1 to ensure correct signed encoding
+         if e[0] & 0b10000000 != 0 {
+             e.insert(0, 0_u8);

@@ -1,0 +1,4 @@
+# Retained compatibility cfg for the older wallet SDK. Common 4 exposes NU7
+# (including its real activation schedule and V6 branch) without an unstable flag.
+[build]
+rustflags = ["--cfg", "zcash_unstable=\"nu6.3\""]

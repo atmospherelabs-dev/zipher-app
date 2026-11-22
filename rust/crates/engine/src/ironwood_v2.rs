@@ -4,7 +4,6 @@
 //! preparation transaction building, PCZT signing, scheduled proving, and broadcast.
 
 use anyhow::{anyhow, Result};
-use rand::rngs::OsRng;
 use tracing::info;
 
 use zcash_client_backend::data_api::WalletRead;
@@ -14,7 +13,15 @@ use zcash_pool_migration::satisfiability::{
 };
 
 // Serialize migration mutation across UI, CLI and service calls in this process.
-static REVIEWED_PLAN: std::sync::Mutex<Option<(std::path::PathBuf, std::time::Instant, MigrationPlan)>> = std::sync::Mutex::new(None);
+static REVIEWED_PLAN: std::sync::Mutex<
+    Option<(
+        std::path::PathBuf,
+        std::time::Instant,
+        u32,
+        u64,
+        MigrationPlan,
+    )>,
+> = std::sync::Mutex::new(None);
 static MIGRATION_OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_pool_migration::engine::{
@@ -62,11 +69,22 @@ pub struct ProgressReport {
 /// Plan a transfer. Returns a summary for user consent (does NOT persist).
 pub async fn plan(seed_phrase: &secrecy::SecretString) -> Result<PlanSummary> {
     let _operation = MIGRATION_OPERATION.lock().await;
-    *REVIEWED_PLAN.lock().unwrap() = None;
+    *REVIEWED_PLAN
+        .lock()
+        .map_err(|_| anyhow!("Migration review state is unavailable; reopen the wallet"))? = None;
     use secrecy::ExposeSecret;
 
-    let (db_data_path, params, db_cipher_key) = engine_params().await?;
+    let (db_data_path, params, db_cipher_key, generation) = engine_params().await?;
     let db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
+    let reviewed_target = u32::from(
+        db_data
+            .chain_height()
+            .map_err(|e| anyhow!("Read migration planning height: {e:?}"))?
+            .ok_or_else(|| anyhow!("Sync before reviewing a migration"))?,
+    )
+    .checked_add(1)
+    .ok_or_else(|| anyhow!("Migration target height overflow"))?;
+    super::network_upgrade::ensure_migration_can_start(&params, reviewed_target)?;
 
     let account_id = first_account_id(&db_data)?;
 
@@ -87,7 +105,8 @@ pub async fn plan(seed_phrase: &secrecy::SecretString) -> Result<PlanSummary> {
         store,
     );
 
-    let plan = mig_engine::plan_migration(&params, &wallet_mig, &mut OsRng)
+    let mut rng = zipher_rng_compat::OS_RNG;
+    let plan = mig_engine::plan_migration(&params, &wallet_mig, &mut rng)
         .map_err(|e| anyhow!("Plan failed: {}", e))?;
 
     let crossing_values: Vec<u64> = plan
@@ -96,8 +115,8 @@ pub async fn plan(seed_phrase: &secrecy::SecretString) -> Result<PlanSummary> {
         .map(|z| u64::from(*z))
         .collect();
     let total_migrating: u64 = crossing_values.iter().sum();
-    let estimated_total_fee =
-        u64::from(plan.total_actions()) * zcash_primitives::transaction::fees::zip317::MARGINAL_FEE.into_u64();
+    let estimated_total_fee = u64::from(plan.total_actions())
+        * zcash_primitives::transaction::fees::zip317::MARGINAL_FEE.into_u64();
 
     let summary = PlanSummary {
         crossing_values,
@@ -108,7 +127,16 @@ pub async fn plan(seed_phrase: &secrecy::SecretString) -> Result<PlanSummary> {
         total_tx_count: plan.total_transactions(),
         prep_layers: plan.preparation_layer_count(),
     };
-    *REVIEWED_PLAN.lock().unwrap() = Some((db_data_path.into(), std::time::Instant::now(), plan));
+    *REVIEWED_PLAN
+        .lock()
+        .map_err(|_| anyhow!("Migration review state is unavailable; reopen the wallet"))? =
+        Some((
+            db_data_path.into(),
+            std::time::Instant::now(),
+            reviewed_target,
+            generation,
+            plan,
+        ));
     Ok(summary)
 }
 
@@ -117,7 +145,7 @@ pub async fn commit(seed_phrase: &secrecy::SecretString) -> Result<ProgressRepor
     let _operation = MIGRATION_OPERATION.lock().await;
     use secrecy::ExposeSecret;
 
-    let (db_data_path, params, db_cipher_key) = engine_params().await?;
+    let (db_data_path, params, db_cipher_key, generation) = engine_params().await?;
     let db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
 
     let account_id = first_account_id(&db_data)?;
@@ -131,18 +159,18 @@ pub async fn commit(seed_phrase: &secrecy::SecretString) -> Result<ProgressRepor
     )
     .map_err(|e| anyhow!("Store: {:?}", e))?;
 
-    let mut wallet_mig = WalletMigration::new(
-        &db_data,
-        account_id,
-        usk.to_unified_full_viewing_key(),
-        store,
-    );
-
-    let (reviewed_path, reviewed_at, plan) = REVIEWED_PLAN.lock().unwrap().take()
+    let (reviewed_path, reviewed_at, reviewed_target, reviewed_generation, plan) = REVIEWED_PLAN
+        .lock()
+        .map_err(|_| anyhow!("Migration review state is unavailable; reopen the wallet"))?
+        .take()
         .ok_or_else(|| anyhow!("Review a migration plan before committing"))?;
-    if reviewed_path != std::path::PathBuf::from(&db_data_path)
-        || reviewed_at.elapsed() > std::time::Duration::from_secs(600) {
-        return Err(anyhow!("Wallet changed or migration review expired; review again"));
+    if reviewed_generation != generation
+        || reviewed_path != std::path::PathBuf::from(&db_data_path)
+        || reviewed_at.elapsed() > std::time::Duration::from_secs(600)
+    {
+        return Err(anyhow!(
+            "Wallet changed or migration review expired; review again"
+        ));
     }
 
     info!(
@@ -157,15 +185,59 @@ pub async fn commit(seed_phrase: &secrecy::SecretString) -> Result<ProgressRepor
         .chain_height()
         .map_err(|e| anyhow!("{:?}", e))?
         .ok_or_else(|| anyhow!("Sync first"))?;
-    let target_height = chain_tip + 1;
+    let live_tip = live_migration_tip(&params, generation)
+        .await?
+        .max(u32::from(chain_tip));
+    let target = live_tip
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("Migration target height overflow"))?;
+    super::network_upgrade::ensure_same_branch(&params, reviewed_target, target)?;
+    super::network_upgrade::ensure_migration_can_start(&params, target)?;
+    // Avoid paying preparation fees for a schedule whose first submission is
+    // already in the upgrade hold. Do not silently redraw an approved plan.
+    if let Some(first) = plan
+        .planned_transactions()
+        .iter()
+        .filter_map(|t| t.scheduled_height().map(u32::from))
+        .min()
+    {
+        if super::network_upgrade::migration_held(
+            &params,
+            super::network_upgrade::branch_at(&params, target),
+            first.saturating_sub(1),
+        ) {
+            return Err(anyhow!(super::network_upgrade::MIGRATION_HOLD_MESSAGE));
+        }
+    }
+    let target_height = zcash_protocol::consensus::BlockHeight::from_u32(target);
+    // Keep the reviewed wallet identity pinned through the synchronous signing
+    // and durable commit. A switch during the live-height request invalidates it.
+    let identity = ENGINE.lock().await;
+    let current = identity.as_ref().ok_or_else(|| anyhow!("Wallet closed"))?;
+    if current.generation != generation
+        || current.db_data_path != db_data_path
+        || current.params != params
+    {
+        return Err(anyhow!("Wallet changed; review the migration again"));
+    }
 
+    // Borrow SQLite only after the final await. WalletMigration contains a
+    // shared reference to the non-Sync connection and must never cross an
+    // asynchronous FFI suspension point.
+    let mut wallet_mig = WalletMigration::new(
+        &db_data,
+        account_id,
+        usk.to_unified_full_viewing_key(),
+        store,
+    );
+    let mut rng = zipher_rng_compat::OS_RNG;
     let state = mig_engine::commit_preparation(
         &params,
         target_height,
         &mut wallet_mig,
         usk.orchard(),
         &plan,
-        &mut OsRng,
+        &mut rng,
         ReplanThreshold::DEFAULT,
     )
     .map_err(|e| anyhow!("Commit failed: {}", e))?;
@@ -180,7 +252,7 @@ pub async fn tick(seed_phrase: &secrecy::SecretString) -> Result<ProgressReport>
     use zcash_pool_migration::{engine::ProveOutcome, state::AdvanceStep};
 
     let _operation = MIGRATION_OPERATION.lock().await;
-    let (db_data_path, params, db_cipher_key) = engine_params().await?;
+    let (db_data_path, params, db_cipher_key, generation) = engine_params().await?;
     let server_url = engine_server_url().await?;
     let mut db_data = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
     let account_id = first_account_id(&db_data)?;
@@ -200,23 +272,66 @@ pub async fn tick(seed_phrase: &secrecy::SecretString) -> Result<ProgressReport>
         .map_err(|e| anyhow!("Read scanned height: {e:?}"))?
         .ok_or_else(|| anyhow!("Sync before advancing a transfer"))?
         .block_height();
-    let targets = DuenessTargets::new(scanned_tip + 1, scanned_tip + 1);
-    // Ten blocks is about 12.5 minutes at the current 75-second block spacing.
-    let config = AdvanceConfig::new(ReorgSettleDepth::new(10));
+    {
+        let identity = ENGINE.lock().await;
+        let current = identity.as_ref().ok_or_else(|| anyhow!("Wallet closed"))?;
+        if current.generation != generation
+            || current.db_data_path != db_data_path
+            || current.params != params
+        {
+            return Err(anyhow!("Wallet changed; transfer was not advanced"));
+        }
+        let mut recovery = open_store_conn(&db_data_path, &db_cipher_key)?;
+        if zcash_client_sqlite::pool_migration::orchard_ironwood::upgrade::stop_invalidated_migration(
+            &mut recovery, &params, account_id,
+        ).map_err(|e| anyhow!("Reconcile migration after network upgrade: {e}"))?.is_some() {
+            let stopped = store.latest_migration().map_err(|e| anyhow!("Read stopped migration: {e}"))?
+                .ok_or_else(|| anyhow!("Stopped migration receipt is unavailable"))?;
+            let mut report = build_report(&stopped)?;
+            report.status = "stopped_by_upgrade".into();
+            return Ok(report);
+        }
+    }
+    let live_tip = live_migration_tip(&params, generation)
+        .await?
+        .max(u32::from(scanned_tip));
+    let targets = DuenessTargets::new(
+        scanned_tip + 1,
+        zcash_protocol::consensus::BlockHeight::from_u32(live_tip) + 1,
+    );
+    // This is a security depth, not a wall-clock duration. ZIP 318's privacy
+    // delays and anchor/expiry grids are supplied by the spacing-aware SDK.
+    let config = AdvanceConfig::new(
+        ReorgSettleDepth::new(10),
+        zcash_protocol::zip318::BlockSpacing::for_network(&params),
+    );
     let usk = derive_usk(&params, seed_phrase.expose_secret())?;
     let ufvk = usk.to_unified_full_viewing_key();
     let fvk = orchard::keys::FullViewingKey::from(usk.orchard());
 
+    let mut rng = zipher_rng_compat::OS_RNG;
     // A bounded session prevents retries of not-yet-provable work from spinning.
     for _ in 0..=state.transactions().len() {
-        let advance = advance_migration(&mut store, &mut state, targets, &config, &mut OsRng)
+        let advance = advance_migration(&mut store, &mut state, targets, &config, &mut rng)
             .map_err(|e| anyhow!("Advance migration: {e:?}"))?;
+        // The SDK first reconciles every mined or ambiguously submitted part
+        // against the scanned chain. Only then may an upgrade pause the rest;
+        // never release inputs or rebuild from a server's missing tx response.
+        if let Some(status) = migration_upgrade_status(&params, &state, live_tip)? {
+            let mut report = build_report(&state)?;
+            report.status = status.into();
+            return Ok(report);
+        }
         match advance.step() {
             AdvanceStep::Prove { transactions } => {
                 let mut progressed = false;
                 for target in transactions {
-                    let mut prover =
-                        WalletMigrationProver::new(&mut db_data, account_id, fvk.clone());
+                    let mut prover = WalletMigrationProver::new(
+                        &mut db_data,
+                        zipher_rng_compat::OS_RNG,
+                        account_id,
+                        fvk.clone(),
+                    );
                     let outcome = match target.kind() {
                         MigrationTxKind::Transfer { .. } => mig_engine::prove_transfer(
                             &params,
@@ -224,7 +339,7 @@ pub async fn tick(seed_phrase: &secrecy::SecretString) -> Result<ProgressReport>
                             &mut state,
                             target.id(),
                             scanned_tip,
-                            &mut OsRng,
+                            &mut rng,
                         ),
                         MigrationTxKind::Preparation { .. } => mig_engine::prove_preparation(
                             &mut prover,
@@ -262,7 +377,10 @@ pub async fn tick(seed_phrase: &secrecy::SecretString) -> Result<ProgressReport>
                 // A wallet switch invalidates this session before any submission.
                 let guard = ENGINE.lock().await;
                 let current = guard.as_ref().ok_or_else(|| anyhow!("Wallet closed"))?;
-                if current.db_data_path != db_data_path || current.params != params {
+                if current.generation != generation
+                    || current.db_data_path != db_data_path
+                    || current.params != params
+                {
                     return Err(anyhow!("Wallet changed; transfer was not submitted"));
                 }
                 let transaction = store
@@ -270,15 +388,18 @@ pub async fn tick(seed_phrase: &secrecy::SecretString) -> Result<ProgressReport>
                     .map_err(|e| anyhow!("Prepare migration broadcast: {e:?}"))?;
                 let mut raw = Vec::new();
                 transaction.write(&mut raw)?;
-                // Keep the engine identity pinned until the attempt completes. The SDK
-                // already recorded this exact transaction for recovery after ambiguity.
+                let tor = current.tor_transport()?;
+                drop(guard);
+                // The durable exact transaction already exists for ambiguity
+                // recovery; recheck the session after proving before submission.
                 tokio::time::timeout(
                     std::time::Duration::from_secs(60),
-                    super::send::broadcast_with_transport(
+                    super::send::broadcast_for_generation(
                         &server_url,
                         &params,
                         raw,
-                        current.tor_transport()?,
+                        tor,
+                        generation,
                     ),
                 )
                 .await
@@ -291,7 +412,6 @@ pub async fn tick(seed_phrase: &secrecy::SecretString) -> Result<ProgressReport>
                 store
                     .replace_migration(&state)
                     .map_err(|e| anyhow!("Persist broadcast: {e:?}"))?;
-                drop(guard);
                 break;
             }
             AdvanceStep::Rebuild { id } => {
@@ -310,7 +430,7 @@ pub async fn tick(seed_phrase: &secrecy::SecretString) -> Result<ProgressReport>
                     usk.orchard(),
                     &mut state,
                     *id,
-                    &mut OsRng,
+                    &mut rng,
                 )
                 .map_err(|e| anyhow!("Rebuild migration: {e}"))?;
                 store
@@ -330,7 +450,7 @@ pub async fn tick(seed_phrase: &secrecy::SecretString) -> Result<ProgressReport>
 
 /// Read the most recent SDK record, including terminal history. No network calls.
 pub async fn status() -> Result<ProgressReport> {
-    let (path, params, key) = engine_params().await?;
+    let (path, params, key, _generation) = engine_params().await?;
     let db = open_wallet_db(&path, params, &key)?;
     let store = PoolMigrations::for_account(
         params,
@@ -343,7 +463,29 @@ pub async fn status() -> Result<ProgressReport> {
         .latest_migration()
         .map_err(|e| anyhow!("Read migration: {e:?}"))?
     {
-        Some(state) => build_report(&state),
+        Some(state) => {
+            let mut report = build_report(&state)?;
+            let conn = open_store_conn(&path, &key)?;
+            if zcash_client_sqlite::pool_migration::orchard_ironwood::upgrade::latest_upgrade_stop(
+                &conn,
+                first_account_id(&db)?,
+            )
+            .map_err(|e| anyhow!("Read migration upgrade receipt: {e}"))?
+            .is_some()
+            {
+                report.status = "stopped_by_upgrade".into();
+                return Ok(report);
+            }
+            if let Some(tip) = db
+                .chain_height()
+                .map_err(|e| anyhow!("Read migration status height: {e:?}"))?
+            {
+                if let Some(status) = migration_upgrade_status(&params, &state, u32::from(tip))? {
+                    report.status = status.into();
+                }
+            }
+            Ok(report)
+        }
         None => Ok(ProgressReport {
             status: "idle".into(),
             crossing_values: vec![],
@@ -362,7 +504,13 @@ pub async fn status() -> Result<ProgressReport> {
 /// Transactions already submitted can still be mined.
 pub async fn cancel() -> Result<()> {
     let _operation = MIGRATION_OPERATION.lock().await;
-    let (path, params, key) = engine_params().await?;
+    let (path, params, key, generation) = engine_params().await?;
+    let identity = ENGINE.lock().await;
+    let current = identity.as_ref().ok_or_else(|| anyhow!("Wallet closed"))?;
+    if current.generation != generation || current.db_data_path != path || current.params != params
+    {
+        return Err(anyhow!("Wallet changed; review the cancellation again"));
+    }
     let db = open_wallet_db(&path, params, &key)?;
     let mut store = PoolMigrations::for_account(
         params,
@@ -384,12 +532,17 @@ pub async fn cancel() -> Result<()> {
 use std::path::PathBuf;
 use zcash_protocol::consensus::Network;
 
-async fn engine_params() -> Result<(PathBuf, Network, Option<String>)> {
+async fn engine_params() -> Result<(PathBuf, Network, Option<String>, u64)> {
     let guard = ENGINE.lock().await;
     let e = guard
         .as_ref()
         .ok_or_else(|| anyhow!("Engine not initialized"))?;
-    Ok((e.db_data_path.clone(), e.params, e.db_cipher_key.clone()))
+    Ok((
+        e.db_data_path.clone(),
+        e.params,
+        e.db_cipher_key.clone(),
+        e.generation,
+    ))
 }
 
 async fn engine_server_url() -> Result<String> {
@@ -398,6 +551,71 @@ async fn engine_server_url() -> Result<String> {
         .as_ref()
         .ok_or_else(|| anyhow!("Engine not initialized"))?;
     Ok(e.server_url.clone())
+}
+
+async fn live_migration_tip(params: &Network, generation: u64) -> Result<u32> {
+    let (server_url, tor) = {
+        let guard = ENGINE.lock().await;
+        let engine = guard.as_ref().ok_or_else(|| anyhow!("Wallet closed"))?;
+        if engine.generation != generation || engine.params != *params {
+            return Err(anyhow!(
+                "Wallet network changed; review the migration again"
+            ));
+        }
+        (engine.server_url.clone(), engine.tor_transport()?)
+    };
+    let mut client = match tor {
+        Some(client) => super::wallet::connect_lwd_tor(&client, &server_url).await?,
+        None => super::wallet::connect_lwd(&server_url).await?,
+    };
+    super::network_upgrade::endpoint_tip(&mut client, params).await
+}
+
+/// Existing signatures are retained as evidence and may already have mined.
+/// A policy pause never frees them or substitutes a newly signed transaction.
+fn migration_upgrade_status(
+    params: &Network,
+    state: &SdkMigrationState,
+    tip: u32,
+) -> Result<Option<&'static str>> {
+    if state.is_terminal() {
+        return Ok(None);
+    }
+    let mut parts = Vec::new();
+    for tx in state.transactions() {
+        if matches!(tx.state(), MigrationTxState::Mined { .. }) {
+            continue;
+        }
+        let pczt = pczt::Pczt::parse(tx.pczt())
+            .map_err(|e| anyhow!("Read migration's signed consensus branch: {e:?}"))?;
+        let branch =
+            zcash_protocol::consensus::BranchId::try_from(*pczt.global().consensus_branch_id())
+                .map_err(|e| anyhow!("Unsupported migration consensus branch: {e}"))?;
+        parts.push(branch);
+    }
+    Ok(migration_parts_upgrade_status(params, &parts, tip))
+}
+
+fn migration_parts_upgrade_status<P: zcash_protocol::consensus::Parameters>(
+    params: &P,
+    unmined_branches: &[zcash_protocol::consensus::BranchId],
+    tip: u32,
+) -> Option<&'static str> {
+    let target = tip.saturating_add(1);
+    let current = super::network_upgrade::branch_at(params, target);
+    let mut held = false;
+    for branch in unmined_branches {
+        if *branch != current
+            && branch
+                .height_bounds(params)
+                .and_then(|(_, end)| end)
+                .is_some_and(|end| u32::from(end) <= target)
+        {
+            return Some("upgrade_review_required");
+        }
+        held |= super::network_upgrade::migration_held(params, *branch, tip);
+    }
+    held.then_some("paused_by_upgrade")
 }
 
 type DbType = zcash_client_sqlite::WalletDb<
@@ -543,6 +761,47 @@ fn migration_fee(kind: MigrationTxKind) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migration_bridge_futures_can_run_on_the_ffi_executor() {
+        fn assert_send<T: Send>(_: T) {}
+        // Construct futures without polling: no key access, database or network.
+        let seed = secrecy::SecretString::new(String::new());
+        assert_send(plan(&seed));
+        assert_send(commit(&seed));
+        assert_send(tick(&seed));
+        assert_send(status());
+        assert_send(cancel());
+    }
+
+    #[test]
+    fn an_interrupted_migration_pauses_without_reclassifying_mined_steps() {
+        use zcash_protocol::consensus::{BlockHeight, BranchId, NetworkUpgrade, Parameters};
+        let params = Network::TestNetwork;
+        let a = u32::from(params.activation_height(NetworkUpgrade::Nu7).unwrap());
+        let old = BranchId::for_height(&params, BlockHeight::from_u32(a - 1));
+        let new = BranchId::for_height(&params, BlockHeight::from_u32(a));
+        assert_eq!(
+            migration_parts_upgrade_status(&params, &[old], a - 12),
+            None
+        );
+        assert_eq!(
+            migration_parts_upgrade_status(&params, &[old], a - 11),
+            Some("paused_by_upgrade")
+        );
+        assert_eq!(
+            migration_parts_upgrade_status(&params, &[old], a - 1),
+            Some("upgrade_review_required")
+        );
+        assert_eq!(
+            migration_parts_upgrade_status(&params, &[old], a),
+            Some("upgrade_review_required")
+        );
+        assert_eq!(migration_parts_upgrade_status(&params, &[new], a), None);
+        // Mined parts are excluded before this policy is called: no remaining
+        // signatures means an upgrade cannot turn a complete run into a pause.
+        assert_eq!(migration_parts_upgrade_status(&params, &[], a), None);
+    }
 
     #[test]
     fn reports_canonical_preparation_and_crossing_fees() {

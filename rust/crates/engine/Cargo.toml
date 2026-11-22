@@ -13,6 +13,7 @@ hex = "0.4"
 tracing = "0.1"
 tokio = { version = "1", features = ["full"] }
 rand = "0.8"
+zipher-rng-compat = { path = "../rng-compat" }
 secrecy = "0.8"
 zeroize = "1"
 lazy_static = "1"
@@ -35,7 +36,7 @@ zcash_primitives = { workspace = true, features = ["non-standard-fees"] }
 zip321 = { workspace = true }
 zcash_proofs = { workspace = true, features = ["local-prover"] }
 zcash_transparent = { workspace = true }
-zcash_script = "0.4"
+zcash_script = "0.6"
 zip32 = "0.2"
 sapling-crypto = { workspace = true }
 orchard = { workspace = true }
@@ -45,10 +46,11 @@ sha2 = "0.10"
 ff = { workspace = true }
 pasta_curves = { workspace = true }
 
-rustls = { version = "0.23", features = ["ring"] }
+rustls = { version = "0.23.46", features = ["ring"] }
 reqwest = { version = "0.13", features = ["json"] }
 time = { version = "0.3.54", features = ["parsing"] }
-reddsa = { workspace = true, features = ["frost", "serde"] }
+reddsa = { workspace = true, features = ["serde"] }
+reddsa_frost = { package = "zakura-reddsa-frost", version = "=4.0.0" }
 frost-rerandomized = "3.0"
 frost-core = { version = "3.0", features = ["serde"] }
 xeddsa = "1.0.2"
@@ -56,7 +58,7 @@ snow = "0.9.6"
 uuid = "1"
 
 # EVM signing (OWS signer — no tonic/prost, just crypto)
-ows-signer = { path = "../../../ows-core/ows/crates/ows-signer", version = "=1.0.0" }
+ows-signer = { path = "../../vendor/ows-signer", version = "=1.0.0" }
 
 # Vault encryption
 aes-gcm = "0.10"
@@ -66,4 +68,7 @@ scrypt = "0.11"
 default = []
 
 [dev-dependencies]
+base64ct = "1"
+hex-literal = "1"
+tor-llcrypto = "=0.35.0"
 tempfile = "3"

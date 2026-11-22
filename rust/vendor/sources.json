@@ -1,29 +1,195 @@
 {
-  "zakura_common": "1.2.0",
+  "zakura_common": "4.0.0",
   "crates": [
     {
       "crate": "zcash_client_backend",
       "version": "0.24.0",
       "sha256": "07ad58d8ca5daacbc089bf82ec09e45cf2a8be40adeb40b9399b16545c81a528",
-      "source": "https://crates.io/api/v1/crates/zcash_client_backend/0.24.0/download"
+      "source": "https://crates.io/api/v1/crates/zcash_client_backend/0.24.0/download",
+      "patch_sha256": "0719f823186a6cdc8f7e4c846bf277669c55c598aa8c4f42990cda0f84eaa604"
     },
     {
       "crate": "zcash_client_sqlite",
       "version": "0.22.0",
       "sha256": "dd92e4334619b1e3f67019254049318ec0d0240a3c15d853bdf2ac4bba597078",
-      "source": "https://crates.io/api/v1/crates/zcash_client_sqlite/0.22.0/download"
+      "source": "https://crates.io/api/v1/crates/zcash_client_sqlite/0.22.0/download",
+      "patch_sha256": "f70fa20894223967ecbac88a751827730a292b5c666ead0a6a4523951489d647"
     },
     {
       "crate": "zcash_pool_migration",
-      "version": "0.1.0",
-      "sha256": "6188c544911aad647bdb0730d18a0309991da1ccbbdab0415d4ef3113ecadcb3",
-      "source": "https://crates.io/api/v1/crates/zcash_pool_migration/0.1.0/download"
+      "version": "0.2.0",
+      "sha256": "5b5211aea88f920316150527eda23efe419b507d03c8dda9e655bfbf22bfa68d",
+      "source": "https://crates.io/api/v1/crates/zcash_pool_migration/0.2.0/download",
+      "patch_sha256": "2e8a4d41c2d0d8a18744162dae37cb3a9d266a952b76f33824d187571f6f19f5"
+    }
+  ],
+  "published_dependencies": [
+    {
+      "crate": "zakura-address",
+      "version": "4.0.0",
+      "sha256": "e8621c37ff7444685ce23b2e36c3516d5309c241c63c89de83d4abab2fcdf8e4"
     },
     {
-      "crate": "pczt",
-      "version": "0.9.3",
-      "sha256": "a5592f4f3eba7f9344cc423f45b6e65911e0630c9b89968d5a20792aadd5a0eb",
-      "source": "https://crates.io/api/v1/crates/pczt/0.9.3/download"
+      "crate": "zakura-bellman",
+      "version": "4.0.0",
+      "sha256": "14951c09302fea912334d5053d0513930bba31db0ef9e6d6c2ae0b6c9fdd9b50"
+    },
+    {
+      "crate": "zakura-bls12-381",
+      "version": "4.0.0",
+      "sha256": "4c29fa2e8eb48b4dfec34e395515bad046355cac6292275e666818757ea4b077"
+    },
+    {
+      "crate": "zakura-equihash",
+      "version": "4.0.0",
+      "sha256": "b2f460f432240b51eba911f4389ac40a549399cd14589d6773cb39239583f20c"
+    },
+    {
+      "crate": "zakura-halo2-gadgets",
+      "version": "4.0.0",
+      "sha256": "bef6f7773ca5b921daadbe5e9af0c9f79cfcadf06d32ed064f40df2ed852ba59"
+    },
+    {
+      "crate": "zakura-halo2-poseidon",
+      "version": "4.0.0",
+      "sha256": "dd0834743e66872b7d4fb793eec6e04792fa4bf8820247ba2a074827dd9e081b"
+    },
+    {
+      "crate": "zakura-halo2-proofs",
+      "version": "4.0.0",
+      "sha256": "75017874a7c0e2f8f1ffacf5b68ca96951cd4e470f2eb9aa3822becb19453d25"
+    },
+    {
+      "crate": "zakura-jubjub",
+      "version": "4.0.0",
+      "sha256": "8573c50855bc41efbac00f595fe3f93eeb0aaac33b0d508899940ad33f958699"
+    },
+    {
+      "crate": "zakura-keys",
+      "version": "4.0.0",
+      "sha256": "1f0ecdede4e9329b2c2dd9d3e2afd3be630e69a1b7ecc67fe4f0aab5dc2a018d"
+    },
+    {
+      "crate": "zakura-note-encryption",
+      "version": "4.0.0",
+      "sha256": "0ae22fc88267ae8e8145cdbc7010758846563766745fc3f16e1e6430dcb3fc7d"
+    },
+    {
+      "crate": "zakura-orchard",
+      "version": "4.0.0",
+      "sha256": "ded68d0841754e5cd9c6a976e3c1bf64275fbfa4cfca0e5b4ee5ee44d5bb7e74"
+    },
+    {
+      "crate": "zakura-orchard-legacy",
+      "version": "4.0.0",
+      "sha256": "02810d2eb43f874d5dde9af4079d53deb8a971d662f900dc7144df6cfbd64dd4"
+    },
+    {
+      "crate": "zakura-pairing",
+      "version": "4.0.0",
+      "sha256": "ed51c91aa634b4b56e6ada8ceef6053ac4102eeaba6725fb9af90c794a451551"
+    },
+    {
+      "crate": "zakura-pasta-curves",
+      "version": "4.0.0",
+      "sha256": "f6ff39b7440a3e61ae9b19afc4254f027bb6be69796b24566504e0e78a525cb6"
+    },
+    {
+      "crate": "zakura-pczt",
+      "version": "0.1.0-rc9",
+      "sha256": "6a0b24dfffac352758535095baf5c3f62bff1bc58dfbc7ed4455c072e5855b53"
+    },
+    {
+      "crate": "zakura-primitives",
+      "version": "4.0.0",
+      "sha256": "c380aeac887e935cbe05aebe0f417cb1cd16ecc802ee67b05b1cbaf2294d8467"
+    },
+    {
+      "crate": "zakura-proofs",
+      "version": "4.0.0",
+      "sha256": "ea1789e689b6ed80e139290f49057599f5b79f5fa33234f21d35dce27cb1b33f"
+    },
+    {
+      "crate": "zakura-protocol",
+      "version": "4.0.0",
+      "sha256": "b28415ef2e0210e62bc4f9277a1d2878aecdcf13d71dc92aac5582a108cd1ff5"
+    },
+    {
+      "crate": "zakura-reddsa",
+      "version": "4.0.0",
+      "sha256": "f78f4044021672bbbdb7a780de81e7f1e15315af85425ed6f525ad5815d38cc7"
+    },
+    {
+      "crate": "zakura-reddsa-frost",
+      "version": "4.0.0",
+      "sha256": "393052aa005e9629c28aea189f0d2ceb4860884aca9ea33e12b39399231006e6"
+    },
+    {
+      "crate": "zakura-redjubjub",
+      "version": "4.0.0",
+      "sha256": "49ba9fdc71a5b108c81355e82d6b7ab2c87782617221c9629d652531c9d98a52"
+    },
+    {
+      "crate": "zakura-sapling-crypto",
+      "version": "4.0.0",
+      "sha256": "c723f61c7b67b057185edf592111ffab15909b7f2649b6b5690ee6ac47d70d5d"
+    },
+    {
+      "crate": "zakura-sinsemilla",
+      "version": "4.0.0",
+      "sha256": "f7dc75ec00057cd09465b97673674581725eb3bc260043e88f0f22bf4cccc84c"
+    },
+    {
+      "crate": "zakura-transparent",
+      "version": "4.0.0",
+      "sha256": "56d9a18d51d990c681baf2b6eb427173ba7899f58d9c0f8966901d2257bda9e4"
+    },
+    {
+      "crate": "zakura-zip321",
+      "version": "4.0.0",
+      "sha256": "077cc7259ccd55e71852eca10d2709ab3fb33ab5b53bffa9989d05a059619eb2"
     }
-  ]
+  ],
+  "backport_sources": [
+    {
+      "crate": "zcash_client_backend",
+      "version": "0.25.0",
+      "sha256": "27228f279facfd6b9dd015cea88538020c30f87c8a4aa59e8ed85808d81febb5",
+      "source": "https://crates.io/api/v1/crates/zcash_client_backend/0.25.0/download",
+      "files": [
+        "src/data_api/anchor_retention.rs",
+        "src/data_api.rs",
+        "src/data_api/wallet.rs",
+        "src/data_api/ll/wallet.rs"
+      ]
+    },
+    {
+      "crate": "zcash_client_sqlite",
+      "version": "0.23.0",
+      "sha256": "d1d85c3c832c8554da6ed6114c81afef84f7dbb84c2279a3889277a8d2225019",
+      "source": "https://crates.io/api/v1/crates/zcash_client_sqlite/0.23.0/download",
+      "files": [
+        "src/wallet/common.rs",
+        "src/wallet.rs",
+        "src/wallet/transparent.rs",
+        "src/wallet/commitment_tree.rs",
+        "src/wallet/sapling.rs",
+        "src/wallet/orchard.rs",
+        "src/lib.rs"
+      ]
+    }
+  ],
+  "standard_fee_protocol": {
+    "source": "https://raw.githubusercontent.com/zcash/lightwallet-protocol/v0.6.0/walletrpc/service.proto",
+    "sha256": "9352e90977cfd55ead3a0b97048c40d673ad0024d33882ae89e15727fad19138",
+    "reference": "references/lightwallet-protocol-v0.6.0-service.proto",
+    "scope": "Additive StandardFee message and GetStandardFee client method; existing generated protocol remains backend0.24."
+  },
+  "local_database_extension": {
+    "crate": "zcash_client_sqlite",
+    "source": "src/pool_migration/orchard_ironwood/upgrade.rs",
+    "behavior": "Fully-scanned branch retirement with mined-first reconciliation, PCZT/raw transaction identity validation, exact unmined expiry/owner retirement, and retained reorg evidence.",
+    "optional_table": "orchard_ironwood_migration_upgrade_stops",
+    "schema_note": "Created atomically when a run is stopped. Existing published 0.22 schema migrations are retained."
+  }
 }

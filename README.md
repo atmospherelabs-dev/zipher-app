@@ -32,11 +32,11 @@ model. It supports guided ZEC sends, receive-address selection with QR/copy,
 ZEC-out swap reviews, history and Zcash plus tracked EVM balances. See
 [chat support and verification](docs/chat-home.md) for the exact boundaries.
 
-The shared engine now uses stable wallet libraries adapted to Zakura Common 1.2.0,
-including Ironwood migration storage. The app calls this engine through FFI;
-it does not run the CLI. See the [stack audit](docs/cli-engine-stack-audit.md) for
-the compatibility patches and the [code audit](docs/code-audit-2026-09-09.md) for
-local verification and remaining release acceptance work.
+The shared engine uses stable wallet libraries adapted to released Zakura Common
+4.0.0, retaining Ironwood migration storage. The app calls this engine through
+FFI; it does not run the CLI. See the [NU7 wallet upgrade](docs/nu7-wallet-upgrade.md)
+for activation-safe sends, fee discovery, migration recovery and release gates,
+and the [vendor provenance](rust/vendor/README.md) for the compatibility cohort.
 
 ## zipher-cli
 
@@ -169,11 +169,13 @@ rust/src/                # Flutter Rust Bridge (mobile app FFI)
 
 The engine crate is the single source of truth for wallet logic. Every consumer — mobile app, CLI, MCP server — uses the same Rust code for key derivation, proof generation, and transaction construction.
 
+Rust builds use the standalone `rust/` workspace. See [dependency security maintenance](docs/dependency-security.md) for dependency floors, checks and remaining advisory findings.
+
 ## Built With
 
 - [Open Wallet Standard (OWS)](https://openwallet.sh) — multi-chain wallet and signing (Zcash PCZT + EVM)
 - [librustzcash](https://github.com/zcash/librustzcash) — Zcash protocol libraries and light client SDK
-- [rmcp](https://github.com/anthropics/rmcp) — Model Context Protocol server SDK
+- [rmcp](https://github.com/modelcontextprotocol/rust-sdk) — Model Context Protocol server SDK
 - [NEAR Intents](https://near.org/intents) — cross-chain swap infrastructure
 - [Polymarket](https://polymarket.com) — prediction markets on Polygon (CLOB + Gamma APIs)
 - [ParaSwap](https://paraswap.io) — DEX aggregator for same-chain EVM swaps (USDC.e bridging)

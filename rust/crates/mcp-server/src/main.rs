@@ -118,6 +118,10 @@ struct ProposeSendParams {
     amount: u64,
     /// Optional encrypted memo (shielded transactions only)
     memo: Option<String>,
+    /// Pay 10 times the standard marginal fee for inclusion priority.
+    /// The exact total fee is returned for review; confirmation is not guaranteed.
+    #[serde(default)]
+    priority: bool,
     /// Context identifier for audit trail
     context_id: Option<String>,
 }
@@ -367,6 +371,9 @@ impl ZipherMcpServer {
         let policy = zipher_engine::policy::load_policy_checked(&self.data_dir)?;
         zipher_engine::policy::check_rate_limit(&policy)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
+        // An expired review or known branch change is a pre-signing refusal,
+        // not an ambiguous broadcast that should reserve the daily budget.
+        zipher_engine::send::preflight_confirm_send().await?;
         let reservation = zipher_engine::audit::reserve_spend(
             &self.data_dir, address, amount, fee, context_id, &policy)?;
         // A failure may be an ambiguous broadcast. Never release its reserved
@@ -474,7 +481,7 @@ impl ZipherMcpServer {
             return err_code_response(code, &violation.to_string());
         }
 
-        match zipher_engine::send::propose_send(&params.address, params.amount, params.memo, false, false).await {
+        match zipher_engine::send::propose_send(&params.address, params.amount, params.memo, false, params.priority).await {
             Ok((send_amount, fee, _)) => {
                 let proposal_id = uuid::Uuid::new_v4().to_string();
                 *self.reviewed_send.lock().await = Some(ReviewedSend {
@@ -497,6 +504,7 @@ impl ZipherMcpServer {
                     total: u64,
                     send_amount_zec: f64,
                     fee_zec: f64,
+                    priority: bool,
                 }
 
                 ok_response(ProposalResult {
@@ -507,6 +515,7 @@ impl ZipherMcpServer {
                     total: send_amount + fee,
                     send_amount_zec: send_amount as f64 / 1e8,
                     fee_zec: fee as f64 / 1e8,
+                    priority: params.priority,
                 })
             }
             Err(e) => {
@@ -844,6 +853,9 @@ impl ZipherMcpServer {
 
     #[tool(description = "Open a prepaid session: send ZEC once, get a bearer token for many instant requests. Requires seed.")]
     async fn session_open(&self, Parameters(params): Parameters<SessionOpenParams>) -> String {
+        if let Err(error) = zipher_engine::session::validate_session_storage(&self.data_dir) {
+            return err_response(&error);
+        }
         let _payment = PAYMENT_OPERATION.lock().await;
         self.reviewed_send.lock().await.take();
         if self.locked.load(std::sync::atomic::Ordering::SeqCst) {
@@ -930,6 +942,9 @@ impl ZipherMcpServer {
 
     #[tool(description = "Make a request using an active session's bearer token. No payment needed — uses prepaid credit.")]
     async fn session_request(&self, Parameters(params): Parameters<SessionRequestParams>) -> String {
+        if let Err(error) = zipher_engine::session::validate_session_storage(&self.data_dir) {
+            return err_response(&error);
+        }
         let host = params.url
             .split("//")
             .nth(1)
@@ -954,7 +969,9 @@ impl ZipherMcpServer {
                     if let Some(s) = store.sessions.iter_mut().find(|s| s.session_id == session.session_id) {
                         s.balance_remaining = rem;
                     }
-                    zipher_engine::session::save_sessions(&self.data_dir, &store).ok();
+                    if let Err(error) = zipher_engine::session::save_sessions(&self.data_dir, &store) {
+                        return err_response(&anyhow::anyhow!("Remote session request already completed and may have consumed credit, but its balance could not be saved. Reconcile session usage before retrying. Storage error: {error}"));
+                    }
                 }
                 ok_response(serde_json::json!({
                     "status": status,
@@ -1711,6 +1728,7 @@ async fn main() -> Result<()> {
 
     // Seed resolution priority: OWS vault only.
     let (seed, seed_source) = resolve_seed(&data_dir);
+    let signing_locked = seed.is_none();
 
     tracing::info!("Seed source: {}", seed_source.label());
 
@@ -1728,7 +1746,7 @@ async fn main() -> Result<()> {
     let server = ZipherMcpServer {
         data_dir: data_dir.clone(),
         seed: Arc::new(RwLock::new(seed)),
-        locked: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        locked: Arc::new(std::sync::atomic::AtomicBool::new(signing_locked)),
         network,
         seed_source: Arc::new(seed_source),
         reviewed_send: Arc::new(tokio::sync::Mutex::new(None)),
@@ -1748,20 +1766,45 @@ async fn main() -> Result<()> {
 }
 
 /// Resolve the seed phrase from the OWS encrypted vault (`~/.ows/wallets/`).
-fn resolve_seed(_data_dir: &str) -> (Option<SecretString>, SeedSource) {
+fn resolve_seed(data_dir: &str) -> (Option<SecretString>, SeedSource) {
     let ows_wallet = std::env::var("OWS_WALLET").unwrap_or_else(|_| "default".to_string());
-    let ows_passphrase = std::env::var("OWS_PASSPHRASE").unwrap_or_default();
-    if let Ok(exported) = ows_lib::export_wallet(&ows_wallet, Some(&ows_passphrase), None) {
-        if exported.contains(' ') && !exported.starts_with('{') {
-            tracing::info!("Seed loaded from OWS vault (wallet: {})", ows_wallet);
-            let source = SeedSource::OwsVault;
-            return (Some(SecretString::new(exported)), source);
+    resolve_seed_with(data_dir, &ows_wallet, std::env::var("OWS_PASSPHRASE").ok(), |wallet, passphrase| {
+        ows_lib::export_wallet(wallet, Some(passphrase), None)
+            .map_err(|_| anyhow::anyhow!("OWS wallet could not be unlocked"))
+    })
+}
+
+fn resolve_seed_with<F>(
+    data_dir: &str,
+    wallet: &str,
+    credential: Option<String>,
+    export: F,
+) -> (Option<SecretString>, SeedSource)
+where
+    F: FnOnce(&str, &str) -> Result<String>,
+{
+    if std::path::Path::new(data_dir).join(".seed").exists() {
+        tracing::warn!("Legacy plaintext recovery material is present. Signing stays locked; migrate explicitly using the trusted operator CLI. The original material is unchanged.");
+        return (None, SeedSource::None);
+    }
+    let passphrase = match credential {
+        Some(value) if !value.trim().is_empty() => SecretString::new(value),
+        _ => {
+            tracing::warn!("Signing stays locked: configure a nonempty OWS_PASSPHRASE in the trusted operator terminal. Read-only tools remain available; empty-passphrase vaults are not unlocked.");
+            return (None, SeedSource::None);
+        }
+    };
+    if let Ok(exported) = export(wallet, passphrase.expose_secret()) {
+        let exported = SecretString::new(exported);
+        if exported.expose_secret().contains(' ') && !exported.expose_secret().starts_with('{') {
+            tracing::info!("Signing seed loaded from the encrypted OWS vault");
+            return (Some(exported), SeedSource::OwsVault);
         }
     }
 
     tracing::warn!(
         "No OWS mnemonic wallet available. Signing tools will fail. \
-         Run `zipher-cli wallet init`, or set OWS_WALLET / OWS_PASSPHRASE."
+        Use the trusted operator CLI to configure OWS_WALLET and a nonempty OWS_PASSPHRASE."
     );
     (None, SeedSource::None)
 }
@@ -1769,6 +1812,59 @@ fn resolve_seed(_data_dir: &str) -> (Option<SecretString>, SeedSource) {
 #[cfg(test)]
 mod security_tests {
     use super::*;
+
+    #[test]
+    fn priority_is_an_optional_explicit_proposal_choice() {
+        let standard: ProposeSendParams = serde_json::from_str(
+            r#"{"address":"fixture","amount":100000}"#,
+        ).unwrap();
+        assert!(!standard.priority);
+        let priority: ProposeSendParams = serde_json::from_str(
+            r#"{"address":"fixture","amount":100000,"priority":true}"#,
+        ).unwrap();
+        assert!(priority.priority);
+        assert!(serde_json::from_str::<ProposeSendParams>(
+            r#"{"address":"fixture","amount":100000,"priority":"yes"}"#,
+        ).is_err());
+    }
+
+    #[test]
+    fn missing_or_blank_credential_never_opens_a_vault() {
+        let dir = std::env::temp_dir().join(format!("zipher-mcp-credential-test-{}", uuid::Uuid::new_v4()));
+        for credential in [None, Some(String::new()), Some(" \t\n".into())] {
+            let (seed, source) = resolve_seed_with(dir.to_str().unwrap(), "fixture", credential, |_, _| {
+                panic!("MCP must remain read-only without a nonempty credential")
+            });
+            assert!(seed.is_none());
+            assert!(matches!(source, SeedSource::None));
+            assert!(!dir.exists());
+        }
+    }
+
+    #[test]
+    fn nonempty_credential_is_preserved_and_legacy_seed_is_not_touched() {
+        let dir = std::env::temp_dir().join(format!("zipher-mcp-credential-test-{}", uuid::Uuid::new_v4()));
+        let (seed, source) = resolve_seed_with(dir.to_str().unwrap(), "fixture",
+            Some(" test-only credential ".into()), |wallet, passphrase| {
+                assert_eq!(wallet, "fixture");
+                assert_eq!(passphrase, " test-only credential ");
+                Ok("public test-only mnemonic fixture".into())
+            });
+        assert!(seed.is_some());
+        assert!(matches!(source, SeedSource::OwsVault));
+        assert!(!dir.exists());
+
+        std::fs::create_dir(&dir).unwrap();
+        let file = dir.join(".seed");
+        std::fs::write(&file, "public legacy test fixture").unwrap();
+        let (seed, _) = resolve_seed_with(dir.to_str().unwrap(), "fixture",
+            Some("test-only credential".into()), |_, _| panic!("legacy material must not be unlocked"));
+        assert!(seed.is_none());
+        assert_eq!(std::fs::read_to_string(file).unwrap(), "public legacy test fixture");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[tokio::test]
     async fn replaced_proposal_cannot_be_confirmed_or_consumed() {
         let dir = std::env::temp_dir().join(format!("zipher-mcp-test-{}", uuid::Uuid::new_v4()));
@@ -1801,5 +1897,34 @@ mod security_tests {
             assert!(!tools.iter().any(|t| t.name == name), "unsafe tool exposed: {name}");
         }
         assert!(serde_json::from_str::<ConfirmSendParams>(r#"{"context_id":null}"#).is_err());
+    }
+
+    #[tokio::test]
+    async fn blocked_session_store_preflight_preserves_proposal_before_wallet_work() {
+        let dir = std::env::temp_dir().join(format!("zipher-mcp-session-preflight-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let legacy = dir.join("sessions.json");
+        std::fs::write(&legacy, "public legacy session fixture").unwrap();
+        let server = ZipherMcpServer {
+            data_dir: dir.to_str().unwrap().into(),
+            seed: Arc::new(RwLock::new(None)),
+            locked: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            network: Network::MainNetwork,
+            seed_source: Arc::new(SeedSource::None),
+            reviewed_send: Arc::new(tokio::sync::Mutex::new(Some(ReviewedSend {
+                id: "preserved-proposal".into(), address: "fixture".into(), amount: 1, fee: 1, context_id: None,
+            }))),
+        };
+        let response = server.session_open(Parameters(SessionOpenParams {
+            server_url: "http://127.0.0.1:1".into(), deposit: 1,
+            merchant_id: "fixture".into(), pay_to: "fixture".into(), context_id: None,
+        })).await;
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_ne!(response["error_code"], SUCCESS);
+        assert_ne!(response["message"], "Wallet is locked.");
+        assert_eq!(server.reviewed_send.lock().await.as_ref().unwrap().id, "preserved-proposal");
+        assert_eq!(std::fs::read_to_string(&legacy).unwrap(), "public legacy session fixture");
+        assert!(!dir.join("sessions.enc").exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

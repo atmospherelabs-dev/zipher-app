@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/engine", "crates/cli", "crates/mcp-server", "crates/rng-compat"]
+exclude = ["vendor/ows-lib", "vendor/ows-signer", "vendor/tor-llcrypto", "vendor/tor-key-forge", "vendor/ssh-key", "vendor/tor-keymgr"]
 
 [package]
 name = "rust_lib_zipher"
@@ -19,14 +20,14 @@ serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 
 # Shared stable wallet layer and Zakura Common cryptography
-zcash_protocol = { workspace = true }
-zcash_address = { workspace = true }
+zcash_protocol = { package = "zakura-protocol", version = "=4.0.0" }
+zcash_address = { package = "zakura-address", version = "=4.0.0" }
 zcash_client_backend = { workspace = true, features = ["lightwalletd-tonic", "transparent-inputs", "tor"] }
 bip0039 = { version = "0.14", features = ["rand"] }
 
 zcash_pool_migration = { workspace = true }
 secrecy = "0.8"
-orchard = { workspace = true }
+orchard = { package = "zakura-orchard", version = "=4.0.0" }
 
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 
@@ -47,26 +48,30 @@ opt-level = 3
 strip = true
 
 [patch.crates-io]
+tor-keymgr = { path = "vendor/tor-keymgr" }
+ssh-key = { path = "vendor/ssh-key" }
+# Arti API-preserving adapters for the published RSA security fix.
+tor-llcrypto = { path = "vendor/tor-llcrypto" }
+tor-key-forge = { path = "vendor/tor-key-forge" }
 # Stable wallet layer adapted to Zakura Common; retains Ironwood migration storage.
 zcash_client_backend = { path = "vendor/zcash_client_backend" }
 zcash_client_sqlite = { path = "vendor/zcash_client_sqlite" }
 zcash_pool_migration = { path = "vendor/zcash_pool_migration" }
-pczt = { path = "vendor/pczt" }
 
 [workspace.dependencies]
-zcash_protocol = "0.10.6"
-zcash_address = "0.13.0"
+zcash_protocol = { package = "zakura-protocol", version = "=4.0.0" }
+zcash_address = { package = "zakura-address", version = "=4.0.0" }
 zcash_client_backend = "0.24.0"
 zcash_client_sqlite = "0.22.0"
-zcash_pool_migration = "0.1.0"
-pczt = "0.9.3"
-zcash_transparent = "0.10.0"
-zip321 = "0.9.0"
-orchard = { package = "zakura-orchard", version = "=1.2.0" }
-zcash_keys = { package = "zakura-keys", version = "=1.2.0" }
-zcash_primitives = { package = "zakura-primitives", version = "=1.2.0" }
-zcash_proofs = { package = "zakura-proofs", version = "=1.2.0" }
-pasta_curves = { package = "zakura-pasta-curves", version = "=1.2.0" }
-reddsa = { package = "zakura-reddsa", version = "=1.2.0" }
-sapling-crypto = { package = "zakura-sapling-crypto", version = "=1.2.0" }
+zcash_pool_migration = "0.2.0"
+pczt = { package = "zakura-pczt", version = "=0.1.0-rc9" }
+zcash_transparent = { package = "zakura-transparent", version = "=4.0.0" }
+zip321 = { package = "zakura-zip321", version = "=4.0.0" }
+orchard = { package = "zakura-orchard", version = "=4.0.0" }
+zcash_keys = { package = "zakura-keys", version = "=4.0.0" }
+zcash_primitives = { package = "zakura-primitives", version = "=4.0.0" }
+zcash_proofs = { package = "zakura-proofs", version = "=4.0.0" }
+pasta_curves = { package = "zakura-pasta-curves", version = "=4.0.0" }
+reddsa = { package = "zakura-reddsa", version = "=4.0.0" }
+sapling-crypto = { package = "zakura-sapling-crypto", version = "=4.0.0" }
 ff = "0.14"

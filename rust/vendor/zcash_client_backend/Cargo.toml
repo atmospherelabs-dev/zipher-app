@@ -188,16 +188,16 @@ features = ["alloc"]
 default-features = false
 
 [dependencies.bip32]
-version = "=0.6.0-pre.1"
+version = "0.6"
 features = ["alloc"]
 optional = true
 default-features = false
 
 [dependencies.bls12_381]
-version = "=1.2.0"
+version = "=4.0.0"
+
 
 package = "zakura-bls12-381"
-
 [dependencies.bs58]
 version = "0.5"
 features = [
@@ -261,11 +261,11 @@ version = "0.8.2"
 default-features = false
 
 [dependencies.jubjub]
-version = "=1.2.0"
+version = "=4.0.0"
 optional = true
 
-package = "zakura-jubjub"
 
+package = "zakura-jubjub"
 [dependencies.memuse]
 version = "0.2.2"
 default-features = false
@@ -275,22 +275,24 @@ version = "0.11"
 default-features = false
 
 [dependencies.orchard]
-version = "=1.2.0"
+version = "=4.0.0"
 default-features = false
+
 
 package = "zakura-orchard"
-
+features = ["wallet", "backend-halo2"]
 [dependencies.pasta_curves]
-version = "=1.2.0"
+version = "=4.0.0"
 optional = true
 
-package = "zakura-pasta-curves"
 
+package = "zakura-pasta-curves"
 [dependencies.pczt]
-version = "0.9.3"
+version = "=0.1.0-rc9"
 optional = true
 default-features = false
 
+package = "zakura-pczt"
 [dependencies.percent-encoding]
 version = "2.1.0"
 
@@ -330,13 +332,14 @@ optional = true
 default-features = false
 
 [dependencies.sapling]
-version = "=1.2.0"
+version = "=4.0.0"
 default-features = false
 
-package = "zakura-sapling-crypto"
 
+package = "zakura-sapling-crypto"
+features = ["wallet"]
 [dependencies.secp256k1]
-version = "0.29"
+version = "0.33"
 features = ["alloc"]
 optional = true
 default-features = false
@@ -404,58 +407,61 @@ version = "0.1"
 optional = true
 
 [dependencies.transparent]
-version = "0.10.0"
+version = "=4.0.0"
 default-features = false
-package = "zcash_transparent"
 
+package = "zakura-transparent"
 [dependencies.webpki-roots]
 version = "1"
 optional = true
 
 [dependencies.zcash_address]
-version = "0.13.0"
+version = "=4.0.0"
 default-features = false
 
+package = "zakura-address"
 [dependencies.zcash_encoding]
 version = "0.4"
 default-features = false
 
 [dependencies.zcash_keys]
-version = "=1.2.0"
-features = [
+version = "=4.0.0"
+features = ["zip32-addresses", "wallet", "backend-halo2",
     "std",
     "sapling",
 ]
 default-features = false
 
+
 package = "zakura-keys"
-
 [dependencies.zcash_note_encryption]
-version = "0.4.1"
+version = "=4.0.0"
 
+package = "zakura-note-encryption"
 [dependencies.zcash_primitives]
-version = "=1.2.0"
-features = [
+version = "=4.0.0"
+features = ["wallet", "backend-halo2",
     "std",
     "circuits",
 ]
 default-features = false
 
-package = "zakura-primitives"
 
+package = "zakura-primitives"
 [dependencies.zcash_proofs]
-version = "=1.2.0"
+version = "=4.0.0"
 optional = true
 default-features = false
 
-package = "zakura-proofs"
 
+package = "zakura-proofs"
 [dependencies.zcash_protocol]
-version = "0.10.5"
+version = "=4.0.0"
 default-features = false
 
+package = "zakura-protocol"
 [dependencies.zcash_script]
-version = "0.4.3"
+version = "0.6"
 default-features = false
 
 [dependencies.zip32]
@@ -463,8 +469,9 @@ version = "0.2"
 default-features = false
 
 [dependencies.zip321]
-version = "0.9.0"
+version = "=4.0.0"
 
+package = "zakura-zip321"
 [dev-dependencies.ambassador]
 version = "0.4"
 
@@ -480,10 +487,10 @@ features = ["test-dependencies"]
 default-features = false
 
 [dev-dependencies.jubjub]
-version = "=1.2.0"
+version = "=4.0.0"
+
 
 package = "zakura-jubjub"
-
 [dev-dependencies.proptest]
 version = ">=1,<1.7"
 
@@ -509,45 +516,47 @@ features = [
 ]
 
 [dev-dependencies.transparent]
-version = "0.10.0"
+version = "=4.0.0"
 features = ["test-dependencies"]
 default-features = false
-package = "zcash_transparent"
 
+package = "zakura-transparent"
 [dev-dependencies.zcash_address]
-version = "0.13.0"
+version = "=4.0.0"
 features = ["test-dependencies"]
 default-features = false
 
+package = "zakura-address"
 [dev-dependencies.zcash_keys]
-version = "=1.2.0"
-features = ["test-dependencies"]
+version = "=4.0.0"
+features = ["zip32-addresses", "wallet", "backend-halo2", "test-dependencies"]
 default-features = false
+
 
 package = "zakura-keys"
-
 [dev-dependencies.zcash_primitives]
-version = "=1.2.0"
-features = ["test-dependencies"]
+version = "=4.0.0"
+features = ["wallet", "backend-halo2", "test-dependencies"]
 default-features = false
 
-package = "zakura-primitives"
 
+package = "zakura-primitives"
 [dev-dependencies.zcash_proofs]
-version = "=1.2.0"
+version = "=4.0.0"
 features = ["bundled-prover"]
 default-features = false
 
-package = "zakura-proofs"
 
+package = "zakura-proofs"
 [dev-dependencies.zcash_protocol]
-version = "0.10.5"
+version = "=4.0.0"
 features = [
     "local-consensus",
     "test-dependencies",
 ]
 default-features = false
 
+package = "zakura-protocol"
 [build-dependencies.tonic-prost-build]
 version = "0.14"
 default-features = false

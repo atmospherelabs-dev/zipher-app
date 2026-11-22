@@ -1,0 +1,40 @@
+[package]
+name = "ows-lib"
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+description = "High-level library API for the Open Wallet Standard"
+repository = "https://github.com/open-wallet-standard/core"
+readme = "README.md"
+
+[features]
+default = []
+fast-kdf = ["ows-signer/fast-kdf"]
+zcash-shielded = ["ows-signer/zcash-shielded", "pczt", "zcash_primitives", "tonic/tls", "tonic/tls-webpki-roots"]
+
+[dependencies]
+ows-core = { path = "../../../ows-core/ows/crates/ows-core", version = "=1.0.0" }
+ows-signer = { path = "../ows-signer", version = "=1.0.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+hex = "0.4"
+base64 = "0.22"
+getrandom = "0.2"
+zeroize = "1"
+sha2 = "0.10"
+rand = "0.8"
+prost = "0.13"
+tonic = { version = "0.12", features = ["transport"] }
+tokio = { version = "1", features = ["rt"] }
+pczt = { version = "0.5", features = ["tx-extractor"], optional = true }
+zcash_primitives = { version = "0.26", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+sha3 = "0.10"
+k256 = { version = "0.14", features = ["ecdsa"] }
+ed25519-dalek = "2"
+ows-signer = { path = "../ows-signer", version = "=1.0.0", features = ["fast-kdf"] }

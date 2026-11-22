@@ -1,0 +1,63 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -13,7 +13,7 @@
+ zcash-shielded = ["ows-signer/zcash-shielded", "pczt", "zcash_primitives", "tonic/tls", "tonic/tls-webpki-roots"]
+ 
+ [dependencies]
+-ows-core = { path = "../ows-core", version = "=1.0.0" }
++ows-core = { path = "../../../ows-core/ows/crates/ows-core", version = "=1.0.0" }
+ ows-signer = { path = "../ows-signer", version = "=1.0.0" }
+ serde = { version = "1", features = ["derive"] }
+ serde_json = "1"
+@@ -35,6 +35,6 @@
+ [dev-dependencies]
+ tempfile = "3"
+ sha3 = "0.10"
+-k256 = { version = "0.13", features = ["ecdsa"] }
++k256 = { version = "0.14", features = ["ecdsa"] }
+ ed25519-dalek = "2"
+ ows-signer = { path = "../ows-signer", version = "=1.0.0", features = ["fast-kdf"] }
+--- /dev/null
++++ b/LICENSE
+@@ -0,0 +1,21 @@
++MIT License
++
++Copyright (c) 2026 MoonPay, Inc.
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
+--- a/src/ops.rs
++++ b/src/ops.rs
+@@ -1490,7 +1490,7 @@
+             k256::ecdsa::VerifyingKey::recover_from_prehash(&hash, &ecdsa_sig, recid).unwrap();
+ 
+         // Derive address from recovered key and compare
+-        let pubkey_bytes = recovered_key.to_encoded_point(false);
++        let pubkey_bytes = recovered_key.to_sec1_point(false);
+         let pubkey_hash = sha3::Keccak256::digest(&pubkey_bytes.as_bytes()[1..]);
+         let recovered_addr = format!("0x{}", hex::encode(&pubkey_hash[12..]));
+ 
+@@ -2421,7 +2421,7 @@
+             k256::ecdsa::VerifyingKey::recover_from_prehash(&hash, &ecdsa_sig, recid).unwrap();
+ 
+         // Derive address from recovered key
+-        let pubkey_bytes = recovered_key.to_encoded_point(false);
++        let pubkey_bytes = recovered_key.to_sec1_point(false);
+         let pubkey_hash = sha3::Keccak256::digest(&pubkey_bytes.as_bytes()[1..]);
+         let recovered_addr = format!("0x{}", hex::encode(&pubkey_hash[12..]));
+ 

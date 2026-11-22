@@ -1,32 +1,70 @@
-# Stable wallet SDK on Zakura Common
+# Stable wallet store on released Zakura Common 4
 
-These four crates are the published stable Zcash wallet layer: backend 0.24.0,
-SQLite 0.22.0, pool migration 0.1.0 and PCZT 0.9.3. Their source archive URLs and
-verified SHA-256 checksums are recorded in `sources.json`. Upstream licenses and
-source are retained. They are local patches, not official Zakura wallet releases.
+Zipher keeps the stable upstream backend **0.24.0** and SQLite **0.22.0**,
+including their typed Ironwood migration store. Their limited local adaptations
+now use the exact published **Zakura Common 4.0.0** crypto/protocol family and the
+published **zakura-pczt 0.1.0-rc9**. The latter replaces Zipher's local PCZT fork.
+The pool-migration engine is the published stable **0.2.0** source, adapted to
+this retained wallet store and the Common 4 APIs. This is a coordinated local
+compatibility cohort, not an officially published combined wallet SDK.
 
-The published Zakura wallet fork omits pool migration and currently pins Common
-1.0.0. Zipher needs Ironwood migration storage and the current Common 1.2.0 crypto
-family. We therefore retain the stable upstream wallet implementation and make
-these limited adaptations, recorded as unified diffs in `patches/`:
+`sources.json` records verified source-archive SHA-256 checksums, the exact
+published Common/PCZT dependency checksums from Cargo.lock, and the source of
+each NU7 backport. Upstream licenses are retained. `patches/<crate>.patch`
+reproduces each local crate from its matching archive with `patch -p1`.
+Archive-only Cargo.lock, Cargo.toml.orig and .cargo_vcs_info.json are omitted.
 
-- Rename crypto dependencies to `zakura-*` 1.2.0 and matching field/group traits.
-- Adapt RNG calls at crypto API boundaries through `zipher-rng-compat`. The
-  underlying OS randomness and the SDK's RNG interfaces are unchanged.
-- Preserve the stable backend's conservative transaction-size checks with the
-  size constants from `zcash_primitives` 0.30.1, which Common 1.2 has not exported.
+## Why the wallet store stays
 
-No proving circuit, key derivation, transaction encoding, database migration or
-pool-migration policy inside these four crates is rewritten. Application-side
-changes to drive the new SDK live in `crates/engine/src/ironwood_v2.rs`.
+Vizor v0.0.63 is the reference for Common 4 and NU7 lifecycle behavior. Its
+Zakura SQLite fork deliberately removes the ZIP 318 pool-migration engine and
+runs a migration dropping its tables. Zipher uses that engine and retains active
+migration state. Replacing the store with Vizor's fork would discard that state.
 
-To review or reproduce an adaptation, download the matching archive, verify its
-checksum, extract it, and apply its `patches/<crate>.patch` using `patch -p1`.
-Archive-only `Cargo.lock`, `Cargo.toml.orig` and `.cargo_vcs_info.json` are omitted
-from the checked-in copies. All other files must match the patched archive.
-When changing a vendored source file, update its patch alongside it.
+The newer upstream backend 0.25 / SQLite 0.23 train also adopts ZIP 316 revision
+2, newer key/address types, incrementalmerkletree 0.9 and zip32 0.3. Released
+Common 4 uses the earlier address/key API and tree types. We do not suppress or
+partially implement the newer address-expiry rules to force those crates onto
+Common 4. A later full wallet train upgrade remains a separate compatibility
+migration.
 
-Verification commands from `rust/`:
+## NU7 changes
+
+- Resolve the actual released Common 4 protocol, with mainnet activation
+  3,543,405, testnet activation 4,465,026, branch 0x77190AD9 and V6 support.
+- Use the released pool-migration 0.2 scheduler. BlockSpacing/AnchorGrid preserve
+  ZIP 318 delays, anchor retention and expiry durations across 25-second blocks.
+- Backport the stable backend 0.25 anchor-retention policy and its network-aware
+  migration parameters to the retained backend. Backport SQLite 0.23's
+  height-aware unknown-expiry and transparent-history behavior, adapting to
+  Common 4's network/height helper signature. Published historical schema
+  migrations retain their historical constants.
+- Add a narrow typed upgrade-stop adapter under SQLite's migration store.
+  It requires the wallet's own fully scanned chain to include the new branch,
+  reconciles mined parts first, validates stored PCZT/raw transaction identity,
+  and retires only the exact old-branch unmined records and their advisory
+  owners. Raw bytes and spend links remain available to reorg recovery. An
+  optional `orchard_ironwood_migration_upgrade_stops` receipt table is created
+  atomically when needed. This is a local database behavior extension; the
+  published 0.22 schema migrations themselves remain registered unchanged.
+- Add exactly StandardFee.fee_zat (protobuf field 1), estimator_version (field 2)
+  and the GetStandardFee unary client method from lightwallet-protocol v0.6.0.
+  The exact reference proto and checksum are included. This is an additive
+  protocol backport, not regeneration of every protocol type.
+- Keep one crypto family. Common 4's separated reddsa-frost package replaces the
+  former reddsa frost feature. RNG adapters preserve the existing random stream
+  at old SDK interfaces. Common 4's published PCZT finalizer, signer and prover
+  obtain randomness from their OS CSPRNG; the adapted migration 0.2 API retains
+  its RNG argument while calling those released roles.
+
+The application owns activation holds, proposal expiry caps, fee review snapshots
+and migration interruption UX. Migration 0.2's builder fee policy remains its
+published ZIP 317 policy unless explicitly replaced with a separately reviewed
+fee-policy API; normal-send fee discovery does not change that library constant.
+
+## Verification
+
+From rust/:
 
 ```sh
 cargo metadata --locked --format-version 1 > target/wallet-stack.json
@@ -35,8 +73,8 @@ cargo check --locked -p rust_lib_zipher -p zipher-cli -p zipher-mcp-server
 cargo test --locked -p zipher-engine -p zipher-rng-compat --tests
 ```
 
-The metadata guard rejects mixed upstream/Zakura crypto families and unexpected
-wallet versions. The wallet test uses disposable encrypted databases; it checks
-new-wallet creation, reopen, deterministic seed restore and migration-store
-availability. It does not establish compatibility with every historical wallet
-database or prove live settlement.
+The graph guard rejects mixed upstream/Common types, checks resolved protocol
+activation/branch source and requires the retained migration store. Engine
+boundary and disposable-wallet tests are needed in addition to graph checks.
+No graph or unit test alone establishes compatibility with every historical
+wallet database, live settlement, reorg recovery, or mobile background operation.

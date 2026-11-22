@@ -517,7 +517,10 @@ fn commits_a_multi_layer_migration_in_one_pass() {
     // layer 0 first; layer 1 only once layer 0 mines; the transfers only once the whole preparation
     // mines.
     let mut state = state;
-    let config = AdvanceConfig::new(ReorgSettleDepth::new(10));
+    let config = AdvanceConfig::new(
+        ReorgSettleDepth::new(10),
+        zcash_pool_migration::scheduling::BlockSpacing::UNIFORM,
+    );
     // A height past every scheduled broadcast (so each transaction is due, not blocked on the
     // schedule) but within every expiry window (so none is expired and offered for rebuild): the
     // latest scheduled height. This exercises the dependency-ordering walk, not schedule
@@ -656,6 +659,7 @@ fn external_signing_batches_by_action_budget() {
         for unsigned_tx in session {
             let (id, bytes) = unsigned_tx.into_parts();
             let signed = sign_pczt(
+                &mut rng,
                 pczt::Pczt::parse(&bytes).expect("the unsigned PCZT parses"),
                 &ask,
             )
@@ -773,7 +777,10 @@ fn advance_promotes_a_proved_transaction_whose_broadcast_was_never_recorded() {
         &mut backend,
         &mut state,
         DuenessTargets::at(BlockHeight::from_u32(TARGET_HEIGHT + 10)),
-        &AdvanceConfig::new(ReorgSettleDepth::new(10)),
+        &AdvanceConfig::new(
+            ReorgSettleDepth::new(10),
+            zcash_pool_migration::scheduling::BlockSpacing::UNIFORM,
+        ),
         &mut rng,
     )
     .expect("the mock store never fails");

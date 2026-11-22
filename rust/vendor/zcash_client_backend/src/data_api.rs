@@ -2233,8 +2233,14 @@ pub trait WalletRead {
     /// anchor and judging the resulting transaction a canonical crossing are the same question
     /// asked twice, and they must be asked of the same grid. Overriding
     /// [`Self::anchor_retention_interval`] is sufficient; this composes it.
-    fn pool_migration_params(&self) -> anchor_retention::PoolMigrationParams {
-        anchor_retention::PoolMigrationParams::new(self.anchor_retention_interval())
+    fn pool_migration_params<P: consensus::Parameters>(
+        &self,
+        params: &P,
+    ) -> anchor_retention::PoolMigrationParams {
+        anchor_retention::PoolMigrationParams::new(
+            zcash_protocol::zip318::BlockSpacing::for_network(params),
+            self.anchor_retention_interval(),
+        )
     }
 
     /// Returns the block hash for the block at the given height, if the

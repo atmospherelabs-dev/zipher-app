@@ -642,10 +642,13 @@ impl<C: BorrowMut<rusqlite::Connection>, P, CL, R> WalletDb<C, P, CL, R> {
     /// rescanned in order to correct missing witness data.
     ///
     /// This method is intended for repairing wallets that broke due to bugs in `shardtree`.
-    pub fn check_witnesses(&mut self) -> Result<Vec<Range<BlockHeight>>, SqliteClientError> {
+    pub fn check_witnesses(&mut self) -> Result<Vec<Range<BlockHeight>>, SqliteClientError>
+    where
+        P: consensus::Parameters,
+    {
         self.transactionally(|wdb| {
             if let Some(anchor_height) = chain_tip_height(wdb.conn.0)? {
-                wallet::commitment_tree::check_witnesses(wdb.conn.0, anchor_height)
+                wallet::commitment_tree::check_witnesses(wdb.conn.0, &wdb.params, anchor_height)
             } else {
                 Ok(vec![])
             }
@@ -980,6 +983,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters, CL, R> InputSour
     ) -> Result<Option<WalletTransparentOutput<Self::AccountId>>, Self::Error> {
         wallet::transparent::get_wallet_transparent_output(
             self.conn.borrow(),
+            &self.params,
             outpoint,
             Some(target_height),
         )
@@ -1064,6 +1068,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters, CL, R> InputSour
     ) -> Result<AccountMeta, Self::Error> {
         let sapling_pool_meta = unspent_notes_meta(
             self.conn.borrow(),
+            &self.params,
             ShieldedPool::Sapling,
             target_height,
             account_id,
@@ -1075,6 +1080,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters, CL, R> InputSour
         #[cfg(feature = "orchard")]
         let orchard_pool_meta = unspent_notes_meta(
             self.conn.borrow(),
+            &self.params,
             ShieldedPool::Orchard,
             target_height,
             account_id,
@@ -1088,6 +1094,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters, CL, R> InputSour
         #[cfg(feature = "orchard")]
         let ironwood_pool_meta = unspent_notes_meta(
             self.conn.borrow(),
+            &self.params,
             ShieldedPool::Ironwood,
             target_height,
             account_id,
@@ -1440,7 +1447,8 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters, CL, R> WalletRea
 
     fn transaction_data_requests(&self) -> Result<Vec<TransactionDataRequest>, Self::Error> {
         if let Some(_chain_tip_height) = wallet::chain_tip_height(self.conn.borrow())? {
-            let iter = wallet::transaction_data_requests(self.conn.borrow())?.into_iter();
+            let iter =
+                wallet::transaction_data_requests(self.conn.borrow(), &self.params)?.into_iter();
 
             #[cfg(feature = "transparent-inputs")]
             let iter = iter.chain(wallet::transparent::transaction_data_requests(
@@ -1597,6 +1605,7 @@ impl<C: Borrow<rusqlite::Connection>, P: consensus::Parameters, CL, R> WalletTes
     > {
         wallet::transparent::get_wallet_transparent_output(
             self.conn.borrow(),
+            &self.params,
             outpoint,
             target_height,
         )
@@ -2276,6 +2285,7 @@ impl<P: consensus::Parameters, CL: Clock, R: RngCore> WalletWrite
                 )?;
                 Ok::<_, SqliteClientError>(AnchorRetention::union(
                     from_height,
+                    zcash_protocol::zip318::BlockSpacing::for_network(&self.params),
                     core::iter::once(self.anchor_retention_interval).chain(committed),
                 ))
             })
@@ -2372,7 +2382,7 @@ impl<P: consensus::Parameters, CL: Clock, R: RngCore> WalletWrite
         // would have to be revisited if `PoolMigrationParams` ever gained a second overridable
         // value.
         #[cfg(feature = "orchard")]
-        let zip318 = self.pool_migration_params();
+        let zip318 = self.pool_migration_params(&self.params);
         #[cfg(feature = "orchard")]
         let chain_tip = chain_tip_height(self.conn.0)?;
 
@@ -2672,6 +2682,7 @@ impl<'a, C: Borrow<rusqlite::Transaction<'a>>, P: consensus::Parameters, CL: Clo
     ) -> Result<Option<WalletTransparentOutput<Self::AccountId>>, Self::Error> {
         wallet::transparent::get_wallet_transparent_output(
             self.conn.borrow(),
+            &self.params,
             outpoint,
             target_height,
         )

@@ -40,6 +40,7 @@ use ::orchard::keys::FullViewingKey;
 use ::orchard::note::{Note as OrchardNote, Nullifier};
 use ::orchard::tree::MerklePath;
 use incrementalmerkletree::Position;
+use rand_core::{CryptoRng, Rng};
 use shardtree::error::ShardTreeError;
 
 use ::pczt::roles::prover::Prover;
@@ -597,13 +598,20 @@ type ProverError<W> = WalletProveError<
 /// plus an Ironwood output) and a preparation transaction (one or more spends, no Ironwood). The
 /// anchor checkpoint the witnesses are taken against must still exist in the tree at proving time
 /// (the wallet backend must retain that checkpoint until the migration's transfers are proven).
-pub struct WalletMigrationProver<'a, W>
+///
+/// This adapter retains the published migration 0.2 RNG parameter, while Common 4's published
+/// PCZT proof roles obtain randomness from their OS CSPRNG (the same behavior as Zipher's prior
+/// PCZT integration). Construction and scheduling still consume the caller-provided RNG.
+pub struct WalletMigrationProver<'a, W, R>
 where
     W: InputSource,
 {
     wallet: &'a mut W,
     account: <W as InputSource>::AccountId,
     fvk: FullViewingKey,
+    // Published Common 4 PCZT proof roles use their OS CSPRNG. Retain the
+    // caller-provided RNG capability for the migration 0.2 API.
+    _rng: R,
 }
 
 /// One deferred-witness Orchard spend of a migration transaction, resolved against the account's
@@ -657,15 +665,17 @@ fn migration_lock_owner(spends: &[ResolvedSpend]) -> MigrationLockOwner {
     MigrationLockOwner::from_bytes(bytes)
 }
 
-impl<'a, W> WalletMigrationProver<'a, W>
+impl<'a, W, R> WalletMigrationProver<'a, W, R>
 where
     W: InputSource,
 {
-    /// Wrap a wallet (borrowed mutably for commitment-tree access), the account whose notes the
-    /// migration spends, and that account's Orchard full viewing key (used to recompute each spent
-    /// note's nullifier when locating it among the account's unspent notes).
+    /// Wrap a wallet (borrowed mutably for commitment-tree access), the retained 0.2 RNG capability,
+    /// the account whose notes the migration spends, and that account's Orchard full viewing key
+    /// (used to recompute each spent note's nullifier when locating it among the account's unspent
+    /// notes). The published Common 4 PCZT proof roles use their OS CSPRNG.
     pub fn new(
         wallet: &'a mut W,
+        rng: R,
         account: <W as InputSource>::AccountId,
         fvk: FullViewingKey,
     ) -> Self {
@@ -673,14 +683,16 @@ where
             wallet,
             account,
             fvk,
+            _rng: rng,
         }
     }
 }
 
-impl<'a, W> WalletMigrationProver<'a, W>
+impl<'a, W, R> WalletMigrationProver<'a, W, R>
 where
     W: WalletCommitmentTrees + InputSource + WalletRead + OutputLockStore,
     <W as InputSource>::AccountId: Copy,
+    R: Rng + CryptoRng,
 {
     /// Prove one migration transaction's Orchard bundle (and its Ironwood bundle, when it has one)
     /// against `anchor_height`: install the source anchor and every deferred spend's witness through the
@@ -835,7 +847,8 @@ where
 
         // Prove the Orchard bundle, and the Ironwood bundle too when present, with the single
         // post-NU6.3 Orchard proving key.
-        let pk = cached_orchard_proving_key(OrchardCircuitVersion::PostNu6_3);
+        let pk = cached_orchard_proving_key(OrchardCircuitVersion::PostNu6_3)
+            .map_err(|e| WalletProveError::Prove(alloc::format!("proving key: {e:?}")))?;
         let orchard_proven = Prover::new(updated)
             .create_orchard_proof(pk)
             .map_err(|e| WalletProveError::Prove(alloc::format!("orchard proof: {e:?}")))?;
@@ -898,10 +911,11 @@ where
     }
 }
 
-impl<'a, W> MigrationProver for WalletMigrationProver<'a, W>
+impl<'a, W, R> MigrationProver for WalletMigrationProver<'a, W, R>
 where
     W: WalletCommitmentTrees + InputSource + WalletRead + OutputLockStore,
     <W as InputSource>::AccountId: Copy,
+    R: Rng + CryptoRng,
 {
     type Error = ProverError<W>;
 
@@ -967,7 +981,6 @@ where
 mod tests {
     use super::*;
 
-    use rand_core::{CryptoRng, RngCore};
     use zcash_client_backend::data_api::testing::MockWalletDb;
     use zcash_keys::keys::UnifiedSpendingKey;
     use zcash_protocol::consensus::{Network, Parameters};
@@ -1047,7 +1060,7 @@ mod tests {
         W: WalletRead<AccountId = <W as InputSource>::AccountId> + InputSource + 'a,
         <W as InputSource>::AccountId: Copy,
         St: PoolMigrationWrite,
-        R: RngCore + CryptoRng,
+        R: Rng + CryptoRng,
     {
         let _ = commit_preparation::<P, WalletMigration<'a, W, St>, R>;
     }
