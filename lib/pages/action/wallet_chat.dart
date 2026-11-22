@@ -29,8 +29,12 @@ import 'widgets/wallet_balance_details.dart';
 import 'widgets/wallet_activity_row.dart';
 import 'widgets/wallet_activity_panel.dart';
 import '../utils.dart';
+import 'wallet_amounts.dart';
 import 'wallet_conversation.dart';
+import 'wallet_swap_flow.dart';
+import 'wallet_transfer_progress.dart';
 import 'widgets/wallet_review_card.dart';
+import 'widgets/wallet_transfer_status_card.dart';
 import 'widgets/z_chat_widgets.dart';
 
 /// The home and Z entry points share one conversation. No model initialization,
@@ -39,8 +43,13 @@ class WalletChatPage extends StatelessWidget {
   final String? initialIntent;
   final EvmBalanceReader? balanceReader;
   final NetworkPrivacy? privacy;
+  final NearIntentsService? swapService;
   const WalletChatPage(
-      {super.key, this.initialIntent, this.balanceReader, this.privacy});
+      {super.key,
+      this.initialIntent,
+      this.balanceReader,
+      this.privacy,
+      this.swapService});
 
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<bool>(
@@ -51,6 +60,7 @@ class WalletChatPage extends StatelessWidget {
                 initialIntent: initialIntent,
                 balanceReader: balanceReader,
                 privacy: privacy,
+                swapService: swapService,
               )));
 }
 
@@ -58,8 +68,13 @@ class _WalletChat extends StatefulWidget {
   final String? initialIntent;
   final EvmBalanceReader? balanceReader;
   final NetworkPrivacy? privacy;
+  final NearIntentsService? swapService;
   const _WalletChat(
-      {super.key, this.initialIntent, this.balanceReader, this.privacy});
+      {super.key,
+      this.initialIntent,
+      this.balanceReader,
+      this.privacy,
+      this.swapService});
   @override
   State<_WalletChat> createState() => _WalletChatState();
 }
@@ -69,9 +84,10 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final _latestMessageKey = GlobalKey();
-  final _messages = <({String text, bool user, Widget? card})>[];
+  final _messages = <({String text, bool user, Widget? card, bool plain})>[];
   final _wallet = WalletService.instance;
-  final _near = NearIntentsService();
+  late final NearIntentsService _near =
+      widget.swapService ?? NearIntentsService();
   NetworkPrivacy get _privacy => widget.privacy ?? NetworkPrivacy.instance;
   late final String? _walletId;
   late final bool _testnet;
@@ -87,14 +103,14 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
   EvmBalanceSnapshot? _portfolio;
   bool _loadingPortfolio = false;
   Timer? _portfolioTimer;
-  bool _swapAwaitingAmount = false;
-  WalletRequest? _swapRequest;
-  List<NearToken> _swapTokens = [];
-  NearToken? _swapToken;
-  String? _swapRecipient;
+  SwapDraft? _swap;
   late final WalletSwapTracker _swapTracker;
-  String? _trackedDeposit;
-  String? _lastSwapStatus;
+  final _reviewPhases = <ValueNotifier<ReviewPhase>>[];
+  ValueNotifier<ReviewPhase>? _openReview;
+  final _transfers = <_Transfer>[];
+
+  /// Swaps started here whose final result still gets one closing message.
+  final _announce = <String, NearToken>{};
   ChatManagementStep? _managementStep;
   String? _contactChain;
   String? _contactName;
@@ -136,8 +152,12 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
         if (mounted && TickerMode.valuesOf(context).enabled)
           _refreshPortfolio();
       });
-    _messages
-        .add((text: 'What would you like to do?', user: false, card: null));
+    _messages.add((
+      text: 'What would you like to do?',
+      user: false,
+      card: null,
+      plain: false
+    ));
     // Local balance comes from the existing account/sync stream. Fiat refresh
     // is public market data; no account or address is included.
     marketPrice.update().catchError((Object _) {});
@@ -159,6 +179,12 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     _scroll.dispose();
     _reviewEpoch.dispose();
     _portfolioUpdates.dispose();
+    for (final phase in _reviewPhases) {
+      phase.dispose();
+    }
+    for (final transfer in _transfers) {
+      transfer.dispose();
+    }
     super.dispose();
   }
 
@@ -221,10 +247,13 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     }
   }
 
-  void _message(String text, {bool user = false, Widget? card}) {
+  /// [plain] cards (choices, one-line facts) are shown without a box.
+  void _message(String text,
+      {bool user = false, Widget? card, bool plain = false}) {
     if (!_current) return;
     if (!user) AppLog.instance.event('chat', 'response', detail: text);
-    setState(() => _messages.add((text: text, user: user, card: card)));
+    setState(() =>
+        _messages.add((text: text, user: user, card: card, plain: plain)));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _scroll.hasClients) {
         final target = _latestMessageKey.currentContext;
@@ -253,11 +282,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     _contactName = null;
     _conversation.cancel();
     _choosingAddress = false;
-    _swapRequest = null;
-    _swapAwaitingAmount = false;
-    _swapTokens = [];
-    _swapToken = null;
-    _swapRecipient = null;
+    _swap = null;
     _reviewEpoch.value++;
   }
 
@@ -269,18 +294,10 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     } catch (e) {
       AppLog.instance.event('chat', 'request_failed', error: e);
       if (_current) {
-        if (e is NearIntentsException &&
-            e.minimumZatoshis != null &&
-            _swapRequest != null) {
-          _swapAwaitingAmount = true;
-          _message(
-              'This route currently needs at least ${WalletConversation.formatZec(e.minimumZatoshis!)} ZEC. Enter a new amount in ZEC, or cancel.');
-          return;
-        }
         // Do not echo raw RPC errors, which can contain request addresses.
         final text = e.toString().toLowerCase();
         _message(text.contains('insufficient')
-            ? 'There isn’t enough spendable shielded ZEC to cover this amount and its fee. Check your balance or wait for confirmations.'
+            ? 'There isn’t enough spendable shielded ZEC to cover this amount and its fee. ${_swap != null ? 'Enter a smaller amount to continue, or cancel.' : 'Check your balance or wait for confirmations.'}'
             : text.contains('sync') || text.contains('checkpoint')
                 ? 'Your wallet is still syncing. Wait for it to catch up, then try again.'
                 : 'That request couldn’t finish. Check your connection and try again.');
@@ -316,24 +333,26 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
           });
       AppLog.instance.event('chat', 'command',
           detail:
-              'command=${command.name} draft=${_conversation.pending?.command.name ?? _swapRequest?.command.name ?? "none"}');
+              'command=${command.name} draft=${_conversation.pending?.command.name ?? (_swap == null ? "none" : "swap")}');
       if (_choosingAddress && command == WalletCommand.unknown) {
         await _receive(text);
         return;
       }
       _choosingAddress = false;
-      // A network or recipient is a reply to the active swap, never a guess at
-      // an EVM destination. Explicit commands can cancel/replace that draft.
-      if (_swapRequest != null && command == WalletCommand.unknown) {
+      // Anything that is not a command answers the active swap: an amount,
+      // token, network or recipient. It is never guessed to be something else.
+      if (_swap != null && command == WalletCommand.unknown) {
         await _continueSwap(text.trim());
         return;
       }
-      if (command != WalletCommand.unknown) {
-        _swapRequest = null;
-        _swapAwaitingAmount = false;
-        _swapToken = null;
-        _swapTokens = [];
-        _swapRecipient = null;
+      // Looking something up keeps a draft; any other command replaces it.
+      if (command != WalletCommand.unknown &&
+          !WalletConversation.informational.contains(command)) {
+        if (command == WalletCommand.cancel &&
+            _openReview?.value == ReviewPhase.open) {
+          _openReview!.value = ReviewPhase.cancelled;
+        }
+        _swap = null;
         _reviewEpoch.value++;
       }
       final reply = _conversation.accept(text);
@@ -342,6 +361,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
             _conversation.pending?.command == WalletCommand.send &&
                 _conversation.pending?.zatoshis == null;
         _message(reply.prompt!,
+            plain: true,
             card: askingAmount
                 ? Observer(
                     builder: (_) => Text(
@@ -512,6 +532,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
       case ChatTool.addContact:
         _managementStep = ChatManagementStep.contactChain;
         _message('Which chain is the contact on?',
+            plain: true,
             card: Wrap(spacing: 8, runSpacing: 8, children: [
               for (final id in _contactChains)
                 ZChatShortcut(
@@ -685,7 +706,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
           'Choose a contact chain and name before scanning their address.');
       return;
     }
-    if (_swapRequest != null && _swapToken != null) {
+    if (_swap?.token != null) {
       await _continueSwap(text.trim());
       return;
     }
@@ -708,6 +729,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
       if (payment.zatoshis == null) {
         _conversation.pending = payment;
         _message('Address scanned. How much ZEC would you like to send?',
+            plain: true,
             card: Text(
                 '${WalletConversation.formatZec(_account.poolBalances.shielded)} ZEC available · fee applies',
                 style: const TextStyle(fontSize: 12)));
@@ -742,6 +764,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
             : requested != null
                 ? 'That chain’s address is unavailable in this wallet. Choose an available chain.'
                 : 'Which chain would you like to receive on?',
+        plain: true,
         card: choices.isEmpty
             ? null
             : Wrap(spacing: 8, runSpacing: 8, children: [
@@ -860,7 +883,12 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     setState(() {
       _messages
         ..clear()
-        ..add((text: 'What would you like to do?', user: false, card: null));
+        ..add((
+          text: 'What would you like to do?',
+          user: false,
+          card: null,
+          plain: false
+        ));
       _balanceExpanded = false;
     });
     if (_scroll.hasClients) _scroll.jumpTo(0);
@@ -955,234 +983,9 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     return _current;
   }
 
-  Future<void> _prepareSend(WalletRequest request,
-      {NearQuoteResponse? quote,
-      NearToken? destination,
-      String? recipient}) async {
-    if (request.memo != null && utf8.encode(request.memo!).length > 512) {
-      _message(
-          'The memo is too long. Use at most 512 UTF-8 bytes, then start the send again.');
-      return;
-    }
-    if (!await _canSend()) return;
-    final address = request.recipient!;
-    final validation = await _wallet.validateAddress(address);
-    if (!_current) return;
-    if (!validation.isValid) {
-      _message(
-          'That address is invalid for this wallet. Check the full address and network, then start again with send.');
-      return;
-    }
-    final isTransparent = address.startsWith('t');
-    if (isTransparent && request.memo != null && request.memo!.isNotEmpty) {
-      _message(
-          'Transparent addresses cannot receive a private memo. Use a shielded address or start again without a memo.');
-      return;
-    }
-    _message(quote == null
-        ? 'Checking the address, spendable funds and exact fee…'
-        : 'Checking the Zcash deposit and network fee…');
-    var proposal = await _wallet.proposeSend(address, request.zatoshis!,
-        memo: request.memo);
-    if (!_current) return;
-    if (!proposal.isExact || proposal.sendAmount != request.zatoshis) {
-      _message(
-          'The wallet couldn’t prepare that exact amount. Start again with a smaller amount.');
-      return;
-    }
-    var revision = _wallet.proposalRevision;
-    final epoch = ++_reviewEpoch.value;
-    final details = <String, String>{
-      if (quote == null) 'Recipient': address,
-      if (quote != null) 'Receive on': destination!.displayName,
-      if (quote != null) 'Recipient': recipient!,
-      'Amount': '${WalletConversation.formatZec(proposal.sendAmount)} ZEC',
-      'Network fee': '${WalletConversation.formatZec(proposal.fee)} ZEC',
-      'Total':
-          '${WalletConversation.formatZec(proposal.sendAmount + proposal.fee)} ZEC',
-      if (request.memo != null) 'Memo': request.memo!,
-      if (quote != null)
-        'Estimated receive':
-            '${_tokenAmount(quote.amountOut, destination!.decimals)} ${destination.symbol}',
-      if (quote != null && quote.minAmountOut != null)
-        'Minimum receive':
-            '${_tokenAmount(quote.minAmountOut!, destination!.decimals)} ${destination.symbol}',
-      if (quote != null)
-        'Slippage': '1% · provider quote includes 0.5% app fee',
-      if (quote != null) 'Quote deadline': quote.deadline,
-      if (quote == null && isTransparent)
-        'Privacy': 'Recipient and amount are public at a transparent address.',
-      if (quote != null)
-        'Provider':
-            'NEAR Intents receives the destination and refund addresses. Destination-chain transfers may be public.',
-    };
-    FocusScope.of(context).unfocus();
-    AppLog.instance.event(quote == null ? 'send' : 'swap', 'review_shown');
-    _message('',
-        card: WalletReviewCard(
-          epoch: _reviewEpoch,
-          expectedEpoch: epoch,
-          details: details,
-          onPriorityChanged: (priority) async {
-            if (_busy || !_current || _reviewEpoch.value != epoch) {
-              throw StateError('Review no longer available');
-            }
-            setState(() {
-              _busy = true;
-              _busyLabel = 'Updating fee…';
-            });
-            try {
-              if (quote != null && !_quoteValid(quote, request.zatoshis!)) {
-                _reviewEpoch.value++;
-                _message(
-                    'This quote expired. Start a new swap for a fresh review.');
-                throw StateError('Quote expired');
-              }
-              final next = await _wallet.proposeSend(address, request.zatoshis!,
-                  memo: request.memo, priority: priority);
-              if (!_current ||
-                  _reviewEpoch.value != epoch ||
-                  !next.isExact ||
-                  next.sendAmount != request.zatoshis) {
-                throw StateError('Review changed');
-              }
-              proposal = next;
-              revision = _wallet.proposalRevision;
-              AppLog.instance.event('send', 'fee_updated',
-                  detail: 'priority=$priority fee=${next.fee}');
-              return {
-                ...details,
-                'Network fee': '${WalletConversation.formatZec(next.fee)} ZEC',
-                'Total':
-                    '${WalletConversation.formatZec(next.sendAmount + next.fee)} ZEC'
-              };
-            } finally {
-              if (mounted) setState(() => _busy = false);
-            }
-          },
-          confirmLabel: quote == null ? 'Send ZEC' : 'Confirm swap',
-          onCancel: () {
-            _clearDraft();
-            _message('Cancelled. Nothing was sent.');
-          },
-          onConfirm: () => _run(() async {
-            if (_reviewEpoch.value != epoch || !_current) return;
-            if (_wallet.proposalRevision != revision) {
-              _reviewEpoch.value++;
-              _message(
-                  'Another transaction replaced this review. Start again with send or swap to get a fresh review.');
-              return;
-            }
-            if (quote != null && !_quoteValid(quote, request.zatoshis!)) {
-              _reviewEpoch.value++;
-              _message('This quote expired. Type swap to get a fresh quote.');
-              return;
-            }
-            final authorized = await requireSigningAuthorization(context,
-                actionSummary:
-                    'Send ${WalletConversation.formatZec(proposal.sendAmount)} ZEC + '
-                    '${WalletConversation.formatZec(proposal.fee)} ZEC fee to $address');
-            if (!_current || !authorized) {
-              _message('Cancelled. Nothing was sent.');
-              return;
-            }
-            if (_reviewEpoch.value != epoch ||
-                (quote != null && !_quoteValid(quote, request.zatoshis!))) {
-              _message(
-                  'The request changed or expired. Start again to review it.');
-              return;
-            }
-            if (quote != null) {
-              // Persist recovery information before signing. Even if the app
-              // closes during broadcast, swap history can query the deposit.
-              await SwapStore.save(_storedSwap(
-                  quote, destination!, recipient!, request.zatoshis!));
-              if (!_current) return;
-            }
-            _message('Signing and broadcasting…');
-            String txid;
-            try {
-              txid = await _wallet.confirmSend(
-                  expectedRevision: revision,
-                  expectedWalletId: _walletId,
-                  expectedTestnet: _testnet);
-            } catch (_) {
-              // A broadcast timeout does not prove non-submission. Never offer
-              // an automatic re-send from this card.
-              if (!_current) return;
-              _reviewEpoch.value++;
-              _message(
-                  'The send could not be confirmed here. Check history and sync before starting another send; the transaction may have reached the network.');
-              return;
-            }
-            if (!_current) return;
-            _reviewEpoch.value++;
-            boostSyncPolling();
-            _message(
-                'Broadcast submitted. Waiting for network confirmation.\nTransaction: $txid');
-            if (quote != null) {
-              await _recordSwap(
-                  quote, destination!, recipient!, request.zatoshis!, txid);
-            }
-            await _account.updateBalance();
-          }),
-        ));
-  }
-
-  Future<void> _beginSwap(WalletRequest request) async {
-    if (_testnet) {
-      _message(
-          'Cross-chain swaps are available on mainnet. Your testnet ZEC stays on testnet.');
-      return;
-    }
-    if (_trackedDeposit != null) {
-      _message(
-          'Your current swap is still being tracked. Wait for its result before starting another swap.');
-      return;
-    }
-    if (!await _canSend()) return;
-    _message('Looking up ${request.token} networks…');
-    final tokens = await _near.getTokens();
-    if (!_current) return;
-    final matches = tokens
-        .where((t) =>
-            t.symbol.toUpperCase() == request.token &&
-            t.symbol.toUpperCase() != 'ZEC')
-        .toList();
-    if (matches.isEmpty) {
-      _message(
-          'That destination token isn’t available. Type swap to choose another token.');
-      return;
-    }
-    _swapRequest = request;
-    _swapTokens = matches;
-    _swapToken = null;
-    _swapRecipient = null;
-    if (matches.length == 1) {
-      _swapToken = matches.single;
-      _askSwapRecipient();
-    } else {
-      _message('Which network should receive your ${request.token}?',
-          card: Wrap(spacing: 8, children: [
-            for (final (index, token) in matches.indexed)
-              TextButton(
-                  onPressed: () {
-                    if (_current &&
-                        identical(_swapRequest, request) &&
-                        _swapToken == null) _submit('${index + 1}');
-                  },
-                  child:
-                      Text('${index + 1}. ${token.blockchain.toUpperCase()}')),
-          ]));
-    }
-  }
-
-  void _askSwapRecipient() {
+  String? _ownAddress(String blockchain) {
     final addresses = _account.chainAddresses;
-    final request = _swapRequest;
-    final token = _swapToken;
-    final network = token!.blockchain.toLowerCase();
-    final own = switch (network) {
+    final own = switch (blockchain.toLowerCase()) {
       'btc' => addresses?.bitcoin,
       'sol' => addresses?.solana,
       'eth' ||
@@ -1197,93 +1000,628 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
         addresses?.evm,
       _ => null,
     };
-    _message(
-        'Paste the ${_swapToken!.displayName} recipient address. Check that it belongs to this network.',
-        card: own == null || own.isEmpty
+    return own == null || own.isEmpty ? null : own;
+  }
+
+  /// A name for an address the user already knows, from loaded data only.
+  String? _recipientNote(String address, {String? chain}) {
+    if (chain != null && _ownAddress(chain) == address) return 'Your wallet';
+    for (final c in contacts.contacts) {
+      final name = c.name;
+      if (c.address == address && name != null && name.isNotEmpty) return name;
+    }
+    return null;
+  }
+
+  Widget _action(String label, VoidCallback onTap,
+          {IconData icon = Icons.refresh_rounded}) =>
+      Align(
+          alignment: Alignment.centerLeft,
+          child: ZChatShortcut(icon: icon, label: label, onTap: onTap));
+
+  /// Why signing stopped before a transaction existed. Never echoes raw
+  /// engine text, which can contain addresses.
+  String _notSentReason(Object error) {
+    final text = error.toString().toLowerCase();
+    if (error is WalletBusyException) {
+      return 'The wallet was busy with another task.';
+    }
+    if (text.contains('insufficient')) {
+      return 'There isn’t enough spendable ZEC for this amount and its fee.';
+    }
+    if (text.contains('network_upgrade')) {
+      return 'The network rules changed since this review.';
+    }
+    if (text.contains('sync') || text.contains('checkpoint')) {
+      return 'The wallet is still syncing.';
+    }
+    if (text.contains('expired') ||
+        text.contains('review') ||
+        text.contains('changed') ||
+        text.contains('replaced')) {
+      return 'The review went out of date before signing.';
+    }
+    return 'The transaction could not be prepared.';
+  }
+
+  void _reviewExpired(ValueNotifier<ReviewPhase> phase, VoidCallback? requote) {
+    _reviewEpoch.value++;
+    phase.value = ReviewPhase.expired;
+    _message('That quote expired before it was confirmed. Nothing was sent.',
+        plain: true,
+        card: requote == null ? null : _action('Get a new quote', requote));
+  }
+
+  Future<void> _prepareSend(WalletRequest request,
+      {NearQuoteResponse? quote,
+      NearToken? destination,
+      String? recipient,
+      String? refundAddress,
+      SwapDraft? draft}) async {
+    if (request.memo != null && utf8.encode(request.memo!).length > 512) {
+      _message(
+          'The memo is too long. Use at most 512 UTF-8 bytes, then start the send again.');
+      return;
+    }
+    if (!await _canSend()) return;
+    final address = request.recipient!;
+    final zatoshis = request.zatoshis!;
+    final validation = await _wallet.validateAddress(address);
+    if (!_current) return;
+    if (!validation.isValid) {
+      _message(quote == null
+          ? 'That address is invalid for this wallet. Check the full address and network, then start again with send.'
+          : 'The swap provider returned a deposit address this wallet cannot pay. Nothing was sent.');
+      return;
+    }
+    final isTransparent = address.startsWith('t');
+    if (quote == null &&
+        isTransparent &&
+        request.memo != null &&
+        request.memo!.isNotEmpty) {
+      _message(
+          'Transparent addresses cannot receive a private memo. Use a shielded address or start again without a memo.');
+      return;
+    }
+    setState(() => _busyLabel = quote == null
+        ? 'Checking funds and the exact fee…'
+        : 'Preparing the deposit and its fee…');
+    var proposal =
+        await _wallet.proposeSend(address, zatoshis, memo: request.memo);
+    if (!_current) return;
+    if (!proposal.isExact || proposal.sendAmount != zatoshis) {
+      _message(
+          'The wallet couldn’t prepare that exact amount. ${draft == null ? 'Start again with a smaller amount.' : 'Enter a smaller amount to continue.'}');
+      return;
+    }
+    var revision = _wallet.proposalRevision;
+    final epoch = ++_reviewEpoch.value;
+    final phase = ValueNotifier(ReviewPhase.open);
+    _reviewPhases.add(phase);
+    _openReview = phase;
+    final destinationAddress = quote == null ? address : recipient!;
+    final VoidCallback? requote = draft == null
+        ? null
+        : () {
+            if (_current && !_busy && identical(_swap, draft)) {
+              _run(() => _quoteSwap(draft));
+            }
+          };
+    void retry() {
+      if (!_current || _busy) return;
+      if (requote != null) {
+        requote();
+      } else {
+        _run(() => _prepareSend(request));
+      }
+    }
+
+    final data = ReviewData(
+        zatoshis: proposal.sendAmount,
+        fee: proposal.fee,
+        recipient: destinationAddress,
+        recipientNote:
+            _recipientNote(destinationAddress, chain: destination?.blockchain),
+        memo: request.memo,
+        warning: quote == null && isTransparent
+            ? 'This is a transparent address: the recipient and amount will be public.'
+            : null,
+        zecUsd: _testnet ? null : _zecUsdPrice,
+        swap: quote == null
             ? null
-            : TextButton(
-                onPressed: () {
-                  if (_current &&
-                      request != null &&
-                      identical(_swapRequest, request) &&
-                      identical(_swapToken, token)) _submit(own);
+            : SwapReview(
+                symbol: destination!.symbol,
+                chain: destination.blockchain,
+                network: SwapNetworks.name(destination.blockchain),
+                estimated:
+                    WalletAmounts.token(quote.amountOut, destination.decimals),
+                minimum: WalletAmounts.token(
+                    quote.minAmountOut!, destination.decimals),
+                rate: WalletAmounts.rate(
+                    zatoshis: zatoshis,
+                    amountOut: quote.amountOut,
+                    decimals: destination.decimals,
+                    symbol: destination.symbol),
+                usd: quote.amountOutUsd,
+                expiry: quote.expiry,
+                eta: quote.estimatedTime,
+                depositAddress: quote.depositAddress,
+                refundAddress: refundAddress!));
+    FocusScope.of(context).unfocus();
+    AppLog.instance.event(quote == null ? 'send' : 'swap', 'review_shown');
+    _message('',
+        card: WalletReviewCard(
+          epoch: _reviewEpoch,
+          expectedEpoch: epoch,
+          data: data,
+          phase: phase,
+          onRequote: requote,
+          onPriorityChanged: (priority) async {
+            if (_busy || !_current || _reviewEpoch.value != epoch) {
+              throw StateError('Review no longer available');
+            }
+            setState(() {
+              _busy = true;
+              _busyLabel = 'Updating fee…';
+            });
+            try {
+              if (quote != null && !_quoteValid(quote, zatoshis)) {
+                _reviewExpired(phase, requote);
+                throw StateError('Quote expired');
+              }
+              final next = await _wallet.proposeSend(address, zatoshis,
+                  memo: request.memo, priority: priority);
+              if (!_current ||
+                  _reviewEpoch.value != epoch ||
+                  !next.isExact ||
+                  next.sendAmount != zatoshis) {
+                throw StateError('Review changed');
+              }
+              proposal = next;
+              revision = _wallet.proposalRevision;
+              AppLog.instance.event('send', 'fee_updated',
+                  detail: 'priority=$priority fee=${next.fee}');
+              return next.fee;
+            } finally {
+              if (mounted) setState(() => _busy = false);
+            }
+          },
+          confirmLabel: quote == null ? 'Send ZEC' : 'Confirm swap',
+          onCancel: () {
+            phase.value = ReviewPhase.cancelled;
+            _clearDraft();
+            _message('Cancelled. Nothing was sent.');
+          },
+          onConfirm: () => _run(() async {
+            if (_reviewEpoch.value != epoch || !_current) return;
+            if (_wallet.proposalRevision != revision) {
+              _reviewEpoch.value++;
+              phase.value = ReviewPhase.failed;
+              _message(
+                  'Another transaction replaced this review, so nothing was sent.',
+                  plain: true, card: _action('Review again', retry));
+              return;
+            }
+            if (quote != null && !_quoteValid(quote, zatoshis)) {
+              _reviewExpired(phase, requote);
+              return;
+            }
+            final fee = WalletConversation.formatZec(proposal.fee);
+            final amount = WalletConversation.formatZec(proposal.sendAmount);
+            final authorized = await requireSigningAuthorization(context,
+                actionSummary: quote == null
+                    ? 'Send $amount ZEC + $fee ZEC fee to $address'
+                    : 'Swap $amount ZEC + $fee ZEC fee for ${destination!.symbol} on ${SwapNetworks.name(destination.blockchain)}');
+            if (!_current) return;
+            if (!authorized) {
+              _reviewEpoch.value++;
+              phase.value = ReviewPhase.cancelled;
+              _message('Not approved, so nothing was sent.',
+                  plain: true, card: _action('Review again', retry));
+              return;
+            }
+            if (_reviewEpoch.value != epoch) {
+              phase.value = ReviewPhase.failed;
+              _message('The request changed while approving. Nothing was sent.',
+                  plain: true, card: _action('Review again', retry));
+              return;
+            }
+            if (quote != null && !_quoteValid(quote, zatoshis)) {
+              _reviewExpired(phase, requote);
+              return;
+            }
+            phase.value = ReviewPhase.sending;
+            if (quote != null) {
+              // Persist recovery information before signing. Even if the app
+              // closes during broadcast, swap history can query the deposit.
+              await SwapStore.save(
+                  _storedSwap(quote, destination!, recipient!, zatoshis));
+              if (!_current) return;
+            }
+            final transfer = _Transfer(
+                zatoshis: zatoshis,
+                token: destination,
+                deposit: quote?.depositAddress,
+                retry: retry);
+            _transfers.add(transfer);
+            setState(() => _busyLabel = 'Signing and sending…');
+            _message('', card: _transferCard(transfer));
+            final SendOutcome outcome;
+            try {
+              outcome = await _wallet.confirmSendDetailed(
+                  expectedRevision: revision,
+                  expectedWalletId: _walletId,
+                  expectedTestnet: _testnet);
+            } on SendUncertainException catch (e) {
+              // Never offer a re-send: a transaction may exist.
+              AppLog.instance.event('send', 'outcome_unknown', error: e);
+              if (!_current) return;
+              _reviewEpoch.value++;
+              phase.value = ReviewPhase.approved;
+              transfer.update(TransferBroadcast.unreachable, resubmits: false);
+              _swap = null;
+              boostSyncPolling();
+              return;
+            } catch (e) {
+              // The engine reports an error only before a transaction exists.
+              AppLog.instance.event(
+                  quote == null ? 'send' : 'swap', 'not_sent',
+                  error: e);
+              if (quote != null) {
+                try {
+                  await SwapStore.remove(quote.depositAddress);
+                } catch (error) {
+                  AppLog.instance
+                      .event('swap', 'record_remove_failed', error: error);
+                }
+              }
+              if (!_current) return;
+              _reviewEpoch.value++;
+              phase.value = ReviewPhase.failed;
+              transfer.update(TransferBroadcast.notSent,
+                  reason: _notSentReason(e));
+              return;
+            }
+            AppLog.instance.event(
+                quote == null ? 'send' : 'swap', 'submitted',
+                detail:
+                    'broadcast=${outcome.broadcast.name} resubmits=${outcome.resubmits}',
+                error: outcome.detail);
+            // The transaction exists. Keep its swap record whatever happens
+            // to this screen, and never let bookkeeping read as a failure.
+            final stored = quote == null
+                ? null
+                : await _saveSwap(
+                    quote, destination!, recipient!, zatoshis, outcome);
+            if (!_current) return;
+            _reviewEpoch.value++;
+            phase.value =
+                outcome.accepted ? ReviewPhase.sent : ReviewPhase.approved;
+            transfer.update(
+                switch (outcome.broadcast) {
+                  SendBroadcast.accepted => TransferBroadcast.accepted,
+                  SendBroadcast.unreachable => TransferBroadcast.unreachable,
+                  SendBroadcast.rejected => TransferBroadcast.rejected,
                 },
-                child: Text('Use my ${_swapToken!.displayName} address'),
-              ));
+                txid: outcome.txid,
+                resubmits: outcome.resubmits);
+            _swap = null;
+            boostSyncPolling();
+            if (stored != null) {
+              _announce[stored.depositAddress] = destination!;
+              _swapTracker.track(stored);
+              await _swapTracker.refresh();
+            }
+            try {
+              await _account.updateBalance();
+            } catch (e) {
+              AppLog.instance.event('send', 'balance_refresh_failed', error: e);
+            }
+          }),
+        ));
+  }
+
+  Widget _transferCard(_Transfer transfer) => ListenableBuilder(
+      listenable: Listenable.merge([transfer, _swapTracker]),
+      builder: (context, __) => Observer(builder: (_) {
+            final id = transfer.txid;
+            final tx = id == null
+                ? null
+                : _account.txs.items
+                    .where((tx) => tx.fullTxId == id)
+                    .firstOrNull;
+            final deposit = transfer.deposit;
+            final swap = deposit == null
+                ? null
+                : _swapTracker.entries
+                    .where((e) => e.swap.depositAddress == deposit)
+                    .firstOrNull;
+            final token = transfer.token;
+            final progress = TransferProgress(
+                zatoshis: transfer.zatoshis,
+                broadcast: transfer.broadcast,
+                resubmits: transfer.resubmits,
+                mined: tx != null && tx.height > 0,
+                expired: tx?.expiredUnmined ?? false,
+                swapSymbol: token?.symbol,
+                swapNetwork:
+                    token == null ? null : SwapNetworks.name(token.blockchain),
+                swapStatus: swap?.status?.status,
+                reason: transfer.reason);
+            return WalletTransferStatusCard(
+                progress: progress,
+                swapChain: token?.blockchain,
+                transactionId: id,
+                onRetry: transfer.broadcast == TransferBroadcast.notSent
+                    ? transfer.retry
+                    : null,
+                retryLabel: token == null ? 'Review again' : 'Get a new quote',
+                onDetails: id == null
+                    ? null
+                    : deposit != null
+                        ? () => context.push('/swap/status', extra: deposit)
+                        : tx == null
+                            ? null
+                            : () => _openTransaction(id),
+                detailsLabel:
+                    deposit != null ? 'Swap details' : 'Transaction details',
+                onCopyId: id == null
+                    ? null
+                    : () async {
+                        await Clipboard.setData(ClipboardData(text: id));
+                        if (_current) _message('Transaction ID copied.');
+                      });
+          }));
+
+  // ---- Swap -----------------------------------------------------------------
+
+  Future<void> _beginSwap(WalletRequest request) async {
+    if (_testnet) {
+      _message(
+          'Cross-chain swaps are available on mainnet. Your testnet ZEC stays on testnet.');
+      return;
+    }
+    if (!await _canSend()) return;
+    final List<NearToken> tokens;
+    try {
+      tokens = await _near.getTokens();
+    } catch (e) {
+      AppLog.instance.event('swap', 'tokens_unavailable', error: e);
+      if (_current) {
+        _message(
+            'Swap options couldn’t be loaded. Check your connection and try again.',
+            plain: true,
+            card: _action('Try again', () {
+              if (_current && !_busy) _run(() => _beginSwap(request));
+            }));
+      }
+      return;
+    }
+    if (!_current) return;
+    final draft = SwapDraft(SwapCatalog(tokens));
+    _swap = draft;
+    final seeded = draft.seed(
+        zatoshis: request.zatoshis,
+        token: request.token,
+        network: request.network);
+    await _advanceSwap(
+        draft,
+        seeded.problem == null && request.unreadAmount
+            ? const SwapReply(
+                problem:
+                    'Amounts are in ZEC, with up to 8 decimal places. For example: 0.5')
+            : seeded);
   }
 
   Future<void> _continueSwap(String input) async {
-    if (_swapAwaitingAmount) {
-      final amount = WalletConversation.parseZatoshis(input);
-      if (amount == null || amount <= 0) {
-        _message('Enter an amount in ZEC, or cancel.');
-        return;
-      }
-      _swapRequest = _swapRequest!.withFields(zatoshis: amount);
-      _swapAwaitingAmount = false;
-      input = _swapRecipient!;
-    }
-    if (_swapToken == null) {
-      final choice = int.tryParse(input);
-      final matches = choice != null &&
-              choice > 0 &&
-              choice <= _swapTokens.length
-          ? [_swapTokens[choice - 1]]
-          : _swapTokens
-              .where((t) => t.blockchain.toLowerCase() == input.toLowerCase())
-              .toList();
-      if (matches.length != 1) {
+    final draft = _swap!;
+    final reviewing = draft.step == SwapStep.ready;
+    final reply = draft.accept(input);
+    if (reviewing) {
+      if (reply.change == SwapChange.none) {
         _message(
-            'Choose one of the listed networks. Type cancel to start over.');
+            '${reply.problem ?? ''} Confirm the review above, or type a new amount, token, network or address.'
+                .trim());
         return;
       }
-      _swapToken = matches.single;
-      _askSwapRecipient();
+      // The reviewed quote no longer matches what is being asked for.
+      _reviewEpoch.value++;
+    }
+    await _advanceSwap(draft, reply);
+  }
+
+  Widget _swapChips(List<Widget> chips, {String? more}) =>
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Wrap(spacing: 8, runSpacing: 8, children: chips),
+        if (more != null)
+          Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(more,
+                  style: const TextStyle(
+                      fontSize: 12, height: 1.4, color: ZipherColors.text40))),
+      ]);
+
+  Widget _swapChip(SwapDraft draft, String label, String value,
+          {Widget? leading, IconData icon = Icons.circle_outlined}) =>
+      ZChatShortcut(
+          leading: leading,
+          icon: icon,
+          label: label,
+          onTap: () {
+            if (_current && !_busy && identical(_swap, draft)) _submit(value);
+          });
+
+  /// Ask for whatever is still missing; quote once nothing is.
+  Future<void> _advanceSwap(SwapDraft draft, SwapReply reply) async {
+    // A correction is acknowledged so the same question is not just repeated.
+    final problem = reply.problem ??
+        (!reply.replaced
+            ? null
+            : switch (reply.change) {
+                SwapChange.amount =>
+                  'Amount changed to ${WalletConversation.formatZec(draft.zatoshis!)} ZEC.',
+                SwapChange.token => 'Token changed to ${draft.symbol}.',
+                SwapChange.network => 'Network changed to ${draft.networkName}.',
+                SwapChange.recipient || SwapChange.none => null,
+              });
+    String say(String prompt) => problem == null ? prompt : '$problem $prompt';
+    switch (draft.step) {
+      case SwapStep.amount:
+        _message(say('How much ZEC would you like to swap?'),
+            plain: true,
+            card: Observer(
+                builder: (_) => Text(
+                    '${_assetAmount(_account.poolBalances.shielded / 1e8)} ZEC available · fee applies',
+                    style: const TextStyle(
+                        fontFamily: 'JetBrains Mono',
+                        fontSize: 12,
+                        color: ZipherColors.textSecondary))));
+      case SwapStep.token:
+        final offered = reply.suggestions.isEmpty
+            ? draft.catalog.popularSymbols
+            : reply.suggestions;
+        _message(
+            reply.problem == null
+                ? say('Which token would you like to receive?')
+                : reply.suggestions.isEmpty
+                    ? '$problem Which token would you like to receive?'
+                    : '$problem Did you mean one of these?',
+            plain: true,
+            card: _swapChips([
+              for (final symbol in offered)
+                _swapChip(draft, symbol, symbol,
+                    leading: CurrencyIcon(symbol: symbol, size: 18)),
+            ],
+                more: 'Or type another token, for example DAI or DOGE.'));
+      case SwapStep.network:
+        final shown = draft.networks.take(8).toList();
+        final rest = draft.networks.skip(8).toList();
+        _message(say('Which network should receive your ${draft.symbol}?'),
+            plain: true,
+            card: _swapChips([
+              for (final token in shown)
+                _swapChip(draft, SwapNetworks.name(token.blockchain),
+                    SwapNetworks.name(token.blockchain),
+                    leading: _ownAddress(token.blockchain) == null
+                        ? WalletChainLogo(token.blockchain, size: 18)
+                        : Stack(clipBehavior: Clip.none, children: [
+                            WalletChainLogo(token.blockchain, size: 18),
+                            const Positioned(
+                                right: -3,
+                                bottom: -3,
+                                child: Icon(Icons.account_circle_rounded,
+                                    size: 10, color: ZipherColors.cyan)),
+                          ])),
+            ],
+                more: rest.isEmpty
+                    ? null
+                    : 'Also available: ${rest.map((t) => SwapNetworks.name(t.blockchain)).join(', ')}. Type its name.'));
+      case SwapStep.recipient:
+        final token = draft.token!;
+        final network = SwapNetworks.name(token.blockchain);
+        final own = _ownAddress(token.blockchain);
+        final known = [
+          for (final c in contacts.contacts)
+            if (c.chainId?.toLowerCase() == token.blockchain.toLowerCase() &&
+                (c.address?.isNotEmpty ?? false) &&
+                (c.name?.isNotEmpty ?? false))
+              c
+        ].take(3).toList();
+        _message(
+            say('Where should the ${token.symbol} go? Paste a $network address.'),
+            plain: true,
+            card: own == null && known.isEmpty
+                ? null
+                : _swapChips([
+                    if (own != null)
+                      _swapChip(draft, 'My $network address', own,
+                          icon: Icons.account_circle_rounded),
+                    for (final c in known)
+                      _swapChip(draft, c.name!, c.address!,
+                          icon: Icons.person_outline_rounded),
+                  ]));
+      case SwapStep.ready:
+        await _quoteSwap(draft);
+    }
+  }
+
+  Future<void> _quoteSwap(SwapDraft draft) async {
+    final zatoshis = draft.zatoshis!;
+    final destination = draft.token!;
+    final recipient = draft.recipient!;
+    setState(() => _busyLabel = 'Getting a quote…');
+    void unavailable(String text) => _message(text,
+        plain: true,
+        card: _action('Try again', () {
+          if (_current && !_busy && identical(_swap, draft)) {
+            _run(() => _quoteSwap(draft));
+          }
+        }));
+    final NearQuoteResponse quote;
+    final String refundAddress;
+    try {
+      final zec = _near.findZecToken(await _near.getTokens());
+      if (!_current || !identical(_swap, draft)) return;
+      if (zec == null || zec.decimals != 8) throw StateError('ZEC unavailable');
+      final refundAddresses = await _wallet.getTransparentAddresses();
+      if (!_current || !identical(_swap, draft)) return;
+      if (refundAddresses.isEmpty) {
+        unavailable(
+            'A Zcash refund address isn’t available yet. Try again once the wallet has loaded.');
+        return;
+      }
+      refundAddress = refundAddresses.first;
+      quote = await _near.getQuote(
+          dry: false,
+          originAsset: zec.assetId,
+          destinationAsset: destination.assetId,
+          amount: BigInt.from(zatoshis),
+          refundTo: refundAddress,
+          recipient: recipient);
+    } on NearIntentsException catch (e) {
+      // Provider text is logged in sanitised form and never shown.
+      AppLog.instance.event('swap', 'quote_refused', error: e);
+      if (!_current || !identical(_swap, draft)) return;
+      final minimum = e.minimumZatoshis;
+      if (minimum != null) {
+        draft.zatoshis = null;
+        await _advanceSwap(
+            draft,
+            SwapReply(
+                problem:
+                    'This route needs at least ${WalletConversation.formatZec(minimum)} ZEC.'));
+      } else if (e.invalidRecipient) {
+        draft.recipient = null;
+        await _advanceSwap(
+            draft,
+            SwapReply(
+                problem:
+                    'The swap provider didn’t accept that address for ${SwapNetworks.name(destination.blockchain)}.'));
+      } else {
+        unavailable('A quote for ${draft.summary} isn’t available right now.');
+      }
+      return;
+    } catch (e) {
+      AppLog.instance.event('swap', 'quote_failed', error: e);
+      if (!_current || !identical(_swap, draft)) return;
+      unavailable(
+          'The quote request didn’t finish. Check your connection and try again.');
       return;
     }
-    if (input.contains(RegExp(r'\s')) ||
-        input.length < 10 ||
-        input.length > 512) {
-      _askSwapRecipient();
+    if (!_current || !identical(_swap, draft)) return;
+    if (!_quoteValid(quote, zatoshis)) {
+      unavailable(
+          'The provider returned an incomplete or already expired quote.');
       return;
     }
-    _swapRecipient = input;
-    final tokens = await _near.getTokens();
-    final zec = _near.findZecToken(tokens);
-    if (!_current) return;
-    if (zec == null || zec.decimals != 8) throw StateError('ZEC unavailable');
-    final refundAddresses = await _wallet.getTransparentAddresses();
-    if (!_current) return;
-    if (refundAddresses.isEmpty) {
-      _message(
-          'A Zcash refund address is unavailable. Try again after the wallet has loaded.');
-      return;
-    }
-    _message(
-        'Getting a quote for ${WalletConversation.formatZec(_swapRequest!.zatoshis!)} ZEC → ${_swapToken!.displayName}…');
-    final quote = await _near.getQuote(
-        dry: false,
-        originAsset: zec.assetId,
-        destinationAsset: _swapToken!.assetId,
-        amount: BigInt.from(_swapRequest!.zatoshis!),
-        refundTo: refundAddresses.first,
-        recipient: _swapRecipient!);
-    if (!_current) return;
-    if (!_quoteValid(quote, _swapRequest!.zatoshis!)) {
-      _message(
-          'The provider returned an incomplete or expired quote. Type swap to try again.');
-      _swapRequest = null;
-      _swapAwaitingAmount = false;
-      return;
-    }
-    final request = WalletRequest(WalletCommand.send,
-        recipient: quote.depositAddress, zatoshis: _swapRequest!.zatoshis);
-    final destination = _swapToken!;
-    final recipient = _swapRecipient!;
-    _swapRequest = null;
-    _swapAwaitingAmount = false;
-    await _prepareSend(request,
-        quote: quote, destination: destination, recipient: recipient);
+    await _prepareSend(
+        WalletRequest(WalletCommand.send,
+            recipient: quote.depositAddress, zatoshis: zatoshis),
+        quote: quote,
+        destination: destination,
+        recipient: recipient,
+        refundAddress: refundAddress,
+        draft: draft);
   }
 
   bool _quoteValid(NearQuoteResponse q, int amount) {
@@ -1315,58 +1653,80 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
         toBlockchain: token.blockchain);
   }
 
-  Future<void> _recordSwap(NearQuoteResponse quote, NearToken token,
-      String recipient, int zatoshis, String txid) async {
-    // Post-broadcast bookkeeping must never turn a successful send into a
-    // retryable failure. The txid has already been displayed above.
+  /// Storage and the provider hint only: safe after this screen is gone.
+  Future<StoredSwap> _saveSwap(NearQuoteResponse quote, NearToken token,
+      String recipient, int zatoshis, SendOutcome outcome) async {
+    final stored =
+        _storedSwap(quote, token, recipient, zatoshis, txid: outcome.txid);
     try {
-      await SwapStore.save(
-          _storedSwap(quote, token, recipient, zatoshis, txid: txid));
-    } catch (_) {
-      _message(
-          'The deposit was sent, but saving swap history failed. Keep the transaction ID above.');
+      await SwapStore.save(stored);
+    } catch (e) {
+      AppLog.instance.event('swap', 'record_save_failed', error: e);
     }
-    try {
-      await _near.submitDeposit(
-          txHash: txid, depositAddress: quote.depositAddress);
-    } catch (_) {
-      _message(
-          'Deposit submitted on Zcash. The swap provider is still detecting it; do not send again.');
+    if (outcome.accepted) {
+      // Only a hint: the provider also detects the deposit on its own.
+      try {
+        await _near.submitDeposit(
+            txHash: outcome.txid, depositAddress: quote.depositAddress);
+      } catch (e) {
+        AppLog.instance.event('swap', 'deposit_hint_failed', error: e);
+      }
     }
-    if (!_current) return;
-    _trackedDeposit = quote.depositAddress;
-    _lastSwapStatus = null;
-    _message('The swap is awaiting your deposit confirmation.',
-        card: TextButton(
-            onPressed: () =>
-                context.push('/swap/status', extra: quote.depositAddress),
-            child: const Text('Open swap status')));
-    _swapTracker
-        .track(_storedSwap(quote, token, recipient, zatoshis, txid: txid));
-    await _swapTracker.refresh();
+    return stored;
   }
 
+  /// One closing line per swap; progress in between lives in its status card.
   void _onSwapUpdate() {
-    if (!_current || _trackedDeposit == null) return;
-    final entry = _swapTracker.entries
-        .where((entry) => entry.swap.depositAddress == _trackedDeposit)
-        .firstOrNull;
-    final status = entry?.status;
-    if (status == null || status.status == _lastSwapStatus) return;
-    _lastSwapStatus = status.status;
-    _message(status.isSuccess
-        ? 'Swap complete. The destination tokens have been delivered.'
-        : status.isRefunded
-            ? 'The swap was refunded. Check your Zcash balance as it syncs.'
-            : status.isFailed
-                ? 'The swap did not complete. Open Activity to check the deposit and refund.'
-                : status.isProcessing
-                    ? 'Deposit detected. The swap is processing.'
-                    : 'Waiting for the swap provider to confirm the deposit.');
-    if (status.isTerminal) {
-      _trackedDeposit = null;
+    if (!_current || _announce.isEmpty) return;
+    for (final entry in _swapTracker.entries) {
+      final status = entry.status;
+      final token = _announce[entry.swap.depositAddress];
+      if (token == null || status == null || !status.isTerminal) continue;
+      _announce.remove(entry.swap.depositAddress);
+      final network = SwapNetworks.name(token.blockchain);
+      _message(status.isSuccess
+          ? 'Swap complete. Your ${token.symbol} was delivered on $network.'
+          : status.isRefunded
+              ? 'The swap was refunded. The ZEC returns to your balance as it confirms.'
+              : 'The swap did not complete. Open Activity to check the deposit and refund.');
       boostSyncPolling();
     }
+  }
+
+  /// What is being prepared, for the bar above the composer.
+  ({IconData icon, String label})? get _draft {
+    final swap = _swap;
+    if (swap != null) {
+      return (
+        icon: Icons.swap_horiz_rounded,
+        label: swap.summary.isEmpty ? 'Swap ZEC' : 'Swap ${swap.summary}'
+      );
+    }
+    final send = _conversation.pending;
+    if (send != null) {
+      return (
+        icon: Icons.arrow_upward_rounded,
+        label: [
+          'Send',
+          if (send.zatoshis != null)
+            '${WalletConversation.formatZec(send.zatoshis!)} ZEC',
+          if (send.recipient != null)
+            'to ${WalletAmounts.shortAddress(send.recipient!)}',
+        ].join(' ')
+      );
+    }
+    return switch (_managementStep) {
+      null => null,
+      ChatManagementStep.rename => (
+          icon: Icons.edit_outlined,
+          label: 'Rename account'
+        ),
+      ChatManagementStep.review => (
+          icon: Icons.fact_check_outlined,
+          label: 'Waiting for your confirmation'
+        ),
+      _ => (icon: Icons.person_add_alt_rounded, label: 'New contact'),
+    };
   }
 
   // Keep the existing Z page's quiet header, expandable balance and chat
@@ -1439,31 +1799,28 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                         ? _buildSuggestionChips()
                         : msg.card == null
                             ? null
-                            : Container(
-                                margin: const EdgeInsets.only(top: 8),
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                    color: ZipherColors.cardBg,
-                                    borderRadius:
-                                        BorderRadius.circular(ZipherRadius.md),
-                                    border: Border.all(
-                                        color: ZipherColors.borderSubtle)),
-                                child: msg.card),
-                    footer: index == _messages.length - 1 &&
-                            !_busy &&
-                            (_conversation.pending != null ||
-                                _managementStep != null ||
-                                _swapRequest != null)
-                        ? Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: ZChatShortcut(
-                                icon: Icons.close,
-                                label: 'Cancel',
-                                onTap: () => _submit('cancel')))
-                        : null,
+                            : msg.plain
+                                ? Padding(
+                                    padding: const EdgeInsets.only(top: 10),
+                                    child: msg.card)
+                                : Container(
+                                    margin: const EdgeInsets.only(top: 8),
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                        color: ZipherColors.cardBg,
+                                        borderRadius: BorderRadius.circular(
+                                            ZipherRadius.lg),
+                                        border: Border.all(
+                                            color: ZipherColors.borderSubtle)),
+                                    child: msg.card),
                   );
                 },
               )),
+              if (_draft != null)
+                ZChatDraftBar(
+                    icon: _draft!.icon,
+                    label: _draft!.label,
+                    onCancel: _busy ? null : () => _submit('cancel')),
               ZChatComposer(
                 controller: _input,
                 busy: _busy,
@@ -1478,12 +1835,14 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                         ChatManagementStep.rename => 'New account name',
                         ChatManagementStep.review => 'Review above, or cancel',
                       }
-                    : _swapRequest != null
-                        ? (_swapAwaitingAmount
-                            ? 'Amount in ZEC'
-                            : _swapToken == null
-                                ? 'Choose a network'
-                                : 'Paste the recipient address')
+                    : _swap != null
+                        ? switch (_swap!.step) {
+                            SwapStep.amount => 'Amount in ZEC',
+                            SwapStep.token => 'Token, for example USDC',
+                            SwapStep.network => 'Choose a network',
+                            SwapStep.recipient => 'Paste the recipient address',
+                            SwapStep.ready => 'Change the amount, token or address',
+                          }
                         : _choosingAddress
                             ? 'Choose a chain'
                             : _conversation.hint,
@@ -1815,6 +2174,17 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                                     fontFamily: 'JetBrains Mono',
                                     fontSize: 12,
                                     color: ZipherColors.textSecondary)),
+                            // Change and incoming funds are not lost, only not
+                            // spendable until they confirm.
+                            if (b.unconfirmed > 0)
+                              Padding(
+                                  padding: const EdgeInsets.only(top: 5),
+                                  child: Text(
+                                      '${_assetAmount(b.unconfirmed / 1e8)} ZEC pending confirmation',
+                                      style: const TextStyle(
+                                          fontFamily: 'JetBrains Mono',
+                                          fontSize: 11,
+                                          color: ZipherColors.text40))),
                             if (!_testnet &&
                                 (!syncStatus2.isSynced ||
                                     (expanded && incomplete)))
@@ -1863,4 +2233,28 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
               onTransaction: _openTransaction,
               onSwap: (deposit) =>
                   context.push('/swap/status', extra: deposit))));
+}
+
+/// One confirmed send or swap deposit shown in the chat. Only the confirm flow
+/// writes to it; the status card derives the rest from live wallet data.
+class _Transfer extends ChangeNotifier {
+  _Transfer(
+      {required this.zatoshis, this.token, this.deposit, required this.retry});
+  final int zatoshis;
+  final NearToken? token;
+  final String? deposit;
+  final VoidCallback retry;
+  TransferBroadcast broadcast = TransferBroadcast.signing;
+  String? txid;
+  bool resubmits = true;
+  String? reason;
+
+  void update(TransferBroadcast next,
+      {String? txid, bool resubmits = true, String? reason}) {
+    broadcast = next;
+    this.txid = txid;
+    this.resubmits = resubmits;
+    this.reason = reason;
+    notifyListeners();
+  }
 }

@@ -45,7 +45,10 @@ actually detected; the panel does not predict undiscovered transfers.
   testnet only offers Zcash Testnet. Zcash receive activates fast sync polling.
 - **Swap:** ZEC amount → token → explicit network selection → recipient (or the
   wallet's matching BTC/SOL/EVM address, where available) → provider quote and
-  exact Zcash fee → confirmation → deposit/status updates in chat. Standalone swap navigation has been removed; reverse swaps are not implemented in chat.
+  exact Zcash fee → confirmation → one status card that updates in place. Any
+  field can be retyped at any step, including during review; an unknown token
+  offers suggestions and keeps the rest. See the 2026-11-22 section below.
+  Standalone swap navigation has been removed; reverse swaps are not implemented in chat.
 - **Balance:** local wallet data; total, spendable shielded and confirming
   amounts remain distinct. ZEC remains available when the fiat feed is unavailable.
 - **Activity:** pending and completed transfers in one tab. `history` opens that tab;
@@ -104,8 +107,10 @@ validation by the quote provider is followed by explicit user review of network
 and address; the chat does not provide its own checksum validator for every
 foreign chain. Destination tags/memos and swaps into ZEC are outside this chat
 flow. A recovery record is saved before broadcasting and updated with the txid.
-Post-broadcast storage/notification errors do not offer another send. An ambiguous
-broadcast tells the user to check chain history before starting another payment.
+Post-broadcast storage/notification errors do not offer another send. A created
+transaction is never re-created: the chat reports whether a server accepted it,
+none answered or a node refused it, and the wallet resubmits it until it is
+mined or expires (2026-11-22 section below).
 
 ## Sync and responsiveness
 
@@ -230,3 +235,108 @@ scanner cancellation, mandatory authentication despite the old opt-out setting,
 and the History-to-Activity route. Simulator verification includes a live account
 rename and restoration of its original label. No account was deleted or payment
 sent for these checks. Physical camera capture still requires device testing.
+
+## Review, status and swap corrections (2026-11-22)
+
+Not in a released build as of this date (build 744 predates it).
+
+### What a confirmed send reports
+
+`engine::send::confirm_send_detailed` (FRB `engine_confirm_send_detailed`, Dart
+`WalletService.confirmSendDetailed`) returns an error only before a transaction
+exists. Once `create_proposed_transactions` has stored it, the raw transaction
+is saved to `zipher_pending_txs` **before** the first broadcast, so sync
+maintenance resubmits it until it is mined or expires, and the result carries
+the txid plus one of three observed answers:
+
+| Status | Meaning | Chat |
+| --- | --- | --- |
+| `Accepted` | At least one server accepted it, or already held it | Normal progress |
+| `Unreachable` | No server confirmed receipt (timeout, transport, pre-submit check) | "Retrying": do not send again; funds return if it expires |
+| `Rejected` | A node examined and refused it | "Refused": nothing was paid; funds stay reserved until expiry |
+
+A duplicate reply ("already in mempool", "already known", "already in block
+chain", "already in state") counts as accepted, because it proves an earlier
+submission arrived. `confirm_send` keeps its previous contract for the CLI, MCP
+server, classic send page and invoice payment: an unaccepted broadcast is an
+error and is **not** saved for resubmission, since those callers may retry.
+
+Failures before signing (wallet busy, stale review, key access, proof failure)
+show "Not sent · nothing left your wallet and no funds are reserved", remove the
+pre-saved swap record and offer a fresh review. An engine panic is treated as
+unknown: no retry is offered.
+
+The previous chat caught every exception from signing and broadcasting with one
+sentence ("could not be confirmed here") and did not log the cause. The engine
+reason is now written to the debug log in sanitised form.
+
+### Review card
+
+`WalletReviewCard` takes typed `ReviewData` (zatoshis, fee, recipient, optional
+`SwapReview`). A swap leads with "You pay" and "You receive · estimated", each
+with its token logo (chain badge on the receiving side) and approximate dollar
+value, then recipient, rate, minimum received, provider time estimate, network
+fee and total. Deposit address, refund address, slippage limit, app fee and the
+quote deadline sit under Details. Token amounts are truncated, never rounded
+up, so a displayed minimum is never above the guaranteed one. A quote deadline
+is only shown as a countdown when under 15 minutes; when it passes (minus the
+2-minute safety margin) the card closes itself and offers a new quote.
+
+A used card folds to its amounts and one line: approved and submitted, approved
+(see status), cancelled, expired, replaced or not sent.
+
+### Status card
+
+`TransferProgress` derives steps from three observed sources only: the engine's
+broadcast outcome, the wallet's own history (mined, expired) and the provider's
+swap status. A provider status that implies a deposit, or a mined transaction,
+also proves an unanswered broadcast arrived. Unknown provider statuses are
+neither progress nor failure. The chat adds one closing message per swap;
+intermediate states update the card instead of adding bubbles.
+
+### Swap collection
+
+`SwapDraft` holds amount, token, network and recipient. Every reply is tried as
+an amount, an offered network, a token and then a recipient, so any field can be
+corrected without restarting; a correction is acknowledged. Switching token
+keeps the network when the new token exists there, and keeps the address when
+it still fits the network's format. Token resolution is exact (symbol, a few
+names, wNEAR for NEAR); near misses are only offered as suggestions, ranked so
+popular tokens outrank closer but obscure spellings. Deprecated, unpriced and
+same-symbol-same-network assets are never offered. Networks are ordered by a
+fixed priority with the token's native network first.
+
+One-line requests accept `swap 1.5 zec to usdc on solana`, `… for usdc (sol)`,
+`swap to eth` and `1.5 zec to usdc`. Dollar, inexact and "all" amounts are
+flagged and asked again, never converted. Recipient formats are checked locally
+where a format is known; a provider refusal re-asks only the address, a provider
+minimum re-asks only the amount, and other quote failures offer Try again with
+the draft intact.
+
+### Other behaviour
+
+- Balance, pools, privacy, memos and help no longer discard a send or swap draft.
+- A draft bar above the composer shows what is being prepared and cancels it.
+- The header shows "N ZEC pending confirmation" under the available amount.
+- A stored swap with no deposit transaction that the provider still reports as
+  waiting, 30 minutes after it started, is listed as "No deposit was sent" and
+  no longer counts toward the Activity badge. It is still polled.
+- Starting a swap while another is tracked is no longer blocked.
+
+### Verification
+
+189 Flutter tests pass (`flutter test --no-pub test`), including swap-flow,
+status-model, review-card and chat-level tests with a canned provider. One
+existing file, `test/wallet_privacy_lifecycle_test.dart`, hung in 2 of about 10
+runs on the development Mac, at a different test each time and without its
+timeout firing; it passed in the others. This change does not touch that path
+and the cause was not found. 103
+engine unit tests pass, 3 ignored (`cargo test -p zipher-engine --lib`),
+including broadcast classification. `cargo check` passes for the bridge crate
+after regenerating FRB bindings. Phone-width renders:
+`flutter test --no-pub --dart-define=CHAT_SCREENSHOT=true test/wallet_chat_cards_preview_test.dart test/wallet_chat_test.dart`.
+
+Not verified: no iOS or Android build was produced from this branch, and no
+transaction was signed or broadcast, so the resubmission path and the three
+broadcast answers have not been observed against a live server.
+

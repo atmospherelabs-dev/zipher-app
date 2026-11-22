@@ -19,6 +19,10 @@ class NearIntentsService {
   factory NearIntentsService() => _instance;
   NearIntentsService._();
 
+  /// For tests that replace the provider with canned answers.
+  @visibleForTesting
+  NearIntentsService.forTesting();
+
   List<NearToken>? _cachedTokens;
 
   Map<String, String> _headers({bool auth = false}) {
@@ -335,6 +339,31 @@ class NearQuoteResponse {
         (actual.length == 2 && actual[protocol] == fee.value ~/ 2);
   }
 
+  Map<String, dynamic> get _quote =>
+      raw['quote'] is Map<String, dynamic> ? raw['quote'] : raw;
+
+  /// When the deposit address stops accepting this quote.
+  DateTime? get expiry => DateTime.tryParse(deadline);
+
+  /// Provider's delivery estimate. Display only, and only when plausible.
+  Duration? get estimatedTime {
+    final seconds = _quote['timeEstimate'];
+    return seconds is num && seconds > 0 && seconds <= 86400
+        ? Duration(seconds: seconds.round())
+        : null;
+  }
+
+  /// Provider's dollar value of the output. Display only, never accounting.
+  double? get amountOutUsd => _usd(_quote['amountOutUsd']);
+  double? get amountInUsd => _usd(_quote['amountInUsd']);
+
+  static double? _usd(dynamic value) {
+    final parsed = value is num ? value.toDouble() : double.tryParse('$value');
+    return parsed != null && parsed.isFinite && parsed > 0 && parsed < 1e12
+        ? parsed
+        : null;
+  }
+
   /// Fail closed on incomplete quotes. The provider's actual amount and
   /// deadline take precedence over the requested values.
   bool isUsableExactInput(int amount, {DateTime? now}) {
@@ -408,6 +437,11 @@ class NearIntentsException implements Exception {
         ? value
         : null;
   }
+
+  /// The provider refused the destination address for the chosen network.
+  bool get invalidRecipient =>
+      RegExp(r'^recipient\b.*\bnot valid\b', caseSensitive: false)
+          .hasMatch(message.trim());
 
   @override
   String toString() => 'NearIntentsException: $message';
@@ -916,6 +950,21 @@ class SwapStore {
     await prefs.remove(_key);
   }
 
+  /// Forget a swap whose deposit was never created. Never call this once a
+  /// transaction exists: the record is the only way back to its status.
+  static Future<void> remove(String depositAddress) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_key) ?? [];
+    raw.removeWhere((entry) {
+      try {
+        return jsonDecode(entry)['depositAddress'] == depositAddress;
+      } catch (_) {
+        return false;
+      }
+    });
+    await prefs.setStringList(_key, raw);
+  }
+
   /// Update only status; never overwrite a txid saved after a provider request.
   static Future<void> updateStatus(String depositAddress, String status) async {
     final prefs = await SharedPreferences.getInstance();
@@ -1015,6 +1064,10 @@ String? chainAddressValidator(String? v, String chainId) {
   }
   return 'Invalid ${ChainInfo.byId(chainId)?.name ?? chainId} address';
 }
+
+/// Whether [chainAddressValidator] can actually check this chain's addresses.
+bool chainHasAddressFormat(String chainId) =>
+    _chainAddressPatterns.containsKey(chainId);
 
 final _chainAddressPatterns = <String, List<RegExp>>{
   'btc': [
