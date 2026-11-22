@@ -320,16 +320,19 @@ class NearQuoteResponse {
     // 1Click documents a default 50/50 revenue split. This protocol account
     // was verified against live dry quotes on 2026-09-10. Allow only that exact
     // split, preserving the requested total, never arbitrary fee recipients.
+    // Since 2026-11 live dry quotes echo only our half and omit the protocol
+    // entry; accept that too, since it can only lower the charged total.
     // https://docs.near-intents.org/integration/distribution-channels/1click-api/fee-config
     const protocol =
         '5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd';
-    if (expected.length != 1 || actual.length != 2) return false;
+    if (expected.length != 1) return false;
     final fee = expected.entries.single;
-    return fee.value > 0 &&
-        fee.value.isEven &&
-        fee.key != protocol &&
-        actual[fee.key] == fee.value ~/ 2 &&
-        actual[protocol] == fee.value ~/ 2;
+    if (fee.value <= 0 ||
+        fee.value.isOdd ||
+        fee.key == protocol ||
+        actual[fee.key] != fee.value ~/ 2) return false;
+    return actual.length == 1 ||
+        (actual.length == 2 && actual[protocol] == fee.value ~/ 2);
   }
 
   /// Fail closed on incomplete quotes. The provider's actual amount and
