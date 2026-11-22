@@ -78,3 +78,18 @@ activation/branch source and requires the retained migration store. Engine
 boundary and disposable-wallet tests are needed in addition to graph checks.
 No graph or unit test alone establishes compatibility with every historical
 wallet database, live settlement, reorg recovery, or mobile background operation.
+
+## SQLCipher 4.20 and frost-core (2026-11-22)
+
+- `libsqlite3-sys` 0.35.0 keeps rusqlite 0.37's interface but bundles the
+  SQLCipher 4.20.0 amalgamation (SQLite 3.54.1) from
+  `sqlcipher-src 420.0.0+sqlcipher-4.20.0-sqlite-3.54.1-libtomcrypt-1.18.2`,
+  verified against its `SHA256SUMS`, fixing RUSTSEC-2026-0459. `build.rs` adds
+  SQLCipher's `sqlcipher_extra_init`/`sqlcipher_extra_shutdown` hooks and
+  `HAVE_STDINT_H`, as libsqlite3-sys 0.40 does. `scripts/verify-dependency-security.py`
+  accepts the version-only audit match only for these exact source hashes.
+  `crates/engine/tests/sqlcipher_compatibility.rs` opens a database written by
+  the previous SQLCipher 4.6 / SQLite 3.46.1 build.
+- `frost-core` 3.0.0 is unchanged except that postcard's default features are
+  off. It only uses `to_allocvec`/`from_bytes`; this removes heapless 0.7
+  (RUSTSEC-2026-0574 to -0582).

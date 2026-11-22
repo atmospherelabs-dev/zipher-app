@@ -14,6 +14,36 @@ import sys
 from pathlib import Path
 
 RSA_VERSION = "0.10.0-rc.20"
+
+# libsqlite3-sys 0.35.0 is vendored with SQLCipher 4.20.0 (SQLite 3.54.1), which
+# contains the RUSTSEC-2026-0459 fix; the audit matches only the crate version.
+# Accept that one finding only for this exact reviewed source.
+SQLITE_ADVISORY = "RUSTSEC-2026-0459"
+SQLITE_VERSION = "0.35.0"
+SQLITE_SOURCE_SHA256 = {
+    # sqlcipher-src 420.0.0+sqlcipher-4.20.0-sqlite-3.54.1 (its SHA256SUMS).
+    "sqlcipher/sqlite3.c": "8cd2347d18886fee4651153fabeeeffb7cec008700987dab1c00261febc4220f",
+    "sqlcipher/sqlite3.h": "e36eb6ed4de77e56a633866a8f84ed339785662d0cf79cf099f420b638bf28ec",
+    "sqlcipher/sqlite3ext.h": "48963abfefb41ac329ef9d706acb5eadba952a99a748285c9ded6b5e0942721b",
+    # Adds SQLCipher 4.20's init/shutdown hooks, as libsqlite3-sys 0.40 does.
+    "build.rs": "593fdffcb0a8adee73e234acea9c1ce15022be190c339663fa7d21478ae4cb5c",
+}
+
+
+def validate_sqlite_source(package, repo_root):
+    """Require the vendored crate carrying the reviewed fixed SQLCipher source."""
+    if package.get("version") != SQLITE_VERSION:
+        return [f"Unreviewed libsqlite3-sys {package.get('version')!r}; require vendored {SQLITE_VERSION}."]
+    try:
+        directory = repo_root / "rust/vendor/libsqlite3-sys"
+        if Path(package["manifest_path"]).resolve() != (directory / "Cargo.toml").resolve():
+            return ["libsqlite3-sys must use the vendored SQLCipher 4.20 source."]
+        for relative, expected in SQLITE_SOURCE_SHA256.items():
+            if hashlib.sha256((directory / relative).read_bytes()).hexdigest() != expected:
+                return [f"Reviewed libsqlite3-sys source changed: {relative}."]
+    except (OSError, KeyError, TypeError):
+        return ["Cannot verify the vendored libsqlite3-sys source."]
+    return []
 RSA_CHECKSUM = "2389407c34c6039d7c8740520ec758090883c5b92df93a5edada2779256bf2e0"
 
 
@@ -51,7 +81,7 @@ def validate_rsa_source(package, repo_root):
     return []
 
 
-def validate_audit(audit, rsa_verified=False):
+def validate_audit(audit, rsa_verified=False, sqlite_verified=False):
     """Keep fresh advisory failures visible, including the stale RSA record."""
     try:
         findings = audit["vulnerabilities"]["list"]
@@ -65,6 +95,10 @@ def validate_audit(audit, rsa_verified=False):
             # is mandatory in validate(); never ignore every version of this CVE.
             if rsa_verified and (advisory, package["name"], package["version"]) == (
                 "RUSTSEC-2023-0071", "rsa", RSA_VERSION
+            ):
+                continue
+            if sqlite_verified and (advisory, package["name"], package["version"]) == (
+                SQLITE_ADVISORY, "libsqlite3-sys", SQLITE_VERSION
             ):
                 continue
             errors.append(f"Unresolved advisory: {advisory} {package['name']} {package['version']}.")
@@ -146,6 +180,8 @@ def validate(metadata, repo_root):
         name = package.get("name")
         if name == "rsa":
             errors.extend(validate_rsa_source(package, repo_root))
+        if name == "libsqlite3-sys":
+            errors.extend(validate_sqlite_source(package, repo_root))
         if name not in bounds:
             continue
         raw_version = package.get("version", "")
@@ -194,14 +230,20 @@ def main(argv):
                 and not validate_rsa_source(package, Path(__file__).resolve().parent.parent)
                 for package in metadata["packages"]
             )
+            sqlite_verified = any(
+                package["name"] == "libsqlite3-sys" and package["id"] in active
+                and not validate_sqlite_source(package, Path(__file__).resolve().parent.parent)
+                for package in metadata["packages"]
+            )
             audit = json.loads(Path(argv[2]).read_text())
-            errors.extend(validate_audit(audit, rsa_verified=rsa_verified))
+            errors.extend(validate_audit(audit, rsa_verified=rsa_verified,
+                                         sqlite_verified=sqlite_verified))
         except (OSError, ValueError, KeyError, TypeError) as error:
             errors.append(f"Cannot read fresh audit report: {error}")
     if errors:
         sys.exit("\n".join(errors))
     if len(argv) == 3 and audit["vulnerabilities"]["list"]:
-        print("RustSec still lists RSA's older advisory as unpatched; the exact published November fix, source hashes and registry checksum were verified.")
+        print("RustSec findings matched only by version were checked against reviewed source: RSA's November fix and SQLCipher 4.20 / SQLite 3.54.1 in libsqlite3-sys.")
     print("Verified reviewed rustls/rmcp/archive versions, safe optional Rust zip, stdio-only MCP, and the authoritative rust/ workspace.")
 
 
