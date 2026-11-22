@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:protobuf/protobuf.dart';
 
 import '../accounts.dart';
+import '../services/hitl_watch_service.dart';
 import '../services/wallet_service.dart';
 import '../zipher_theme.dart';
 import '../coin/coins.dart';
@@ -292,6 +293,24 @@ class _SettingsState extends State<SettingsPage> {
                       leading: Icon(Icons.lock_rounded, size: 20),
                       title: Text('Payment confirmation'),
                       subtitle: Text('Face ID or device passcode is required after every payment review.'),
+                    ),
+                    Divider(height: 1, color: ZipherColors.cardBg,
+                        indent: 52, endIndent: 16),
+                    ListTile(
+                      leading: const Icon(Icons.smart_toy_rounded, size: 20),
+                      title: const Text('Agent approvals'),
+                      subtitle: Text(HitlWatchService.instance.isPaired
+                          ? 'Paired with ${HitlWatchService.instance.agentName ?? 'an agent'}. Its larger sends ask this phone first.'
+                          : 'Run `zipher pair` on your computer and scan the code to approve an agent\'s larger sends here.'),
+                      trailing: HitlWatchService.instance.isPaired
+                          ? TextButton(
+                              onPressed: () async {
+                                await HitlWatchService.instance.unpair();
+                                if (mounted) setState(() {});
+                              },
+                              child: const Text('Unpair'),
+                            )
+                          : null,
                     ),
                     Divider(height: 1, color: ZipherColors.cardBg,
                         indent: 52, endIndent: 16),

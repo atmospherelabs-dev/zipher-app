@@ -596,9 +596,10 @@ void handleUri(Uri uri) async {
     return;
   }
 
-  // HITL pairing deep link: zipher://pair?channel=...&relay=...
+  // HITL pairing link (protocol v1): zipher://pair?v=1&r=...&c=...
+  // Opens a confirmation screen; never pairs silently.
   if (uri.scheme == 'zipher' && uri.host == 'pair') {
-    await HitlWatchService.instance.pairFromUri(uri);
+    await HitlWatchService.instance.openPairing(raw);
     return;
   }
 

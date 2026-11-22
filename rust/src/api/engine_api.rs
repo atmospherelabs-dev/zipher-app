@@ -1981,3 +1981,92 @@ fn report_to_ffi(r: engine::ironwood_v2::ProgressReport) -> IronwoodSdkProgress 
         fees_paid_zat: r.fees_paid_zat,
     }
 }
+
+// ---------------------------------------------------------------------------
+// Agent approvals (HITL relay, protocol v1) — phone side
+// ---------------------------------------------------------------------------
+//
+// Secrets crossing this boundary (`keys_hex`, `pairing_json`) must be kept in
+// platform secure storage by the caller and never logged.
+
+/// Shown to the user before they confirm pairing with an agent.
+pub struct HitlPairingPreview {
+    pub relay_url: String,
+    pub agent_name: String,
+    /// Must match the code printed by `zipher pair` on the agent.
+    pub check_code: String,
+}
+
+pub fn hitl_preview_pairing(uri: String) -> Result<HitlPairingPreview> {
+    let p = zipher_engine::hitl::phone_preview_pairing(&uri)?;
+    Ok(HitlPairingPreview { relay_url: p.relay_url, agent_name: p.agent_name, check_code: p.check_code })
+}
+
+/// New phone keys (hex). Store in secure storage.
+pub fn hitl_generate_phone_keys() -> String {
+    zipher_engine::hitl::phone_generate_keys()
+}
+
+/// Complete a pairing the user confirmed. Returns the pairing record (JSON,
+/// contains the phone's relay token) for secure storage.
+pub async fn hitl_complete_pairing(uri: String, keys_hex: String) -> Result<String> {
+    let pairing = zipher_engine::hitl::phone_complete_pairing(&uri, &keys_hex).await?;
+    Ok(serde_json::to_string(&pairing)?)
+}
+
+/// A decrypted approval request from the paired agent.
+pub struct HitlRequest {
+    pub approval_id: String,
+    pub network: String,
+    pub address: String,
+    pub amount: u64,
+    pub fee: u64,
+    pub memo: Option<String>,
+    pub context_id: Option<String>,
+    pub tool: String,
+    pub created_at: u64,
+    pub expires_at: u64,
+    /// Pass back unchanged to [`hitl_submit_decision`].
+    pub request_json: String,
+}
+
+pub async fn hitl_fetch_requests(pairing_json: String, keys_hex: String) -> Result<Vec<HitlRequest>> {
+    let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
+    let reqs = zipher_engine::hitl::phone_fetch_requests(&pairing, &keys_hex).await?;
+    reqs.into_iter()
+        .map(|r| {
+            let request_json = serde_json::to_string(&r)?;
+            Ok(HitlRequest {
+                approval_id: r.approval_id,
+                network: r.network,
+                address: r.address,
+                amount: r.amount,
+                fee: r.fee,
+                memo: r.memo,
+                context_id: r.context_id,
+                tool: r.tool,
+                created_at: r.created_at,
+                expires_at: r.expires_at,
+                request_json,
+            })
+        })
+        .collect()
+}
+
+/// Sign and send the user's decision. Call only after the user reviewed the
+/// full request and passed the app's auth barrier.
+pub async fn hitl_submit_decision(
+    pairing_json: String,
+    keys_hex: String,
+    request_json: String,
+    approved: bool,
+) -> Result<()> {
+    let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
+    let request: zipher_engine::hitl::ApprovalRequest = serde_json::from_str(&request_json)?;
+    zipher_engine::hitl::phone_submit_decision(&pairing, &keys_hex, &request, approved).await
+}
+
+pub async fn hitl_unpair(pairing_json: String) -> Result<()> {
+    let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
+    zipher_engine::hitl::phone_unpair(&pairing).await
+}

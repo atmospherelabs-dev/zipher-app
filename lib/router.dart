@@ -38,8 +38,10 @@ import 'pages/frost/frost_recovery.dart';
 import 'pages/frost/frost_sign_coordinator.dart';
 import 'pages/frost/frost_hub.dart';
 import 'pages/hitl/hitl_approve.dart';
+import 'pages/hitl/hitl_pair.dart';
 import 'services/cipherpay_client.dart';
 import 'services/hitl_watch_service.dart';
+import 'src/rust/api/engine_api.dart' as rust_engine;
 import 'pages/tx.dart';
 import 'pages/scan.dart';
 import 'pages/showqr.dart';
@@ -491,8 +493,18 @@ final router = GoRouter(
       path: '/hitl/approve',
       pageBuilder: (context, state) {
         final extra = state.extra;
-        if (extra is HitlApprovalRequest) {
+        if (extra is rust_engine.HitlRequest) {
           return _slideUpPage(HitlApprovePage(request: extra), state);
+        }
+        return _slideUpPage(const Scaffold(), state);
+      },
+    ),
+    GoRoute(
+      path: '/hitl/pair',
+      pageBuilder: (context, state) {
+        final extra = state.extra;
+        if (extra is HitlPairingArgs) {
+          return _slideUpPage(HitlPairPage(args: extra), state);
         }
         return _slideUpPage(const Scaffold(), state);
       },

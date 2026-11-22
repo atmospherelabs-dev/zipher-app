@@ -8,6 +8,7 @@ mod daemon;
 mod evm_swap;
 mod frost;
 mod helpers;
+mod hitl;
 mod market;
 mod payment;
 mod policy;
@@ -216,15 +217,18 @@ enum Commands {
     #[command(subcommand)]
     Ironwood(IronwoodCmd),
 
-    /// Pair with a Zipher mobile wallet for agent approval relay
+    /// Pair with a Zipher phone so sends above the approval threshold ask it first (interactive)
     Pair {
-        /// Device name for the mobile wallet
-        #[arg(long, default_value = "mobile")]
+        /// Name the phone shows for this agent
+        #[arg(long = "name", alias = "device-name", default_value = "Zipher agent")]
         device_name: String,
-        /// Override relay URL
+        /// Relay URL (default: https://relay.atmospherelabs.dev)
         #[arg(long)]
         relay_url: Option<String>,
     },
+
+    /// Forget the paired phone and close the relay channel
+    Unpair,
 }
 
 #[derive(Subcommand)]
@@ -1010,47 +1014,8 @@ async fn main() {
         Commands::Pair {
             device_name,
             relay_url,
-        } => match zipher_engine::hitl::generate_pairing_code(&cfg.data_dir) {
-            Ok((channel_id, pairing_code)) => {
-                match zipher_engine::hitl::complete_pairing(
-                    &cfg.data_dir,
-                    &channel_id,
-                    &device_name,
-                    relay_url.as_deref(),
-                ) {
-                    Ok(_) => {
-                        print_ok(
-                            serde_json::json!({
-                                "channel_id": channel_id,
-                                "pairing_code": pairing_code,
-                                "device_name": device_name,
-                            }),
-                            cfg.human,
-                            |d| {
-                                eprintln!("Paired successfully!");
-                                eprintln!();
-                                eprintln!(
-                                    "  Scan this in Zipher mobile app (Settings > Agent Pairing):"
-                                );
-                                eprintln!();
-                                eprintln!(
-                                    "  {}",
-                                    d.get("pairing_code").and_then(|v| v.as_str()).unwrap_or("")
-                                );
-                                eprintln!();
-                                eprintln!(
-                                    "  Channel: {}",
-                                    d.get("channel_id").and_then(|v| v.as_str()).unwrap_or("")
-                                );
-                            },
-                        );
-                        Ok(())
-                    }
-                    Err(e) => Err(e),
-                }
-            }
-            Err(e) => Err(e),
-        },
+        } => hitl::cmd_pair(&cfg, &device_name, relay_url.as_deref()).await,
+        Commands::Unpair => hitl::cmd_unpair(&cfg).await,
     };
 
     if let Err(e) = result {

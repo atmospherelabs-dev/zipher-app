@@ -4275,6 +4275,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+
+[[package]]
 name = "quinn"
 version = "0.11.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5699,7 +5705,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -8697,6 +8703,7 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "ows-lib",
+ "qrcode",
  "reqwest",
  "secrecy",
  "serde",
@@ -8718,6 +8725,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm 0.10.3",
  "anyhow",
+ "axum 0.8.9",
  "base64",
  "base64ct",
  "bip0039",
@@ -8771,6 +8779,8 @@ dependencies = [
  "zcash_script",
  "zeroize",
  "zip32",
+ "zipher-hitl-protocol",
+ "zipher-relay",
  "zipher-rng-compat",
 ]
 
@@ -8799,6 +8809,7 @@ name = "zipher-mcp-server"
 version = "0.3.1-rc.1"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "dirs",
  "ows-lib",
  "ows-signer",
@@ -8815,6 +8826,7 @@ dependencies = [
  "zakura-protocol",
  "zeroize",
  "zipher-engine",
+ "zipher-relay",
 ]
 
 [[package]]

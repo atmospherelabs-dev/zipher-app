@@ -16,6 +16,7 @@ import '../../zipher_theme.dart';
 import '../../services/near_intents.dart';
 import '../../router.dart' show InvoicePayArgs;
 import '../../services/cipherpay_client.dart';
+import '../../services/hitl_watch_service.dart';
 import '../accounts/send.dart';
 import '../accounts/split.dart';
 import '../scan.dart';
@@ -349,6 +350,12 @@ class _HomeState extends State<HomePageInner> {
                                 GoRouter.of(context).push(
                                   '/scan',
                                   extra: ScanQRContext((code) {
+                                    // Agent pairing code from `zipher pair`:
+                                    // opens the check-code confirmation.
+                                    if (code.startsWith('zipher://pair?')) {
+                                      HitlWatchService.instance.openPairing(code);
+                                      return true;
+                                    }
                                     // CipherPay invoice (checkout URL, memo
                                     // code, or zcash: URI with CP-XXXX memo)
                                     // takes priority — show the rich invoice

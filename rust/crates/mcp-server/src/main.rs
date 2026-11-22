@@ -47,6 +47,8 @@ const NETWORK_TIMEOUT: &str = "NETWORK_TIMEOUT";
 const INVALID_PROPOSAL: &str = "INVALID_PROPOSAL";
 const CONTEXT_REQUIRED: &str = "CONTEXT_REQUIRED";
 const INTERNAL_ERROR: &str = "INTERNAL_ERROR";
+const APPROVAL_PENDING: &str = "APPROVAL_PENDING";
+const APPROVAL_REJECTED: &str = "APPROVAL_REJECTED";
 
 fn classify_error(e: &anyhow::Error) -> &'static str {
     let msg = format!("{:#}", e);
@@ -313,13 +315,6 @@ struct IronwoodResumeParams {}
 
 // --- HITL params ---
 
-#[derive(Deserialize, JsonSchema)]
-struct HitlPairParams {
-    /// Device name for the mobile wallet (e.g., "iPhone 15")
-    device_name: String,
-    /// Override relay URL (default: https://relay.atmospherelabs.dev)
-    relay_url: Option<String>,
-}
 
 #[derive(Deserialize, JsonSchema)]
 #[allow(dead_code)]
@@ -345,6 +340,10 @@ struct ReviewedSend {
     amount: u64,
     fee: u64,
     context_id: Option<String>,
+    /// Set when the send exceeded the approval threshold and was sent to the
+    /// paired phone. confirm_send signs only after the phone's signed approval
+    /// of exactly this request verifies.
+    approval: Option<zipher_engine::hitl::ApprovalRequest>,
 }
 
 #[derive(Clone)]
@@ -462,11 +461,17 @@ impl ZipherMcpServer {
             Ok(v) => v, Err(e) => return err_response(&e),
         };
 
+        let mut needs_phone_approval = false;
         if let Err(violation) = zipher_engine::policy::check_proposal(
             &policy, &params.address, params.amount, &params.context_id, daily_spent,
         ) {
-
-
+            // Over the approval threshold (and within every other rule): with a
+            // paired phone, build the proposal and ask the owner instead.
+            let phone_can_approve = matches!(violation, zipher_engine::policy::PolicyViolation::ApprovalRequired { .. })
+                && zipher_engine::hitl::is_paired(&self.data_dir);
+            if phone_can_approve {
+                needs_phone_approval = true;
+            } else {
             zipher_engine::audit::log_event(
                 &self.data_dir, "propose_send", Some(&params.address),
                 Some(params.amount), None, params.context_id.as_deref(),
@@ -479,16 +484,62 @@ impl ZipherMcpServer {
                 _ => POLICY_EXCEEDED,
             };
             return err_code_response(code, &violation.to_string());
+            }
         }
 
+        let memo = params.memo.clone();
         match zipher_engine::send::propose_send(&params.address, params.amount, params.memo, false, params.priority).await {
             Ok((send_amount, fee, _)) => {
                 let proposal_id = uuid::Uuid::new_v4().to_string();
+                let approval = if needs_phone_approval {
+                    let network = if self.network == Network::TestNetwork { "test" } else { "main" };
+                    match zipher_engine::hitl::request_approval(&self.data_dir, zipher_engine::hitl::ApprovalInput {
+                        network,
+                        address: &params.address,
+                        amount: send_amount,
+                        fee,
+                        memo: memo.as_deref(),
+                        context_id: params.context_id.as_deref(),
+                        tool: "propose_send",
+                    }).await {
+                        Ok(req) => Some(req),
+                        Err(e) => {
+                            zipher_engine::audit::log_event(
+                                &self.data_dir, "propose_send", Some(&params.address),
+                                Some(send_amount), Some(fee), params.context_id.as_deref(),
+                                None, Some(&format!("approval request failed: {e:#}")),
+                            ).ok();
+                            return err_code_response(APPROVAL_REQUIRED, &format!(
+                                "This send needs the owner's approval, but the request could not reach their phone: {e:#}"));
+                        }
+                    }
+                } else {
+                    None
+                };
+                let expires_at = approval.as_ref().map(|r| r.expires_at);
                 *self.reviewed_send.lock().await = Some(ReviewedSend {
                     id: proposal_id.clone(),
                     address: params.address.clone(), amount: send_amount, fee,
                     context_id: params.context_id.clone(),
+                    approval,
                 });
+                if let Some(expires_at) = expires_at {
+                    zipher_engine::audit::log_event(
+                        &self.data_dir, "propose_send", Some(&params.address),
+                        Some(send_amount), Some(fee), params.context_id.as_deref(),
+                        None, Some("sent to paired phone for approval"),
+                    ).ok();
+                    return ok_response(serde_json::json!({
+                        "status": "approval_pending",
+                        "proposal_id": proposal_id,
+                        "address": params.address,
+                        "send_amount": send_amount,
+                        "fee": fee,
+                        "total": send_amount + fee,
+                        "approval_expires_at": expires_at,
+                        "next": "The owner must approve this on their paired phone. Call confirm_send with this proposal_id; it returns APPROVAL_PENDING until they decide.",
+                    }));
+                }
                 zipher_engine::audit::log_event(
                     &self.data_dir, "propose_send", Some(&params.address),
                     Some(send_amount), Some(fee), params.context_id.as_deref(),
@@ -557,10 +608,41 @@ impl ZipherMcpServer {
             return err_code_response(POLICY_EXCEEDED, &violation.to_string());
         }
 
+        let held = {
+            let pending = self.reviewed_send.lock().await;
+            match pending.as_ref() {
+                Some(p) if p.id == params.proposal_id && p.context_id == params.context_id => p.clone(),
+                _ => return err_code_response(INVALID_PROPOSAL, "Proposal replaced or context changed. Review again."),
+            }
+        };
+        if let Some(request) = &held.approval {
+            let outcome = match zipher_engine::hitl::check_approval(&self.data_dir, request).await {
+                Ok(o) => o,
+                // Relay unreachable: keep the proposal so the agent can retry.
+                Err(e) => return err_code_response(APPROVAL_PENDING, &format!("Could not check the approval yet: {e:#}")),
+            };
+            let refusal = match outcome {
+                zipher_engine::hitl::ApprovalOutcome::Approved => None,
+                zipher_engine::hitl::ApprovalOutcome::Pending => {
+                    return err_code_response(APPROVAL_PENDING, "Waiting for the owner to approve on their phone. Call confirm_send again shortly.");
+                }
+                zipher_engine::hitl::ApprovalOutcome::Rejected => Some("The owner rejected this payment on their phone."),
+                zipher_engine::hitl::ApprovalOutcome::Expired => Some("The approval request expired. Propose the send again if it is still needed."),
+            };
+            if let Some(reason) = refusal {
+                self.reviewed_send.lock().await.take();
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "confirm_send", Some(&held.address),
+                    Some(held.amount), Some(held.fee), held.context_id.as_deref(),
+                    None, Some(reason),
+                ).ok();
+                return err_code_response(APPROVAL_REJECTED, reason);
+            }
+        }
         let reviewed = {
             let mut pending = self.reviewed_send.lock().await;
             match pending.as_ref() {
-                Some(p) if p.id == params.proposal_id && p.context_id == params.context_id => {}
+                Some(p) if p.id == held.id => {}
                 _ => return err_code_response(INVALID_PROPOSAL, "Proposal replaced or context changed. Review again."),
             }
             pending.take().expect("matched pending proposal")
@@ -1440,56 +1522,24 @@ impl ZipherMcpServer {
 
     // --- HITL tools ---
 
-    #[tool(description = "Generate a pairing code for connecting this agent to a Zipher mobile wallet. The mobile wallet scans this code to establish a secure approval channel.")]
-    async fn hitl_pair(&self, Parameters(params): Parameters<HitlPairParams>) -> String {
-        let (channel_id, pairing_code) = match zipher_engine::hitl::generate_pairing_code(&self.data_dir) {
-            Ok(r) => r,
+    #[tool(description = "Show whether a Zipher phone is paired for approvals. Pairing itself is operator-only: run `zipher pair` in a trusted terminal.")]
+    async fn hitl_status(&self) -> String {
+        let status = match zipher_engine::hitl::status(&self.data_dir) {
+            Ok(s) => s,
             Err(e) => return err_response(&e),
         };
-
-        match zipher_engine::hitl::complete_pairing(
-            &self.data_dir,
-            &channel_id,
-            &params.device_name,
-            params.relay_url.as_deref(),
-        ) {
-            Ok(config) => ok_response(serde_json::json!({
-                "channel_id": channel_id,
-                "pairing_code": pairing_code,
-                "relay_url": config.relay_url,
-                "device_name": params.device_name,
-                "instructions": "Show this pairing code to the Zipher mobile app. Scan it in Settings > Agent Pairing.",
-            })),
-            Err(e) => err_response(&e),
-        }
-    }
-
-    #[tool(description = "Check HITL relay status: whether mobile pairing is active, and fetch any pending approval decisions.")]
-    async fn hitl_status(&self) -> String {
-        let config = zipher_engine::hitl::get_config(&self.data_dir);
-        let pending = zipher_engine::policy::get_pending_approval();
-
-        let mut decision = None;
-        if let (Some(ref p), true) = (&pending, config.enabled) {
-            decision = zipher_engine::hitl::poll_decision(&self.data_dir, &p.id)
-                .await
-                .ok()
-                .flatten();
-        }
-
+        let pending = self.reviewed_send.lock().await.as_ref().and_then(|r| r.approval.as_ref().map(|a| serde_json::json!({
+            "proposal_id": r.id,
+            "send_amount": a.amount,
+            "fee": a.fee,
+            "expires_at": a.expires_at,
+        })));
         ok_response(serde_json::json!({
-            "hitl_enabled": config.enabled,
-            "paired_device": config.pairing.as_ref().map(|p| &p.device_name),
-            "channel_id": config.pairing.as_ref().map(|p| &p.channel_id),
-            "relay_url": config.relay_url,
-            "pending_approval": pending.map(|p| serde_json::json!({
-                "approval_id": p.id,
-                "address": p.address,
-                "amount": p.amount,
-                "amount_zec": p.amount as f64 / 1e8,
-                "expires_in_secs": p.remaining_secs(),
-            })),
-            "decision": decision,
+            "paired": status.paired,
+            "agent_name": status.agent_name,
+            "relay_url": status.relay_url,
+            "paired_at": status.paired_at,
+            "pending_phone_approval": pending,
         }))
     }
 
@@ -1876,7 +1926,7 @@ mod security_tests {
             network: Network::MainNetwork,
             seed_source: Arc::new(SeedSource::None),
             reviewed_send: Arc::new(tokio::sync::Mutex::new(Some(ReviewedSend {
-                id: "proposal-b".into(), address: "b".into(), amount: 10, fee: 1, context_id: None,
+                id: "proposal-b".into(), address: "b".into(), amount: 10, fee: 1, context_id: None, approval: None,
             }))),
         };
         let result = server.confirm_send(Parameters(ConfirmSendParams {
@@ -1890,10 +1940,67 @@ mod security_tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[tokio::test]
+    async fn confirm_send_waits_for_a_verified_phone_approval() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let relay = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, zipher_relay::Relay::new(None).router()).await.unwrap();
+        });
+        let dir = std::env::temp_dir().join(format!("zipher-mcp-hitl-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let data_dir = dir.to_str().unwrap().to_string();
+
+        let session = zipher_engine::hitl::start_pairing(Some(&relay), "test agent").await.unwrap();
+        let keys = zipher_engine::hitl::phone_generate_keys();
+        let phone = zipher_engine::hitl::phone_complete_pairing(&session.start.uri, &keys).await.unwrap();
+        session.poll(&data_dir).await.unwrap();
+
+        let ask = |amount| zipher_engine::hitl::request_approval(&data_dir, zipher_engine::hitl::ApprovalInput {
+            network: "main", address: "u1merchant", amount, fee: 10_000, memo: None, context_id: None, tool: "propose_send",
+        });
+        let server = |req: zipher_engine::hitl::ApprovalRequest| ZipherMcpServer {
+            data_dir: data_dir.clone(),
+            seed: Arc::new(RwLock::new(Some(SecretString::new("dummy-test-secret".into())))),
+            locked: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            network: Network::MainNetwork,
+            seed_source: Arc::new(SeedSource::None),
+            reviewed_send: Arc::new(tokio::sync::Mutex::new(Some(ReviewedSend {
+                id: "p".into(), address: "u1merchant".into(), amount: req.amount, fee: 10_000,
+                context_id: None, approval: Some(req),
+            }))),
+        };
+        let confirm = |s: &ZipherMcpServer| {
+            let s = s.clone();
+            async move { s.confirm_send(Parameters(ConfirmSendParams { proposal_id: "p".into(), context_id: None })).await }
+        };
+
+        // Pending: refused, proposal kept.
+        let s1 = server(ask(200_000_000).await.unwrap());
+        assert!(confirm(&s1).await.contains(APPROVAL_PENDING));
+        assert!(s1.reviewed_send.lock().await.is_some());
+
+        // Rejected on the phone: refused and consumed.
+        let open = zipher_engine::hitl::phone_fetch_requests(&phone, &keys).await.unwrap().remove(0);
+        zipher_engine::hitl::phone_submit_decision(&phone, &keys, &open, false).await.unwrap();
+        assert!(confirm(&s1).await.contains(APPROVAL_REJECTED));
+        assert!(s1.reviewed_send.lock().await.is_none());
+
+        // Approved: passes the gate and reaches wallet signing (which fails here
+        // without a wallet), so the proposal is consumed by the signing attempt.
+        let s2 = server(ask(300_000_000).await.unwrap());
+        let open = zipher_engine::hitl::phone_fetch_requests(&phone, &keys).await.unwrap().remove(0);
+        zipher_engine::hitl::phone_submit_decision(&phone, &keys, &open, true).await.unwrap();
+        let out = confirm(&s2).await;
+        assert!(!out.contains(APPROVAL_PENDING) && !out.contains(APPROVAL_REJECTED), "{out}");
+        assert!(s2.reviewed_send.lock().await.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn agent_cannot_invoke_operator_or_unbounded_signing_tools() {
         let tools = ZipherMcpServer::tool_router().list_all();
-        for name in ["wallet_unlock", "approve_send", "polymarket_bet"] {
+        for name in ["wallet_unlock", "approve_send", "polymarket_bet", "hitl_pair"] {
             assert!(!tools.iter().any(|t| t.name == name), "unsafe tool exposed: {name}");
         }
         assert!(serde_json::from_str::<ConfirmSendParams>(r#"{"context_id":null}"#).is_err());
@@ -1912,7 +2019,7 @@ mod security_tests {
             network: Network::MainNetwork,
             seed_source: Arc::new(SeedSource::None),
             reviewed_send: Arc::new(tokio::sync::Mutex::new(Some(ReviewedSend {
-                id: "preserved-proposal".into(), address: "fixture".into(), amount: 1, fee: 1, context_id: None,
+                id: "preserved-proposal".into(), address: "fixture".into(), amount: 1, fee: 1, context_id: None, approval: None,
             }))),
         };
         let response = server.session_open(Parameters(SessionOpenParams {
