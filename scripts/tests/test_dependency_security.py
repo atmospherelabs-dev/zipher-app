@@ -19,7 +19,7 @@ SPEC.loader.exec_module(GUARD)
 def graph():
     packages = [
         {"id": "rustls@0.23.46", "name": "rustls", "version": "0.23.46"},
-        {"id": "rmcp@1.8.0", "name": "rmcp", "version": "1.8.0"},
+        {"id": "rmcp@3.11.0", "name": "rmcp", "version": "3.11.0"},
     ]
     return {
         "packages": packages,
@@ -142,6 +142,29 @@ class DependencySecurityTests(unittest.TestCase):
         self.assertEqual(GUARD.validate_audit(audit, rsa_verified=True), [])
         audit["vulnerabilities"]["list"][0]["package"]["version"] = "0.9.10"
         self.assertTrue(GUARD.validate_audit(audit, rsa_verified=True))
+
+    def test_sqlite_exception_requires_the_vendored_fixed_source(self):
+        directory = self.root / "rust/vendor/libsqlite3-sys"
+        (directory / "sqlcipher").mkdir(parents=True)
+        manifest = directory / "Cargo.toml"
+        manifest.write_text("vendored")
+        real = Path(__file__).resolve().parents[2] / "rust/vendor/libsqlite3-sys"
+        for relative in GUARD.SQLITE_SOURCE_SHA256:
+            (directory / relative).write_bytes((real / relative).read_bytes())
+        package = {"name": "libsqlite3-sys", "version": "0.35.0", "manifest_path": str(manifest)}
+        self.assertEqual(GUARD.validate_sqlite_source(package, self.root), [])
+        (directory / "sqlcipher/sqlite3.c").write_text("old amalgamation")
+        self.assertTrue(GUARD.validate_sqlite_source(package, self.root))
+        registry = dict(package, manifest_path=str(self.root / "registry/Cargo.toml"))
+        self.assertTrue(GUARD.validate_sqlite_source(registry, self.root))
+        audit = {"vulnerabilities": {"list": [{
+            "advisory": {"id": "RUSTSEC-2026-0459"},
+            "package": {"name": "libsqlite3-sys", "version": "0.35.0"},
+        }]}}
+        self.assertTrue(GUARD.validate_audit(audit))
+        self.assertEqual(GUARD.validate_audit(audit, sqlite_verified=True), [])
+        audit["vulnerabilities"]["list"][0]["advisory"]["id"] = "RUSTSEC-2027-0001"
+        self.assertTrue(GUARD.validate_audit(audit, sqlite_verified=True))
 
     def test_fresh_audit_blocks_new_findings_and_unsound_warnings(self):
         self.assertTrue(GUARD.validate_audit({"error": "database unavailable"}))
