@@ -8775,6 +8775,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "zipher-hitl-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "blake2b_simd",
+ "chacha20poly1305 0.10.1",
+ "ed25519-dalek",
+ "hkdf",
+ "hmac 0.12.1",
+ "rand 0.8.7",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "zipher-mcp-server"
 version = "0.3.1-rc.1"
 dependencies = [
@@ -8795,6 +8815,20 @@ dependencies = [
  "zakura-protocol",
  "zeroize",
  "zipher-engine",
+]
+
+[[package]]
+name = "zipher-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.8.9",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower 0.5.3",
+ "zipher-hitl-protocol",
 ]
 
 [[package]]

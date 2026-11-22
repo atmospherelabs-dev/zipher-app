@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/engine", "crates/cli", "crates/mcp-server", "crates/rng-compat"]
+members = ["crates/engine", "crates/cli", "crates/mcp-server", "crates/rng-compat", "crates/hitl-protocol", "crates/relay"]
 exclude = ["vendor/ows-lib", "vendor/ows-signer", "vendor/tor-llcrypto", "vendor/tor-key-forge", "vendor/ssh-key", "vendor/tor-keymgr"]
 
 [package]

@@ -1,0 +1,22 @@
+[package]
+name = "zipher-hitl-protocol"
+version = "0.1.0"
+edition = "2021"
+description = "End-to-end encrypted pairing and approval messages for the Zipher HITL relay"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+blake2b_simd = "1"
+chacha20poly1305 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
+hkdf = "0.12"
+hmac = "0.12"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+x25519-dalek = { version = "2", features = ["static_secrets", "zeroize"] }
+zeroize = "1"
