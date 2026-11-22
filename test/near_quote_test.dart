@@ -61,11 +61,7 @@ void main() {
           quote({
             ...request,
             'appFees': [
-              {
-                'recipient': 'cipherscan.near',
-                'fee': 25,
-                'limitOrderId': null
-              },
+              {'recipient': 'cipherscan.near', 'fee': 25, 'limitOrderId': null},
               {'recipient': other, 'fee': 25, 'limitOrderId': null}
             ]
           }).matchesRequest(request),
@@ -79,6 +75,64 @@ void main() {
             {'recipient': protocol, 'fee': 26}
           ]
         }).matchesRequest(request),
+        isFalse);
+
+    // Live 1Click echo since 2026-11: only our half, protocol entry omitted.
+    for (final (fees, ok) in [
+      (
+        [
+          {'recipient': 'cipherscan.near', 'fee': 25, 'limitOrderId': null}
+        ],
+        true
+      ),
+      (
+        [
+          {'recipient': 'cipherscan.near', 'fee': 24}
+        ],
+        false
+      ),
+      (
+        [
+          {'recipient': 'cipherscan.near', 'fee': 26}
+        ],
+        false
+      ),
+      (
+        [
+          {'recipient': protocol, 'fee': 25}
+        ],
+        false
+      ),
+      (
+        [
+          {'recipient': 'attacker', 'fee': 25}
+        ],
+        false
+      ),
+      (
+        [
+          {'recipient': 'cipherscan.near', 'fee': 25},
+          {'recipient': 'attacker', 'fee': 1}
+        ],
+        false
+      ),
+    ]) {
+      expect(quote({...request, 'appFees': fees}).matchesRequest(request), ok,
+          reason: '$fees');
+    }
+    final oddRequest = {
+      ...request,
+      'appFees': [
+        {'recipient': 'cipherscan.near', 'fee': 51}
+      ]
+    };
+    expect(
+        quote({
+          ...oddRequest,
+          'appFees': [
+            {'recipient': 'cipherscan.near', 'fee': 25}
+          ]
+        }).matchesRequest(oddRequest),
         isFalse);
 
     for (final field in request.keys) {
