@@ -230,66 +230,149 @@ async fn broadcast_scoped(
     tor: Option<zcash_client_backend::tor::Client>,
     expected_generation: Option<u64>,
 ) -> Result<()> {
-    let (wallet_path, cipher_key) = {
-        let guard = ENGINE.lock().await;
-        let engine = guard
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Wallet closed before broadcast"))?;
-        if expected_generation.is_some_and(|generation| generation != engine.generation) {
-            anyhow::bail!("Wallet session changed before broadcast");
+    broadcast_classified(primary_url, params, tx_bytes, tor, expected_generation)
+        .await
+        .map_err(|failure| anyhow::anyhow!(failure.message))
+}
+
+/// Why no server accepted a broadcast.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BroadcastFailure {
+    /// A node examined the transaction and refused it. When false no server
+    /// confirmed receipt, so it may not have left the device.
+    pub rejected: bool,
+    pub message: String,
+}
+
+impl BroadcastFailure {
+    fn not_submitted(error: anyhow::Error) -> Self {
+        Self {
+            rejected: false,
+            message: format!("{error:#}"),
         }
-        if &engine.params != params || engine.server_url != primary_url {
-            anyhow::bail!("Wallet or server changed before broadcast");
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ServerReply {
+    Accepted,
+    Rejected(String),
+    Unreachable(String),
+}
+
+/// A node that already holds the transaction proves an earlier submission
+/// arrived, even when that submission's own reply was lost.
+fn is_duplicate_rejection(message: &str) -> bool {
+    let m = message.to_ascii_lowercase();
+    [
+        "already in mempool",
+        "already-in-mempool",
+        "already known",
+        "already-known",
+        "already in block chain",
+        "already in state",
+        "already exists",
+        "already have",
+    ]
+    .iter()
+    .any(|needle| m.contains(needle))
+}
+
+fn server_reply(error_code: i32, error_message: &str, label: &str) -> ServerReply {
+    if error_code == 0 || is_duplicate_rejection(error_message) {
+        ServerReply::Accepted
+    } else {
+        ServerReply::Rejected(format!(
+            "{}: rejected code={} msg={}",
+            label, error_code, error_message
+        ))
+    }
+}
+
+/// Any acceptance wins. Otherwise a rejection outranks silent servers, because
+/// it is the only evidence that a node saw the transaction.
+fn classify_broadcast(replies: Vec<ServerReply>) -> std::result::Result<usize, BroadcastFailure> {
+    let total = replies.len();
+    let accepted = replies
+        .iter()
+        .filter(|reply| **reply == ServerReply::Accepted)
+        .count();
+    if accepted > 0 {
+        return Ok(accepted);
+    }
+    let mut unreachable = None;
+    for reply in replies {
+        match reply {
+            ServerReply::Rejected(message) => {
+                return Err(BroadcastFailure {
+                    rejected: true,
+                    message: format!("Broadcast rejected: {}", message),
+                })
+            }
+            ServerReply::Unreachable(message) => {
+                unreachable.get_or_insert(message);
+            }
+            ServerReply::Accepted => {}
         }
-        if engine.tor_required && tor.is_none() {
-            anyhow::bail!("Private route changed before broadcast; review again");
-        }
-        engine.tor_transport()?;
-        (engine.db_data_path.clone(), engine.db_cipher_key.clone())
+    }
+    Err(BroadcastFailure {
+        rejected: false,
+        message: format!(
+            "Broadcast failed on all {} servers: {}",
+            total,
+            unreachable.unwrap_or_default()
+        ),
+    })
+}
+
+async fn broadcast_classified(
+    primary_url: &str,
+    params: &Network,
+    tx_bytes: Vec<u8>,
+    tor: Option<zcash_client_backend::tor::Client>,
+    expected_generation: Option<u64>,
+) -> std::result::Result<(), BroadcastFailure> {
+    let scope = async {
+        let (wallet_path, cipher_key) = {
+            let guard = ENGINE.lock().await;
+            let engine = guard
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Wallet closed before broadcast"))?;
+            if expected_generation.is_some_and(|generation| generation != engine.generation) {
+                anyhow::bail!("Wallet session changed before broadcast");
+            }
+            if &engine.params != params || engine.server_url != primary_url {
+                anyhow::bail!("Wallet or server changed before broadcast");
+            }
+            if engine.tor_required && tor.is_none() {
+                anyhow::bail!("Private route changed before broadcast; review again");
+            }
+            engine.tor_transport()?;
+            (engine.db_data_path.clone(), engine.db_cipher_key.clone())
+        };
+        // Sync progress is process-global and can still describe a previous
+        // network. Only this wallet's persisted chain height may bound a peer tip.
+        let known_tip = u32::from(
+            open_wallet_db(&wallet_path, *params, &cipher_key)?
+                .chain_height()
+                .map_err(|e| anyhow::anyhow!("Read wallet height before broadcast: {e:?}"))?
+                .ok_or_else(|| anyhow::anyhow!("Sync before broadcasting a transaction"))?,
+        );
+        Ok::<u32, anyhow::Error>(known_tip)
     };
-    // Sync progress is process-global and can still describe a previous
-    // network. Only this wallet's persisted chain height may bound a peer tip.
-    let known_tip = u32::from(
-        open_wallet_db(&wallet_path, *params, &cipher_key)?
-            .chain_height()
-            .map_err(|e| anyhow::anyhow!("Read wallet height before broadcast: {e:?}"))?
-            .ok_or_else(|| anyhow::anyhow!("Sync before broadcasting a transaction"))?,
-    );
+    let known_tip = scope.await.map_err(BroadcastFailure::not_submitted)?;
+
     let known = known_lightwalletd_servers(params);
     let is_known_primary = known.iter().any(|s| s == primary_url);
+    // A custom or self-hosted primary is contacted on its own.
+    let servers = if !is_known_primary || known.len() <= 1 {
+        vec![primary_url.to_string()]
+    } else {
+        known
+    };
 
-    if !is_known_primary || known.len() <= 1 {
-        let resp = tokio::time::timeout(std::time::Duration::from_secs(20), async {
-            let mut lwd = connect_lwd_with_tor(primary_url, tor.as_ref()).await?;
-            crate::network_upgrade::submit_transaction_with_generation(
-                &mut lwd,
-                params,
-                tx_bytes,
-                known_tip,
-                expected_generation,
-            )
-            .await
-        })
-        .await
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "Broadcast timed out; check this transaction's status before another payment"
-            )
-        })??;
-        if resp.error_code != 0 {
-            return Err(anyhow::anyhow!(
-                "Broadcast rejected: {} (code {})",
-                resp.error_message,
-                resp.error_code
-            ));
-        }
-        return Ok(());
-    }
-
-    // Broadcast to all known servers concurrently.
-    let mut handles = Vec::with_capacity(known.len());
-    for server in &known {
-        let url = server.clone();
+    let mut handles = Vec::with_capacity(servers.len());
+    for url in servers {
         let data = tx_bytes.clone();
         let tor = tor.clone();
         let params = *params;
@@ -306,66 +389,41 @@ async fn broadcast_scoped(
                 .await
             })
             .await;
-            let client = match request {
-                Ok(result) => result,
-                Err(_) => {
-                    return Err(format!(
-                        "{}: broadcast timed out; outcome may be pending",
-                        url
-                    ))
-                }
-            };
-            match client {
-                Ok(resp) => {
-                    let r = resp;
-                    if r.error_code == 0 {
-                        Ok(url)
-                    } else {
-                        Err(format!(
-                            "{}: rejected code={} msg={}",
-                            url, r.error_code, r.error_message
-                        ))
-                    }
-                }
-                Err(e) => Err(format!("{}: broadcast failed {:?}", url, e)),
+            match request {
+                Err(_) => ServerReply::Unreachable(format!(
+                    "{}: broadcast timed out; outcome may be pending",
+                    url
+                )),
+                Ok(Err(e)) => ServerReply::Unreachable(format!("{}: broadcast failed {:?}", url, e)),
+                Ok(Ok(r)) => server_reply(r.error_code, &r.error_message, &url),
             }
         }));
     }
 
-    let results = futures_util::future::join_all(handles).await;
-    let mut successes = Vec::new();
-    let mut failures = Vec::new();
-
-    for result in results {
-        match result {
-            Ok(Ok(url)) => successes.push(url),
-            Ok(Err(msg)) => failures.push(msg),
-            Err(e) => failures.push(format!("task panicked: {:?}", e)),
+    let mut replies = Vec::with_capacity(handles.len());
+    for result in futures_util::future::join_all(handles).await {
+        replies.push(match result {
+            Ok(reply) => reply,
+            Err(e) => ServerReply::Unreachable(format!("task panicked: {:?}", e)),
+        });
+    }
+    for reply in &replies {
+        if let ServerReply::Rejected(m) | ServerReply::Unreachable(m) = reply {
+            warn!("Broadcast server failure: {}", m);
         }
     }
 
-    if successes.is_empty() {
-        error!(
-            "Multi-server broadcast: all {} servers rejected",
-            failures.len()
-        );
-        let first_err = failures.into_iter().next().unwrap_or_default();
-        return Err(anyhow::anyhow!(
-            "Broadcast failed on all servers: {}",
-            first_err
-        ));
+    let total = replies.len();
+    match classify_broadcast(replies) {
+        Ok(accepted) => {
+            info!("Broadcast: {}/{} servers accepted", accepted, total);
+            Ok(())
+        }
+        Err(failure) => {
+            error!("Broadcast: none of {} servers accepted", total);
+            Err(failure)
+        }
     }
-
-    info!(
-        "Multi-server broadcast: {}/{} servers accepted",
-        successes.len(),
-        successes.len() + failures.len()
-    );
-    for f in &failures {
-        warn!("Multi-server broadcast partial failure: {}", f);
-    }
-
-    Ok(())
 }
 
 const PCZT_LOCK_EXPIRY_SECS: u64 = 600; // 10 minutes
@@ -578,8 +636,57 @@ pub async fn propose_send(
     }
 }
 
+/// What the network said about a transaction that already exists in the wallet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BroadcastStatus {
+    /// At least one server accepted the transaction.
+    Accepted,
+    /// No server confirmed receipt. It may not have left the device.
+    Unreachable,
+    /// A node examined the transaction and refused it. Not proof of finality.
+    Rejected,
+}
+
+/// Result of a send once the transaction is built and stored. Its inputs are
+/// spent in the wallet from this point, whatever the network answered.
+#[derive(Debug, Clone)]
+pub struct SendOutcome {
+    pub txid: String,
+    pub status: BroadcastStatus,
+    /// The raw transaction is saved, so sync maintenance resubmits it until it
+    /// is mined or expires.
+    pub resubmits: bool,
+    /// Engine-side reason when not accepted. It can name servers: log it, do
+    /// not show it.
+    pub detail: Option<String>,
+}
+
 /// Step 2: Build + broadcast from the stored proposal.
+///
+/// Returns the txid only when a server accepted the transaction. Callers that
+/// retry on error rely on a failed broadcast not being resubmitted later.
 pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
+    let outcome = build_and_broadcast(seed_phrase, false).await?;
+    match outcome.status {
+        BroadcastStatus::Accepted => Ok(outcome.txid),
+        _ => Err(anyhow::anyhow!(outcome
+            .detail
+            .unwrap_or_else(|| "Broadcast failed".to_string()))),
+    }
+}
+
+/// Step 2 for interactive wallets. An error means nothing was created. Once the
+/// transaction exists it is saved for resubmission before the first broadcast,
+/// so a dropped connection cannot strand it, and the outcome says which of the
+/// three network answers was observed.
+pub async fn confirm_send_detailed(seed_phrase: &SecretString) -> Result<SendOutcome> {
+    build_and_broadcast(seed_phrase, true).await
+}
+
+async fn build_and_broadcast(
+    seed_phrase: &SecretString,
+    save_before_broadcast: bool,
+) -> Result<SendOutcome> {
     info!("Signing and broadcasting transaction...");
 
     let pending = {
@@ -640,53 +747,179 @@ pub async fn confirm_send(seed_phrase: &SecretString) -> Result<String> {
         anyhow::anyhow!("Create tx failed: {:?}", e)
     })?;
 
-    let txid = txids.first();
+    // The transaction is stored and its inputs are spent in the wallet. From
+    // here every path returns an outcome carrying the txid, never a bare error.
+    let txid = *txids.first();
     info!("Transaction built: {}", txid);
+    let not_accepted = |status, resubmits, detail: String| SendOutcome {
+        txid: txid.to_string(),
+        status,
+        resubmits,
+        detail: Some(detail),
+    };
 
-    let tx = db_data
-        .get_transaction(*txid)
-        .map_err(|e| anyhow::anyhow!("{:?}", e))?
-        .ok_or_else(|| anyhow::anyhow!("Transaction not found after creation"))?;
-    let mut tx_bytes = Vec::new();
-    tx.write(&mut tx_bytes)
-        .map_err(|e| anyhow::anyhow!("Serialize tx: {:?}", e))?;
+    let raw_tx = match db_data.get_transaction(txid) {
+        Ok(Some(tx)) => {
+            let mut bytes = Vec::new();
+            match tx.write(&mut bytes) {
+                Ok(()) => bytes,
+                Err(e) => {
+                    return Ok(not_accepted(
+                        BroadcastStatus::Unreachable,
+                        false,
+                        format!("Serialize tx: {:?}", e),
+                    ))
+                }
+            }
+        }
+        Ok(None) => {
+            return Ok(not_accepted(
+                BroadcastStatus::Unreachable,
+                false,
+                "Transaction not found after creation".to_string(),
+            ))
+        }
+        Err(e) => {
+            return Ok(not_accepted(
+                BroadcastStatus::Unreachable,
+                false,
+                format!("{:?}", e),
+            ))
+        }
+    };
 
     debug!(
         "[TX] {} bytes, header: {}",
-        tx_bytes.len(),
-        if tx_bytes.len() >= 20 {
-            hex::encode(&tx_bytes[..20])
+        raw_tx.len(),
+        if raw_tx.len() >= 20 {
+            hex::encode(&raw_tx[..20])
         } else {
-            hex::encode(&tx_bytes)
+            hex::encode(&raw_tx)
         }
     );
 
-    info!("Broadcasting to network...");
-    let raw_tx = tx_bytes.clone();
-    let tor = pending.fee_snapshot.broadcast_transport().await?;
-    broadcast_for_generation(
-        &server_url,
-        &params,
-        tx_bytes,
-        tor,
-        pending.fee_snapshot.generation(),
-    )
-    .await?;
+    let record = |when: &str| match super::pending::record_broadcast(
+        &db_data_path,
+        &db_cipher_key,
+        txid,
+        &raw_tx,
+    ) {
+        Ok(()) => true,
+        Err(e) => {
+            debug!("Failed to record pending transaction {} {}: {:?}", txid, when, e);
+            false
+        }
+    };
+    let mut resubmits = save_before_broadcast && record("before broadcast");
 
-    clear_pczt_lock(
-        db_data_path
-            .parent()
-            .unwrap_or(&db_data_path)
-            .to_str()
-            .unwrap_or(""),
-    );
-    if let Err(e) = super::pending::record_broadcast(&db_data_path, &db_cipher_key, *txid, &raw_tx)
-    {
-        debug!("Failed to record pending transaction {}: {:?}", txid, e);
-    }
+    info!("Broadcasting to network...");
+    let broadcast = match pending.fee_snapshot.broadcast_transport().await {
+        Ok(tor) => {
+            broadcast_classified(
+                &server_url,
+                &params,
+                raw_tx.clone(),
+                tor,
+                Some(pending.fee_snapshot.generation()),
+            )
+            .await
+        }
+        Err(e) => Err(BroadcastFailure::not_submitted(e)),
+    };
     super::sync::emit_transaction_event(txid.to_string(), "pending");
-    info!("Transaction confirmed! txid={}", txid);
-    Ok(txid.to_string())
+
+    match broadcast {
+        Ok(()) => {
+            clear_pczt_lock(
+                db_data_path
+                    .parent()
+                    .unwrap_or(&db_data_path)
+                    .to_str()
+                    .unwrap_or(""),
+            );
+            if !save_before_broadcast {
+                resubmits = record("after broadcast");
+            }
+            info!("Transaction broadcast accepted. txid={}", txid);
+            Ok(SendOutcome {
+                txid: txid.to_string(),
+                status: BroadcastStatus::Accepted,
+                resubmits,
+                detail: None,
+            })
+        }
+        Err(failure) => {
+            warn!(
+                "Transaction {} stored but not accepted (resubmits={}): {}",
+                txid, resubmits, failure.message
+            );
+            Ok(not_accepted(
+                if failure.rejected {
+                    BroadcastStatus::Rejected
+                } else {
+                    BroadcastStatus::Unreachable
+                },
+                resubmits,
+                failure.message,
+            ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod broadcast_outcome_tests {
+    use super::*;
+
+    fn rejected(message: &str) -> ServerReply {
+        ServerReply::Rejected(message.to_string())
+    }
+    fn unreachable(message: &str) -> ServerReply {
+        ServerReply::Unreachable(message.to_string())
+    }
+
+    #[test]
+    fn one_acceptance_outweighs_every_other_failure() {
+        let replies = vec![unreachable("a: timeout"), ServerReply::Accepted, rejected("b: bad")];
+        assert_eq!(classify_broadcast(replies), Ok(1));
+    }
+
+    #[test]
+    fn silence_from_every_server_is_not_a_rejection() {
+        let failure = classify_broadcast(vec![unreachable("a: timeout"), unreachable("b: dns")])
+            .unwrap_err();
+        assert!(!failure.rejected);
+        assert!(failure.message.contains("a: timeout"));
+    }
+
+    #[test]
+    fn a_node_refusal_is_reported_even_when_other_servers_were_silent() {
+        let failure =
+            classify_broadcast(vec![unreachable("a: timeout"), rejected("b: code=-26")]).unwrap_err();
+        assert!(failure.rejected);
+        assert!(failure.message.contains("b: code=-26"));
+    }
+
+    #[test]
+    fn a_node_that_already_holds_the_transaction_counts_as_accepted() {
+        for message in [
+            "18: txn-already-in-mempool",
+            "transaction already in block chain",
+            "tx already known",
+            "Transaction is already in state",
+        ] {
+            assert_eq!(server_reply(-26, message, "s"), ServerReply::Accepted, "{message}");
+        }
+        assert!(matches!(
+            server_reply(-26, "bad-txns-expired", "s"),
+            ServerReply::Rejected(_)
+        ));
+        assert_eq!(server_reply(0, "", "s"), ServerReply::Accepted);
+    }
+
+    #[test]
+    fn no_servers_is_a_transport_failure() {
+        assert!(!classify_broadcast(vec![]).unwrap_err().rejected);
+    }
 }
 
 // ---------------------------------------------------------------------------

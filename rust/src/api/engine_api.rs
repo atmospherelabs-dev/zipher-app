@@ -911,6 +911,46 @@ pub async fn engine_confirm_send(seed_phrase: String) -> Result<String> {
     engine::send::confirm_send(&secret_seed).await
 }
 
+/// Network answer for a transaction that already exists in the wallet.
+pub enum EngineBroadcastStatus {
+    /// At least one server accepted it.
+    Accepted,
+    /// No server confirmed receipt. It may not have left the device.
+    Unreachable,
+    /// A node examined it and refused it.
+    Rejected,
+}
+
+/// Outcome of a confirmed send. The transaction is stored and its inputs are
+/// spent in the wallet regardless of `status`.
+pub struct EngineSendOutcome {
+    pub txid: String,
+    pub status: EngineBroadcastStatus,
+    /// Saved for automatic resubmission until mined or expired.
+    pub resubmits: bool,
+    /// Engine-side reason when not accepted. For logs only.
+    pub detail: Option<String>,
+}
+
+/// Step 2 with an explicit outcome. An error means nothing was created; after
+/// creation the result always carries the txid and what the network answered.
+pub async fn engine_confirm_send_detailed(seed_phrase: String) -> Result<EngineSendOutcome> {
+    use engine::send::BroadcastStatus;
+    use secrecy::SecretString;
+    let secret_seed = SecretString::new(seed_phrase);
+    let outcome = engine::send::confirm_send_detailed(&secret_seed).await?;
+    Ok(EngineSendOutcome {
+        txid: outcome.txid,
+        status: match outcome.status {
+            BroadcastStatus::Accepted => EngineBroadcastStatus::Accepted,
+            BroadcastStatus::Unreachable => EngineBroadcastStatus::Unreachable,
+            BroadcastStatus::Rejected => EngineBroadcastStatus::Rejected,
+        },
+        resubmits: outcome.resubmits,
+        detail: outcome.detail,
+    })
+}
+
 /// Legacy single-step send (still used for multi-recipient or fallback).
 pub async fn engine_send_payment(
     seed_phrase: String,

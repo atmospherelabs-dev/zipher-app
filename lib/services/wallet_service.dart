@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter_rust_bridge/flutter_rust_bridge.dart'
+    show PanicException;
 import 'package:http/http.dart' as http;
 import 'app_log.dart';
 import 'package:path_provider/path_provider.dart';
@@ -26,6 +28,41 @@ final _log = createLogger();
 class WalletBusyException implements Exception {
   @override
   String toString() => 'Wallet is busy (switching). Try again shortly.';
+}
+
+/// What the network answered about a transaction the wallet just created.
+enum SendBroadcast {
+  /// A server accepted it.
+  accepted,
+
+  /// No server confirmed receiving it. It may not have left the device.
+  unreachable,
+
+  /// A node examined it and refused it.
+  rejected,
+}
+
+/// A transaction that now exists in the wallet. Its inputs are spent locally
+/// whatever [broadcast] says, so it must never be re-created to "retry".
+class SendOutcome {
+  const SendOutcome(this.txid, this.broadcast,
+      {this.resubmits = true, this.detail});
+  final String txid;
+  final SendBroadcast broadcast;
+
+  /// Sync keeps resubmitting it until it is mined or expires.
+  final bool resubmits;
+
+  /// Engine-side reason when not accepted. For logs only.
+  final String? detail;
+  bool get accepted => broadcast == SendBroadcast.accepted;
+}
+
+/// The engine stopped unexpectedly while sending. Whether a transaction was
+/// created is unknown, so nothing may be assumed either way.
+class SendUncertainException implements Exception {
+  @override
+  String toString() => 'The wallet engine stopped while sending.';
 }
 
 /// Singleton service bridging the Dart UI to the Zcash wallet engine
@@ -1071,10 +1108,51 @@ class WalletService {
   }
 
   /// Step 2: Confirm and broadcast the previously proposed transaction.
+  /// Returns only when a server accepted it; a failed broadcast is an error
+  /// and is not resubmitted, so callers may safely ask the user to retry.
   Future<String> confirmSend(
-      {int? expectedRevision,
-      String? expectedWalletId,
-      bool? expectedTestnet}) async {
+          {int? expectedRevision,
+          String? expectedWalletId,
+          bool? expectedTestnet}) =>
+      _confirm(
+          expectedRevision,
+          expectedWalletId,
+          expectedTestnet,
+          (seed) => rust_engine.engineConfirmSend(seedPhrase: seed));
+
+  /// Step 2 with an explicit outcome, for flows that never retry blindly. An
+  /// error means nothing was created ([SendUncertainException] excepted). Once
+  /// created, the transaction is saved for resubmission and the outcome says
+  /// what the network answered.
+  Future<SendOutcome> confirmSendDetailed(
+          {required int expectedRevision,
+          required String? expectedWalletId,
+          required bool expectedTestnet}) =>
+      _confirm(expectedRevision, expectedWalletId, expectedTestnet,
+          (seed) async {
+        final rust_engine.EngineSendOutcome result;
+        try {
+          result =
+              await rust_engine.engineConfirmSendDetailed(seedPhrase: seed);
+        } on PanicException {
+          throw SendUncertainException();
+        }
+        return SendOutcome(
+            result.txid,
+            switch (result.status) {
+              rust_engine.EngineBroadcastStatus.accepted =>
+                SendBroadcast.accepted,
+              rust_engine.EngineBroadcastStatus.unreachable =>
+                SendBroadcast.unreachable,
+              rust_engine.EngineBroadcastStatus.rejected =>
+                SendBroadcast.rejected,
+            },
+            resubmits: result.resubmits,
+            detail: result.detail);
+      });
+
+  Future<T> _confirm<T>(int? expectedRevision, String? expectedWalletId,
+      bool? expectedTestnet, Future<T> Function(String seed) send) async {
     _checkBusy();
     final signingWalletId = _activeWalletId;
     final signingTestnet = isTestnet;
@@ -1101,7 +1179,7 @@ class WalletService {
       if (signingWalletId != _activeWalletId || signingTestnet != isTestnet) {
         throw StateError('Wallet changed before signing. Review again.');
       }
-      return await rust_engine.engineConfirmSend(seedPhrase: seed);
+      return await send(seed);
     } finally {
       _confirmingSend = false;
       _proposalRevision++;
