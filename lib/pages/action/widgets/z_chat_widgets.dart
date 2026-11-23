@@ -131,40 +131,36 @@ class ZChatShortcut extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
         button: true,
         enabled: onTap != null,
-        child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-                onTap: onTap,
-                borderRadius: BorderRadius.circular(ZipherRadius.full),
-                child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 9),
-                    // Same glass pill for every shortcut; [secondary] only
-                    // mutes the icon.
-                    decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: .06),
-                        borderRadius: BorderRadius.circular(ZipherRadius.full),
-                        border: Border.all(
-                            color: Colors.white.withValues(alpha: .12),
-                            width: .5)),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      leading ??
-                          Icon(icon,
-                              size: 16,
-                              color: onTap == null
-                                  ? ZipherColors.text20
-                                  : secondary
+        child: ZipherGlass.blur(
+            child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                    onTap: onTap,
+                    borderRadius: BorderRadius.circular(ZipherRadius.full),
+                    child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 9),
+                        // Same glass pill for every shortcut; [secondary] only
+                        // mutes the icon.
+                        decoration: ZipherGlass.decoration(),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          leading ??
+                              Icon(icon,
+                                  size: 16,
+                                  color: onTap == null
+                                      ? ZipherColors.text20
+                                      : secondary
+                                          ? ZipherColors.text40
+                                          : ZipherColors.cyan),
+                          const SizedBox(width: 6),
+                          Text(label,
+                              style: TextStyle(
+                                  color: onTap == null
                                       ? ZipherColors.text40
-                                      : ZipherColors.cyan),
-                      const SizedBox(width: 6),
-                      Text(label,
-                          style: TextStyle(
-                              color: onTap == null
-                                  ? ZipherColors.text40
-                                  : ZipherColors.text90,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500)),
-                    ])))),
+                                      : ZipherColors.text90,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500)),
+                        ]))))),
       );
 }
 
@@ -251,10 +247,10 @@ class ZChatComposer extends StatelessWidget {
   Widget build(BuildContext context) {
     final border = OutlineInputBorder(
         borderRadius: BorderRadius.circular(ZipherRadius.full),
-        borderSide: BorderSide.none);
+        borderSide: const BorderSide(color: ZipherGlass.edge, width: .5));
     return Container(
       decoration: BoxDecoration(
-          color: ZipherColors.bg,
+          color: ZipherColors.bg.withValues(alpha: .82),
           border: Border(
               top: BorderSide(color: ZipherColors.separator, width: .5))),
       child: SafeArea(
@@ -297,7 +293,7 @@ class ZChatComposer extends StatelessWidget {
                                 ),
                           hintStyle: TextStyle(color: ZipherColors.text40),
                           filled: true,
-                          fillColor: ZipherColors.cardBg,
+                          fillColor: ZipherGlass.fill,
                           contentPadding: const EdgeInsets.symmetric(
                               horizontal: 18, vertical: 12),
                           border: border,
@@ -313,7 +309,9 @@ class ZChatComposer extends StatelessWidget {
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                        color: busy ? ZipherColors.surfaceLight : ZipherColors.cyan,
+                        color: busy
+                            ? ZipherColors.surfaceLight
+                            : ZipherColors.cyan,
                         shape: BoxShape.circle),
                     child: IconButton(
                         padding: EdgeInsets.zero,

@@ -857,7 +857,8 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                 child: Text(
                     'A new address each time, for privacy. Earlier ones keep working.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: ZipherColors.text40))),
+                    style:
+                        TextStyle(fontSize: 12, color: ZipherColors.text40))),
           TextButton.icon(
               icon: const Icon(Icons.copy, size: 18),
               label: const Text('Copy address'),
@@ -1260,7 +1261,8 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
               phase.value = ReviewPhase.failed;
               _message(
                   'Another transaction replaced this review, so nothing was sent.',
-                  plain: true, card: _action('Review again', retry));
+                  plain: true,
+                  card: _action('Review again', retry));
               return;
             }
             if (quote != null && !_quoteValid(quote, zatoshis)) {
@@ -1325,9 +1327,8 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
               return;
             } catch (e) {
               // The engine reports an error only before a transaction exists.
-              AppLog.instance.event(
-                  quote == null ? 'send' : 'swap', 'not_sent',
-                  error: e);
+              AppLog.instance
+                  .event(quote == null ? 'send' : 'swap', 'not_sent', error: e);
               if (quote != null) {
                 try {
                   await SwapStore.remove(quote.depositAddress);
@@ -1343,8 +1344,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                   reason: _notSentReason(e));
               return;
             }
-            AppLog.instance.event(
-                quote == null ? 'send' : 'swap', 'submitted',
+            AppLog.instance.event(quote == null ? 'send' : 'swap', 'submitted',
                 detail:
                     'broadcast=${outcome.broadcast.name} resubmits=${outcome.resubmits}',
                 error: outcome.detail);
@@ -1522,7 +1522,8 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                 SwapChange.amount =>
                   'Amount changed to ${WalletConversation.formatZec(draft.zatoshis!)} ZEC.',
                 SwapChange.token => 'Token changed to ${draft.symbol}.',
-                SwapChange.network => 'Network changed to ${draft.networkName}.',
+                SwapChange.network =>
+                  'Network changed to ${draft.networkName}.',
                 SwapChange.recipient || SwapChange.none => null,
               });
     String say(String prompt) => problem == null ? prompt : '$problem $prompt';
@@ -1552,8 +1553,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
               for (final symbol in offered)
                 _swapChip(draft, symbol, symbol,
                     leading: CurrencyIcon(symbol: symbol, size: 18)),
-            ],
-                more: 'Or type another token, for example DAI or DOGE.'));
+            ], more: 'Or type another token, for example DAI or DOGE.'));
       case SwapStep.network:
         final shown = draft.networks.take(8).toList();
         final rest = draft.networks.skip(8).toList();
@@ -1814,82 +1814,94 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                                 // before the bottom of the box.
                                 radius: .72,
                                 colors: [
-                              Color(0x1A00D4FF),
-                              Color(0x0800D4FF),
-                              Color(0x0000D4FF),
-                            ],
-                                stops: [0, .5, 1]))))),
+                      Color(0x1A00D4FF),
+                      Color(0x0800D4FF),
+                      Color(0x0000D4FF),
+                    ],
+                                stops: [
+                      0,
+                      .5,
+                      1
+                    ]))))),
             Column(children: [
               SafeArea(bottom: false, child: _header()),
               _buildBalanceHeader(),
-            Expanded(
-                child: _buildHomeViews(Column(children: [
               Expanded(
-                  child: ListView.builder(
-                controller: _scroll,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                itemCount: _messages.length + (_busy ? 1 : 0),
-                itemBuilder: (_, index) {
-                  if (index == _messages.length)
-                    return ZChatTypingIndicator(label: _busyLabel);
-                  final msg = _messages[index];
-                  return ZChatMessage(
-                    key: index == _messages.length - 1
-                        ? _latestMessageKey
-                        : null,
-                    text: index == 0 ? '' : msg.text,
-                    isUser: msg.user,
-                    card: index == 0
-                        ? _buildSuggestionChips()
-                        : msg.card == null
-                            ? null
-                            : msg.plain
-                                ? Padding(
-                                    padding: const EdgeInsets.only(top: 10),
-                                    child: msg.card)
-                                : ZChatCard(child: msg.card!),
-                  );
-                },
-              )),
-              ReviewActionBar(host: _reviewActions),
-              ListenableBuilder(
-                listenable: _reviewActions,
-                builder: (_, __) => ZChatComposer(
-                prefix: _draft == null || _reviewActions.active
-                    ? null
-                    : ZChatDraftBar(
-                        icon: _draft!.icon,
-                        label: _draft!.label,
-                        onCancel: _busy ? null : () => _submit('cancel')),
-                controller: _input,
-                busy: _busy,
-                onSubmit: _submit,
-                onScan: () => _submit('scan'),
-                hint: _managementStep != null
-                    ? switch (_managementStep!) {
-                        ChatManagementStep.contactChain => 'Choose a chain',
-                        ChatManagementStep.contactName => 'Contact name',
-                        ChatManagementStep.contactAddress =>
-                          'Paste the wallet address',
-                        ChatManagementStep.rename => 'New account name',
-                        ChatManagementStep.review => 'Review above, or cancel',
-                      }
-                    : _swap != null
-                        ? switch (_swap!.step) {
-                            SwapStep.amount => 'Amount in ZEC',
-                            SwapStep.token => 'Token, for example USDC',
-                            SwapStep.network => 'Choose a network',
-                            SwapStep.recipient => 'Paste the recipient address',
-                            SwapStep.ready => 'Change the amount, token or address',
-                          }
-                        : _choosingAddress
-                            ? 'Choose a chain'
-                            : _conversation.hint,
-              )),
-            ]))),
+                  child: _buildHomeViews(Column(children: [
+                Expanded(
+                    child: ListView.builder(
+                  controller: _scroll,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  itemCount: _messages.length + (_busy ? 1 : 0),
+                  itemBuilder: (_, index) {
+                    if (index == _messages.length)
+                      return ZChatTypingIndicator(label: _busyLabel);
+                    final msg = _messages[index];
+                    return ZChatMessage(
+                      key: index == _messages.length - 1
+                          ? _latestMessageKey
+                          : null,
+                      text: index == 0 ? '' : msg.text,
+                      isUser: msg.user,
+                      card: index == 0
+                          ? _buildSuggestionChips()
+                          : msg.card == null
+                              ? null
+                              : msg.plain
+                                  ? Padding(
+                                      padding: const EdgeInsets.only(top: 10),
+                                      child: msg.card)
+                                  : ZChatCard(child: msg.card!),
+                    );
+                  },
+                )),
+                ReviewActionBar(host: _reviewActions),
+                ListenableBuilder(
+                    listenable: _reviewActions,
+                    builder: (_, __) => ZChatComposer(
+                          prefix: _draft == null || _reviewActions.active
+                              ? null
+                              : ZChatDraftBar(
+                                  icon: _draft!.icon,
+                                  label: _draft!.label,
+                                  onCancel:
+                                      _busy ? null : () => _submit('cancel')),
+                          controller: _input,
+                          busy: _busy,
+                          onSubmit: _submit,
+                          onScan: () => _submit('scan'),
+                          hint: _managementStep != null
+                              ? switch (_managementStep!) {
+                                  ChatManagementStep.contactChain =>
+                                    'Choose a chain',
+                                  ChatManagementStep.contactName =>
+                                    'Contact name',
+                                  ChatManagementStep.contactAddress =>
+                                    'Paste the wallet address',
+                                  ChatManagementStep.rename =>
+                                    'New account name',
+                                  ChatManagementStep.review =>
+                                    'Review above, or cancel',
+                                }
+                              : _swap != null
+                                  ? switch (_swap!.step) {
+                                      SwapStep.amount => 'Amount in ZEC',
+                                      SwapStep.token =>
+                                        'Token, for example USDC',
+                                      SwapStep.network => 'Choose a network',
+                                      SwapStep.recipient =>
+                                        'Paste the recipient address',
+                                      SwapStep.ready =>
+                                        'Change the amount, token or address',
+                                    }
+                                  : _choosingAddress
+                                      ? 'Choose a chain'
+                                      : _conversation.hint,
+                        )),
+              ]))),
             ]),
           ]),
         ),
@@ -1906,50 +1918,56 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                 child: Align(
                     alignment: Alignment.centerLeft,
                     child: Semantics(
-                    button: true,
-                    label: 'Switch account, $_displayName',
-                    child: InkWell(
-                        borderRadius: BorderRadius.circular(ZipherRadius.full),
-                        onTap: () {
-                          FocusScope.of(context).unfocus();
-                          AppLog.instance
-                              .event('wallet', 'account_switcher_opened');
-                          showWalletAccountSwitcher(context);
-                        },
-                        child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: ZipherSpacing.sm, vertical: 6),
-                            child:
-                                Row(mainAxisSize: MainAxisSize.min, children: [
-                              Container(
-                                  width: 30,
-                                  height: 30,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                      color: ZipherColors.cyan
-                                          .withValues(alpha: .14),
-                                      shape: BoxShape.circle),
-                                  child: Text(
-                                      _displayName.isEmpty
-                                          ? '?'
-                                          : _displayName.characters.first
-                                              .toUpperCase(),
-                                      style: const TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w700,
-                                          color: ZipherColors.cyan))),
-                              const SizedBox(width: 10),
-                              Flexible(
-                                  child: Text(_displayName,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                          color: ZipherColors.text90,
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w600))),
-                              const SizedBox(width: 2),
-                              const Icon(Icons.keyboard_arrow_down_rounded,
-                                  size: 20, color: ZipherColors.text40),
-                            ])))))),
+                        button: true,
+                        label: 'Switch account, $_displayName',
+                        child: InkWell(
+                            borderRadius:
+                                BorderRadius.circular(ZipherRadius.full),
+                            onTap: () {
+                              FocusScope.of(context).unfocus();
+                              AppLog.instance
+                                  .event('wallet', 'account_switcher_opened');
+                              showWalletAccountSwitcher(context);
+                            },
+                            child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: ZipherSpacing.sm, vertical: 6),
+                                child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                          width: 30,
+                                          height: 30,
+                                          alignment: Alignment.center,
+                                          decoration: BoxDecoration(
+                                              color: ZipherColors.cyan
+                                                  .withValues(alpha: .14),
+                                              shape: BoxShape.circle),
+                                          child: Text(
+                                              _displayName.isEmpty
+                                                  ? '?'
+                                                  : _displayName
+                                                      .characters.first
+                                                      .toUpperCase(),
+                                              style: const TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: ZipherColors.cyan))),
+                                      const SizedBox(width: 10),
+                                      Flexible(
+                                          child: Text(_displayName,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                  color: ZipherColors.text90,
+                                                  fontSize: 16,
+                                                  fontWeight:
+                                                      FontWeight.w600))),
+                                      const SizedBox(width: 2),
+                                      const Icon(
+                                          Icons.keyboard_arrow_down_rounded,
+                                          size: 20,
+                                          color: ZipherColors.text40),
+                                    ])))))),
             const SizedBox(width: ZipherSpacing.sm),
             if (_testnet)
               Container(
@@ -1979,8 +1997,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                 _account.txs.items.toList(), _swapTracker.entries);
             void toggle() {
               FocusScope.of(context).unfocus();
-              final next =
-                  open ? WalletHomeTab.chat : WalletHomeTab.activity;
+              final next = open ? WalletHomeTab.chat : WalletHomeTab.activity;
               AppLog.instance.event('activity', '${next.name}_opened');
               setState(() => _homeTab = next);
             }
@@ -2008,19 +2025,10 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                                           const Duration(milliseconds: 180),
                                       width: 36,
                                       height: 36,
-                                      decoration: BoxDecoration(
+                                      decoration: ZipherGlass.decoration(
                                           shape: BoxShape.circle,
-                                          color: open
-                                              ? ZipherColors.cyan
-                                                  .withValues(alpha: .16)
-                                              : Colors.white
-                                                  .withValues(alpha: .06),
-                                          border: Border.all(
-                                              color: open
-                                                  ? ZipherColors.cyan
-                                                      .withValues(alpha: .35)
-                                                  : ZipherColors.borderSubtle,
-                                              width: .5)),
+                                          tint:
+                                              open ? ZipherColors.cyan : null),
                                       child: Icon(Icons.schedule_rounded,
                                           size: 18,
                                           color: open
@@ -2034,8 +2042,8 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                                             constraints: const BoxConstraints(
                                                 minWidth: 17),
                                             height: 17,
-                                            padding: const EdgeInsets
-                                                .symmetric(horizontal: 4),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 4),
                                             alignment: Alignment.center,
                                             decoration: BoxDecoration(
                                                 color: ZipherColors.cyan,
@@ -2050,8 +2058,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                                                     : '$pending',
                                                 style: const TextStyle(
                                                     fontSize: 10,
-                                                    fontWeight:
-                                                        FontWeight.w700,
+                                                    fontWeight: FontWeight.w700,
                                                     color: ZipherColors
                                                         .textOnBrand)))),
                                 ])))));
@@ -2075,22 +2082,24 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const Icon(Icons.key_rounded,
-                          size: 20, color: ZipherColors.warm),
-                      const SizedBox(width: ZipherSpacing.smMd),
-                      Expanded(
-                          child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: const [
-                            Text('Back up your wallet',
-                                style: ZipherType.rowTitle),
-                            SizedBox(height: 2),
-                            Text(
-                                'Write down your recovery phrase somewhere private. It’s the only way back in if you lose this phone.',
-                                style: ZipherType.footnote),
-                          ])),
-                    ]),
+                    Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.key_rounded,
+                              size: 20, color: ZipherColors.warm),
+                          const SizedBox(width: ZipherSpacing.smMd),
+                          Expanded(
+                              child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: const [
+                                Text('Back up your wallet',
+                                    style: ZipherType.rowTitle),
+                                SizedBox(height: 2),
+                                Text(
+                                    'Write down your recovery phrase somewhere private. It’s the only way back in if you lose this phone.',
+                                    style: ZipherType.footnote),
+                              ])),
+                        ]),
                     const SizedBox(height: ZipherSpacing.smMd),
                     Row(children: [
                       Expanded(
@@ -2353,8 +2362,9 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                         label: 'Turn Tor off',
                         kind: ZipherButtonKind.secondary,
                         size: ZipherButtonSize.small,
-                        onPressed:
-                            _privacy.busy ? null : () => _submit('disable Tor')),
+                        onPressed: _privacy.busy
+                            ? null
+                            : () => _submit('disable Tor')),
                 ]),
               ]));
 
@@ -2425,40 +2435,42 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                       button: true,
                       label: '${sync.text}, ${_privacy.label}. Wallet status',
                       excludeSemantics: true,
-                      child: Material(
-                          color: ZipherColors.surface,
-                          shape: const StadiumBorder(
-                              side: BorderSide(
-                                  color: ZipherColors.borderSubtle, width: .5)),
-                          child: InkWell(
-                              customBorder: const StadiumBorder(),
-                              onTap: _showStatus,
-                              child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 7),
-                                  child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        ZipherWidgets.statusDot(sync.color,
-                                            size: 7),
-                                        const SizedBox(width: 7),
-                                        Text(sync.short,
-                                            style: const TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w600,
-                                                color: ZipherColors.text60,
-                                                fontFeatures: [
-                                                  FontFeature.tabularFigures()
-                                                ])),
-                                        if (tor || torProblem) ...[
-                                          const SizedBox(width: 7),
-                                          Icon(Icons.lock_rounded,
-                                              size: 13,
-                                              color: torProblem
-                                                  ? ZipherColors.negative
-                                                  : ZipherColors.cyan),
-                                        ],
-                                      ]))))));
+                      child: ZipherGlass.blur(
+                          child: Material(
+                              color: ZipherGlass.fill,
+                              shape: const StadiumBorder(
+                                  side: BorderSide(
+                                      color: ZipherGlass.edge, width: .5)),
+                              child: InkWell(
+                                  customBorder: const StadiumBorder(),
+                                  onTap: _showStatus,
+                                  child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 7),
+                                      child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            ZipherWidgets.statusDot(sync.color,
+                                                size: 7),
+                                            const SizedBox(width: 7),
+                                            Text(sync.short,
+                                                style: const TextStyle(
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: ZipherColors.text60,
+                                                    fontFeatures: [
+                                                      FontFeature
+                                                          .tabularFigures()
+                                                    ])),
+                                            if (tor || torProblem) ...[
+                                              const SizedBox(width: 7),
+                                              Icon(Icons.lock_rounded,
+                                                  size: 13,
+                                                  color: torProblem
+                                                      ? ZipherColors.negative
+                                                      : ZipherColors.cyan),
+                                            ],
+                                          ])))))));
             });
       });
 
@@ -2577,68 +2589,67 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
             (_portfolio != null &&
                 (!_portfolio!.complete || !_portfolio!.fullyPriced));
         return Column(children: [
-              Semantics(
-                  button: true,
-                  label: (expanded
-                          ? 'Collapse balance details'
-                          : 'Expand balance details') +
-                      (incomplete ? ', some assets unavailable' : ''),
-                  child: InkWell(
-                      onLongPress: _showPools,
-                      onTap: () {
-                        setState(() => _balanceExpanded = !_balanceExpanded);
-                        if (_balanceExpanded) _refreshPortfolio();
-                      },
-                      child: Padding(
-                          padding: const EdgeInsets.fromLTRB(28, 22, 28, 22),
-                          child: Column(children: [
-                            FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                    _testnet
-                                        ? '${WalletConversation.formatZec(b.total)} ZEC'
-                                        : hasPrice
-                                            ? _dollars(total)
-                                            : '—',
-                                    style: ZipherType.hero)),
-                            const SizedBox(height: 8),
-                            Text(
-                                '${_assetAmount(b.shielded / 1e8)} ZEC available',
-                                style: ZipherType.subhead.copyWith(
-                                    fontFeatures: const [
-                                      FontFeature.tabularFigures()
-                                    ])),
-                            // Change and incoming funds are not lost, only not
-                            // spendable until they confirm.
-                            if (b.unconfirmed > 0)
-                              Padding(
-                                  padding: const EdgeInsets.only(top: 5),
-                                  child: Text(
-                                      '${_assetAmount(b.unconfirmed / 1e8)} ZEC pending confirmation',
-                                      style: ZipherType.caption)),
-                            // Sync progress lives in the header's status
-                            // pill; only say when assets are missing.
-                            if (!_testnet && expanded && incomplete)
-                              Padding(
-                                  padding: const EdgeInsets.only(top: 7),
-                                  child: Text('Some assets unavailable',
-                                      style: ZipherType.caption)),
-                          ])))),
-              if (expanded)
-                ConstrainedBox(
-                    constraints: BoxConstraints(
-                        maxHeight: MediaQuery.sizeOf(context).height * .30),
-                    child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(28, 0, 32, 12),
-                        child: Column(children: [
-                          _assetRow(
-                              chain: 'Zcash',
-                              symbol: 'ZEC',
-                              amount: b.total / 1e8,
-                              dollars: zecValue,
-                              onTap: _showPools),
-                          _portfolioDetails(),
-                        ]))),
+          Semantics(
+              button: true,
+              label: (expanded
+                      ? 'Collapse balance details'
+                      : 'Expand balance details') +
+                  (incomplete ? ', some assets unavailable' : ''),
+              child: InkWell(
+                  onLongPress: _showPools,
+                  onTap: () {
+                    setState(() => _balanceExpanded = !_balanceExpanded);
+                    if (_balanceExpanded) _refreshPortfolio();
+                  },
+                  child: Padding(
+                      padding: const EdgeInsets.fromLTRB(28, 22, 28, 22),
+                      child: Column(children: [
+                        FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                                _testnet
+                                    ? '${WalletConversation.formatZec(b.total)} ZEC'
+                                    : hasPrice
+                                        ? _dollars(total)
+                                        : '—',
+                                style: ZipherType.hero)),
+                        const SizedBox(height: 8),
+                        Text('${_assetAmount(b.shielded / 1e8)} ZEC available',
+                            style: ZipherType.subhead.copyWith(
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures()
+                                ])),
+                        // Change and incoming funds are not lost, only not
+                        // spendable until they confirm.
+                        if (b.unconfirmed > 0)
+                          Padding(
+                              padding: const EdgeInsets.only(top: 5),
+                              child: Text(
+                                  '${_assetAmount(b.unconfirmed / 1e8)} ZEC pending confirmation',
+                                  style: ZipherType.caption)),
+                        // Sync progress lives in the header's status
+                        // pill; only say when assets are missing.
+                        if (!_testnet && expanded && incomplete)
+                          Padding(
+                              padding: const EdgeInsets.only(top: 7),
+                              child: Text('Some assets unavailable',
+                                  style: ZipherType.caption)),
+                      ])))),
+          if (expanded)
+            ConstrainedBox(
+                constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * .30),
+                child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(28, 0, 32, 12),
+                    child: Column(children: [
+                      _assetRow(
+                          chain: 'Zcash',
+                          symbol: 'ZEC',
+                          amount: b.total / 1e8,
+                          dollars: zecValue,
+                          onTap: _showPools),
+                      _portfolioDetails(),
+                    ]))),
         ]);
       });
 

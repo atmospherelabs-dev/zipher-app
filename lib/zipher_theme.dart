@@ -20,6 +20,7 @@ class ZipherColors {
   static const Color cyanDark = Color(0xFF00A3CC);
   static const Color green = Color(0xFF10E06C);
   static const Color greenDark = Color(0xFF0BBF5B);
+
   /// Warm accent (gradient end, Orchard pool). Keep green for success/positive.
   static const Color warm = Color(0xFFF4B728);
   static const Color warmDark = Color(0xFFD4A020);
@@ -108,6 +109,51 @@ class ZipherSpacing {
   static const double xxl = 48;
 }
 
+/// Frosted glass for small controls that sit on the dark canvas (chips,
+/// header pills, the message field). A light veil with a top sheen and a
+/// brighter hairline reads as glass even where little shows through; the
+/// blur picks up the glow and content scrolling behind.
+class ZipherGlass {
+  static const Color fill = Color(0x1AFFFFFF); // white 10%
+  static const Color fillTop = Color(0x24FFFFFF); // white 14%
+  static const Color edge = Color(0x2EFFFFFF); // white 18%
+
+  static BoxDecoration decoration(
+          {BorderRadius? radius,
+          BoxShape shape = BoxShape.rectangle,
+          Color? tint}) =>
+      BoxDecoration(
+        shape: shape,
+        borderRadius: shape == BoxShape.circle
+            ? null
+            : (radius ?? BorderRadius.circular(ZipherRadius.full)),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: tint == null
+              ? const [fillTop, fill]
+              : [tint.withValues(alpha: .22), tint.withValues(alpha: .12)],
+        ),
+        border:
+            Border.all(color: tint?.withValues(alpha: .40) ?? edge, width: .5),
+      );
+
+  /// Blur what is behind [child], clipped to the same shape.
+  static Widget blur(
+      {required Widget child,
+      BorderRadius? radius,
+      bool circle = false,
+      double sigma = 16}) {
+    final filtered = BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma), child: child);
+    return circle
+        ? ClipOval(child: filtered)
+        : ClipRRect(
+            borderRadius: radius ?? BorderRadius.circular(ZipherRadius.full),
+            child: filtered);
+  }
+}
+
 /// Border radius tokens — use these everywhere; no raw values.
 /// Scale: xxs (handles/chips) → xs → sm → md → lg → xl → xxl (pills) → full.
 class ZipherRadius {
@@ -123,8 +169,10 @@ class ZipherRadius {
   // Semantic radii. Prefer these over the raw scale.
   /// Buttons, inputs, segmented controls.
   static const double control = 14;
+
   /// Cards and grouped lists.
   static const double card = 20;
+
   /// Bottom sheets (top corners).
   static const double sheet = 24;
 }
@@ -166,8 +214,8 @@ class ZipherType {
   static const TextStyle headline = TextStyle(
       fontSize: 17, fontWeight: FontWeight.w600, color: ZipherColors.text90);
 
-  static const TextStyle body = TextStyle(
-      fontSize: 16, height: 1.4, color: ZipherColors.text90);
+  static const TextStyle body =
+      TextStyle(fontSize: 16, height: 1.4, color: ZipherColors.text90);
 
   /// List row titles.
   static const TextStyle rowTitle = TextStyle(
@@ -180,12 +228,12 @@ class ZipherType {
       color: ZipherColors.text90,
       fontFeatures: _tabular);
 
-  static const TextStyle subhead = TextStyle(
-      fontSize: 14, height: 1.4, color: ZipherColors.text60);
+  static const TextStyle subhead =
+      TextStyle(fontSize: 14, height: 1.4, color: ZipherColors.text60);
 
   /// Secondary line under a row title.
-  static const TextStyle footnote = TextStyle(
-      fontSize: 13, height: 1.35, color: ZipherColors.text40);
+  static const TextStyle footnote =
+      TextStyle(fontSize: 13, height: 1.35, color: ZipherColors.text40);
 
   /// Section headers in lists.
   static const TextStyle section = TextStyle(
@@ -319,8 +367,8 @@ class ZipherTheme {
         ),
         labelStyle: const TextStyle(color: ZipherColors.textSecondary),
         hintStyle: const TextStyle(color: ZipherColors.textMuted),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: ZipherSpacing.md, vertical: ZipherSpacing.md),
+        contentPadding: const EdgeInsets.symmetric(
+            horizontal: ZipherSpacing.md, vertical: ZipherSpacing.md),
       ),
 
       // Dialogs
@@ -355,8 +403,8 @@ class ZipherTheme {
       // Snackbar
       snackBarTheme: SnackBarThemeData(
         backgroundColor: ZipherColors.surface,
-        contentTextStyle:
-            const TextStyle(color: ZipherColors.textPrimary, fontFamily: 'Inter'),
+        contentTextStyle: const TextStyle(
+            color: ZipherColors.textPrimary, fontFamily: 'Inter'),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ZipherRadius.md),
           side: const BorderSide(color: ZipherColors.border),
@@ -549,7 +597,8 @@ class ZipherTheme {
         tileColor: Colors.transparent,
         textColor: ZipherColors.textPrimary,
         iconColor: ZipherColors.textSecondary,
-        contentPadding: EdgeInsets.symmetric(horizontal: ZipherSpacing.md, vertical: ZipherSpacing.xs),
+        contentPadding: EdgeInsets.symmetric(
+            horizontal: ZipherSpacing.md, vertical: ZipherSpacing.xs),
       ),
 
       // Tooltip
@@ -559,8 +608,8 @@ class ZipherTheme {
           borderRadius: BorderRadius.circular(ZipherRadius.sm),
           border: Border.all(color: ZipherColors.border),
         ),
-        textStyle:
-            const TextStyle(color: ZipherColors.textPrimary, fontFamily: 'Inter'),
+        textStyle: const TextStyle(
+            color: ZipherColors.textPrimary, fontFamily: 'Inter'),
       ),
     );
   }
@@ -612,9 +661,7 @@ class ZipherWidgets {
       _sized(
           width,
           ZipherButton(
-              label: label,
-              icon: icon,
-              onPressed: enabled ? onPressed : null));
+              label: label, icon: icon, onPressed: enabled ? onPressed : null));
 
   /// Tinted CTA in [color] (red for destructive). Prefer [ZipherButton].
   static Widget secondaryButton({
@@ -864,7 +911,8 @@ class ZipherWidgets {
       decoration: BoxDecoration(
         color: ZipherColors.surface,
         borderRadius: BorderRadius.circular(ZipherRadius.card),
-        border: Border.all(color: borderColor ?? ZipherColors.border, width: 0.5),
+        border:
+            Border.all(color: borderColor ?? ZipherColors.border, width: 0.5),
       ),
       child: child,
     );
@@ -965,7 +1013,8 @@ class ZipherWidgets {
   static Widget sheetHandle() {
     return Center(
       child: Container(
-        margin: const EdgeInsets.only(top: ZipherSpacing.sm, bottom: ZipherSpacing.sm),
+        margin: const EdgeInsets.only(
+            top: ZipherSpacing.sm, bottom: ZipherSpacing.sm),
         width: 36,
         height: 4,
         decoration: BoxDecoration(
@@ -979,7 +1028,8 @@ class ZipherWidgets {
   /// Standard bottom sheet decoration
   static BoxDecoration get sheetDecoration => BoxDecoration(
         color: ZipherColors.bg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(ZipherRadius.xl)),
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(ZipherRadius.xl)),
         border: Border(
           top: BorderSide(color: ZipherColors.cardBgElevated, width: 0.5),
         ),
@@ -1137,15 +1187,16 @@ class ZipherButtonStyle {
       ZipherButtonKind.plain => (Colors.transparent, color),
     };
     return ButtonStyle(
-      minimumSize: WidgetStatePropertyAll(Size(large ? 64 : 36, large ? 52 : 36)),
-      padding: WidgetStatePropertyAll(EdgeInsets.symmetric(
-          horizontal: large ? ZipherSpacing.lg : 14)),
+      minimumSize:
+          WidgetStatePropertyAll(Size(large ? 64 : 36, large ? 52 : 36)),
+      padding: WidgetStatePropertyAll(
+          EdgeInsets.symmetric(horizontal: large ? ZipherSpacing.lg : 14)),
       shape: const WidgetStatePropertyAll(StadiumBorder()),
       side: WidgetStatePropertyAll(switch (kind) {
-        ZipherButtonKind.primary => BorderSide(
-            color: Colors.white.withValues(alpha: 0.28), width: 0.5),
-        ZipherButtonKind.secondary => BorderSide(
-            color: Colors.white.withValues(alpha: 0.14), width: 0.5),
+        ZipherButtonKind.primary =>
+          BorderSide(color: Colors.white.withValues(alpha: 0.28), width: 0.5),
+        ZipherButtonKind.secondary =>
+          BorderSide(color: Colors.white.withValues(alpha: 0.14), width: 0.5),
         ZipherButtonKind.tinted =>
           BorderSide(color: color.withValues(alpha: 0.28), width: 0.5),
         ZipherButtonKind.plain => BorderSide.none,
@@ -1344,9 +1395,8 @@ class _ZipherButtonState extends State<ZipherButton> {
           child: AnimatedOpacity(
             opacity: _down ? 0.85 : 1,
             duration: const Duration(milliseconds: 120),
-            child: _large
-                ? SizedBox(width: double.infinity, child: body)
-                : body,
+            child:
+                _large ? SizedBox(width: double.infinity, child: body) : body,
           ),
         ),
       ),
