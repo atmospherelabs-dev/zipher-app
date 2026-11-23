@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../accounts.dart';
 import '../../coin/coins.dart';
+import '../../services/hitl_watch_service.dart';
 import '../../services/wallet_service.dart';
 import '../../init.dart';
 import '../../zipher_theme.dart';
@@ -36,17 +37,10 @@ class _MorePageState extends State<MorePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Gap(topPad + 20),
+              Gap(topPad + 16),
 
               // Title
-              Text(
-                'More',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  color: ZipherColors.text90,
-                ),
-              ),
+              const Text('More', style: ZipherType.largeTitle),
               const Gap(24),
 
               // ── General ──
@@ -59,6 +53,7 @@ class _MorePageState extends State<MorePage> {
                   subtitle: 'Manage saved addresses',
                   onTap: () => _nav('/more/contacts'),
                 ),
+                _AgentItem(onTap: () => _nav('/hitl/agent')),
                 _SettingsItem(
                   icon: Icons.tune_rounded,
                   label: 'Preferences',
@@ -124,16 +119,7 @@ class _MorePageState extends State<MorePage> {
                 ),
               ]),
               const Gap(8),
-              Container(
-                decoration: BoxDecoration(
-                  color: ZipherColors.cardBg,
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                  border: Border.all(
-                    color: ZipherColors.borderSubtle,
-                  ),
-                ),
-                child: _TestnetToggle(),
-              ),
+              ZipherWidgets.card(child: _TestnetToggle()),
               const Gap(20),
 
               const Gap(24),
@@ -151,24 +137,7 @@ class _MorePageState extends State<MorePage> {
 
   Widget _sectionLabel(String text) => ZipherWidgets.sectionLabel(text);
 
-  Widget _card(List<_SettingsItem> items) {
-    return ZipherWidgets.card(
-      child: Column(
-        children: [
-          for (int i = 0; i < items.length; i++) ...[
-            items[i],
-            if (i < items.length - 1)
-              Divider(
-                height: 1,
-                color: ZipherColors.cardBg,
-                indent: 52,
-                endIndent: 16,
-              ),
-          ],
-        ],
-      ),
-    );
-  }
+  Widget _card(List<Widget> items) => ZipherWidgets.group(items);
 
   /// NU6.3 (Ironwood) activation heights.
   static const _ironwoodActivation = {
@@ -210,39 +179,23 @@ class _TestnetToggleState extends State<_TestnetToggle> {
     return Material(
       color: Colors.transparent,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: ZipherColors.orange.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(ZipherRadius.sm),
-              ),
-              child: Icon(Icons.science_outlined,
-                  size: 16, color: ZipherColors.orange),
-            ),
+            ZipherWidgets.iconTile(Icons.science_outlined,
+                color: ZipherColors.orange),
             const Gap(12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Testnet Mode',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: ZipherColors.text90,
-                    ),
-                  ),
-                  const Gap(1),
+                  const Text('Testnet Mode', style: ZipherType.rowTitle),
+                  const Gap(2),
                   Text(
                     isTestnet
                         ? 'Using Zcash testnet (TAZ)'
                         : 'Switch to testnet for testing',
-                    style: TextStyle(
-                      fontSize: 11,
+                    style: ZipherType.footnote.copyWith(
                       color: isTestnet
                           ? ZipherColors.orange.withValues(alpha: 0.7)
                           : ZipherColors.text40,
@@ -359,7 +312,6 @@ class _TestnetToggleState extends State<_TestnetToggle> {
 
 class _SettingsItem extends StatelessWidget {
   final IconData icon;
-  static const iconColor = ZipherColors.textSecondary;
   final String label;
   final String? subtitle;
   final VoidCallback onTap;
@@ -372,60 +324,27 @@ class _SettingsItem extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: iconColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                ),
-                child: Icon(icon, size: 16, color: iconColor),
-              ),
-              const Gap(12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          label,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: ZipherColors.text90,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (subtitle != null) ...[
-                      const Gap(1),
-                      Text(
-                        subtitle!,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: ZipherColors.text40,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded,
-                  size: 18, color: ZipherColors.text10),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ZipherWidgets.row(
+      icon: icon, title: label, subtitle: subtitle, onTap: onTap);
+}
+
+/// Connected agent: shows who is paired, or how to pair one.
+class _AgentItem extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AgentItem({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+      valueListenable: HitlWatchService.instance.paired,
+      builder: (_, paired, __) => ZipherWidgets.row(
+          icon: Icons.smart_toy_rounded,
+          iconColor: paired ? ZipherColors.cyan : ZipherColors.text60,
+          title: 'Agent',
+          subtitle: paired
+              ? 'Paired · ${HitlWatchService.instance.agentName ?? 'your agent'}'
+              : 'Approve payments from an AI agent',
+          trailing: paired
+              ? ZipherWidgets.statusDot(ZipherColors.positive)
+              : null,
+          onTap: onTap));
 }

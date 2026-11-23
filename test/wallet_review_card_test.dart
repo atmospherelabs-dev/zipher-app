@@ -150,7 +150,7 @@ void main() {
       calls++;
     }, cancel: () {}));
     final callback =
-        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed!;
+        tester.widget<ZipherButton>(find.byKey(WalletReviewCard.confirmKey)).onPressed!;
     callback();
     callback();
     await tester.pump();
@@ -165,16 +165,18 @@ void main() {
       requested = value;
       return pending.future;
     }));
+    await tester.tap(find.text('Details'));
+    await tester.pump();
     await tester.tap(find.byType(Switch));
     await tester.pump();
     expect(requested, true);
-    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+    expect(tester.widget<ZipherButton>(find.byKey(WalletReviewCard.confirmKey)).onPressed,
         isNull);
     pending.complete(40000);
     await tester.pumpAndSettle();
     expect(find.text('0.0004 ZEC'), findsOneWidget);
     expect(find.text('0.5004 ZEC'), findsOneWidget);
-    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+    expect(tester.widget<ZipherButton>(find.byKey(WalletReviewCard.confirmKey)).onPressed,
         isNotNull);
   });
   testWidgets('failed fee update cannot sign the previous proposal',
@@ -185,10 +187,12 @@ void main() {
         },
         cancel: () {},
         priority: (_) async => throw StateError('insufficient funds')));
+    await tester.tap(find.text('Details'));
+    await tester.pump();
     await tester.tap(find.byType(Switch));
     await tester.pumpAndSettle();
     expect(find.text('Fee update failed. Retry'), findsOneWidget);
-    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+    expect(tester.widget<ZipherButton>(find.byKey(WalletReviewCard.confirmKey)).onPressed,
         isNull);
   });
   testWidgets(
@@ -232,22 +236,27 @@ void main() {
         cancel: () {},
         data: _swap(),
         label: 'Confirm swap'));
-    expect(find.text('YOU PAY'), findsOneWidget);
+    // Only what is needed to decide: both sides, destination, rate, fee, time.
+    expect(find.text('You pay'), findsOneWidget);
     expect(find.text('1.5 ZEC'), findsOneWidget);
-    expect(find.text('YOU RECEIVE · ESTIMATED'), findsOneWidget);
+    expect(find.text('You receive'), findsOneWidget);
     expect(find.text('1,185.82 USDC'), findsOneWidget);
-    expect(find.text('on Solana'), findsOneWidget);
+    expect(find.text(r'≈ $1,185.80 · on Solana'), findsOneWidget);
     expect(find.text('1 ZEC ≈ 790.5474 USDC'), findsOneWidget);
-    expect(find.text('1,173.96 USDC'), findsOneWidget);
+    expect(find.text('0.00015 ZEC'), findsOneWidget);
     expect(find.text('about 2 min'), findsOneWidget);
-    expect(find.text('1.50015 ZEC'), findsOneWidget);
     expect(find.textContaining('Your wallet · GbGAFm'), findsOneWidget);
-    expect(find.textContaining('NEAR Intents runs this swap'), findsOneWidget);
-    // Addresses and the raw deadline are available, not in the way.
+    // The rest is available under Details, not in the way.
+    expect(find.text('1,173.96 USDC'), findsNothing);
+    expect(find.text('1.50015 ZEC'), findsNothing);
+    expect(find.textContaining('NEAR Intents runs this swap'), findsNothing);
     expect(find.text('t1DepositAddressFromTheProvider'), findsNothing);
     expect(find.textContaining('Quote valid until'), findsNothing);
     await tester.tap(find.text('Details'));
     await tester.pump();
+    expect(find.text('1,173.96 USDC'), findsOneWidget);
+    expect(find.text('1.50015 ZEC'), findsOneWidget);
+    expect(find.textContaining('NEAR Intents runs this swap'), findsOneWidget);
     expect(find.text('t1DepositAddressFromTheProvider'), findsOneWidget);
     expect(find.text('t1RefundAddressOfThisWallet'), findsOneWidget);
     expect(find.text('0.5% · included in the rate'), findsOneWidget);

@@ -331,25 +331,11 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
             // Restore button
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-              child: SizedBox(
-                width: double.infinity,
-                child: _loading
-                    ? Center(
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: CircularProgressIndicator(
-                            color: ZipherColors.cyan,
-                            strokeWidth: 2,
-                          ),
-                        ),
-                      )
-                    : ZipherWidgets.gradientButton(
-                        label: _restoreButtonLabel,
-                        icon: Icons.download_done_rounded,
-                        onPressed: _restore,
-                        enabled: _allFilled,
-                      ),
+              child: ZipherButton(
+                label: _restoreButtonLabel,
+                icon: Icons.download_done_rounded,
+                onPressed: _allFilled ? _restore : null,
+                loading: _loading,
               ),
             ),
           ],
@@ -386,7 +372,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
         borderRadius: BorderRadius.circular(ZipherRadius.sm),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -849,7 +835,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
         borderRadius: BorderRadius.circular(ZipherRadius.md),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

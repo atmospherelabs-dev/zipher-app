@@ -305,7 +305,7 @@ class _SplashState extends State<SplashPage> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A2E),
+        backgroundColor: ZipherColors.surfaceLight,
         title: const Text('Wallet Database Upgrade Required',
             style: TextStyle(color: Colors.white)),
         content: const Text(

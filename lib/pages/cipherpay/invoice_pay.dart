@@ -449,9 +449,9 @@ class _AmountCard extends StatelessWidget {
         vertical: ZipherSpacing.lg,
       ),
       decoration: BoxDecoration(
-        color: ZipherColors.cardBgElevated,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        color: ZipherColors.cardBg,
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Column(
         children: [
@@ -509,7 +509,7 @@ class _MetaCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
         borderRadius: BorderRadius.circular(ZipherRadius.md),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Column(
         children: [
@@ -667,42 +667,10 @@ class _PayButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: busy ? null : onTap,
-      child: Container(
-        height: 56,
-        decoration: BoxDecoration(
-          color: ZipherColors.cyan.withValues(alpha: 0.14),
-          border: Border.all(color: ZipherColors.cyan.withValues(alpha: 0.28)),
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          boxShadow: [
-            BoxShadow(
-              color: ZipherColors.cyan.withValues(alpha: 0.18),
-              blurRadius: 24,
-              spreadRadius: -6,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        alignment: Alignment.center,
-        child: busy
-            ? SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(ZipherColors.cyan),
-                ),
-              )
-            : Text(
-                'Pay ${priceZec.toStringAsFixed(priceZec >= 1 ? 4 : 6)} ZEC',
-                style: TextStyle(
-                  color: ZipherColors.cyan,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-      ),
+    return ZipherButton(
+      label: 'Pay ${priceZec.toStringAsFixed(priceZec >= 1 ? 4 : 6)} ZEC',
+      onPressed: onTap,
+      loading: busy,
     );
   }
 }
@@ -713,25 +681,11 @@ class _ReceiptButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 48,
-        decoration: BoxDecoration(
-          color: ZipherColors.green.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(color: ZipherColors.green.withValues(alpha: 0.25)),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          'View payment receipt',
-          style: TextStyle(
-            color: ZipherColors.green,
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
+    return ZipherButton(
+      label: 'View payment receipt',
+      onPressed: onTap,
+      kind: ZipherButtonKind.tinted,
+      color: ZipherColors.green,
     );
   }
 }
@@ -826,9 +780,11 @@ class _ErrorState extends StatelessWidget {
                   height: 1.45,
                 )),
             const Gap(ZipherSpacing.lg),
-            TextButton(
+            ZipherButton(
+              label: 'Retry',
               onPressed: onRetry,
-              child: Text('Retry', style: TextStyle(color: ZipherColors.cyan)),
+              kind: ZipherButtonKind.plain,
+              size: ZipherButtonSize.small,
             ),
           ],
         ),

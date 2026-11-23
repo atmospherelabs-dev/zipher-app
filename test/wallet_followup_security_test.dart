@@ -83,7 +83,7 @@ void main() {
       await tester.pumpWidget(MaterialApp.router(
           routerConfig: router, localizationsDelegates: const [S.delegate]));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Review & Send'));
+      await tester.tap(find.text('Review & send'));
       await tester.pumpAndSettle();
       if (count == 1) {
         expect(received?.address, 'recipient-0');

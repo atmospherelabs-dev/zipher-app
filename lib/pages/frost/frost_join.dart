@@ -116,7 +116,7 @@ class _FrostJoinPageState extends State<FrostJoinPage> {
       appBar: AppBar(
         backgroundColor: ZipherColors.bg,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         title: Text(
@@ -408,39 +408,11 @@ class _Button extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 48,
-        decoration: BoxDecoration(
-          color: primary
-              ? ZipherColors.cyan.withValues(alpha: 0.14)
-              : ZipherColors.cardBgElevated,
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(
-            color: primary
-                ? ZipherColors.cyan.withValues(alpha: 0.28)
-                : ZipherColors.borderSubtle,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon,
-                size: 17,
-                color: primary ? ZipherColors.cyan : ZipherColors.text60),
-            const Gap(8),
-            Text(
-              label,
-              style: TextStyle(
-                color: primary ? ZipherColors.cyan : ZipherColors.text90,
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      onPressed: onTap,
+      kind: primary ? ZipherButtonKind.primary : ZipherButtonKind.secondary,
     );
   }
 }
@@ -455,8 +427,8 @@ class _Card extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: child,
     );

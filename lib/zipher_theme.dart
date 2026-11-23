@@ -1,14 +1,19 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Zipher Design System — semantic tokens and shared widgets.
 
 class ZipherColors {
   // Core backgrounds (Cipherscan/Cipherpay-aligned dark: #08090F)
   static const Color bg = Color(0xFF08090F);
-  static const Color surface = Color(0xFF111219);
-  static const Color surfaceLight = Color(0xFF1B1D26);
-  static const Color border = Color(0xFF1A1D28);
-  static const Color borderLight = Color(0xFF22252F);
+  // Surfaces are neutral near-blacks, barely lifted from the background.
+  // Cards are defined by a hairline, not by a grey fill.
+  static const Color surface = Color(0xFF0F1014);
+  static const Color surfaceLight = Color(0xFF1A1B20);
+  static const Color border = Color(0x17FFFFFF);
+  static const Color borderLight = Color(0x24FFFFFF);
 
   // Brand colors
   static const Color cyan = Color(0xFF00D4FF);
@@ -46,6 +51,16 @@ class ZipherColors {
   static const Color cardBgElevated = surfaceLight;
   static const Color borderSubtle = border;
   static const Color syncPending = Color(0xFFFFD60A);
+
+  // ── Status semantics ───────────────────────────────────
+  // One meaning per color: positive = done/in, pending = waiting on the
+  // network, negative = failed/refused. Brand cyan is for actions, not status.
+  static const Color positive = green;
+  static const Color pending = syncPending;
+  static const Color negative = red;
+
+  /// Hairline separators inside cards and lists (0.5 pt).
+  static const Color separator = Color(0x12FFFFFF);
 
   // Gradients
   /// Primary brand gradient (sync bar, gradient buttons). Cyan → warm.
@@ -104,6 +119,88 @@ class ZipherRadius {
   static const double xl = 24;
   static const double xxl = 28;
   static const double full = 999;
+
+  // Semantic radii. Prefer these over the raw scale.
+  /// Buttons, inputs, segmented controls.
+  static const double control = 14;
+  /// Cards and grouped lists.
+  static const double card = 20;
+  /// Bottom sheets (top corners).
+  static const double sheet = 24;
+}
+
+/// Type scale, modelled on iOS text styles. Family is left to the theme
+/// (Inter, falling back to the system font where it is not bundled).
+/// Amounts use tabular figures so digits line up and do not jump.
+class ZipherType {
+  static const _tabular = [FontFeature.tabularFigures()];
+
+  /// Home balance.
+  static const TextStyle hero = TextStyle(
+      fontSize: 46,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -1.6,
+      height: 1.1,
+      color: ZipherColors.text90,
+      fontFeatures: _tabular);
+
+  /// Screen titles ("More").
+  static const TextStyle largeTitle = TextStyle(
+      fontSize: 32,
+      fontWeight: FontWeight.w700,
+      letterSpacing: -0.6,
+      color: ZipherColors.text90);
+
+  /// Primary amount in a review or sheet.
+  static const TextStyle amount = TextStyle(
+      fontSize: 26,
+      fontWeight: FontWeight.w600,
+      letterSpacing: -0.6,
+      color: ZipherColors.text90,
+      fontFeatures: _tabular);
+
+  static const TextStyle title = TextStyle(
+      fontSize: 20, fontWeight: FontWeight.w700, color: ZipherColors.text90);
+
+  /// Navigation titles, sheet titles.
+  static const TextStyle headline = TextStyle(
+      fontSize: 17, fontWeight: FontWeight.w600, color: ZipherColors.text90);
+
+  static const TextStyle body = TextStyle(
+      fontSize: 16, height: 1.4, color: ZipherColors.text90);
+
+  /// List row titles.
+  static const TextStyle rowTitle = TextStyle(
+      fontSize: 16, fontWeight: FontWeight.w500, color: ZipherColors.text90);
+
+  /// List row values (amounts on the right).
+  static const TextStyle rowValue = TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w500,
+      color: ZipherColors.text90,
+      fontFeatures: _tabular);
+
+  static const TextStyle subhead = TextStyle(
+      fontSize: 14, height: 1.4, color: ZipherColors.text60);
+
+  /// Secondary line under a row title.
+  static const TextStyle footnote = TextStyle(
+      fontSize: 13, height: 1.35, color: ZipherColors.text40);
+
+  /// Section headers in lists.
+  static const TextStyle section = TextStyle(
+      fontSize: 13, fontWeight: FontWeight.w600, color: ZipherColors.text40);
+
+  static const TextStyle caption = TextStyle(
+      fontSize: 12, color: ZipherColors.text40, fontFeatures: _tabular);
+
+  /// Addresses and ids. JetBrains Mono is not bundled; fall back to system mono.
+  static const TextStyle mono = TextStyle(
+      fontFamily: 'JetBrainsMono',
+      fontFamilyFallback: ['Menlo', 'Roboto Mono', 'monospace'],
+      fontSize: 13,
+      height: 1.45,
+      color: ZipherColors.text60);
 }
 
 class ZipherTheme {
@@ -137,6 +234,9 @@ class ZipherTheme {
         backgroundColor: ZipherColors.bg,
         foregroundColor: ZipherColors.textPrimary,
         elevation: 0,
+        // No tint or shadow when content scrolls under the bar.
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
         centerTitle: true,
         titleTextStyle: TextStyle(
           fontFamily: 'Inter',
@@ -177,52 +277,17 @@ class ZipherTheme {
         margin: EdgeInsets.zero,
       ),
 
-      // Elevated buttons
+      // Buttons: every Material button maps onto a ZipherButton kind, so
+      // stock widgets and ZipherButton look identical.
       elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: ZipherColors.cyan,
-          foregroundColor: ZipherColors.textOnBrand,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.lg, vertical: ZipherSpacing.md),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ZipherRadius.md),
-          ),
-          textStyle: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-
-      // Outlined buttons
+          style: ZipherButtonStyle.of(ZipherButtonKind.primary)),
+      filledButtonTheme: FilledButtonThemeData(
+          style: ZipherButtonStyle.of(ZipherButtonKind.primary)),
       outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: ZipherColors.cyan,
-          side: const BorderSide(color: ZipherColors.border),
-          padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.lg, vertical: ZipherSpacing.md),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ZipherRadius.md),
-          ),
-          textStyle: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-
-      // Text buttons
+          style: ZipherButtonStyle.of(ZipherButtonKind.secondary)),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: ZipherColors.cyan,
-          textStyle: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
+          style: ZipherButtonStyle.of(ZipherButtonKind.plain,
+              size: ZipherButtonSize.small)),
 
       // FAB
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
@@ -267,8 +332,11 @@ class ZipherTheme {
         modalElevation: 0,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius:
+              BorderRadius.vertical(top: Radius.circular(ZipherRadius.sheet)),
         ),
+        dragHandleColor: ZipherColors.text10,
+        dragHandleSize: Size(36, 5),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: ZipherColors.surface,
@@ -530,71 +598,25 @@ class ZipherWidgets {
   }
 
   // ── Button tiers ─────────────────────────────────────────
+  // One primary per screen: solid cyan, 52 pt tall, pinned to the bottom.
+  // Secondary is a tint of its color; ghost is a quiet neutral fill.
 
-  /// Primary CTA — flat cyan tint
+  /// Primary CTA. Kept under its historical name; prefer [ZipherButton].
   static Widget gradientButton({
     required String label,
     required VoidCallback onPressed,
     IconData? icon,
     double? width,
     bool enabled = true,
-  }) {
-    return Opacity(
-      opacity: enabled ? 1.0 : 0.4,
-      child: Container(
-        width: width,
-        decoration: BoxDecoration(
-          gradient: enabled
-              ? LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    ZipherColors.cyan.withValues(alpha: 0.14),
-                    ZipherColors.cyan.withValues(alpha: 0.22),
-                  ],
-                )
-              : null,
-          color: enabled ? null : ZipherColors.cyan.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: enabled ? onPressed : null,
-            borderRadius: BorderRadius.circular(ZipherRadius.md),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.lg, vertical: ZipherSpacing.md),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (icon != null) ...[
-                    Icon(icon, color: ZipherColors.cyan.withValues(alpha: 0.9), size: 20),
-                    const SizedBox(width: 8),
-                  ],
-                  Flexible(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: ZipherColors.cyan.withValues(alpha: 0.9),
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        fontFamily: 'Inter',
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  }) =>
+      _sized(
+          width,
+          ZipherButton(
+              label: label,
+              icon: icon,
+              onPressed: enabled ? onPressed : null));
 
-  /// Secondary CTA — cyan tint
+  /// Tinted CTA in [color] (red for destructive). Prefer [ZipherButton].
   static Widget secondaryButton({
     required String label,
     required VoidCallback onPressed,
@@ -602,93 +624,150 @@ class ZipherWidgets {
     double? width,
     Color color = ZipherColors.cyan,
     bool enabled = true,
-  }) {
-    return Opacity(
-      opacity: enabled ? 1.0 : 0.4,
-      child: Container(
-        width: width,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: enabled ? onPressed : null,
-            borderRadius: BorderRadius.circular(ZipherRadius.md),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.lg, vertical: ZipherSpacing.md),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(ZipherRadius.md),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (icon != null) ...[
-                    Icon(icon, color: color, size: 20),
-                    const SizedBox(width: 8),
-                  ],
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'Inter',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  }) =>
+      _sized(
+          width,
+          ZipherButton(
+              label: label,
+              icon: icon,
+              kind: ZipherButtonKind.tinted,
+              color: color,
+              onPressed: enabled ? onPressed : null));
 
-  /// Ghost button — subtle outline
+  /// Neutral secondary CTA ("Not now", "Cancel"). Prefer [ZipherButton].
   static Widget ghostButton({
     required String label,
     required VoidCallback onPressed,
     IconData? icon,
     double? width,
-  }) {
-    return Container(
-      width: width,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.lg, vertical: ZipherSpacing.md),
-            decoration: BoxDecoration(
-              color: ZipherColors.cardBg,
-              borderRadius: BorderRadius.circular(ZipherRadius.md),
-              border: Border.all(color: ZipherColors.borderSubtle),
-            ),
-            child: Row(
+  }) =>
+      _sized(
+          width,
+          ZipherButton(
+              label: label,
+              icon: icon,
+              kind: ZipherButtonKind.secondary,
+              onPressed: onPressed));
+
+  static Widget _sized(double? width, Widget child) =>
+      width == null ? child : SizedBox(width: width, child: child);
+
+  /// Actions pinned to the bottom of a screen, above the home indicator.
+  /// Content scrolls behind; the primary action never does.
+  static Widget bottomActions(List<Widget> children) => Container(
+        decoration: const BoxDecoration(
+          color: ZipherColors.bg,
+          border: Border(
+              top: BorderSide(color: ZipherColors.separator, width: 0.5)),
+        ),
+        child: SafeArea(
+          top: false,
+          minimum: const EdgeInsets.only(bottom: ZipherSpacing.sm),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(ZipherColors.pagePadding,
+                ZipherSpacing.smMd, ZipherColors.pagePadding, 0),
+            child: Column(
               mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (icon != null) ...[
-                  Icon(icon, color: ZipherColors.text60, size: 20),
-                  const SizedBox(width: 8),
+                for (var i = 0; i < children.length; i++) ...[
+                  if (i > 0) const SizedBox(height: ZipherSpacing.sm),
+                  children[i],
                 ],
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: ZipherColors.text90,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    fontFamily: 'Inter',
-                  ),
-                ),
               ],
             ),
           ),
         ),
-      ),
-    );
-  }
+      );
+
+  /// Small status dot (sync, pairing).
+  static Widget statusDot(Color color, {double size = 8}) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      );
+
+  /// Rounded-square icon tile used at the start of list rows.
+  static Widget iconTile(IconData icon,
+          {Color color = ZipherColors.text60, double size = 34}) =>
+      Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(ZipherRadius.sm + 2),
+        ),
+        child: Icon(icon, size: size * 0.5, color: color),
+      );
+
+  /// Grouped list: rows in one card separated by inset hairlines.
+  static Widget group(List<Widget> rows, {double inset = 62}) => card(
+        child: Column(
+          children: [
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0)
+                Divider(
+                    height: 0.5,
+                    thickness: 0.5,
+                    indent: inset,
+                    color: ZipherColors.separator),
+              rows[i],
+            ],
+          ],
+        ),
+      );
+
+  /// A tappable row: icon tile, title, optional subtitle and trailing widget.
+  static Widget row({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    Widget? trailing,
+    Color iconColor = ZipherColors.text60,
+    VoidCallback? onTap,
+    bool chevron = true,
+  }) =>
+      Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 56),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: ZipherSpacing.md, vertical: ZipherSpacing.smMd),
+              child: Row(
+                children: [
+                  iconTile(icon, color: iconColor),
+                  const SizedBox(width: ZipherSpacing.smMd),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title, style: ZipherType.rowTitle),
+                        if (subtitle != null) ...[
+                          const SizedBox(height: 2),
+                          Text(subtitle, style: ZipherType.footnote),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (trailing != null) ...[
+                    const SizedBox(width: ZipherSpacing.sm),
+                    trailing,
+                  ],
+                  if (onTap != null && chevron)
+                    const Padding(
+                      padding: EdgeInsets.only(left: ZipherSpacing.xs),
+                      child: Icon(Icons.chevron_right_rounded,
+                          size: 20, color: ZipherColors.text20),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
 
   // ── Shared structural widgets ────────────────────────────
 
@@ -704,15 +783,15 @@ class ZipherWidgets {
           shape: BoxShape.circle,
         ),
         child: Icon(
-          Icons.arrow_back_rounded,
-          size: 18,
-          color: ZipherColors.text60,
+          Icons.arrow_back_ios_new_rounded,
+          size: 16,
+          color: ZipherColors.text90,
         ),
       ),
     );
   }
 
-  /// Uppercase sub-page header (e.g. "BACKUP", "ABOUT")
+  /// Sub-page header: back button, centered sentence-case title, actions.
   static Widget pageHeader(
     BuildContext context,
     String title, {
@@ -720,41 +799,43 @@ class ZipherWidgets {
   }) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        ZipherColors.pagePadding,
-        MediaQuery.of(context).padding.top + 14,
-        ZipherColors.pagePadding,
-        16,
+        ZipherSpacing.md,
+        MediaQuery.of(context).padding.top + ZipherSpacing.sm,
+        ZipherSpacing.md,
+        ZipherSpacing.sm,
       ),
-      child: Row(
-        children: [
-          backButton(context),
-          const SizedBox(width: 14),
-          Text(
-            title.toUpperCase(),
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.5,
-              color: ZipherColors.text60,
+      child: SizedBox(
+        height: 44,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 56),
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: ZipherType.headline,
+              ),
             ),
-          ),
-          const Spacer(),
-          if (actions != null) ...actions,
-        ],
+            Row(
+              children: [
+                backButton(context),
+                const Spacer(),
+                if (actions != null) ...actions,
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
   /// Section label (e.g. "Security & Tools", "General")
   static Widget sectionLabel(String text) {
-    return Text(
-      text,
-      style: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.5,
-        color: ZipherColors.text40,
-      ),
+    return Padding(
+      padding: const EdgeInsets.only(left: ZipherSpacing.xs),
+      child: Text(text, style: ZipherType.section),
     );
   }
 
@@ -762,10 +843,11 @@ class ZipherWidgets {
   static Widget card({required Widget child, EdgeInsets? padding}) {
     return Container(
       padding: padding,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: child,
     );
@@ -781,8 +863,8 @@ class ZipherWidgets {
       padding: padding ?? const EdgeInsets.all(ZipherSpacing.lg),
       decoration: BoxDecoration(
         color: ZipherColors.surface,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(color: borderColor ?? ZipherColors.border),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
+        border: Border.all(color: borderColor ?? ZipherColors.border, width: 0.5),
       ),
       child: child,
     );
@@ -921,6 +1003,351 @@ class ZipherWidgets {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// iOS-style segmented control. Each segment may carry a count badge.
+class ZipherSegmented<T> extends StatelessWidget {
+  const ZipherSegmented(
+      {super.key,
+      required this.segments,
+      required this.selected,
+      required this.onChanged});
+  final List<({T value, String label, int badge})> segments;
+  final T selected;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        height: 36,
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          color: ZipherColors.surface,
+          borderRadius: BorderRadius.circular(ZipherRadius.md - 2),
+        ),
+        child: Row(
+          children: [
+            for (final s in segments)
+              Expanded(
+                child: Semantics(
+                  selected: s.value == selected,
+                  button: true,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => onChanged(s.value),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                      decoration: BoxDecoration(
+                        color: s.value == selected
+                            ? ZipherColors.surfaceLight
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(ZipherRadius.sm),
+                        boxShadow: s.value == selected
+                            ? const [
+                                BoxShadow(
+                                    color: Color(0x40000000),
+                                    blurRadius: 6,
+                                    offset: Offset(0, 1))
+                              ]
+                            : null,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(s.label,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: s.value == selected
+                                    ? ZipherColors.text90
+                                    : ZipherColors.text40,
+                              )),
+                          if (s.badge > 0) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              constraints: const BoxConstraints(minWidth: 18),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: ZipherColors.cyan,
+                                borderRadius:
+                                    BorderRadius.circular(ZipherRadius.full),
+                              ),
+                              child: Text(
+                                s.badge > 99 ? '99+' : '${s.badge}',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: ZipherColors.textOnBrand),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+}
+
+enum ZipherButtonKind {
+  /// The one main action: solid cyan.
+  primary,
+
+  /// Neutral alternative: Cancel, Not now, Copy, View on explorer.
+  secondary,
+
+  /// A colored alternative; with red, a destructive action.
+  tinted,
+
+  /// Text only: inline links and low-emphasis actions.
+  plain,
+}
+
+enum ZipherButtonSize {
+  /// 52 pt, for actions at the bottom of a screen or card.
+  large,
+
+  /// 36 pt pill, for inline actions (Max, Paste, Retry, Copy).
+  small,
+}
+
+/// The single source of button styling. Used by [ZipherButton] and by the
+/// theme for stock Material buttons.
+class ZipherButtonStyle {
+  static ButtonStyle of(ZipherButtonKind kind,
+      {ZipherButtonSize size = ZipherButtonSize.large,
+      Color color = ZipherColors.cyan}) {
+    final large = size == ZipherButtonSize.large;
+    final (Color fill, Color fg) = switch (kind) {
+      ZipherButtonKind.primary => (color, ZipherColors.textOnBrand),
+      ZipherButtonKind.secondary => (
+          Colors.white.withValues(alpha: 0.08),
+          ZipherColors.text90
+        ),
+      ZipherButtonKind.tinted => (color.withValues(alpha: 0.14), color),
+      ZipherButtonKind.plain => (Colors.transparent, color),
+    };
+    return ButtonStyle(
+      minimumSize: WidgetStatePropertyAll(Size(large ? 64 : 36, large ? 52 : 36)),
+      padding: WidgetStatePropertyAll(EdgeInsets.symmetric(
+          horizontal: large ? ZipherSpacing.lg : 14)),
+      shape: const WidgetStatePropertyAll(StadiumBorder()),
+      side: WidgetStatePropertyAll(switch (kind) {
+        ZipherButtonKind.primary => BorderSide(
+            color: Colors.white.withValues(alpha: 0.28), width: 0.5),
+        ZipherButtonKind.secondary => BorderSide(
+            color: Colors.white.withValues(alpha: 0.14), width: 0.5),
+        ZipherButtonKind.tinted =>
+          BorderSide(color: color.withValues(alpha: 0.28), width: 0.5),
+        ZipherButtonKind.plain => BorderSide.none,
+      }),
+      elevation: const WidgetStatePropertyAll(0),
+      shadowColor: const WidgetStatePropertyAll(Colors.transparent),
+      surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.standard,
+      backgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (!states.contains(WidgetState.disabled)) return fill;
+        return kind == ZipherButtonKind.plain
+            ? Colors.transparent
+            : Colors.white.withValues(alpha: 0.05);
+      }),
+      foregroundColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.disabled) ? ZipherColors.text20 : fg),
+      iconColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.disabled) ? ZipherColors.text20 : fg),
+      iconSize: WidgetStatePropertyAll(large ? 20 : 16),
+      // iOS-like press feedback: a light dim instead of a ripple.
+      overlayColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.pressed)
+              ? (kind == ZipherButtonKind.primary
+                  ? Colors.black.withValues(alpha: 0.12)
+                  : Colors.white.withValues(alpha: 0.06))
+              : Colors.transparent),
+      splashFactory: NoSplash.splashFactory,
+      textStyle: WidgetStatePropertyAll(TextStyle(
+          fontFamily: 'Inter',
+          fontSize: large ? 17 : 15,
+          fontWeight: FontWeight.w600)),
+    );
+  }
+}
+
+/// The app's button: a capsule, iOS-style. Primary has a soft sheen and a
+/// glow in its own color; secondary is frosted glass; pressing shrinks the
+/// button slightly with a light haptic. One primary per screen.
+/// Large buttons fill the available width.
+class ZipherButton extends StatefulWidget {
+  const ZipherButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.kind = ZipherButtonKind.primary,
+    this.size = ZipherButtonSize.large,
+    this.icon,
+    this.color = ZipherColors.cyan,
+    this.loading = false,
+  });
+
+  final String label;
+
+  /// Null disables the button.
+  final VoidCallback? onPressed;
+  final ZipherButtonKind kind;
+  final ZipherButtonSize size;
+  final IconData? icon;
+
+  /// Accent for primary, tinted and plain buttons.
+  final Color color;
+
+  /// Shows a spinner in place of the label and ignores taps.
+  final bool loading;
+
+  @override
+  State<ZipherButton> createState() => _ZipherButtonState();
+}
+
+class _ZipherButtonState extends State<ZipherButton> {
+  bool _down = false;
+
+  bool get _enabled => widget.onPressed != null;
+  bool get _large => widget.size == ZipherButtonSize.large;
+
+  void _press(bool down) {
+    if (_down != down && mounted) setState(() => _down = down);
+  }
+
+  void _tap() {
+    if (widget.loading || widget.onPressed == null) return;
+    if (widget.kind == ZipherButtonKind.primary) {
+      HapticFeedback.lightImpact();
+    } else {
+      HapticFeedback.selectionClick();
+    }
+    widget.onPressed!();
+  }
+
+  Color get _foreground {
+    if (!_enabled) return ZipherColors.text20;
+    return switch (widget.kind) {
+      ZipherButtonKind.primary => ZipherColors.textOnBrand,
+      ZipherButtonKind.secondary => ZipherColors.text90,
+      ZipherButtonKind.tinted || ZipherButtonKind.plain => widget.color,
+    };
+  }
+
+  BoxDecoration? get _decoration {
+    final c = widget.color;
+    if (!_enabled) {
+      return widget.kind == ZipherButtonKind.plain
+          ? null
+          : BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(ZipherRadius.full),
+              border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.06), width: 0.5));
+    }
+    return switch (widget.kind) {
+      ZipherButtonKind.primary => BoxDecoration(
+          borderRadius: BorderRadius.circular(ZipherRadius.full),
+          // A soft sheen from the top, like light on a curved surface.
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color.lerp(c, Colors.white, 0.14)!, c],
+          ),
+          border: Border.all(
+              color: Colors.white.withValues(alpha: 0.28), width: 0.5),
+        ),
+      // Frosted glass: a faint white veil over a blur of what is behind.
+      ZipherButtonKind.secondary => BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(ZipherRadius.full),
+          border: Border.all(
+              color: Colors.white.withValues(alpha: 0.14), width: 0.5),
+        ),
+      ZipherButtonKind.tinted => BoxDecoration(
+          color: c.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(ZipherRadius.full),
+          border: Border.all(color: c.withValues(alpha: 0.28), width: 0.5),
+        ),
+      ZipherButtonKind.plain => null,
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = _foreground;
+    final height = _large ? 52.0 : 36.0;
+    final label = widget.loading
+        ? SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2, color: fg))
+        : Row(mainAxisSize: MainAxisSize.min, children: [
+            if (widget.icon != null) ...[
+              Icon(widget.icon, size: _large ? 20 : 16, color: fg),
+              SizedBox(width: _large ? ZipherSpacing.sm : 6),
+            ],
+            Flexible(
+                child: Text(widget.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: _large ? 17 : 15,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.2,
+                        color: fg))),
+          ]);
+    Widget body = Container(
+      height: height,
+      constraints: BoxConstraints(minWidth: _large ? 64 : 36),
+      padding: EdgeInsets.symmetric(horizontal: _large ? ZipherSpacing.lg : 14),
+      alignment: Alignment.center,
+      decoration: _decoration,
+      child: label,
+    );
+    if (widget.kind == ZipherButtonKind.secondary && _enabled) {
+      body = ClipRRect(
+        borderRadius: BorderRadius.circular(ZipherRadius.full),
+        child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20), child: body),
+      );
+    }
+    final interactive = _enabled && !widget.loading;
+    return Semantics(
+      button: true,
+      enabled: _enabled,
+      label: widget.loading ? '${widget.label}, in progress' : widget.label,
+      excludeSemantics: true,
+      onTap: interactive ? _tap : null,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: interactive ? (_) => _press(true) : null,
+        onTapUp: interactive ? (_) => _press(false) : null,
+        onTapCancel: interactive ? () => _press(false) : null,
+        onTap: interactive ? _tap : null,
+        child: AnimatedScale(
+          scale: _down ? 0.97 : 1,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          child: AnimatedOpacity(
+            opacity: _down ? 0.85 : 1,
+            duration: const Duration(milliseconds: 120),
+            child: _large
+                ? SizedBox(width: double.infinity, child: body)
+                : body,
+          ),
         ),
       ),
     );

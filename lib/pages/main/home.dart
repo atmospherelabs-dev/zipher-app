@@ -827,10 +827,8 @@ class _BalanceBreakdown extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(
-          color: ZipherColors.borderSubtle,
-        ),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Column(
         children: [
@@ -949,40 +947,14 @@ class _BalanceBreakdown extends StatelessWidget {
                           ),
                         ),
                         const Gap(10),
-                        GestureDetector(
-                          onTap: shieldableTransparentBal > 0 ? onShield : null,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: ZipherColors.cardBgElevated,
-                              borderRadius:
-                                  BorderRadius.circular(ZipherRadius.sm),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.shield_rounded,
-                                  size: 12,
-                                  color: barColor
-                                      .withValues(alpha: 0.85),
-                                ),
-                                const Gap(5),
-                                Text(
-                                  'Shield',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: shieldableTransparentBal > 0
-                                        ? ZipherColors.text60
-                                        : ZipherColors.text20,
-                                    letterSpacing: 0.3,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                        ZipherButton(
+                          label: 'Shield',
+                          icon: Icons.shield_rounded,
+                          kind: ZipherButtonKind.tinted,
+                          size: ZipherButtonSize.small,
+                          color: ZipherColors.cyan,
+                          onPressed:
+                              shieldableTransparentBal > 0 ? onShield : null,
                         ),
                       ],
                     ],
@@ -1139,37 +1111,11 @@ class _ActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: ZipherColors.cardBgElevated,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
-            border: Border.all(
-              color: ZipherColors.borderSubtle,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 20, color: ZipherColors.text60),
-              const Gap(8),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: ZipherColors.text90,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      kind: ZipherButtonKind.secondary,
+      onPressed: onTap,
     );
   }
 }
@@ -1322,10 +1268,8 @@ class _TxRowState extends State<_TxRow> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: ZipherColors.cardBg,
-              borderRadius: BorderRadius.circular(ZipherRadius.lg),
-              border: Border.all(
-                color: ZipherColors.borderSubtle,
-              ),
+              borderRadius: BorderRadius.circular(ZipherRadius.card),
+              border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
             ),
             child: Row(
               children: [
@@ -1634,36 +1578,12 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                   ),
                 ],
                 const Spacer(),
-                GestureDetector(
-                  onTap: _addAccount,
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: ZipherColors.cyan.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(ZipherRadius.md),
-                      border: Border.all(
-                        color: ZipherColors.cyan.withValues(alpha: 0.08),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.add_rounded,
-                            size: 14,
-                            color: ZipherColors.cyan.withValues(alpha: 0.7)),
-                        const Gap(5),
-                        Text(
-                          'Add Account',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: ZipherColors.cyan.withValues(alpha: 0.7),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                ZipherButton(
+                  label: 'Add account',
+                  icon: Icons.add_rounded,
+                  kind: ZipherButtonKind.tinted,
+                  size: ZipherButtonSize.small,
+                  onPressed: _addAccount,
                 ),
               ],
             ),
@@ -2221,8 +2141,8 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
                             horizontal: 14, vertical: 12),
                         decoration: BoxDecoration(
                           color: ZipherColors.cardBg,
-                          borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                          border: Border.all(color: ZipherColors.borderSubtle),
+                          borderRadius: BorderRadius.circular(ZipherRadius.card),
+                          border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                         ),
                         child: Row(
                           children: [
@@ -2338,8 +2258,8 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: ZipherColors.cardBg,
-              borderRadius: BorderRadius.circular(ZipherRadius.lg),
-              border: Border.all(color: ZipherColors.borderSubtle),
+              borderRadius: BorderRadius.circular(ZipherRadius.card),
+              border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
             ),
             child: Row(
               children: [

@@ -87,8 +87,8 @@ class _FaucetPageState extends State<FaucetPage> {
                   padding: const EdgeInsets.all(ZipherSpacing.md),
                   decoration: BoxDecoration(
                     color: ZipherColors.cardBg,
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    border: Border.all(color: ZipherColors.borderSubtle),
+                    borderRadius: BorderRadius.circular(ZipherRadius.card),
+                    border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -112,8 +112,12 @@ class _FaucetPageState extends State<FaucetPage> {
                         ),
                       ),
                       const Gap(8),
-                      GestureDetector(
-                        onTap: () {
+                      ZipherButton(
+                        label: 'Copy',
+                        icon: Icons.copy_rounded,
+                        kind: ZipherButtonKind.secondary,
+                        size: ZipherButtonSize.small,
+                        onPressed: () {
                           Clipboard.setData(ClipboardData(text: _address!));
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -123,22 +127,6 @@ class _FaucetPageState extends State<FaucetPage> {
                             ),
                           );
                         },
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.copy_rounded,
-                                size: 14, color: ZipherColors.cyan),
-                            const Gap(4),
-                            Text(
-                              'Copy',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: ZipherColors.cyan,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
                     ],
                   ),
@@ -147,49 +135,19 @@ class _FaucetPageState extends State<FaucetPage> {
               ],
 
               // Get TAZ button
-              SizedBox(
-                width: double.infinity,
-                child: ZipherWidgets.secondaryButton(
-                  label: 'Get TAZ from Faucet',
-                  icon: Icons.water_drop_rounded,
-                  onPressed: _openFaucet,
-                ),
+              ZipherButton(
+                label: 'Get TAZ from faucet',
+                icon: Icons.water_drop_rounded,
+                onPressed: _openFaucet,
               ),
               const Gap(16),
 
               // Explore on CipherScan button
-              SizedBox(
-                width: double.infinity,
-                child: GestureDetector(
-                  onTap: _openExplorer,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    decoration: BoxDecoration(
-                      color: ZipherColors.cardBg,
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                      border: Border.all(
-                        color: ZipherColors.borderSubtle,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.explore_rounded,
-                            size: 18,
-                            color: ZipherColors.cyan.withValues(alpha: 0.6)),
-                        const Gap(8),
-                        Text(
-                          'Explore on CipherScan',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: ZipherColors.cyan,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              ZipherButton(
+                label: 'Explore on CipherScan',
+                icon: Icons.explore_rounded,
+                kind: ZipherButtonKind.secondary,
+                onPressed: _openExplorer,
               ),
               const Gap(32),
 

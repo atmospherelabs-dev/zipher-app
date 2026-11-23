@@ -56,20 +56,15 @@ class _NewImportAccountState extends State<NewImportAccountPage>
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         title: Text(
-          widget.first ? 'CREATE ACCOUNT' : 'ADD ACCOUNT',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          widget.first ? 'Create account' : 'Add account',
+          style: ZipherType.headline,
         ),
         centerTitle: true,
         leading: widget.first
             ? null
             : IconButton(
-                icon: Icon(Icons.arrow_back_rounded,
-                    color: ZipherColors.text60),
+                icon: Icon(Icons.arrow_back_ios_new_rounded,
+                    size: 20, color: ZipherColors.text90),
                 onPressed: () => Navigator.of(context).pop(),
               ),
       ),
@@ -157,40 +152,10 @@ class _NewImportAccountState extends State<NewImportAccountPage>
 
             // Submit button
             const Gap(8),
-            SizedBox(
-              width: double.infinity,
-              child: GestureDetector(
-                onTap: _loading ? null : _onSubmit,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    color: ZipherColors.cyan.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    border: Border.all(
-                      color: ZipherColors.cyan.withValues(alpha: 0.10),
-                    ),
-                  ),
-                  child: Center(
-                    child: _loading
-                        ? SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: ZipherColors.cyan,
-                            ),
-                          )
-                        : Text(
-                            'Create Account',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: ZipherColors.cyan,
-                            ),
-                          ),
-                  ),
-                ),
-              ),
+            ZipherButton(
+              label: 'Create account',
+              onPressed: _onSubmit,
+              loading: _loading,
             ),
 
             const Gap(40),
@@ -224,9 +189,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
         decoration: BoxDecoration(
           color: ZipherColors.cardBg,
           borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(
-            color: ZipherColors.borderSubtle,
-          ),
+          border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
         ),
         child: TextField(
           controller: controller,

@@ -85,6 +85,9 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final _latestMessageKey = GlobalKey();
+
+  /// The open review pins its Cancel / Confirm above the composer here.
+  final _reviewActions = ReviewActionHost();
   final _messages = <({String text, bool user, Widget? card, bool plain})>[];
   final _wallet = WalletService.instance;
   late final NearIntentsService _near =
@@ -853,7 +856,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
   }
 
   Widget _activityList(Iterable<Tx> records, {bool showMemo = false}) =>
-      Column(mainAxisSize: MainAxisSize.min, children: [
+      ZipherWidgets.group([
         for (final tx in records)
           WalletActivityRow(
               transaction: tx,
@@ -873,7 +876,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
           'No memos yet. Incoming and outgoing memos appear here as your wallet syncs.');
     } else {
       _message('Latest memos · tap to read the transaction',
-          card: _activityList(records.take(10), showMemo: true));
+          card: _activityList(records.take(10), showMemo: true), plain: true);
     }
   }
 
@@ -1152,6 +1155,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     AppLog.instance.event(quote == null ? 'send' : 'swap', 'review_shown');
     _message('',
         card: WalletReviewCard(
+          actions: _reviewActions,
           epoch: _reviewEpoch,
           expectedEpoch: epoch,
           data: data,
@@ -1737,45 +1741,31 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
         onTap: () => FocusScope.of(context).unfocus(),
         child: Scaffold(
           backgroundColor: ZipherColors.bg,
-          appBar: AppBar(
-            backgroundColor: ZipherColors.bg,
-            surfaceTintColor: Colors.transparent,
-            centerTitle: false,
-            automaticallyImplyLeading: false,
-            title: TextButton.icon(
-              onPressed: () {
-                FocusScope.of(context).unfocus();
-                AppLog.instance.event('wallet', 'account_switcher_opened');
-                showWalletAccountSwitcher(context);
-              },
-              icon: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                      color: ZipherColors.cyan.withValues(alpha: .10),
-                      borderRadius: BorderRadius.circular(ZipherRadius.md)),
-                  child: Icon(Icons.account_circle_rounded,
-                      size: 18,
-                      color: ZipherColors.cyan.withValues(alpha: .7))),
-              label: Row(mainAxisSize: MainAxisSize.min, children: [
-                Flexible(
-                    child: Text(_displayName,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            color: ZipherColors.textPrimary, fontSize: 15))),
-                const Icon(Icons.expand_more, size: 18),
-              ]),
-            ),
-            actions: [
-              _walletIndicators(),
-              if (_testnet)
-                const Padding(
-                    padding: EdgeInsets.only(right: 16),
-                    child: Center(child: Text('Testnet')))
-            ],
-          ),
-          body: Column(children: [
-            _buildBalanceHeader(),
+          body: Stack(children: [
+            // The glow sits behind the header and balance, unclipped, and
+            // fades out before the tabs so nothing cuts it off.
+            Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 380 + MediaQuery.paddingOf(context).top,
+                child: const IgnorePointer(
+                    child: DecoratedBox(
+                        decoration: BoxDecoration(
+                            gradient: RadialGradient(
+                                center: Alignment(0, -.45),
+                                // Relative to the width; reaches zero well
+                                // before the bottom of the box.
+                                radius: .72,
+                                colors: [
+                              Color(0x1A00D4FF),
+                              Color(0x0800D4FF),
+                              Color(0x0000D4FF),
+                            ],
+                                stops: [0, .5, 1]))))),
+            Column(children: [
+              SafeArea(bottom: false, child: _header()),
+              _buildBalanceHeader(),
             Expanded(
                 child: _buildHomeViews(Column(children: [
               Expanded(
@@ -1804,25 +1794,20 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                                 ? Padding(
                                     padding: const EdgeInsets.only(top: 10),
                                     child: msg.card)
-                                : Container(
-                                    margin: const EdgeInsets.only(top: 8),
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                        color: ZipherColors.cardBg,
-                                        borderRadius: BorderRadius.circular(
-                                            ZipherRadius.lg),
-                                        border: Border.all(
-                                            color: ZipherColors.borderSubtle)),
-                                    child: msg.card),
+                                : ZChatCard(child: msg.card!),
                   );
                 },
               )),
-              if (_draft != null)
-                ZChatDraftBar(
-                    icon: _draft!.icon,
-                    label: _draft!.label,
-                    onCancel: _busy ? null : () => _submit('cancel')),
-              ZChatComposer(
+              ReviewActionBar(host: _reviewActions),
+              ListenableBuilder(
+                listenable: _reviewActions,
+                builder: (_, __) => ZChatComposer(
+                prefix: _draft == null || _reviewActions.active
+                    ? null
+                    : ZChatDraftBar(
+                        icon: _draft!.icon,
+                        label: _draft!.label,
+                        onCancel: _busy ? null : () => _submit('cancel')),
                 controller: _input,
                 busy: _busy,
                 onSubmit: _submit,
@@ -1847,11 +1832,174 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                         : _choosingAddress
                             ? 'Choose a chain'
                             : _conversation.hint,
-              ),
+              )),
             ]))),
+            ]),
           ]),
         ),
       );
+
+  /// Account switcher on the left, one status pill on the right.
+  Widget _header() => Padding(
+      padding: const EdgeInsets.fromLTRB(
+          ZipherSpacing.sm, ZipherSpacing.xs, ZipherSpacing.md, 0),
+      child: SizedBox(
+          height: 48,
+          child: Row(children: [
+            Expanded(
+                child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Semantics(
+                    button: true,
+                    label: 'Switch account, $_displayName',
+                    child: InkWell(
+                        borderRadius: BorderRadius.circular(ZipherRadius.full),
+                        onTap: () {
+                          FocusScope.of(context).unfocus();
+                          AppLog.instance
+                              .event('wallet', 'account_switcher_opened');
+                          showWalletAccountSwitcher(context);
+                        },
+                        child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: ZipherSpacing.sm, vertical: 6),
+                            child:
+                                Row(mainAxisSize: MainAxisSize.min, children: [
+                              Container(
+                                  width: 30,
+                                  height: 30,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                      color: ZipherColors.cyan
+                                          .withValues(alpha: .14),
+                                      shape: BoxShape.circle),
+                                  child: Text(
+                                      _displayName.isEmpty
+                                          ? '?'
+                                          : _displayName.characters.first
+                                              .toUpperCase(),
+                                      style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                          color: ZipherColors.cyan))),
+                              const SizedBox(width: 10),
+                              Flexible(
+                                  child: Text(_displayName,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                          color: ZipherColors.text90,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600))),
+                              const SizedBox(width: 2),
+                              const Icon(Icons.keyboard_arrow_down_rounded,
+                                  size: 20, color: ZipherColors.text40),
+                            ])))))),
+            const SizedBox(width: ZipherSpacing.sm),
+            if (_testnet)
+              Container(
+                  margin: const EdgeInsets.only(right: ZipherSpacing.sm),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                      color: ZipherColors.orange.withValues(alpha: .14),
+                      borderRadius: BorderRadius.circular(ZipherRadius.full)),
+                  child: const Text('Testnet',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: ZipherColors.orange))),
+            _activityButton(),
+            const SizedBox(width: ZipherSpacing.sm),
+            _walletIndicators(),
+          ])));
+
+  /// Opens Activity in place of the conversation; the badge counts items
+  /// still in progress. Tapping again returns to the conversation.
+  Widget _activityButton() => ListenableBuilder(
+      listenable: _swapTracker,
+      builder: (_, __) => Observer(builder: (_) {
+            final open = _homeTab == WalletHomeTab.activity;
+            final pending = WalletActivityPanel.pendingCount(
+                _account.txs.items.toList(), _swapTracker.entries);
+            void toggle() {
+              FocusScope.of(context).unfocus();
+              final next =
+                  open ? WalletHomeTab.chat : WalletHomeTab.activity;
+              AppLog.instance.event('activity', '${next.name}_opened');
+              setState(() => _homeTab = next);
+            }
+
+            return Tooltip(
+                message: 'Activity',
+                child: Semantics(
+                    button: true,
+                    selected: open,
+                    label: pending > 0
+                        ? 'Activity, $pending in progress'
+                        : 'Activity',
+                    excludeSemantics: true,
+                    child: GestureDetector(
+                        onTap: toggle,
+                        child: SizedBox(
+                            width: 40,
+                            height: 40,
+                            child: Stack(
+                                clipBehavior: Clip.none,
+                                alignment: Alignment.center,
+                                children: [
+                                  AnimatedContainer(
+                                      duration:
+                                          const Duration(milliseconds: 180),
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: open
+                                              ? ZipherColors.cyan
+                                                  .withValues(alpha: .16)
+                                              : Colors.white
+                                                  .withValues(alpha: .06),
+                                          border: Border.all(
+                                              color: open
+                                                  ? ZipherColors.cyan
+                                                      .withValues(alpha: .35)
+                                                  : ZipherColors.borderSubtle,
+                                              width: .5)),
+                                      child: Icon(Icons.schedule_rounded,
+                                          size: 18,
+                                          color: open
+                                              ? ZipherColors.cyan
+                                              : ZipherColors.text60)),
+                                  if (pending > 0)
+                                    Positioned(
+                                        top: -1,
+                                        right: -2,
+                                        child: Container(
+                                            constraints: const BoxConstraints(
+                                                minWidth: 17),
+                                            height: 17,
+                                            padding: const EdgeInsets
+                                                .symmetric(horizontal: 4),
+                                            alignment: Alignment.center,
+                                            decoration: BoxDecoration(
+                                                color: ZipherColors.cyan,
+                                                borderRadius:
+                                                    BorderRadius.circular(9),
+                                                border: Border.all(
+                                                    color: ZipherColors.bg,
+                                                    width: 2)),
+                                            child: Text(
+                                                pending > 99
+                                                    ? '99+'
+                                                    : '$pending',
+                                                style: const TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight:
+                                                        FontWeight.w700,
+                                                    color: ZipherColors
+                                                        .textOnBrand)))),
+                                ])))));
+          }));
 
   Widget _buildSuggestionChips() => Padding(
       padding: const EdgeInsets.only(top: 18, bottom: 8),
@@ -1861,29 +2009,22 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                 fontSize: 15,
                 color: ZipherColors.textPrimary,
                 fontWeight: FontWeight.w500)),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
+        // One row of identical chips, like suggested replies. The main
+        // actions get a cyan icon; the rest stay neutral.
         Wrap(spacing: 8, runSpacing: 8, children: [
-          for (final (icon, label) in [
-            (Icons.arrow_upward_rounded, 'Send'),
-            (Icons.qr_code_rounded, 'Receive'),
-            (Icons.swap_horiz, 'Swap'),
+          for (final (icon, label, main) in [
+            (Icons.arrow_upward_rounded, 'Send', true),
+            (Icons.qr_code_rounded, 'Receive', true),
+            (Icons.swap_horiz, 'Swap', true),
+            (Icons.account_balance_wallet_outlined, 'Balance', false),
+            (Icons.people_outline_rounded, 'Contacts', false),
+            (Icons.help_outline, 'Help', false),
           ])
             ZChatShortcut(
                 icon: icon,
                 label: label,
-                onTap: _busy ? null : () => _submit(label)),
-        ]),
-        const SizedBox(height: 8),
-        Wrap(spacing: 4, runSpacing: 4, children: [
-          for (final (icon, label) in [
-            (Icons.account_balance_wallet_outlined, 'Balance'),
-            (Icons.people_outline_rounded, 'Contacts'),
-            (Icons.help_outline, 'Help'),
-          ])
-            ZChatShortcut(
-                icon: icon,
-                label: label,
-                secondary: true,
+                secondary: !main,
                 onTap: _busy ? null : () => _submit(label)),
         ]),
       ]));
@@ -2011,18 +2152,22 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                 const SizedBox(height: 16),
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   if (_privacy.state != NetworkPrivacyState.tor)
-                    OutlinedButton.icon(
-                        onPressed:
-                            _privacy.busy ? null : () => _submit('enable Tor'),
-                        icon: const Icon(Icons.vpn_key_rounded, size: 16),
-                        label: Text(_privacy.state == NetworkPrivacyState.error
+                    ZipherButton(
+                        label: _privacy.state == NetworkPrivacyState.error
                             ? 'Retry Tor'
-                            : 'Enable Tor')),
-                  if (_privacy.state != NetworkPrivacyState.direct)
-                    TextButton(
+                            : 'Enable Tor',
+                        icon: Icons.vpn_key_rounded,
+                        kind: ZipherButtonKind.tinted,
+                        size: ZipherButtonSize.small,
                         onPressed:
-                            _privacy.busy ? null : () => _submit('disable Tor'),
-                        child: const Text('Turn Tor off')),
+                            _privacy.busy ? null : () => _submit('enable Tor')),
+                  if (_privacy.state != NetworkPrivacyState.direct)
+                    ZipherButton(
+                        label: 'Turn Tor off',
+                        kind: ZipherButtonKind.secondary,
+                        size: ZipherButtonSize.small,
+                        onPressed:
+                            _privacy.busy ? null : () => _submit('disable Tor')),
                 ]),
               ]));
 
@@ -2039,91 +2184,195 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                 child: _privacyControls())));
   }
 
+  /// Sync state in words, shared by the pill and the status sheet.
+  ({String text, String short, Color color, bool synced}) _syncState() {
+    final error = !syncStatus2.connected || syncStatus2.connectionError != null;
+    final synced = !error && !syncStatus2.paused && syncStatus2.isSynced;
+    final progress = syncStatus2.blocksProgress;
+    final percent =
+        progress == null ? null : '${(progress * 100).toStringAsFixed(1)}%';
+    if (error) {
+      return (
+        text: 'Sync error',
+        short: 'Offline',
+        color: ZipherColors.negative,
+        synced: false
+      );
+    }
+    if (syncStatus2.paused) {
+      return (
+        text: 'Sync paused',
+        short: 'Paused',
+        color: ZipherColors.text40,
+        synced: false
+      );
+    }
+    if (synced) {
+      return (
+        text: 'Synced',
+        short: 'Synced',
+        color: ZipherColors.positive,
+        synced: true
+      );
+    }
+    return (
+      text: 'Syncing${percent == null ? '' : ' $percent'}',
+      short: percent ?? 'Syncing',
+      color: ZipherColors.pending,
+      synced: false
+    );
+  }
+
+  /// One pill for the wallet's health: a sync dot and word, plus a lock when
+  /// Zcash traffic goes over Tor. Everything else lives in the status sheet.
   Widget _walletIndicators() => Observer(builder: (_) {
-        final b = _account.poolBalances;
-        final shielded = b.total > 0 && !b.hasTransparent;
-        final error =
-            !syncStatus2.connected || syncStatus2.connectionError != null;
-        final synced = !error && !syncStatus2.paused && syncStatus2.isSynced;
-        final progress = syncStatus2.blocksProgress;
-        final status = error
-            ? 'Sync error'
-            : syncStatus2.paused
-                ? 'Sync paused'
-                : synced
-                    ? 'Synced'
-                    : 'Syncing${progress == null ? "" : " ${(progress * 100).toStringAsFixed(1)}%"}';
-        return Row(mainAxisSize: MainAxisSize.min, children: [
-          // A paired agent can ask this phone for approvals; keep it visible.
-          ValueListenableBuilder<bool>(
-              valueListenable: HitlWatchService.instance.paired,
-              builder: (_, paired, __) => !paired
-                  ? const SizedBox.shrink()
-                  : IconButton(
-                      tooltip:
-                          'Paired with ${HitlWatchService.instance.agentName ?? 'an agent'}',
-                      onPressed: () => context.push('/hitl/agent'),
-                      icon: const Icon(Icons.smart_toy_rounded,
-                          size: 18, color: ZipherColors.cyan))),
-          ListenableBuilder(
-              listenable: _privacy,
-              builder: (_, __) => IconButton(
-                  tooltip: _privacy.label,
-                  onPressed: _showNetworkPrivacy,
-                  icon: Icon(Icons.vpn_key_rounded,
-                      size: 17,
-                      color: switch (_privacy.state) {
-                        NetworkPrivacyState.tor => ZipherColors.cyan,
-                        NetworkPrivacyState.connecting =>
-                          ZipherColors.syncPending,
-                        NetworkPrivacyState.error => ZipherColors.red,
-                        NetworkPrivacyState.direct => ZipherColors.text40,
-                      }))),
-          IconButton(
-              tooltip: shielded ? 'ZEC fully shielded' : 'ZEC pool details',
-              onPressed: _showPools,
-              icon: Icon(
-                  shielded ? Icons.shield_rounded : Icons.shield_outlined,
-                  size: 17,
-                  color: shielded ? ZipherColors.cyan : ZipherColors.text40)),
-          Tooltip(
-              message: status,
-              child: Semantics(
-                  button: true,
-                  label: status,
-                  child: InkResponse(
-                      onTap: () => context.push('/more/debug_log'),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: SizedBox(
-                            height: 44,
-                            child:
-                                Row(mainAxisSize: MainAxisSize.min, children: [
-                              Container(
-                                  width: 7,
-                                  height: 7,
-                                  decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: error
-                                          ? ZipherColors.red
-                                          : syncStatus2.paused
-                                              ? ZipherColors.text40
-                                              : synced
-                                                  ? ZipherColors.green
-                                                  : ZipherColors.syncPending)),
-                              if (!synced && progress != null) ...[
-                                const SizedBox(width: 6),
-                                Text('${(progress * 100).toStringAsFixed(1)}%',
-                                    style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w500,
-                                        color: ZipherColors.text60)),
-                              ],
-                            ])),
-                      )))),
-          const SizedBox(width: 8),
-        ]);
+        final sync = _syncState();
+        return ListenableBuilder(
+            listenable: _privacy,
+            builder: (_, __) {
+              final tor = _privacy.state == NetworkPrivacyState.tor;
+              final torProblem = _privacy.state == NetworkPrivacyState.error;
+              return Tooltip(
+                  message: sync.text,
+                  child: Semantics(
+                      button: true,
+                      label: '${sync.text}, ${_privacy.label}. Wallet status',
+                      excludeSemantics: true,
+                      child: Material(
+                          color: ZipherColors.surface,
+                          shape: const StadiumBorder(
+                              side: BorderSide(
+                                  color: ZipherColors.borderSubtle, width: .5)),
+                          child: InkWell(
+                              customBorder: const StadiumBorder(),
+                              onTap: _showStatus,
+                              child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 7),
+                                  child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        ZipherWidgets.statusDot(sync.color,
+                                            size: 7),
+                                        const SizedBox(width: 7),
+                                        Text(sync.short,
+                                            style: const TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: ZipherColors.text60,
+                                                fontFeatures: [
+                                                  FontFeature.tabularFigures()
+                                                ])),
+                                        if (tor || torProblem) ...[
+                                          const SizedBox(width: 7),
+                                          Icon(Icons.lock_rounded,
+                                              size: 13,
+                                              color: torProblem
+                                                  ? ZipherColors.negative
+                                                  : ZipherColors.cyan),
+                                        ],
+                                      ]))))));
+            });
       });
+
+  /// Wallet status: sync, network route, shielding and the paired agent,
+  /// each with a plain explanation and a way to act on it.
+  void _showStatus() {
+    FocusScope.of(context).unfocus();
+    AppLog.instance.event('wallet', 'status_opened');
+    showModalBottomSheet<void>(
+        context: context,
+        useRootNavigator: true,
+        showDragHandle: true,
+        isScrollControlled: true,
+        backgroundColor: ZipherColors.surface,
+        builder: (sheet) => SafeArea(
+            child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                    ZipherSpacing.md, 0, ZipherSpacing.md, ZipherSpacing.md),
+                child: Observer(builder: (_) {
+                  final sync = _syncState();
+                  final b = _account.poolBalances;
+                  final shielded = b.total > 0 && !b.hasTransparent;
+                  void go(VoidCallback action) {
+                    Navigator.of(sheet).pop();
+                    action();
+                  }
+
+                  return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Padding(
+                            padding: EdgeInsets.fromLTRB(
+                                ZipherSpacing.xs, 0, 0, ZipherSpacing.md),
+                            child:
+                                Text('Wallet status', style: ZipherType.title)),
+                        ListenableBuilder(
+                            listenable: _privacy,
+                            builder: (_, __) => ZipherWidgets.group([
+                                  ZipherWidgets.row(
+                                      icon: Icons.sync_rounded,
+                                      iconColor: sync.color,
+                                      title: sync.text,
+                                      subtitle: sync.synced
+                                          ? 'Up to date with the Zcash network'
+                                          : 'Balance updates as blocks are scanned',
+                                      onTap: () => go(() =>
+                                          context.push('/more/debug_log'))),
+                                  ZipherWidgets.row(
+                                      icon: Icons.lock_rounded,
+                                      iconColor: switch (_privacy.state) {
+                                        NetworkPrivacyState.tor =>
+                                          ZipherColors.cyan,
+                                        NetworkPrivacyState.connecting =>
+                                          ZipherColors.pending,
+                                        NetworkPrivacyState.error =>
+                                          ZipherColors.negative,
+                                        NetworkPrivacyState.direct =>
+                                          ZipherColors.text40,
+                                      },
+                                      title: _privacy.label,
+                                      subtitle: _privacy.state ==
+                                              NetworkPrivacyState.tor
+                                          ? 'Sync and broadcasts hide your IP'
+                                          : 'Your IP is visible to the server',
+                                      onTap: () => go(_showNetworkPrivacy)),
+                                  ZipherWidgets.row(
+                                      icon: shielded
+                                          ? Icons.shield_rounded
+                                          : Icons.shield_outlined,
+                                      iconColor: shielded
+                                          ? ZipherColors.cyan
+                                          : ZipherColors.text40,
+                                      title: shielded
+                                          ? 'ZEC fully shielded'
+                                          : b.hasTransparent
+                                              ? 'Some ZEC is transparent'
+                                              : 'ZEC pool details',
+                                      subtitle: 'Where your ZEC is',
+                                      onTap: () => go(_showPools)),
+                                  ValueListenableBuilder<bool>(
+                                      valueListenable:
+                                          HitlWatchService.instance.paired,
+                                      builder: (_, paired, __) => ZipherWidgets.row(
+                                          icon: Icons.smart_toy_rounded,
+                                          iconColor: paired
+                                              ? ZipherColors.cyan
+                                              : ZipherColors.text40,
+                                          title: paired
+                                              ? HitlWatchService
+                                                      .instance.agentName ??
+                                                  'Agent paired'
+                                              : 'No agent paired',
+                                          subtitle: paired
+                                              ? 'Asks you before larger sends'
+                                              : 'Let an agent ask before it pays',
+                                          onTap: () => go(() =>
+                                              context.push('/hitl/agent')))),
+                                ])),
+                      ]);
+                }))));
+  }
 
   Widget _buildBalanceHeader() => Observer(builder: (_) {
         final b = _account.poolBalances;
@@ -2140,17 +2389,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
         final incomplete = (b.total > 0 && zecValue == null) ||
             (_portfolio != null &&
                 (!_portfolio!.complete || !_portfolio!.fullyPriced));
-        return Container(
-            decoration: BoxDecoration(
-                gradient: RadialGradient(
-                    center: Alignment.topCenter,
-                    radius: .7,
-                    colors: [
-                  Color.alphaBlend(ZipherColors.cyan.withValues(alpha: .045),
-                      ZipherColors.bg),
-                  ZipherColors.bg
-                ])),
-            child: Column(children: [
+        return Column(children: [
               Semantics(
                   button: true,
                   label: (expanded
@@ -2164,7 +2403,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                         if (_balanceExpanded) _refreshPortfolio();
                       },
                       child: Padding(
-                          padding: const EdgeInsets.fromLTRB(28, 14, 28, 18),
+                          padding: const EdgeInsets.fromLTRB(28, 22, 28, 22),
                           child: Column(children: [
                             FittedBox(
                                 fit: BoxFit.scaleDown,
@@ -2174,18 +2413,14 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                                         : hasPrice
                                             ? _dollars(total)
                                             : '—',
-                                    style: TextStyle(
-                                        fontSize: 38,
-                                        fontWeight: FontWeight.w600,
-                                        letterSpacing: -1.5,
-                                        color: ZipherColors.textPrimary))),
-                            const SizedBox(height: 10),
+                                    style: ZipherType.hero)),
+                            const SizedBox(height: 8),
                             Text(
                                 '${_assetAmount(b.shielded / 1e8)} ZEC available',
-                                style: const TextStyle(
-                                    fontFamily: 'JetBrains Mono',
-                                    fontSize: 12,
-                                    color: ZipherColors.textSecondary)),
+                                style: ZipherType.subhead.copyWith(
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures()
+                                    ])),
                             // Change and incoming funds are not lost, only not
                             // spendable until they confirm.
                             if (b.unconfirmed > 0)
@@ -2193,10 +2428,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                                   padding: const EdgeInsets.only(top: 5),
                                   child: Text(
                                       '${_assetAmount(b.unconfirmed / 1e8)} ZEC pending confirmation',
-                                      style: const TextStyle(
-                                          fontFamily: 'JetBrains Mono',
-                                          fontSize: 11,
-                                          color: ZipherColors.text40))),
+                                      style: ZipherType.caption)),
                             if (!_testnet &&
                                 (!syncStatus2.isSynced ||
                                     (expanded && incomplete)))
@@ -2225,7 +2457,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                               onTap: _showPools),
                           _portfolioDetails(),
                         ]))),
-            ]));
+        ]);
       });
 
   Widget _buildHomeViews(Widget chat) => ListenableBuilder(
@@ -2234,7 +2466,6 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
           builder: (_) => WalletActivityPanel(
               chat: chat,
               selectedTab: _homeTab,
-              showTabs: MediaQuery.viewInsetsOf(context).bottom == 0,
               onTabChanged: (tab) {
                 FocusScope.of(context).unfocus();
                 AppLog.instance.event('activity', '${tab.name}_opened');

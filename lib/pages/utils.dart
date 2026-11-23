@@ -169,28 +169,9 @@ Future<bool> showMessageBox2(BuildContext context, String title, String content,
                   ),
                   if (dismissable) ...[
                     const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      child: GestureDetector(
-                        onTap: () => GoRouter.of(context).pop(true),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: ZipherColors.cyan.withValues(alpha: 0.10),
-                            borderRadius: BorderRadius.circular(ZipherRadius.md),
-                          ),
-                          child: Center(
-                            child: Text(
-                              label ?? s.ok,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: ZipherColors.cyan,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                    ZipherButton(
+                      label: label ?? s.ok,
+                      onPressed: () => GoRouter.of(context).pop(true),
                     ),
                   ],
                 ],
@@ -448,57 +429,23 @@ Future<bool> showConfirmDialog(
                       Row(
                         children: [
                           Expanded(
-                            child: GestureDetector(
-                              onTap: () =>
+                            child: ZipherButton(
+                              label: s.cancel,
+                              kind: ZipherButtonKind.secondary,
+                              onPressed: () =>
                                   GoRouter.of(context).pop<bool>(false),
-                              child: Container(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 12),
-                                decoration: BoxDecoration(
-                                  color:
-                                      ZipherColors.cardBg,
-                                  borderRadius: BorderRadius.circular(ZipherRadius.md),
-                                  border: Border.all(
-                                    color: ZipherColors.borderSubtle,
-                                  ),
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    s.cancel,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                      color: ZipherColors.text40,
-                                    ),
-                                  ),
-                                ),
-                              ),
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: GestureDetector(
-                              onTap: () =>
+                            child: ZipherButton(
+                              label: s.ok,
+                              kind: isDanger
+                                  ? ZipherButtonKind.tinted
+                                  : ZipherButtonKind.primary,
+                              color: accentColor,
+                              onPressed: () =>
                                   GoRouter.of(context).pop<bool>(true),
-                              child: Container(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 12),
-                                decoration: BoxDecoration(
-                                  color:
-                                      accentColor.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(ZipherRadius.md),
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    s.ok,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: accentColor,
-                                    ),
-                                  ),
-                                ),
-                              ),
                             ),
                           ),
                         ],
@@ -1013,11 +960,9 @@ class _ContactAutocompleteState extends State<ContactAutocomplete> {
             child: Container(
               constraints: const BoxConstraints(maxHeight: 180),
               decoration: BoxDecoration(
-                color: const Color(0xFF1A1A2E),
+                color: ZipherColors.surfaceLight,
                 borderRadius: BorderRadius.circular(ZipherRadius.md),
-                border: Border.all(
-                  color: ZipherColors.borderSubtle,
-                ),
+                border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.4),

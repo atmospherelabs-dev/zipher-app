@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:zipher/zipher_theme.dart';
 import 'package:go_router/go_router.dart';
 import 'package:zipher/generated/intl/messages.dart';
 import 'package:zipher/pages/accounts/rescan.dart';
@@ -25,18 +26,18 @@ void main() {
       localizationsDelegates: const [S.delegate],
     ));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Recover transactions'));
+    await tester.tap(find.byKey(const ValueKey('rescan-recover')));
     await tester.pumpAndSettle();
     expect(calls, 0); // Confirmation is required before starting recovery.
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
     expect(calls, 1);
-    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+    expect(tester.widget<ZipherButton>(find.byKey(const ValueKey('rescan-recover'))).onPressed,
         isNull);
     pending.completeError(StateError('disposable test failure'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Recovery could not start'), findsOneWidget);
-    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+    expect(tester.widget<ZipherButton>(find.byKey(const ValueKey('rescan-recover'))).onPressed,
         isNotNull);
     expect(calls, 1);
   });

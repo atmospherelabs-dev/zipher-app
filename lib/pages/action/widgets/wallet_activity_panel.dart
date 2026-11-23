@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import '../../../services/near_intents.dart' show CurrencyIcon;
 import '../../../services/wallet_swap_tracker.dart';
 import '../../../zipher_theme.dart';
 import '../../utils.dart' show Tx;
@@ -18,7 +20,7 @@ class WalletActivityPanel extends StatelessWidget {
       required this.chat,
       required this.selectedTab,
       required this.onTabChanged,
-      this.showTabs = true});
+      this.now});
   final List<Tx> transactions;
   final List<WalletSwapActivity> swaps;
   final ValueChanged<String> onTransaction;
@@ -26,166 +28,161 @@ class WalletActivityPanel extends StatelessWidget {
   final Widget chat;
   final WalletHomeTab selectedTab;
   final ValueChanged<WalletHomeTab> onTabChanged;
-  final bool showTabs;
 
-  bool _pending(Tx tx) => tx.height == 0 && !tx.expiredUnmined;
-  List<Tx> get _transactions {
+  /// Clock for day headings; the device clock unless a test supplies one.
+  final DateTime Function()? now;
+
+  static bool _pending(Tx tx) => tx.height == 0 && !tx.expiredUnmined;
+
+  /// Transactions minus swap deposits, which their swap row represents.
+  static List<Tx> _withoutDeposits(
+      List<Tx> transactions, List<WalletSwapActivity> swaps) {
     final deposits =
         swaps.map((entry) => entry.swap.txId).whereType<String>().toSet();
     return transactions.where((tx) => !deposits.contains(tx.fullTxId)).toList();
   }
 
-  Widget _tab(String title, WalletHomeTab tab, {int count = 0}) {
-    final selected = selectedTab == tab;
-    return Semantics(
-        selected: selected,
-        button: true,
-        child: TextButton(
-            onPressed: () => onTabChanged(tab),
-            style: TextButton.styleFrom(
-                minimumSize: const Size(64, 44),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                foregroundColor: selected
-                    ? ZipherColors.textPrimary
-                    : ZipherColors.textSecondary,
-                backgroundColor: Colors.transparent,
-                shape: const RoundedRectangleBorder(),
-                textStyle:
-                    const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-            child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 13),
-                decoration: BoxDecoration(
-                    border: Border(
-                        bottom: BorderSide(
-                            color: selected
-                                ? ZipherColors.cyan
-                                : Colors.transparent,
-                            width: 2))),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text(title),
-                  if (count > 0) ...[
-                    const SizedBox(width: 6),
-                    Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                            color: ZipherColors.cyan.withValues(alpha: .12),
-                            borderRadius: BorderRadius.circular(8)),
-                        child: Text(count > 99 ? '99+' : '$count',
-                            style: const TextStyle(
-                                color: ZipherColors.cyan, fontSize: 10))),
-                  ],
-                ]))));
-  }
+  List<Tx> get _transactions => _withoutDeposits(transactions, swaps);
 
+  /// Items still in progress, for the badge on the home Activity button.
+  static int pendingCount(
+          List<Tx> transactions, List<WalletSwapActivity> swaps) =>
+      _withoutDeposits(transactions, swaps).where(_pending).length +
+      swaps.where((entry) => entry.isLive).length;
+
+  /// No switcher: the home header's Activity button selects the view, and
+  /// Activity has its own title with Done to go back to the conversation.
   @override
-  Widget build(BuildContext context) => Column(children: [
-        if (showTabs)
-          Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: const BoxDecoration(
-                  border: Border(
-                      bottom: BorderSide(
-                          color: ZipherColors.borderSubtle, width: .5))),
+  Widget build(BuildContext context) =>
+      IndexedStack(index: selectedTab.index, children: [
+        chat,
+        Column(children: [
+          Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  ZipherSpacing.md + ZipherSpacing.xs, ZipherSpacing.xs,
+                  ZipherSpacing.sm, 0),
               child: Row(children: [
-                Expanded(child: _tab('Chat', WalletHomeTab.chat)),
-                Expanded(
-                    child: _tab('Activity', WalletHomeTab.activity,
-                        count: _transactions.where(_pending).length +
-                            swaps.where((entry) => entry.isLive).length)),
+                const Expanded(
+                    child: Text('Activity', style: ZipherType.title)),
+                ZipherButton(
+                    label: 'Done',
+                    kind: ZipherButtonKind.plain,
+                    size: ZipherButtonSize.small,
+                    onPressed: () => onTabChanged(WalletHomeTab.chat)),
               ])),
-        Expanded(
-            child: IndexedStack(index: selectedTab.index, children: [
-          chat,
-          _activity(),
-        ])),
+          Expanded(child: _activity()),
+        ]),
       ]);
 
+  /// Day heading: Today, Yesterday, a weekday this week, else the date.
+  String _day(DateTime at, DateTime today) {
+    final day = DateTime(at.year, at.month, at.day);
+    final diff = today.difference(day).inDays;
+    if (diff <= 0) return 'Today';
+    if (diff == 1) return 'Yesterday';
+    if (diff < 7) return DateFormat('EEEE').format(at);
+    if (at.year == today.year) return DateFormat('EEEE, MMM d').format(at);
+    return DateFormat('MMM d, y').format(at);
+  }
+
   Widget _activity() {
-    final pending = <({int time, Widget child})>[];
-    final recent = <({int time, Widget child})>[];
+    final clock = (now ?? DateTime.now)();
+    final today = DateTime(clock.year, clock.month, clock.day);
+    final pending = <({DateTime time, Widget child})>[];
+    final settled = <({DateTime time, Widget child})>[];
     for (final tx in _transactions) {
-      (_pending(tx) ? pending : recent).add((
-        time: tx.timestamp.millisecondsSinceEpoch,
+      final live = _pending(tx);
+      (live ? pending : settled).add((
+        time: tx.timestamp,
         child: WalletActivityRow(
-            transaction: tx, onTap: () => onTransaction(tx.fullTxId))
+            transaction: tx,
+            timeOnly: !live,
+            onTap: () => onTransaction(tx.fullTxId))
       ));
     }
     for (final entry in swaps) {
-      (entry.isLive ? pending : recent)
-          .add((time: entry.swap.timestamp * 1000, child: _swapRow(entry)));
+      final time =
+          DateTime.fromMillisecondsSinceEpoch(entry.swap.timestamp * 1000);
+      (entry.isLive ? pending : settled)
+          .add((time: time, child: _swapRow(entry, timeOnly: !entry.isLive)));
     }
+    if (pending.isEmpty && settled.isEmpty) return _empty();
     pending.sort((a, b) => b.time.compareTo(a.time));
-    recent.sort((a, b) => b.time.compareTo(a.time));
-    if (pending.isEmpty && recent.isEmpty) {
-      return const Center(
-          child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text('No activity yet',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 14, color: ZipherColors.text40))));
+    settled.sort((a, b) => b.time.compareTo(a.time));
+
+    final sections = <(String, List<Widget>)>[];
+    if (pending.isNotEmpty) {
+      sections.add(('In progress', pending.map((r) => r.child).toList()));
     }
-    final rows = <Widget>[
-      if (pending.isNotEmpty) ...[
-        _section('In progress'),
-        ...pending.map((row) => row.child),
-      ],
-      if (recent.isNotEmpty) ...[
-        if (pending.isNotEmpty) _section('Recent'),
-        ...recent.map((row) => row.child),
-      ],
-    ];
+    for (final row in settled) {
+      final title = row.time.year > 1970 ? _day(row.time, today) : 'Recent';
+      if (sections.isEmpty || sections.last.$1 != title) {
+        sections.add((title, []));
+      }
+      sections.last.$2.add(row.child);
+    }
     return ListView.builder(
         key: const PageStorageKey('wallet-activity'),
         primary: false,
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-        itemCount: rows.length,
-        itemBuilder: (_, index) => rows[index]);
+        padding: const EdgeInsets.fromLTRB(
+            ZipherSpacing.md, 0, ZipherSpacing.md, ZipherSpacing.lg),
+        itemCount: sections.length,
+        itemBuilder: (_, index) {
+          final (title, rows) = sections[index];
+          return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                    padding: const EdgeInsets.fromLTRB(ZipherSpacing.xs,
+                        ZipherSpacing.md, ZipherSpacing.xs, ZipherSpacing.sm),
+                    child: Text(title, style: ZipherType.section)),
+                ZipherWidgets.group(rows, inset: 68),
+              ]);
+        });
   }
 
-  Widget _section(String title) => Padding(
-      padding: const EdgeInsets.fromLTRB(4, 16, 4, 4),
-      child: Text(title,
-          style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: ZipherColors.text40)));
-
-  Widget _swapRow(WalletSwapActivity entry) => InkWell(
-      onTap: () => onSwap(entry.swap.depositAddress),
-      borderRadius: BorderRadius.circular(12),
+  Widget _empty() => const Center(
       child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 4),
-          child: Row(children: [
-            const CircleAvatar(
-                radius: 17,
-                backgroundColor: ZipherColors.surfaceLight,
-                child: Icon(Icons.swap_horiz_rounded,
-                    size: 17, color: ZipherColors.cyan)),
-            const SizedBox(width: 12),
-            Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Text('${entry.swap.fromCurrency} → ${entry.swap.toCurrency}',
-                      style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: ZipherColors.textPrimary)),
-                  const SizedBox(height: 4),
-                  Text('NEAR Intents · ${entry.label}',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: entry.unavailable ||
-                                  entry.status?.isFailed == true
-                              ? ZipherColors.syncPending
-                              : ZipherColors.text40)),
-                  const SizedBox(height: 4),
-                  Text('${entry.swap.fromAmount} ${entry.swap.fromCurrency}',
-                      style: const TextStyle(
-                          fontSize: 12, color: ZipherColors.textSecondary)),
-                ])),
-            const Icon(Icons.chevron_right_rounded,
-                size: 16, color: ZipherColors.text40),
+          padding: EdgeInsets.all(ZipherSpacing.lg),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            WalletActivityGlyph(
+                icon: Icons.receipt_long_rounded, color: ZipherColors.text40),
+            SizedBox(height: ZipherSpacing.smMd),
+            Text('No activity yet', style: ZipherType.headline),
+            SizedBox(height: ZipherSpacing.xs),
+            Text('Payments and swaps will appear here.',
+                textAlign: TextAlign.center, style: ZipherType.footnote),
           ])));
+
+  Widget _swapRow(WalletSwapActivity entry, {bool timeOnly = false}) {
+    final swap = entry.swap;
+    final status = entry.status;
+    final problem = entry.unavailable ||
+        status?.isFailed == true ||
+        status?.isRefunded == true ||
+        entry.neverFunded;
+    final done = status?.isSuccess == true;
+    final at = DateTime.fromMillisecondsSinceEpoch(swap.timestamp * 1000);
+    final when = timeOnly
+        ? DateFormat('HH:mm').format(at)
+        : DateFormat('MMM d · HH:mm').format(at);
+    return WalletActivityTile(
+        onTap: () => onSwap(swap.depositAddress),
+        semanticLabel:
+            'Swap ${swap.fromCurrency} to ${swap.toCurrency}, ${entry.label}',
+        leading: SizedBox(
+            width: 40,
+            height: 40,
+            child: CurrencyIcon(
+                symbol: swap.toCurrency,
+                blockchain: swap.toBlockchain,
+                size: 40)),
+        title: '${swap.fromCurrency} → ${swap.toCurrency}',
+        subtitle: 'Swap · $when',
+        amount: '−${swap.fromAmount} ${swap.fromCurrency}',
+        // The stored amount is the provider's quote, not a delivered figure.
+        detail: '≈ ${swap.toAmount} ${swap.toCurrency}',
+        status: done ? null : entry.label,
+        statusColor: problem ? ZipherColors.negative : ZipherColors.pending);
+  }
 }

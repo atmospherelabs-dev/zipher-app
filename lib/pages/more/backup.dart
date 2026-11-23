@@ -208,7 +208,7 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
           backgroundColor: ZipherColors.bg,
           elevation: 0,
           leading: IconButton(
-            icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
+            icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: ZipherColors.text90),
             onPressed: () => GoRouter.of(context).pop(),
           ),
         ),
@@ -232,15 +232,11 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                   ),
                 ),
                 const Gap(20),
-                GestureDetector(
-                  onTap: _loadBackup,
-                  child: Text(
-                    'Tap to retry',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: ZipherColors.cyan.withValues(alpha: 0.7),
-                    ),
-                  ),
+                ZipherButton(
+                  label: 'Tap to retry',
+                  kind: ZipherButtonKind.plain,
+                  size: ZipherButtonSize.small,
+                  onPressed: _loadBackup,
                 ),
               ],
             ),
@@ -269,17 +265,12 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         title: Text(
-          'BACKUP',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          'Backup',
+          style: ZipherType.headline,
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
       ),
@@ -382,8 +373,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: ZipherColors.cardBg,
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                      border: Border.all(color: ZipherColors.borderSubtle),
+                      borderRadius: BorderRadius.circular(ZipherRadius.card),
+                      border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                     ),
                     child: Column(
                       children: [
@@ -556,8 +547,8 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
                         color: ZipherColors.cardBg,
-                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                        border: Border.all(color: ZipherColors.borderSubtle),
+                        borderRadius: BorderRadius.circular(ZipherRadius.card),
+                        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -667,44 +658,11 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
 
                         if (!_verificationPassed) ...[
                           const Gap(16),
-                          Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () => _startVerification(
-                                  (_keychainSeed ?? backup.seed)!),
-                              borderRadius:
-                                  BorderRadius.circular(ZipherRadius.lg),
-                              child: Container(
-                                width: double.infinity,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
-                                decoration: BoxDecoration(
-                                  color:
-                                      ZipherColors.cyan.withValues(alpha: 0.12),
-                                  borderRadius:
-                                      BorderRadius.circular(ZipherRadius.lg),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.quiz_rounded,
-                                        size: 18,
-                                        color: ZipherColors.cyan
-                                            .withValues(alpha: 0.9)),
-                                    const Gap(8),
-                                    Text(
-                                      'Verify Backup',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w700,
-                                        color: ZipherColors.cyan
-                                            .withValues(alpha: 0.9),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
+                          ZipherButton(
+                            label: 'Verify backup',
+                            icon: Icons.quiz_rounded,
+                            onPressed: () => _startVerification(
+                                (_keychainSeed ?? backup.seed)!),
                           ),
                         ],
 
@@ -967,8 +925,8 @@ class _KeyCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1015,8 +973,9 @@ class _KeyCard extends StatelessWidget {
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     decoration: BoxDecoration(
-                      color: ZipherColors.cardBgElevated,
-                      borderRadius: BorderRadius.circular(ZipherRadius.md),
+                      color: ZipherColors.cardBg,
+                      borderRadius: BorderRadius.circular(ZipherRadius.card),
+                      border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                     ),
                     child: Column(
                       children: [
@@ -1060,29 +1019,12 @@ class _KeyCard extends StatelessWidget {
   }
 
   Widget _actionButton(IconData icon, String label, VoidCallback? onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: ZipherColors.cardBgElevated,
-          borderRadius: BorderRadius.circular(ZipherRadius.sm),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 12, color: ZipherColors.text20),
-            const Gap(4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                color: ZipherColors.text40,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      kind: ZipherButtonKind.secondary,
+      size: ZipherButtonSize.small,
+      onPressed: onTap,
     );
   }
 }
@@ -1114,8 +1056,8 @@ class _SeedCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1227,7 +1169,7 @@ class _SeedCard extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: ZipherColors.cardBgElevated,
                       borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                      border: Border.all(color: ZipherColors.borderSubtle),
+                      border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                     ),
                     child: Row(
                       children: [
@@ -1272,29 +1214,12 @@ class _SeedCard extends StatelessWidget {
 
   Widget _actionButton(
       BuildContext context, IconData icon, String label, VoidCallback? onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: ZipherColors.cardBgElevated,
-          borderRadius: BorderRadius.circular(ZipherRadius.sm),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 12, color: ZipherColors.text20),
-            const Gap(4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                color: ZipherColors.text40,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      kind: ZipherButtonKind.secondary,
+      size: ZipherButtonSize.small,
+      onPressed: onTap,
     );
   }
 }
@@ -1369,13 +1294,8 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
           },
         ),
         title: Text(
-          'VERIFY BACKUP',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          'Verify backup',
+          style: ZipherType.headline,
         ),
         centerTitle: true,
       ),
@@ -1412,8 +1332,8 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
                 Container(
                   decoration: BoxDecoration(
                     color: ZipherColors.cardBg,
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    border: Border.all(color: ZipherColors.borderSubtle),
+                    borderRadius: BorderRadius.circular(ZipherRadius.card),
+                    border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                   ),
                   child: TextField(
                     controller: _controllers[i],
@@ -1448,12 +1368,9 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
                 ),
               ],
               const Spacer(flex: 3),
-              SizedBox(
-                width: double.infinity,
-                child: ZipherWidgets.gradientButton(
-                  label: 'Verify',
-                  onPressed: _verify,
-                ),
+              ZipherButton(
+                label: 'Verify',
+                onPressed: _verify,
               ),
               const Gap(16),
             ],

@@ -211,39 +211,11 @@ class _SubmitTxState extends State<SubmitTxPage> {
           const Spacer(flex: 2),
 
           // Mempool link
-          SizedBox(
-            width: double.infinity,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: _openMempool,
-                borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  decoration: BoxDecoration(
-                    color: ZipherColors.cardBg,
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.pending_outlined,
-                          size: 16,
-                          color: ZipherColors.cyan.withValues(alpha: 0.7)),
-                      const Gap(8),
-                      Text(
-                        'View on CipherScan',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: ZipherColors.cyan.withValues(alpha: 0.7),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          ZipherButton(
+            label: 'View on CipherScan',
+            icon: Icons.pending_outlined,
+            kind: ZipherButtonKind.secondary,
+            onPressed: _openMempool,
           ),
           const Gap(6),
           Text(
@@ -256,39 +228,10 @@ class _SubmitTxState extends State<SubmitTxPage> {
           const Gap(12),
 
           // Done button
-          SizedBox(
-            width: double.infinity,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: _done,
-                borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    color: ZipherColors.cyan.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.check_rounded,
-                          size: 20,
-                          color: ZipherColors.cyan.withValues(alpha: 0.9)),
-                      const Gap(8),
-                      Text(
-                        'Done',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: ZipherColors.cyan.withValues(alpha: 0.9),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          ZipherButton(
+            label: 'Done',
+            icon: Icons.check_rounded,
+            onPressed: _done,
           ),
           const Gap(16),
         ],
@@ -363,38 +306,11 @@ class _SubmitTxState extends State<SubmitTxPage> {
           const Spacer(flex: 2),
 
           // Go back button
-          SizedBox(
-            width: double.infinity,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: _done,
-                borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    color: ZipherColors.cardBgElevated,
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.arrow_back_rounded,
-                          size: 18, color: ZipherColors.text60),
-                      const Gap(8),
-                      Text(
-                        'Go Back',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: ZipherColors.text60,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          ZipherButton(
+            label: 'Go back',
+            icon: Icons.arrow_back_rounded,
+            kind: ZipherButtonKind.secondary,
+            onPressed: _done,
           ),
           const Gap(16),
         ],
@@ -444,17 +360,12 @@ class ExportUnsignedTxPage extends StatelessWidget {
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         title: Text(
-          'EXPORT',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          'Export',
+          style: ZipherType.headline,
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [

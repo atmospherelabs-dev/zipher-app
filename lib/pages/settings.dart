@@ -107,18 +107,13 @@ class _SettingsState extends State<SettingsPage> {
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         title: Text(
-          'PREFERENCES',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          'Preferences',
+          style: ZipherType.headline,
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
@@ -143,7 +138,7 @@ class _SettingsState extends State<SettingsPage> {
               Container(
                 decoration: BoxDecoration(
                   color: ZipherColors.cardBg,
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                  borderRadius: BorderRadius.circular(ZipherRadius.card),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: DropdownButtonHideUnderline(
@@ -176,7 +171,7 @@ class _SettingsState extends State<SettingsPage> {
               Container(
                 decoration: BoxDecoration(
                   color: ZipherColors.cardBg,
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                  borderRadius: BorderRadius.circular(ZipherRadius.card),
                 ),
                 child: TextField(
                   controller: TextEditingController(text: appSettings.memo),
@@ -209,30 +204,12 @@ class _SettingsState extends State<SettingsPage> {
               Row(
                 children: [
                   Expanded(child: _sectionLabel('Server')),
-                  GestureDetector(
-                    onTap: _pinging ? null : _pingAllServers,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.speed_rounded,
-                          size: 13,
-                          color: _pinging
-                              ? ZipherColors.text10
-                              : ZipherColors.cyan.withValues(alpha: 0.5),
-                        ),
-                        const Gap(4),
-                        Text(
-                          _pinging ? 'Testing...' : 'Test latency',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _pinging
-                                ? ZipherColors.text40
-                                : ZipherColors.cyan.withValues(alpha: 0.5),
-                          ),
-                        ),
-                      ],
-                    ),
+                  ZipherButton(
+                    label: _pinging ? 'Testing...' : 'Test latency',
+                    icon: Icons.speed_rounded,
+                    kind: ZipherButtonKind.plain,
+                    size: ZipherButtonSize.small,
+                    onPressed: _pinging ? null : _pingAllServers,
                   ),
                 ],
               ),
@@ -251,7 +228,7 @@ class _SettingsState extends State<SettingsPage> {
                       horizontal: 16, vertical: 14),
                   decoration: BoxDecoration(
                     color: ZipherColors.cardBg,
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                    borderRadius: BorderRadius.circular(ZipherRadius.card),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -285,7 +262,7 @@ class _SettingsState extends State<SettingsPage> {
               Container(
                 decoration: BoxDecoration(
                   color: ZipherColors.cardBg,
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                  borderRadius: BorderRadius.circular(ZipherRadius.card),
                 ),
                 child: Column(
                   children: [
@@ -340,7 +317,7 @@ class _SettingsState extends State<SettingsPage> {
     return Container(
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
       ),
       child: Column(
         children: [

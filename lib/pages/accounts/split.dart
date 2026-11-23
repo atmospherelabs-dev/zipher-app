@@ -242,18 +242,13 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
         elevation: 0,
         scrolledUnderElevation: 0,
         title: Text(
-          isPrefilled ? 'MULTI-PAY' : 'SPLIT BILL',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          isPrefilled ? 'Multi-pay' : 'Split bill',
+          style: ZipherType.headline,
         ),
         centerTitle: true,
         leading: IconButton(
           icon:
-              Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
+              Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
@@ -391,8 +386,12 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
             ),
             const Spacer(),
             if (_price != null)
-              GestureDetector(
-                onTap: () {
+              ZipherButton(
+                label: _inputInUsd ? 'ZEC' : 'USD',
+                icon: Icons.swap_horiz_rounded,
+                kind: ZipherButtonKind.secondary,
+                size: ZipherButtonSize.small,
+                onPressed: () {
                   setState(() {
                     _inputInUsd = !_inputInUsd;
                     _totalController.clear();
@@ -400,33 +399,6 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
                     _recalcEqualSplit();
                   });
                 },
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: ZipherColors.cyan.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.swap_horiz_rounded,
-                          size: 12,
-                          color:
-                              ZipherColors.cyan.withValues(alpha: 0.6)),
-                      const Gap(4),
-                      Text(
-                        _inputInUsd ? 'ZEC' : 'USD',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color:
-                              ZipherColors.cyan.withValues(alpha: 0.6),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ),
           ],
         ),
@@ -435,7 +407,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
           height: 56,
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
+            borderRadius: BorderRadius.circular(ZipherRadius.card),
           ),
           child: TextField(
             controller: _totalController,
@@ -534,7 +506,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
       padding: const EdgeInsets.all(ZipherSpacing.xs),
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
       ),
       child: Row(
         children: [
@@ -611,39 +583,11 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
 
         if (!isPrefilled) ...[
           const Gap(10),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: _addRecipient,
-              borderRadius: BorderRadius.circular(ZipherRadius.lg),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  color: ZipherColors.cardBg,
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                  border: Border.all(
-                    color: ZipherColors.cyan.withValues(alpha: 0.12),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.person_add_rounded,
-                        size: 18,
-                        color: ZipherColors.cyan.withValues(alpha: 0.7)),
-                    const Gap(8),
-                    Text(
-                      'Add Person',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: ZipherColors.cyan.withValues(alpha: 0.7),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          ZipherButton(
+            label: 'Add person',
+            icon: Icons.person_add_rounded,
+            kind: ZipherButtonKind.secondary,
+            onPressed: _addRecipient,
           ),
         ],
       ],
@@ -658,7 +602,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -796,8 +740,9 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
-                color: ZipherColors.cardBgElevated,
-                borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                color: ZipherColors.cardBg,
+                borderRadius: BorderRadius.circular(ZipherRadius.card),
+                border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
               ),
               child: Text(
                 _truncateAddr(r.addressController.text),
@@ -968,7 +913,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
             Container(
               decoration: BoxDecoration(
                 color: ZipherColors.cardBg,
-                borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                borderRadius: BorderRadius.circular(ZipherRadius.card),
               ),
               child: TextField(
                 controller: controller,
@@ -992,37 +937,13 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
               ),
             ),
             const Gap(14),
-            SizedBox(
-              width: double.infinity,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () {
-                    r.memoController.text = controller.text;
-                    Navigator.of(ctx).pop();
-                    setState(() {});
-                  },
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    decoration: BoxDecoration(
-                      color: ZipherColors.cyan.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    ),
-                    child: Center(
-                      child: Text(
-                        'Save Memo',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color:
-                              ZipherColors.cyan.withValues(alpha: 0.9),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            ZipherButton(
+              label: 'Save memo',
+              onPressed: () {
+                r.memoController.text = controller.text;
+                Navigator.of(ctx).pop();
+                setState(() {});
+              },
             ),
           ],
         ),
@@ -1045,7 +966,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
       ),
       child: Column(
         children: [
@@ -1194,41 +1115,10 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-        child: SizedBox(
-          width: double.infinity,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: _review,
-              borderRadius: BorderRadius.circular(ZipherRadius.lg),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: ZipherColors.cyan.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.send_rounded,
-                        size: 20,
-                        color:
-                            ZipherColors.cyan.withValues(alpha: 0.9)),
-                    const Gap(10),
-                    Text(
-                      'Review & Send',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color:
-                            ZipherColors.cyan.withValues(alpha: 0.9),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+        child: ZipherButton(
+          label: 'Review & send',
+          icon: Icons.send_rounded,
+          onPressed: _review,
         ),
       ),
     );
