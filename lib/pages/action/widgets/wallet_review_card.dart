@@ -525,13 +525,10 @@ class _WalletReviewCardState extends State<WalletReviewCard> {
         const SizedBox(width: ZipherSpacing.smMd),
         Expanded(
             flex: 2,
-            child: FilledButton(
+            child: ZipherButton(
                 key: WalletReviewCard.confirmKey,
-                onPressed: canConfirm ? _confirm : null,
-                child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child:
-                        Text(_updating ? 'Updating…' : widget.confirmLabel)))),
+                label: _updating ? 'Updating…' : widget.confirmLabel,
+                onPressed: canConfirm ? _confirm : null)),
       ]);
 
   /// What became of a review that can no longer be confirmed.

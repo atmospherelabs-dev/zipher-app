@@ -16,4 +16,6 @@ with synthetic data:
 | More | ![](before/more.png) | ![](after/more.png) |
 | Agent | ![](before/agent.png) | ![](after/agent.png) |
 | Buttons (About) | — | ![](after/about-buttons.png) |
+| Primary button | — | ![](after/button-primary.png) |
+| Button pair | — | ![](after/button-pair.png) |
 | Buttons (dialog) | — | ![](after/dialog-buttons.png) |

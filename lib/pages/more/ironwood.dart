@@ -348,13 +348,13 @@ class _IronwoodState extends State<IronwoodPage> {
               color: ZipherColors.text60, fontSize: 14, height: 1.5)),
       const Gap(24),
       if (stopped)
-        FilledButton(
-            onPressed: _fetchPlan,
-            child: const Text('Review remaining balance'))
+        ZipherButton(
+            label: 'Review remaining balance', onPressed: _fetchPlan)
       else
-        OutlinedButton(
-            onPressed: _triggerTick,
-            child: Text(waiting ? 'Check recovery' : 'Check again')),
+        ZipherButton(
+            label: waiting ? 'Check recovery' : 'Check again',
+            kind: ZipherButtonKind.secondary,
+            onPressed: _triggerTick),
     ]);
   }
 
@@ -460,20 +460,10 @@ class _IronwoodState extends State<IronwoodPage> {
         SizedBox(
           width: double.infinity,
           height: 52,
-          child: ElevatedButton(
-            onPressed: () => setState(() => _phase = _Phase.ready),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: ZipherColors.warm,
-              foregroundColor: ZipherColors.bg,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text(
-              'I Understand, Continue',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-            ),
-          ),
+          child: ZipherButton(
+            label: 'I understand, continue',
+            color: ZipherColors.warm,
+            onPressed: () => setState(() => _phase = _Phase.ready)),
         ),
         const Gap(12),
         Center(
@@ -691,20 +681,10 @@ class _IronwoodState extends State<IronwoodPage> {
         SizedBox(
           width: double.infinity,
           height: 52,
-          child: ElevatedButton(
-            onPressed: _confirmAndCommit,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: ZipherColors.warm,
-              foregroundColor: ZipherColors.bg,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text(
-              'Start Migration',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-            ),
-          ),
+          child: ZipherButton(
+            label: 'Start migration',
+            color: ZipherColors.warm,
+            onPressed: _confirmAndCommit),
         ),
         const Gap(12),
         Center(
@@ -1044,37 +1024,15 @@ class _IronwoodState extends State<IronwoodPage> {
                 SizedBox(
                   width: double.infinity,
                   height: 52,
-                  child: ElevatedButton.icon(
-                    onPressed: hasPendingBroadcast ? null : _triggerTick,
-                    icon: Icon(
-                      hasPendingBroadcast
-                          ? Icons.hourglass_top_rounded
-                          : Icons.fast_forward_rounded,
-                      size: 18,
-                    ),
-                    label: Text(
-                      hasPendingBroadcast
-                          ? 'Waiting for Confirmation...'
-                          : 'Process Next Transaction',
-                      style: const TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.w600),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: hasPendingBroadcast
-                          ? ZipherColors.text10.withValues(alpha: 0.08)
-                          : ZipherColors.warm.withValues(alpha: 0.12),
-                      foregroundColor: hasPendingBroadcast
-                          ? ZipherColors.text40
-                          : ZipherColors.warm,
-                      disabledBackgroundColor:
-                          ZipherColors.text10.withValues(alpha: 0.08),
-                      disabledForegroundColor: ZipherColors.text40,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 0,
-                    ),
-                  ),
+                  child: ZipherButton(
+                    label: hasPendingBroadcast
+                        ? 'Waiting for confirmation…'
+                        : 'Process next transaction',
+                    icon: hasPendingBroadcast
+                        ? Icons.hourglass_top_rounded
+                        : Icons.fast_forward_rounded,
+                    color: ZipherColors.warm,
+                    onPressed: hasPendingBroadcast ? null : _triggerTick),
                 ),
                 const Gap(8),
                 Center(
@@ -1161,23 +1119,13 @@ class _IronwoodState extends State<IronwoodPage> {
             SizedBox(
               width: double.infinity,
               height: 52,
-              child: ElevatedButton(
+              child: ZipherButton(
+                label: 'Cancel stale migration',
+                color: ZipherColors.warm,
                 onPressed: () async {
                   await _stopAutoMigration();
                   setState(() => _phase = _Phase.ready);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: ZipherColors.warm,
-                  foregroundColor: ZipherColors.bg,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'Cancel Stale Migration',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                ),
-              ),
+                }),
             ),
             const Gap(12),
             Center(

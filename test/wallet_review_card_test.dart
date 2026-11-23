@@ -150,7 +150,7 @@ void main() {
       calls++;
     }, cancel: () {}));
     final callback =
-        tester.widget<FilledButton>(find.byKey(WalletReviewCard.confirmKey)).onPressed!;
+        tester.widget<ZipherButton>(find.byKey(WalletReviewCard.confirmKey)).onPressed!;
     callback();
     callback();
     await tester.pump();
@@ -170,13 +170,13 @@ void main() {
     await tester.tap(find.byType(Switch));
     await tester.pump();
     expect(requested, true);
-    expect(tester.widget<FilledButton>(find.byKey(WalletReviewCard.confirmKey)).onPressed,
+    expect(tester.widget<ZipherButton>(find.byKey(WalletReviewCard.confirmKey)).onPressed,
         isNull);
     pending.complete(40000);
     await tester.pumpAndSettle();
     expect(find.text('0.0004 ZEC'), findsOneWidget);
     expect(find.text('0.5004 ZEC'), findsOneWidget);
-    expect(tester.widget<FilledButton>(find.byKey(WalletReviewCard.confirmKey)).onPressed,
+    expect(tester.widget<ZipherButton>(find.byKey(WalletReviewCard.confirmKey)).onPressed,
         isNotNull);
   });
   testWidgets('failed fee update cannot sign the previous proposal',
@@ -192,7 +192,7 @@ void main() {
     await tester.tap(find.byType(Switch));
     await tester.pumpAndSettle();
     expect(find.text('Fee update failed. Retry'), findsOneWidget);
-    expect(tester.widget<FilledButton>(find.byKey(WalletReviewCard.confirmKey)).onPressed,
+    expect(tester.widget<ZipherButton>(find.byKey(WalletReviewCard.confirmKey)).onPressed,
         isNull);
   });
   testWidgets(

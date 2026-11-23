@@ -78,17 +78,18 @@ Amounts always carry their unit and direction (`+0.25 ZEC`, `−0.01 ZEC`).
 
   | Kind | Look | Use |
   |---|---|---|
-  | `primary` | Solid cyan, dark text | The one main action: Send, Confirm, Approve, Done |
-  | `secondary` | Neutral grey fill | Cancel, Not now, Copy, View on explorer |
-  | `tinted` | 14% tint of a color | Destructive (red), or a colored secondary action |
+  | `primary` | Cyan capsule with a soft top sheen and a diffuse cyan halo | The one main action: Send, Confirm, Approve, Done |
+  | `secondary` | Frosted glass: white 8% over a blur, 0.5 pt light edge | Cancel, Not now, Copy, View on explorer |
+  | `tinted` | 14% tint of a color with a matching edge | Destructive (red), or a colored action (Shield, Max) |
   | `plain` | Text only, cyan | Links and low-emphasis actions |
 
-  Sizes: `large` is 52 pt, fills the width, radius 14, label 17/600, and goes at
-  the bottom of a screen or card. `small` is a 36 pt pill with a 15/600 label,
-  for inline actions (Max, Paste, Retry, Copy). Pair a primary with a secondary
-  side by side or stacked (primary first when stacked). Press feedback is a
-  light dim, not a ripple. Disabled buttons turn grey; never just fade a
-  primary. Labels use sentence case.
+  Every button is a capsule. `large` is 52 pt, fills the width, label 17/600;
+  it goes at the bottom of a screen or card. `small` is 36 pt, label 15/600,
+  for inline actions. Pressing scales to 97% with a light haptic (primary)
+  or a selection tick (others). Loading keeps the color and shows a spinner.
+  Disabled buttons become a faint glass capsule with grey text. Labels use
+  sentence case. Stock Material buttons follow the same colors and capsule
+  shape through `ZipherButtonStyle`, but prefer `ZipherButton`.
 - **Grouped list**: `ZipherWidgets.group([...rows])` with `ZipherWidgets.row`:
   icon tile, title, optional subtitle, chevron when tappable. Used by More,
   Wallet status and Activity.

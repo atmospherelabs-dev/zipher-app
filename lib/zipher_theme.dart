@@ -1,4 +1,7 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Zipher Design System — semantic tokens and shared widgets.
 
@@ -1127,7 +1130,7 @@ class ZipherButtonStyle {
     final (Color fill, Color fg) = switch (kind) {
       ZipherButtonKind.primary => (color, ZipherColors.textOnBrand),
       ZipherButtonKind.secondary => (
-          ZipherColors.surfaceLight,
+          Colors.white.withValues(alpha: 0.08),
           ZipherColors.text90
         ),
       ZipherButtonKind.tinted => (color.withValues(alpha: 0.14), color),
@@ -1137,10 +1140,16 @@ class ZipherButtonStyle {
       minimumSize: WidgetStatePropertyAll(Size(large ? 64 : 36, large ? 52 : 36)),
       padding: WidgetStatePropertyAll(EdgeInsets.symmetric(
           horizontal: large ? ZipherSpacing.lg : 14)),
-      shape: WidgetStatePropertyAll(RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(
-              large ? ZipherRadius.control : ZipherRadius.full))),
-      side: const WidgetStatePropertyAll(BorderSide.none),
+      shape: const WidgetStatePropertyAll(StadiumBorder()),
+      side: WidgetStatePropertyAll(switch (kind) {
+        ZipherButtonKind.primary => BorderSide(
+            color: Colors.white.withValues(alpha: 0.28), width: 0.5),
+        ZipherButtonKind.secondary => BorderSide(
+            color: Colors.white.withValues(alpha: 0.14), width: 0.5),
+        ZipherButtonKind.tinted =>
+          BorderSide(color: color.withValues(alpha: 0.28), width: 0.5),
+        ZipherButtonKind.plain => BorderSide.none,
+      }),
       elevation: const WidgetStatePropertyAll(0),
       shadowColor: const WidgetStatePropertyAll(Colors.transparent),
       surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
@@ -1150,7 +1159,7 @@ class ZipherButtonStyle {
         if (!states.contains(WidgetState.disabled)) return fill;
         return kind == ZipherButtonKind.plain
             ? Colors.transparent
-            : ZipherColors.surfaceLight;
+            : Colors.white.withValues(alpha: 0.05);
       }),
       foregroundColor: WidgetStateProperty.resolveWith((states) =>
           states.contains(WidgetState.disabled) ? ZipherColors.text20 : fg),
@@ -1173,9 +1182,11 @@ class ZipherButtonStyle {
   }
 }
 
-/// The app's button. One primary per screen; pair it with a secondary.
+/// The app's button: a capsule, iOS-style. Primary has a soft sheen and a
+/// glow in its own color; secondary is frosted glass; pressing shrinks the
+/// button slightly with a light haptic. One primary per screen.
 /// Large buttons fill the available width.
-class ZipherButton extends StatelessWidget {
+class ZipherButton extends StatefulWidget {
   const ZipherButton({
     super.key,
     required this.label,
@@ -1202,36 +1213,153 @@ class ZipherButton extends StatelessWidget {
   final bool loading;
 
   @override
+  State<ZipherButton> createState() => _ZipherButtonState();
+}
+
+class _ZipherButtonState extends State<ZipherButton> {
+  bool _down = false;
+
+  bool get _enabled => widget.onPressed != null;
+  bool get _large => widget.size == ZipherButtonSize.large;
+
+  void _press(bool down) {
+    if (_down != down && mounted) setState(() => _down = down);
+  }
+
+  void _tap() {
+    if (widget.loading || widget.onPressed == null) return;
+    if (widget.kind == ZipherButtonKind.primary) {
+      HapticFeedback.lightImpact();
+    } else {
+      HapticFeedback.selectionClick();
+    }
+    widget.onPressed!();
+  }
+
+  Color get _foreground {
+    if (!_enabled) return ZipherColors.text20;
+    return switch (widget.kind) {
+      ZipherButtonKind.primary => ZipherColors.textOnBrand,
+      ZipherButtonKind.secondary => ZipherColors.text90,
+      ZipherButtonKind.tinted || ZipherButtonKind.plain => widget.color,
+    };
+  }
+
+  BoxDecoration? get _decoration {
+    final c = widget.color;
+    if (!_enabled) {
+      return widget.kind == ZipherButtonKind.plain
+          ? null
+          : BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(ZipherRadius.full),
+              border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.06), width: 0.5));
+    }
+    return switch (widget.kind) {
+      ZipherButtonKind.primary => BoxDecoration(
+          borderRadius: BorderRadius.circular(ZipherRadius.full),
+          // A soft sheen from the top, like light on a curved surface.
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color.lerp(c, Colors.white, 0.22)!, c],
+          ),
+          border: Border.all(
+              color: Colors.white.withValues(alpha: 0.28), width: 0.5),
+          boxShadow: _large
+              ? [
+                  // A diffuse halo, mostly hidden under the button.
+                  BoxShadow(
+                      color: c.withValues(alpha: _down ? 0.12 : 0.22),
+                      blurRadius: 28,
+                      spreadRadius: -8,
+                      offset: const Offset(0, 10)),
+                ]
+              : null,
+        ),
+      // Frosted glass: a faint white veil over a blur of what is behind.
+      ZipherButtonKind.secondary => BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(ZipherRadius.full),
+          border: Border.all(
+              color: Colors.white.withValues(alpha: 0.14), width: 0.5),
+        ),
+      ZipherButtonKind.tinted => BoxDecoration(
+          color: c.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(ZipherRadius.full),
+          border: Border.all(color: c.withValues(alpha: 0.28), width: 0.5),
+        ),
+      ZipherButtonKind.plain => null,
+    };
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final large = size == ZipherButtonSize.large;
-    final style = ZipherButtonStyle.of(kind, size: size, color: color);
-    final fg = kind == ZipherButtonKind.primary
-        ? ZipherColors.textOnBrand
-        : kind == ZipherButtonKind.secondary
-            ? ZipherColors.text90
-            : color;
-    final child = loading
+    final fg = _foreground;
+    final height = _large ? 52.0 : 36.0;
+    final label = widget.loading
         ? SizedBox(
             width: 18,
             height: 18,
             child: CircularProgressIndicator(strokeWidth: 2, color: fg))
         : Row(mainAxisSize: MainAxisSize.min, children: [
-            if (icon != null) ...[
-              Icon(icon),
-              SizedBox(width: large ? ZipherSpacing.sm : 6),
+            if (widget.icon != null) ...[
+              Icon(widget.icon, size: _large ? 20 : 16, color: fg),
+              SizedBox(width: _large ? ZipherSpacing.sm : 6),
             ],
             Flexible(
-                child: Text(label,
-                    maxLines: 1, overflow: TextOverflow.ellipsis)),
+                child: Text(widget.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: _large ? 17 : 15,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.2,
+                        color: fg))),
           ]);
-    // While loading the button keeps its color but ignores taps.
-    final VoidCallback? tap =
-        loading ? (onPressed == null ? null : () {}) : onPressed;
-    final button = kind == ZipherButtonKind.plain
-        ? TextButton(
-            style: style, onPressed: tap, child: child)
-        : FilledButton(
-            style: style, onPressed: tap, child: child);
-    return large ? SizedBox(width: double.infinity, child: button) : button;
+    Widget body = Container(
+      height: height,
+      constraints: BoxConstraints(minWidth: _large ? 64 : 36),
+      padding: EdgeInsets.symmetric(horizontal: _large ? ZipherSpacing.lg : 14),
+      alignment: Alignment.center,
+      decoration: _decoration,
+      child: label,
+    );
+    if (widget.kind == ZipherButtonKind.secondary && _enabled) {
+      body = ClipRRect(
+        borderRadius: BorderRadius.circular(ZipherRadius.full),
+        child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20), child: body),
+      );
+    }
+    final interactive = _enabled && !widget.loading;
+    return Semantics(
+      button: true,
+      enabled: _enabled,
+      label: widget.loading ? '${widget.label}, in progress' : widget.label,
+      excludeSemantics: true,
+      onTap: interactive ? _tap : null,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: interactive ? (_) => _press(true) : null,
+        onTapUp: interactive ? (_) => _press(false) : null,
+        onTapCancel: interactive ? () => _press(false) : null,
+        onTap: interactive ? _tap : null,
+        child: AnimatedScale(
+          scale: _down ? 0.97 : 1,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          child: AnimatedOpacity(
+            opacity: _down ? 0.85 : 1,
+            duration: const Duration(milliseconds: 120),
+            child: _large
+                ? SizedBox(width: double.infinity, child: body)
+                : body,
+          ),
+        ),
+      ),
+    );
   }
 }

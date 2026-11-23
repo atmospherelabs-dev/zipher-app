@@ -2069,18 +2069,22 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                 const SizedBox(height: 16),
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   if (_privacy.state != NetworkPrivacyState.tor)
-                    OutlinedButton.icon(
-                        onPressed:
-                            _privacy.busy ? null : () => _submit('enable Tor'),
-                        icon: const Icon(Icons.vpn_key_rounded, size: 16),
-                        label: Text(_privacy.state == NetworkPrivacyState.error
+                    ZipherButton(
+                        label: _privacy.state == NetworkPrivacyState.error
                             ? 'Retry Tor'
-                            : 'Enable Tor')),
-                  if (_privacy.state != NetworkPrivacyState.direct)
-                    TextButton(
+                            : 'Enable Tor',
+                        icon: Icons.vpn_key_rounded,
+                        kind: ZipherButtonKind.tinted,
+                        size: ZipherButtonSize.small,
                         onPressed:
-                            _privacy.busy ? null : () => _submit('disable Tor'),
-                        child: const Text('Turn Tor off')),
+                            _privacy.busy ? null : () => _submit('enable Tor')),
+                  if (_privacy.state != NetworkPrivacyState.direct)
+                    ZipherButton(
+                        label: 'Turn Tor off',
+                        kind: ZipherButtonKind.secondary,
+                        size: ZipherButtonSize.small,
+                        onPressed:
+                            _privacy.busy ? null : () => _submit('disable Tor')),
                 ]),
               ]));
 
