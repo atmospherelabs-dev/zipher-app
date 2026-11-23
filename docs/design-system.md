@@ -78,7 +78,7 @@ Amounts always carry their unit and direction (`+0.25 ZEC`, `−0.01 ZEC`).
 
   | Kind | Look | Use |
   |---|---|---|
-  | `primary` | Cyan capsule with a soft top sheen and a diffuse cyan halo | The one main action: Send, Confirm, Approve, Done |
+  | `primary` | Cyan capsule with a soft top sheen | The one main action: Send, Confirm, Approve, Done |
   | `secondary` | Frosted glass: white 8% over a blur, 0.5 pt light edge | Cancel, Not now, Copy, View on explorer |
   | `tinted` | 14% tint of a color with a matching edge | Destructive (red), or a colored action (Shield, Max) |
   | `plain` | Text only, cyan | Links and low-emphasis actions |
@@ -114,8 +114,11 @@ Amounts always carry their unit and direction (`+0.25 ZEC`, `−0.01 ZEC`).
   Yesterday, a weekday, then dates). Each row has a direction glyph or token
   logo, a title, the time (and memo), and an amount with its sign. A swap shows
   ZEC spent and the quoted amount (`≈`), never as delivered.
-- **Review**: both sides of the exchange first, then To, Rate, Network fee
-  (and Total for sends) and arrival time; then **Details**. Cancel and Confirm
-  are pinned above the composer while the review is open.
+- **Review**: a titled header ("Review swap" / "Review payment") with Cancel
+  on the right; each side of the exchange in its own panel (label, amount,
+  dollar value and network, token logo on the right), joined by a round swap
+  badge; then To, Rate, Network fee (and Total for sends) and arrival time
+  with values flush right; then **Details**. One full-width Confirm is pinned
+  above the composer while the review is open.
 - **Agent**: More → Agent and Wallet status → Agent open the same screen. The
   header shows no agent icon; incoming requests open their own approval screen.

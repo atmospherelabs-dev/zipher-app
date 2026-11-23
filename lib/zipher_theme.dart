@@ -1263,20 +1263,10 @@ class _ZipherButtonState extends State<ZipherButton> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color.lerp(c, Colors.white, 0.22)!, c],
+            colors: [Color.lerp(c, Colors.white, 0.14)!, c],
           ),
           border: Border.all(
               color: Colors.white.withValues(alpha: 0.28), width: 0.5),
-          boxShadow: _large
-              ? [
-                  // A diffuse halo, mostly hidden under the button.
-                  BoxShadow(
-                      color: c.withValues(alpha: _down ? 0.12 : 0.22),
-                      blurRadius: 28,
-                      spreadRadius: -8,
-                      offset: const Offset(0, 10)),
-                ]
-              : null,
         ),
       // Frosted glass: a faint white veil over a blur of what is behind.
       ZipherButtonKind.secondary => BoxDecoration(
