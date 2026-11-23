@@ -359,6 +359,26 @@ pub async fn stop() {
     emit_progress_event("phase_changed", None, None).await;
 }
 
+/// Stops sync and forgets everything the previous wallet reported.
+///
+/// Progress is process-wide, and [`set_progress`] only ever raises it, so
+/// without this a newly opened wallet inherits the old wallet's heights and
+/// [`ensure_synced`] can pass before the new wallet has scanned anything.
+/// Called whenever the active engine is replaced or dropped.
+pub async fn reset_for_new_wallet() {
+    stop().await;
+    {
+        let mut p = SYNC_PROGRESS.lock().await;
+        *p = SyncProgressInfo {
+            phase: SYNC_PHASE_IDLE.to_string(),
+            ..SyncProgressInfo::default()
+        };
+    }
+    STUCK_REORG_HEIGHT.store(0, Ordering::SeqCst);
+    STUCK_REORG_COUNT.store(0, Ordering::SeqCst);
+    emit_progress_event("phase_changed", None, None).await;
+}
+
 struct SyncTasks {
     scan: Option<tokio::task::JoinHandle<()>>,
     mempool: Option<tokio::task::JoinHandle<()>>,
@@ -3871,5 +3891,21 @@ mod tests {
             );
             assert!(!dir.path().join("zipher-cache.sqlite").exists());
         }
+    }
+}
+
+#[cfg(test)]
+mod wallet_switch_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn new_wallet_does_not_inherit_previous_progress() {
+        set_progress(2_000_000, 2_000_001).await;
+        assert!(is_synced().await);
+        reset_for_new_wallet().await;
+        assert!(!is_synced().await);
+        assert!(ensure_synced().await.is_err());
+        let p = get_progress().await;
+        assert_eq!((p.synced_height, p.latest_height), (0, 0));
     }
 }

@@ -921,6 +921,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
         name: walletName,
         address: '',
         canPay: true,
+        walletId: ws.activeWalletId ?? '',
       );
 
       final prefs = await SharedPreferences.getInstance();

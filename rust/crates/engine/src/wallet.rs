@@ -339,6 +339,7 @@ async fn activate_engine(
     birthday_height: u64,
     db_cipher_key: Option<String>,
 ) {
+    super::sync::reset_for_new_wallet().await;
     let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
     let transport = WALLET_TRANSPORT.lock().await.clone();
     *ENGINE.lock().await = Some(engine_with_transport(
@@ -549,6 +550,7 @@ pub async fn open(
         .map_err(|e| anyhow::anyhow!("get_account_birthday error: {:?}", e))?;
     tracing::debug!("opened wallet, birthday={}", u32::from(birthday));
 
+    super::sync::reset_for_new_wallet().await;
     let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
     let transport = WALLET_TRANSPORT.lock().await.clone();
     *ENGINE.lock().await = Some(engine_with_transport(
@@ -566,7 +568,7 @@ pub async fn open(
 /// Close the wallet: stop sync, wait for it, then drop the engine.
 pub async fn close() {
     tracing::info!("[engine] close wallet — stopping sync first");
-    super::sync::stop().await;
+    super::sync::reset_for_new_wallet().await;
 
     let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
     *ENGINE.lock().await = None;

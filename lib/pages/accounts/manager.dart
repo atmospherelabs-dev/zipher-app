@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
@@ -8,6 +10,7 @@ import '../../coin/coins.dart';
 import '../../generated/intl/messages.dart';
 import '../../services/wallet_service.dart';
 import '../../services/wallet_registry.dart';
+import '../../store2.dart';
 import '../utils.dart';
 
 class AccountManagerPage extends StatefulWidget {
@@ -385,7 +388,7 @@ class _AccountManagerState extends State<AccountManagerPage> {
     setState(() => _switching = true);
     try {
       final ws = WalletService.instance;
-      await ws.switchWallet(w.id);
+      await switchActiveWallet(w.id);
 
       final balance = await ws.getBalanceOrZero();
       final addrs = await ws.getAddresses();
@@ -397,6 +400,7 @@ class _AccountManagerState extends State<AccountManagerPage> {
         walletId: w.id,
       );
       aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+      unawaited(startAutoSync());
       await _load();
     } catch (e) {
       if (mounted) {
