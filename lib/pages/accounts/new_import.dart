@@ -236,6 +236,9 @@ class _NewImportAccountState extends State<NewImportAccountPage>
 
       // Close any open wallet first (when adding a new account)
       if (!widget.first && wallet.isWalletOpen) {
+        syncStatus2.paused = true;
+        syncTimer?.cancel();
+        syncTimer = null;
         await wallet.closeWallet();
       }
 
@@ -247,6 +250,7 @@ class _NewImportAccountState extends State<NewImportAccountPage>
         name: name,
         address: '',
         canPay: true,
+        walletId: wallet.activeWalletId ?? '',
       );
 
       final prefs = await SharedPreferences.getInstance();

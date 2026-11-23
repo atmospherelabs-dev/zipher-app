@@ -66,6 +66,35 @@ bool isSyncBoosted() {
   return until != null && DateTime.now().isBefore(until);
 }
 
+/// The one way screens change the open wallet.
+///
+/// Pauses the old wallet's sync before closing it, and clears sync state for
+/// the new one so no screen shows (or acts on) the previous wallet's heights.
+/// If the switch fails, sync resumes when the old wallet is still open, or
+/// stays paused and blank when no wallet is left open. The caller sets the
+/// active account and restarts auto sync after a successful switch.
+Future<void> switchActiveWallet(String walletId) async {
+  final ws = WalletService.instance;
+  final previousId = ws.activeWalletId;
+  final wasPaused = syncStatus2.paused;
+  syncStatus2.paused = true;
+  syncTimer?.cancel();
+  syncTimer = null;
+  try {
+    await ws.switchWallet(walletId);
+  } catch (_) {
+    if (ws.isWalletOpen && ws.activeWalletId == previousId) {
+      syncStatus2.paused = wasPaused;
+      if (!wasPaused) unawaited(startAutoSync());
+    } else {
+      syncStatus2.resetForWalletSwitch();
+      syncStatus2.paused = true;
+    }
+    rethrow;
+  }
+  syncStatus2.resetForWalletSwitch();
+}
+
 Future<void> startAutoSync() async {
   if (!WalletService.instance.isWalletOpen) return;
   if (syncTimer == null) {

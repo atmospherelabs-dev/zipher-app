@@ -333,7 +333,15 @@ pub async fn engine_get_sync_progress() -> Result<EngineSyncProgress> {
     })
 }
 
+/// Bumped on every subscription; a forwarder thread exits once it is no
+/// longer the newest, so resubscribing (each wallet switch does) never
+/// leaves an extra thread blocked on the broadcast channel.
+static SYNC_EVENTS_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
+    use std::sync::atomic::Ordering;
+    let generation = SYNC_EVENTS_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let mut receiver = engine::sync::subscribe_events();
     // Send a definitive startup marker so Dart can confirm the event pipeline
     // is actually wired up end-to-end in the binary the user is running.
@@ -369,10 +377,14 @@ pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
         let mut forwarded: u64 = 0;
         let mut lagged_total: u64 = 0;
         loop {
-            match receiver.blocking_recv() {
+            let received = receiver.blocking_recv();
+            if SYNC_EVENTS_GENERATION.load(Ordering::SeqCst) != generation {
+                break;
+            }
+            match received {
                 Ok(event) => {
                     forwarded += 1;
-                    let _ = sink.add(EngineSyncEvent {
+                    let delivered = sink.add(EngineSyncEvent {
                         event_type: event.event_type,
                         scanning_up_to: event.scanning_up_to,
                         phase: event.phase,
@@ -390,6 +402,10 @@ pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
                         blocks_scanned: event.blocks_scanned,
                         blocks_total: event.blocks_total,
                     });
+                    if delivered.is_err() {
+                        // Dart cancelled the stream.
+                        break;
+                    }
                     if forwarded % 200 == 0 {
                         let _ = sink.add(EngineSyncEvent {
                             event_type: "engine_log".to_string(),

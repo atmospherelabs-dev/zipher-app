@@ -37,25 +37,31 @@ class _PaymentURIState extends State<PaymentURIPage> {
   String? _freshShielded;
 
   Future<void> _loadAddresses() async {
+    final ws = WalletService.instance;
+    final generation = ws.walletGeneration;
+    // An address fetched for one wallet must never be shown after a switch:
+    // the payer would be paying the previous wallet.
+    bool current() => mounted && ws.walletGeneration == generation;
     try {
-      final fresh = await WalletService.instance.nextShieldedAddress();
-      if (mounted) setState(() => _freshShielded = fresh);
+      final fresh = await ws.nextShieldedAddress();
+      if (current()) setState(() => _freshShielded = fresh);
     } catch (_) {
       // The wallet's existing address still receives; fall back to it.
     }
+    if (!current()) return;
     if (_freshShielded == null && aa.diversifiedAddress.isEmpty) {
       await aa.updateAddress();
-      if (mounted) setState(() {});
+      if (current()) setState(() {});
     }
     try {
-      final addrs = await WalletService.instance.getTransparentAddresses();
-      if (addrs.isNotEmpty && mounted) {
+      final addrs = await ws.getTransparentAddresses();
+      if (addrs.isNotEmpty && current()) {
         setState(() => _transparentAddress = addrs.first);
       }
     } catch (_) {}
-    if (aa.chainAddresses == null) {
+    if (current() && aa.chainAddresses == null) {
       await aa.updateChainAddresses();
-      if (mounted) setState(() {});
+      if (current()) setState(() {});
     }
   }
 
