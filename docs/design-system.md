@@ -93,8 +93,8 @@ Amounts always carry their unit and direction (`+0.25 ZEC`, `−0.01 ZEC`).
 - **Grouped list**: `ZipherWidgets.group([...rows])` with `ZipherWidgets.row`:
   icon tile, title, optional subtitle, chevron when tappable. Used by More,
   Wallet status and Activity.
-- **Segmented control**: `ZipherSegmented` for 2 to 3 peer views (Chat or
-  Activity), with an optional count badge.
+- **Segmented control**: `ZipherSegmented` for 2 to 3 peer views inside a
+  page, with an optional count badge. Not used on home.
 - **Status dot**: `ZipherWidgets.statusDot`, which always comes with a word
   next to it.
 - **Sheets**: opaque `surface`, drag handle, a `title` heading, then content.
@@ -110,6 +110,12 @@ Amounts always carry their unit and direction (`+0.25 ZEC`, `−0.01 ZEC`).
   single status pill on the right (sync dot and word, plus a lock when Zcash
   traffic uses Tor). Tapping it opens **Wallet status**: sync, network route,
   shielding and agent, each explained in one line and tappable.
+- **Home switching**: no tab bar. The conversation fills the screen; a round
+  Activity button in the header (clock icon, cyan badge with the number of
+  items in progress) swaps it for Activity, which has its own title and Done.
+- **Chat shortcuts**: one wrapping row of identical glass chips, like
+  suggested replies. Send, Receive and Swap get a cyan icon; the rest a
+  neutral one. Tapping a chip is the same as typing its word.
 - **Activity**: an "In progress" group first, then groups by day (Today,
   Yesterday, a weekday, then dates). Each row has a direction glyph or token
   logo, a title, the time (and memo), and an amount with its sign. A swap shows

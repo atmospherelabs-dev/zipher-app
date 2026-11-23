@@ -138,22 +138,21 @@ class ZChatShortcut extends StatelessWidget {
                 borderRadius: BorderRadius.circular(ZipherRadius.full),
                 child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 10),
+                        horizontal: 14, vertical: 9),
+                    // Same glass pill for every shortcut; [secondary] only
+                    // mutes the icon.
                     decoration: BoxDecoration(
-                        color: secondary
-                            ? Colors.transparent
-                            : ZipherColors.cardBg,
+                        color: Colors.white.withValues(alpha: .06),
                         borderRadius: BorderRadius.circular(ZipherRadius.full),
                         border: Border.all(
-                            color: secondary
-                                ? Colors.transparent
-                                : ZipherColors.borderSubtle)),
+                            color: Colors.white.withValues(alpha: .12),
+                            width: .5)),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       leading ??
                           Icon(icon,
                               size: 16,
                               color: onTap == null
-                                  ? ZipherColors.text40
+                                  ? ZipherColors.text20
                                   : secondary
                                       ? ZipherColors.text40
                                       : ZipherColors.cyan),
@@ -162,9 +161,7 @@ class ZChatShortcut extends StatelessWidget {
                           style: TextStyle(
                               color: onTap == null
                                   ? ZipherColors.text40
-                                  : secondary
-                                      ? ZipherColors.text40
-                                      : ZipherColors.textPrimary,
+                                  : ZipherColors.text90,
                               fontSize: 14,
                               fontWeight: FontWeight.w500)),
                     ])))),

@@ -1908,8 +1908,98 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                           color: ZipherColors.orange))),
+            _activityButton(),
+            const SizedBox(width: ZipherSpacing.sm),
             _walletIndicators(),
           ])));
+
+  /// Opens Activity in place of the conversation; the badge counts items
+  /// still in progress. Tapping again returns to the conversation.
+  Widget _activityButton() => ListenableBuilder(
+      listenable: _swapTracker,
+      builder: (_, __) => Observer(builder: (_) {
+            final open = _homeTab == WalletHomeTab.activity;
+            final pending = WalletActivityPanel.pendingCount(
+                _account.txs.items.toList(), _swapTracker.entries);
+            void toggle() {
+              FocusScope.of(context).unfocus();
+              final next =
+                  open ? WalletHomeTab.chat : WalletHomeTab.activity;
+              AppLog.instance.event('activity', '${next.name}_opened');
+              setState(() => _homeTab = next);
+            }
+
+            return Tooltip(
+                message: 'Activity',
+                child: Semantics(
+                    button: true,
+                    selected: open,
+                    label: pending > 0
+                        ? 'Activity, $pending in progress'
+                        : 'Activity',
+                    excludeSemantics: true,
+                    child: GestureDetector(
+                        onTap: toggle,
+                        child: SizedBox(
+                            width: 40,
+                            height: 40,
+                            child: Stack(
+                                clipBehavior: Clip.none,
+                                alignment: Alignment.center,
+                                children: [
+                                  AnimatedContainer(
+                                      duration:
+                                          const Duration(milliseconds: 180),
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: open
+                                              ? ZipherColors.cyan
+                                                  .withValues(alpha: .16)
+                                              : Colors.white
+                                                  .withValues(alpha: .06),
+                                          border: Border.all(
+                                              color: open
+                                                  ? ZipherColors.cyan
+                                                      .withValues(alpha: .35)
+                                                  : ZipherColors.borderSubtle,
+                                              width: .5)),
+                                      child: Icon(Icons.schedule_rounded,
+                                          size: 18,
+                                          color: open
+                                              ? ZipherColors.cyan
+                                              : ZipherColors.text60)),
+                                  if (pending > 0)
+                                    Positioned(
+                                        top: -1,
+                                        right: -2,
+                                        child: Container(
+                                            constraints: const BoxConstraints(
+                                                minWidth: 17),
+                                            height: 17,
+                                            padding: const EdgeInsets
+                                                .symmetric(horizontal: 4),
+                                            alignment: Alignment.center,
+                                            decoration: BoxDecoration(
+                                                color: ZipherColors.cyan,
+                                                borderRadius:
+                                                    BorderRadius.circular(9),
+                                                border: Border.all(
+                                                    color: ZipherColors.bg,
+                                                    width: 2)),
+                                            child: Text(
+                                                pending > 99
+                                                    ? '99+'
+                                                    : '$pending',
+                                                style: const TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight:
+                                                        FontWeight.w700,
+                                                    color: ZipherColors
+                                                        .textOnBrand)))),
+                                ])))));
+          }));
 
   Widget _buildSuggestionChips() => Padding(
       padding: const EdgeInsets.only(top: 18, bottom: 8),
@@ -1919,29 +2009,22 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                 fontSize: 15,
                 color: ZipherColors.textPrimary,
                 fontWeight: FontWeight.w500)),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
+        // One row of identical chips, like suggested replies. The main
+        // actions get a cyan icon; the rest stay neutral.
         Wrap(spacing: 8, runSpacing: 8, children: [
-          for (final (icon, label) in [
-            (Icons.arrow_upward_rounded, 'Send'),
-            (Icons.qr_code_rounded, 'Receive'),
-            (Icons.swap_horiz, 'Swap'),
+          for (final (icon, label, main) in [
+            (Icons.arrow_upward_rounded, 'Send', true),
+            (Icons.qr_code_rounded, 'Receive', true),
+            (Icons.swap_horiz, 'Swap', true),
+            (Icons.account_balance_wallet_outlined, 'Balance', false),
+            (Icons.people_outline_rounded, 'Contacts', false),
+            (Icons.help_outline, 'Help', false),
           ])
             ZChatShortcut(
                 icon: icon,
                 label: label,
-                onTap: _busy ? null : () => _submit(label)),
-        ]),
-        const SizedBox(height: 8),
-        Wrap(spacing: 4, runSpacing: 4, children: [
-          for (final (icon, label) in [
-            (Icons.account_balance_wallet_outlined, 'Balance'),
-            (Icons.people_outline_rounded, 'Contacts'),
-            (Icons.help_outline, 'Help'),
-          ])
-            ZChatShortcut(
-                icon: icon,
-                label: label,
-                secondary: true,
+                secondary: !main,
                 onTap: _busy ? null : () => _submit(label)),
         ]),
       ]));
@@ -2383,7 +2466,6 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
           builder: (_) => WalletActivityPanel(
               chat: chat,
               selectedTab: _homeTab,
-              showTabs: MediaQuery.viewInsetsOf(context).bottom == 0,
               onTabChanged: (tab) {
                 FocusScope.of(context).unfocus();
                 AppLog.instance.event('activity', '${tab.name}_opened');

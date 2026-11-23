@@ -270,12 +270,12 @@ void main() {
           100, 1, 99, DateTime.now(), 'test', 'test', .25, null, null, null, [])
     ];
     await open(tester);
-    await tester.tap(find.text('Activity'));
+    await tester.tap(find.byTooltip('Activity'));
     await tester.tap(find.bySemanticsLabel(RegExp('Expand balance details')));
     await tester.pumpAndSettle();
     expect(find.text('Today'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
-    await tester.tap(find.text('Chat'));
+    await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'send .5');
     tester.view.viewInsets = const FakeViewPadding(bottom: 280);
@@ -408,7 +408,7 @@ void main() {
         theme: ZipherTheme.dark,
         localizationsDelegates: const [S.delegate]));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Activity'));
+    await tester.tap(find.byTooltip('Activity'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('+0.2 ZEC'));
     await tester.pumpAndSettle();
@@ -584,7 +584,7 @@ void main() {
     await tester.tap(find.byTooltip('Send message'));
     await tester.pumpAndSettle();
     expect(find.byType(ZChatComposer), findsNothing);
-    await tester.tap(find.text('Chat'));
+    await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
     expect(find.byType(ZChatComposer), findsOneWidget);
   });
@@ -648,13 +648,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(TextField), findsOneWidget);
     expect(find.text('Incoming'), findsNothing);
-    await tester.tap(find.text('Activity'));
+    await tester.tap(find.byTooltip('Activity'));
     await tester.pumpAndSettle();
     expect(find.byType(TextField), findsNothing);
     expect(find.widgetWithText(ZChatShortcut, 'Send'), findsNothing);
     expect(find.text('In progress'), findsOneWidget);
     expect(find.text('Incoming'), findsOneWidget);
-    await tester.tap(find.text('Chat'));
+    await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
     expect(find.text('send .02'), findsOneWidget);
     expect(find.text('Incoming'), findsNothing);

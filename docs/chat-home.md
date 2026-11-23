@@ -18,7 +18,7 @@ is also in More → Agent. Design rules: `docs/design-system.md`.
 Shared opaque surface and text tokens keep sheets, chat cards, inputs and pages
 consistent. The pool sheet uses the root navigator and an opaque surface, covering
 the composer and bottom navigation. Pool colors use the shared pool tokens.
-Home has two mutually exclusive views, Chat and Activity, chosen with a segmented control. Chat is the default and
+Home has two mutually exclusive views, Chat and Activity. There is no tab bar: the header's Activity button (with a badge counting items in progress) switches to Activity, whose Done button returns to the chat. Chat is the default and
 contains messages, action shortcuts and the composer. Activity uses the full
 remaining height, with pending Zcash transfers and active NEAR Intents swaps
 first ("In progress"), followed by settled transactions and swap results grouped

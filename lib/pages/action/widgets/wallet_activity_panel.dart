@@ -20,7 +20,6 @@ class WalletActivityPanel extends StatelessWidget {
       required this.chat,
       required this.selectedTab,
       required this.onTabChanged,
-      this.showTabs = true,
       this.now});
   final List<Tx> transactions;
   final List<WalletSwapActivity> swaps;
@@ -29,41 +28,50 @@ class WalletActivityPanel extends StatelessWidget {
   final Widget chat;
   final WalletHomeTab selectedTab;
   final ValueChanged<WalletHomeTab> onTabChanged;
-  final bool showTabs;
 
   /// Clock for day headings; the device clock unless a test supplies one.
   final DateTime Function()? now;
 
-  bool _pending(Tx tx) => tx.height == 0 && !tx.expiredUnmined;
-  List<Tx> get _transactions {
+  static bool _pending(Tx tx) => tx.height == 0 && !tx.expiredUnmined;
+
+  /// Transactions minus swap deposits, which their swap row represents.
+  static List<Tx> _withoutDeposits(
+      List<Tx> transactions, List<WalletSwapActivity> swaps) {
     final deposits =
         swaps.map((entry) => entry.swap.txId).whereType<String>().toSet();
     return transactions.where((tx) => !deposits.contains(tx.fullTxId)).toList();
   }
 
+  List<Tx> get _transactions => _withoutDeposits(transactions, swaps);
+
+  /// Items still in progress, for the badge on the home Activity button.
+  static int pendingCount(
+          List<Tx> transactions, List<WalletSwapActivity> swaps) =>
+      _withoutDeposits(transactions, swaps).where(_pending).length +
+      swaps.where((entry) => entry.isLive).length;
+
+  /// No switcher: the home header's Activity button selects the view, and
+  /// Activity has its own title with Done to go back to the conversation.
   @override
-  Widget build(BuildContext context) => Column(children: [
-        if (showTabs)
+  Widget build(BuildContext context) =>
+      IndexedStack(index: selectedTab.index, children: [
+        chat,
+        Column(children: [
           Padding(
-              padding: const EdgeInsets.fromLTRB(ZipherSpacing.md,
-                  ZipherSpacing.xs, ZipherSpacing.md, ZipherSpacing.sm),
-              child: ZipherSegmented<WalletHomeTab>(
-                  selected: selectedTab,
-                  onChanged: onTabChanged,
-                  segments: [
-                    (value: WalletHomeTab.chat, label: 'Chat', badge: 0),
-                    (
-                      value: WalletHomeTab.activity,
-                      label: 'Activity',
-                      badge: _transactions.where(_pending).length +
-                          swaps.where((entry) => entry.isLive).length
-                    ),
-                  ])),
-        Expanded(
-            child: IndexedStack(index: selectedTab.index, children: [
-          chat,
-          _activity(),
-        ])),
+              padding: const EdgeInsets.fromLTRB(
+                  ZipherSpacing.md + ZipherSpacing.xs, ZipherSpacing.xs,
+                  ZipherSpacing.sm, 0),
+              child: Row(children: [
+                const Expanded(
+                    child: Text('Activity', style: ZipherType.title)),
+                ZipherButton(
+                    label: 'Done',
+                    kind: ZipherButtonKind.plain,
+                    size: ZipherButtonSize.small,
+                    onPressed: () => onTabChanged(WalletHomeTab.chat)),
+              ])),
+          Expanded(child: _activity()),
+        ]),
       ]);
 
   /// Day heading: Today, Yesterday, a weekday this week, else the date.
