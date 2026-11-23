@@ -1957,6 +1957,7 @@ mod security_tests {
         let route = zipher_engine::hitl::PhoneRoute { state_dir: &data_dir, use_tor: false };
         let phone = zipher_engine::hitl::phone_complete_pairing(&session.start.uri, &keys, &route).await.unwrap();
         session.poll(&data_dir).await.unwrap();
+        session.confirm(&data_dir).await.unwrap();
 
         let ask = |amount| zipher_engine::hitl::request_approval(&data_dir, zipher_engine::hitl::ApprovalInput {
             network: "main", address: "u1merchant", amount, fee: 10_000, memo: None, context_id: None, tool: "propose_send",

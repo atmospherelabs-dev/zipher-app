@@ -18,6 +18,19 @@ static TOR_CLIENTS: tokio::sync::Mutex<Option<HashMap<PathBuf, tor::Client>>> = 
 
 const TOR_BOOTSTRAP: Duration = Duration::from_secs(120);
 const DIRECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Relay replies are small; refuse anything larger.
+const MAX_REPLY: usize = 256 * 1024;
+
+async fn read_limited(mut resp: reqwest::Response) -> Result<Vec<u8>> {
+    let mut body = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| anyhow!("Could not read the relay's reply: {e}"))? {
+        if body.len() + chunk.len() > MAX_REPLY {
+            return Err(anyhow!("The relay's reply is too large"));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
 
 pub struct Reply {
     pub status: u16,
@@ -76,6 +89,15 @@ impl Net {
         ))
     }
 
+    /// The same route on a fresh Tor circuit, so requests for different
+    /// mailboxes cannot be tied together by the circuit they share.
+    pub fn isolated(&self) -> Self {
+        match self {
+            Net::Direct(c) => Net::Direct(c.clone()),
+            Net::Tor(c) => Net::Tor(c.isolated_client()),
+        }
+    }
+
     pub fn is_tor(&self) -> bool {
         matches!(self, Net::Tor(_))
     }
@@ -90,7 +112,7 @@ impl Net {
                 }
                 let resp = req.send().await.map_err(|e| anyhow!("Could not reach the relay: {e}"))?;
                 let status = resp.status().as_u16();
-                Ok(Reply { status, body: resp.bytes().await.unwrap_or_default().to_vec() })
+                Ok(Reply { status, body: read_limited(resp).await? })
             }
             Net::Tor(client) => {
                 let uri: hyper::Uri = url.parse().context("relay URL")?;
@@ -110,7 +132,11 @@ impl Net {
                     .await
                     .map_err(|e| anyhow!("Could not reach the relay over Tor: {e}"))?;
                 let status = resp.status().as_u16();
-                Ok(Reply { status, body: resp.into_body() })
+                let body = resp.into_body();
+                if body.len() > MAX_REPLY {
+                    return Err(anyhow!("The relay's reply is too large"));
+                }
+                Ok(Reply { status, body })
             }
         }
     }
@@ -128,7 +154,7 @@ impl Net {
                 }
                 let resp = req.send().await.map_err(|e| anyhow!("Could not reach the relay: {e}"))?;
                 let status = resp.status().as_u16();
-                Ok(Reply { status, body: resp.bytes().await.unwrap_or_default().to_vec() })
+                Ok(Reply { status, body: read_limited(resp).await? })
             }
             Net::Tor(client) => {
                 let uri: hyper::Uri = url.parse().context("relay URL")?;
@@ -154,7 +180,11 @@ impl Net {
                     .await
                     .map_err(|e| anyhow!("Could not reach the relay over Tor: {e}"))?;
                 let status = resp.status().as_u16();
-                Ok(Reply { status, body: resp.into_body() })
+                let body = resp.into_body();
+                if body.len() > MAX_REPLY {
+                    return Err(anyhow!("The relay's reply is too large"));
+                }
+                Ok(Reply { status, body })
             }
         }
     }

@@ -113,7 +113,10 @@ final class PushBridge: NSObject, FlutterPlugin {
     case "register":
       UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
         DispatchQueue.main.async {
-          guard granted else { result(nil); return }
+          guard granted else {
+            result(FlutterError(code: "denied", message: "Notifications are not allowed for Zipher", details: nil))
+            return
+          }
           self.pending?(nil)
           self.pending = result
           UIApplication.shared.registerForRemoteNotifications()
@@ -121,6 +124,11 @@ final class PushBridge: NSObject, FlutterPlugin {
       }
     case "unregister":
       UIApplication.shared.unregisterForRemoteNotifications()
+      result(nil)
+    case "openSettings":
+      if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+        UIApplication.shared.open(url)
+      }
       result(nil)
     case "isSandbox":
       #if DEBUG

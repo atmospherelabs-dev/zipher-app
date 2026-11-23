@@ -40,6 +40,7 @@ class HitlWatchService {
   static const _torPref = 'hitl_tor';
   static const _pushPref = 'hitl_push';
   static const _pushRefreshedPref = 'hitl_push_refreshed_day';
+  static const _pairedAtPref = 'hitl_paired_at';
   static const _push = MethodChannel('zipher/push');
 
   Timer? _timer;
@@ -52,7 +53,12 @@ class HitlWatchService {
   bool _pushOn = false;
   String? _stateDir;
 
+  /// Drives the home indicator and the Agent screen.
+  final paired = ValueNotifier<bool>(false);
+
   bool get isPaired => _pairingJson != null;
+  int? _pairedAt;
+  int? get pairedAt => _pairedAt;
   String? get agentName => _agentName;
   bool get useTor => _useTor;
   bool get pushEnabled => _pushOn;
@@ -66,6 +72,7 @@ class HitlWatchService {
   void debugSetPaired(String? agentName) {
     _agentName = agentName;
     _pairingJson = agentName == null ? null : '{}';
+    paired.value = agentName != null;
   }
 
   Future<void> init() async {
@@ -80,6 +87,8 @@ class HitlWatchService {
     try {
       _pairingJson = await _storage.read(key: _pairingKey);
       _agentName = _pairingJson == null ? null : _readAgentName(_pairingJson!);
+      _pairedAt = prefs.getInt(_pairedAtPref);
+      paired.value = _pairingJson != null;
     } on PlatformException catch (e) {
       _log.w('[HITL] Secure storage unavailable: ${e.code}');
     }
@@ -120,18 +129,24 @@ class HitlWatchService {
   }
 
   /// Called after the user confirmed the check code and authenticated.
-  Future<void> completePairing(String uri) async {
-    var keys = await _storage.read(key: _keysKey);
-    if (keys == null) {
-      keys = await rust_engine.hitlGeneratePhoneKeys();
-      await _storage.write(key: _keysKey, value: keys);
-    }
+  /// Returns the code the operator must see in their terminal.
+  ///
+  /// Every pairing gets fresh keys, so two agents (or the relay) can't link
+  /// this phone across pairings, and an old agent's key is useless here.
+  Future<String> completePairing(String uri) async {
+    final keys = await rust_engine.hitlGeneratePhoneKeys();
     final pairingJson = await rust_engine.hitlCompletePairing(
         uri: uri, keysHex: keys, stateDir: await _dir(), useTor: _useTor);
+    final code = await rust_engine.hitlPairedCode(pairingJson: pairingJson, keysHex: keys);
     final old = _pairingJson;
+    await _storage.write(key: _keysKey, value: keys);
     await _storage.write(key: _pairingKey, value: pairingJson);
     _pairingJson = pairingJson;
     _agentName = _readAgentName(pairingJson);
+    _pairedAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_pairedAtPref, _pairedAt!);
+    paired.value = true;
     _shownIds.clear();
     if (old != null) {
       unawaited(rust_engine
@@ -140,6 +155,7 @@ class HitlWatchService {
     }
     _log.i('[HITL] Paired with an agent');
     start();
+    return code;
   }
 
   Future<void> unpair() async {
@@ -147,7 +163,10 @@ class HitlWatchService {
     final old = _pairingJson;
     _pairingJson = null;
     _agentName = null;
+    _pairedAt = null;
+    paired.value = false;
     await _storage.delete(key: _pairingKey);
+    (await SharedPreferences.getInstance()).remove(_pairedAtPref);
     if (_pushOn) {
       await _setPushPref(false);
       unawaited(_push.invokeMethod('unregister').catchError((_) {}));
@@ -202,20 +221,28 @@ class HitlWatchService {
   }
 
   /// Ask iOS for permission and register this device for wake-ups on the
-  /// coming week's mailboxes. Returns false if the user declined.
-  Future<bool> enablePush() async {
+  /// coming week's mailboxes.
+  Future<PushResult> enablePush() async {
     final pairing = _pairingJson;
-    if (pairing == null || !pushSupported) return false;
-    final token = await _push.invokeMethod<String>('register');
-    if (token == null) return false;
+    if (pairing == null || !pushSupported) return PushResult.failed;
+    final String? token;
+    try {
+      token = await _push.invokeMethod<String>('register');
+    } on PlatformException catch (e) {
+      return e.code == 'denied' ? PushResult.denied : PushResult.failed;
+    }
+    if (token == null) return PushResult.failed;
     final sandbox = await _push.invokeMethod<bool>('isSandbox') ?? false;
     await rust_engine.hitlSetPush(
         pairingJson: pairing, apnsToken: token, sandbox: sandbox, stateDir: await _dir(), useTor: _useTor);
     await _setPushPref(true);
     await _markPushRefreshed();
     _log.i('[HITL] Notifications on');
-    return true;
+    return PushResult.on;
   }
+
+  /// iOS only asks once; after a refusal the switch lives in Settings.
+  Future<void> openNotificationSettings() => _push.invokeMethod('openSettings');
 
   Future<void> disablePush() async {
     final pairing = _pairingJson;
@@ -258,6 +285,9 @@ class HitlWatchService {
     try {
       final keys = await _storage.read(key: _keysKey);
       if (keys == null) return;
+      // Startup replaces the whole screen stack when it lands on the wallet;
+      // wait for that, or an approval shown now would be wiped.
+      if (!_appReady()) return;
       final requests = await rust_engine.hitlFetchRequests(
           pairingJson: pairing, keysHex: keys, stateDir: await _dir(), useTor: _useTor);
       final network = isTestnet ? 'test' : 'main';
@@ -304,6 +334,13 @@ class HitlWatchService {
     _log.i('[HITL] Decision sent (approved=$approved)');
   }
 
+  bool _appReady() {
+    final context = rootNavigatorKey.currentContext;
+    if (context == null || !context.mounted) return false;
+    final path = GoRouter.of(context).routerDelegate.currentConfiguration.uri.path;
+    return path.isNotEmpty && path != '/splash' && path != '/';
+  }
+
   void _showApproval(rust_engine.HitlRequest request) {
     final context = rootNavigatorKey.currentContext;
     if (context == null || !context.mounted) return;
@@ -314,6 +351,8 @@ class HitlWatchService {
   /// Called by the approval screen when it goes away, answered or not.
   void approvalClosed(String approvalId) => _openIds.remove(approvalId);
 }
+
+enum PushResult { on, denied, failed }
 
 class HitlPairingArgs {
   final String uri;

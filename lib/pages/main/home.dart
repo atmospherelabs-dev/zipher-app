@@ -339,6 +339,39 @@ class _HomeState extends State<HomePageInner> {
                               ),
                             ),
                             const Spacer(),
+                            // Paired agent: visible whenever one can ask
+                            // this phone for approvals.
+                            ValueListenableBuilder<bool>(
+                              valueListenable:
+                                  HitlWatchService.instance.paired,
+                              builder: (context, paired, _) => !paired
+                                  ? const SizedBox.shrink()
+                                  : Padding(
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: Semantics(
+                                        button: true,
+                                        label: 'Paired agent',
+                                        child: GestureDetector(
+                                          onTap: () => GoRouter.of(context)
+                                              .push('/hitl/agent'),
+                                          child: Container(
+                                            width: 36,
+                                            height: 36,
+                                            decoration: BoxDecoration(
+                                              color: ZipherColors.cyan
+                                                  .withValues(alpha: 0.14),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(
+                                              Icons.smart_toy_rounded,
+                                              size: 18,
+                                              color: ZipherColors.cyan,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                            ),
                             // QR scan shortcut
                             GestureDetector(
                               onTap: () async {

@@ -903,6 +903,14 @@ Future<String> hitlCompletePairing(
     RustLib.instance.api.crateApiEngineApiHitlCompletePairing(
         uri: uri, keysHex: keysHex, stateDir: stateDir, useTor: useTor);
 
+/// Six-digit code the phone shows after pairing. `zipher pair` asks the
+/// operator to confirm their terminal shows the same one, which catches
+/// someone else's phone answering a leaked pairing code.
+Future<String> hitlPairedCode(
+        {required String pairingJson, required String keysHex}) =>
+    RustLib.instance.api.crateApiEngineApiHitlPairedCode(
+        pairingJson: pairingJson, keysHex: keysHex);
+
 Future<List<HitlRequest>> hitlFetchRequests(
         {required String pairingJson,
         required String keysHex,

@@ -38,6 +38,7 @@ import 'pages/frost/frost_recovery.dart';
 import 'pages/frost/frost_sign_coordinator.dart';
 import 'pages/frost/frost_hub.dart';
 import 'pages/hitl/hitl_approve.dart';
+import 'pages/hitl/hitl_agent.dart';
 import 'pages/hitl/hitl_pair.dart';
 import 'services/cipherpay_client.dart';
 import 'services/hitl_watch_service.dart';
@@ -499,6 +500,11 @@ final router = GoRouter(
         }
         return _slideUpPage(const Scaffold(), state);
       },
+    ),
+    GoRoute(
+      path: '/hitl/agent',
+      parentNavigatorKey: rootNavigatorKey,
+      pageBuilder: (context, state) => _slideUpPage(const HitlAgentPage(), state),
     ),
     GoRoute(
       path: '/hitl/pair',

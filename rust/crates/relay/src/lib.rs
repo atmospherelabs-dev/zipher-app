@@ -21,12 +21,19 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use zipher_hitl_protocol::wire::{PendingRequests, PostRequest, RegisterChannel, MAX_BLOB_CHARS};
-use zipher_hitl_protocol::{token_matches, unb64, PairResponse, Sealed, MAX_REQUEST_TTL_SECS};
+use zipher_hitl_protocol::{pow_ok, token_matches, unb64, PairResponse, Sealed, MAX_REQUEST_TTL_SECS, REGISTER_POW_BITS};
 
 pub const MAX_OPEN_REQUESTS: usize = 8;
 pub const MAX_CHANNELS: usize = 50_000;
 pub const UNPAIRED_TTL: Duration = Duration::from_secs(600);
 pub const REGISTRATIONS_PER_MINUTE: u32 = 600;
+/// A day's mailbox registered but never used is dropped after this long, so
+/// registrations alone cannot fill the relay.
+pub const UNUSED_TTL: Duration = Duration::from_secs(3600);
+/// Shortest lifetime a request may have; stops a flood of instant requests.
+pub const MIN_REQUEST_TTL_SECS: u64 = 60;
+/// At most one wake-up push per mailbox in this window.
+pub const PUSH_INTERVAL: Duration = Duration::from_secs(30);
 /// A day's mailbox nobody touched for this long is dropped.
 pub const IDLE_TTL: Duration = Duration::from_secs(3 * 86_400);
 /// Revoked mailboxes answer 410 for this long, so a phone learns it was unpaired.
@@ -56,6 +63,9 @@ struct Channel {
     stored: StoredChannel,
     created: Instant,
     last_active: Instant,
+    /// Any authenticated call since registration.
+    used: bool,
+    last_push: Option<Instant>,
     pair_blob: Option<PairResponse>,
     requests: HashMap<String, PostRequest>,
     decisions: HashMap<String, (Sealed, u64)>,
@@ -138,6 +148,8 @@ impl Relay {
                     stored,
                     created: Instant::now(),
                     last_active: Instant::now(),
+                    used: true,
+                    last_push: None,
                     pair_blob: None,
                     requests: HashMap::new(),
                     decisions: HashMap::new(),
@@ -175,6 +187,7 @@ impl Relay {
         let before = inner.channels.len();
         inner.channels.retain(|_, c| match c.stored.revoked_at {
             Some(at) => now < at + REVOKED_TTL_SECS,
+            None if c.stored.paired && !c.used => c.created.elapsed() < UNUSED_TTL,
             None if c.stored.paired => c.last_active.elapsed() < IDLE_TTL,
             None => c.created.elapsed() < UNPAIRED_TTL,
         });
@@ -215,6 +228,7 @@ fn authed<'a>(inner: &'a mut Inner, c: &str, headers: &HeaderMap, side: Side) ->
         return None;
     }
     ch.last_active = Instant::now();
+    ch.used = true;
     Some(ch)
 }
 
@@ -232,6 +246,9 @@ async fn register(State(relay): State<Relay>, Json(body): Json<RegisterChannel>)
     };
     if agent_hash == phone_hash {
         return err(StatusCode::BAD_REQUEST, "invalid channel registration");
+    }
+    if !pow_ok(&id, body.pow, REGISTER_POW_BITS) {
+        return err(StatusCode::FORBIDDEN, "proof of work required");
     }
     let mut inner = relay.inner.lock().await;
     if inner.window_start.elapsed() > Duration::from_secs(60) {
@@ -251,6 +268,8 @@ async fn register(State(relay): State<Relay>, Json(body): Json<RegisterChannel>)
             stored: StoredChannel { agent_hash, phone_hash, paired: body.rotated, push: None, revoked_at: None },
             created: Instant::now(),
             last_active: Instant::now(),
+            used: false,
+            last_push: None,
             pair_blob: None,
             requests: HashMap::new(),
             decisions: HashMap::new(),
@@ -315,7 +334,7 @@ async fn post_request(
     let now = now_unix();
     if !valid_approval_id(&body.approval_id)
         || !sealed_ok(&body.sealed)
-        || body.expires_at <= now
+        || body.expires_at < now + MIN_REQUEST_TTL_SECS
         || body.expires_at > now + MAX_REQUEST_TTL_SECS
     {
         return err(StatusCode::BAD_REQUEST, "invalid request");
@@ -337,7 +356,13 @@ async fn post_request(
     }
     let expires_at = body.expires_at;
     ch.requests.insert(body.approval_id.clone(), body);
-    let target = ch.stored.push.clone();
+    let target = match ch.last_push {
+        Some(at) if at.elapsed() < PUSH_INTERVAL => None,
+        _ => ch.stored.push.clone(),
+    };
+    if target.is_some() {
+        ch.last_push = Some(Instant::now());
+    }
     drop(inner);
 
     if let (Some(apns), Some(target)) = (relay.apns.clone(), target) {
@@ -455,6 +480,8 @@ mod tests {
     use axum::http::Request;
     use http_body_util::BodyExt;
     use tower::ServiceExt;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+    use base64::Engine as _;
     use zipher_hitl_protocol::*;
 
     async fn call(app: &Router, method: &str, path: &str, token: Option<&[u8; 32]>, body: Option<serde_json::Value>) -> (StatusCode, serde_json::Value) {
@@ -462,6 +489,14 @@ mod tests {
         if let Some(t) = token {
             req = req.header("authorization", format!("Bearer {}", b64(t)));
         }
+        let body = match body {
+            Some(mut b) if method == "POST" && path == "/v1/channels" && b.get("pow").is_none() => {
+                let id = B64.decode(b["channel_id"].as_str().unwrap()).unwrap_or_default();
+                b["pow"] = solve_pow(&id, REGISTER_POW_BITS).into();
+                Some(b)
+            }
+            other => other,
+        };
         let req = match body {
             Some(b) => req.header("content-type", "application/json").body(Body::from(b.to_string())),
             None => req.body(Body::empty()),
@@ -558,7 +593,7 @@ mod tests {
         let item = &list.requests[0];
         let opened = open_request(&s.phone, &s.offer.agent_public, &s.offer.channel_id, &item.approval_id, &item.sealed).unwrap();
         assert_eq!(opened, req);
-        let d = sign_decision(&s.phone, &opened, true, now + 1);
+        let d = sign_decision(&s.phone, &s.offer.agent_public, &opened, true, now + 1);
         let sealed_d = seal_decision(&s.phone, &s.offer.agent_public, &s.offer.channel_id, &d).unwrap();
         let body = serde_json::to_value(&sealed_d).unwrap();
         assert_eq!(call(&s.app, "POST", &dec_path, Some(&tokens.phone), Some(body.clone())).await.0, StatusCode::CREATED);
@@ -570,7 +605,7 @@ mod tests {
         assert_eq!(st, StatusCode::OK);
         let got: Sealed = serde_json::from_value(got).unwrap();
         let decision = open_decision(&s.agent, &s.pinned, &s.offer.channel_id, &req.approval_id, &got).unwrap();
-        assert!(verify_decision(&s.pinned, &req, &decision, now + 2).unwrap());
+        assert!(verify_decision(&s.agent, &s.pinned, &req, &decision, now + 2).unwrap());
         assert_eq!(call(&s.app, "GET", &dec_path, Some(&tokens.agent), None).await.0, StatusCode::NOT_FOUND);
         let (_, list) = call(&s.app, "GET", &req_path, Some(&tokens.phone), None).await;
         assert!(list["requests"].as_array().unwrap().is_empty());
@@ -708,7 +743,15 @@ mod tests {
             UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, &public).verify(input.as_bytes(), &sig).unwrap();
         }
 
-        // Second push gets 410 Gone: the relay forgets the token.
+        // A burst of requests wakes the phone once.
+        call(&app, "POST", &req_path, Some(&t.agent), Some(send(2))).await;
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert_eq!(seen.0.lock().unwrap().len(), 1);
+
+        // After the interval, the next push gets 410 Gone: the relay forgets the token.
+        for ch in relay.inner.lock().await.channels.values_mut() {
+            ch.last_push = None;
+        }
         call(&app, "POST", &req_path, Some(&t.agent), Some(send(1))).await;
         for _ in 0..50 {
             let gone = relay.inner.lock().await.channels.values().all(|ch| ch.stored.push.is_none());
@@ -716,6 +759,41 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         assert!(relay.inner.lock().await.channels.values().all(|ch| ch.stored.push.is_none()));
+    }
+
+    #[tokio::test]
+    async fn registrations_cost_work_and_unused_ones_expire() {
+        let relay = Relay::new(None);
+        let app = relay.clone().router();
+        let day = epoch_channel(&[3u8; 32], 20_416);
+        let c = b64(&day.channel_id);
+        let mut reg = serde_json::json!({
+            "channel_id": c,
+            "agent_token_hash": b64(&token_hash(&day.agent_token)),
+            "phone_token_hash": b64(&token_hash(&day.phone_token)),
+            "rotated": true,
+        });
+        reg["pow"] = 0.into();
+        let pow = solve_pow(&day.channel_id, REGISTER_POW_BITS);
+        if pow != 0 {
+            assert_eq!(call(&app, "POST", "/v1/channels", None, Some(reg.clone())).await.0, StatusCode::FORBIDDEN);
+        }
+        reg["pow"] = pow.into();
+        assert_eq!(call(&app, "POST", "/v1/channels", None, Some(reg)).await.0, StatusCode::CREATED);
+
+        // Never used: swept once UNUSED_TTL has passed.
+        relay.inner.lock().await.channels.get_mut(&day.channel_id).unwrap().created -= UNUSED_TTL + Duration::from_secs(1);
+        relay.sweep().await;
+        assert!(relay.inner.lock().await.channels.is_empty());
+
+        // Requests must live long enough to be seen.
+        let s = paired_setup().await;
+        let tokens = s.offer.tokens();
+        let now = now_unix();
+        let sealed = Sealed { nonce: b64(&[0u8; 24]), ciphertext: "A".repeat(10) };
+        let post = serde_json::json!({"approval_id": new_approval_id(), "expires_at": now + 5, "sealed": sealed});
+        let path = format!("/v1/channels/{}/requests", s.c);
+        assert_eq!(call(&s.app, "POST", &path, Some(&tokens.agent), Some(post)).await.0, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

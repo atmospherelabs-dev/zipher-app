@@ -12,7 +12,10 @@ import 'hitl_widgets.dart';
 /// from anywhere else can't pair silently.
 class HitlPairPage extends StatefulWidget {
   final HitlPairingArgs args;
-  const HitlPairPage({super.key, required this.args});
+  /// Tests start on the confirm-on-computer step.
+  @visibleForTesting
+  final String? debugPairedCode;
+  const HitlPairPage({super.key, required this.args, this.debugPairedCode});
 
   @override
   State<HitlPairPage> createState() => _HitlPairPageState();
@@ -22,6 +25,8 @@ class _HitlPairPageState extends State<HitlPairPage> {
   bool _busy = false;
   bool _done = false;
   bool _askPush = false;
+  /// Set once the phone answered: the operator confirms it in the terminal.
+  late String? _pairedCode = widget.debugPairedCode;
 
   @override
   Widget build(BuildContext context) {
@@ -30,14 +35,16 @@ class _HitlPairPageState extends State<HitlPairPage> {
       appBar: AppBar(
         backgroundColor: ZipherColors.bg,
         automaticallyImplyLeading: false,
-        leading: _done ? null : hitlCloseButton(context),
+        leading: _done || _pairedCode != null ? null : hitlCloseButton(context),
         title: const Text('Pair agent',
             style: TextStyle(color: ZipherColors.text90, fontSize: 17, fontWeight: FontWeight.w600)),
       ),
       body: SafeArea(
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 250),
-          child: _askPush
+          child: _pairedCode != null && !_askPush && !_done
+              ? _confirmOnComputer(_pairedCode!)
+              : _askPush
               ? HitlPushChoice(
                   key: const ValueKey('push'),
                   agentName: widget.args.preview.agentName,
@@ -97,7 +104,9 @@ class _HitlPairPageState extends State<HitlPairPage> {
         const Gap(ZipherSpacing.lg),
         _point(Icons.lock_rounded, 'End-to-end encrypted. Only this phone can read requests.'),
         _point(Icons.verified_user_rounded, 'Your agent can’t send above its limit without your Face ID.'),
-        if (replacing) _point(Icons.swap_horiz_rounded, 'Replaces the agent you paired before.'),
+        if (replacing)
+          _point(Icons.swap_horiz_rounded,
+              'Replaces ${HitlWatchService.instance.agentName ?? 'your current agent'}. It will no longer be able to ask you.'),
         const Gap(ZipherSpacing.lg),
       ],
     );
@@ -147,8 +156,9 @@ class _HitlPairPageState extends State<HitlPairPage> {
     if (!ok || !mounted) return;
     setState(() => _busy = true);
     String? error;
+    String? code;
     try {
-      await HitlWatchService.instance.completePairing(widget.args.uri);
+      code = await HitlWatchService.instance.completePairing(widget.args.uri);
     } catch (e) {
       error = e.toString();
     }
@@ -165,6 +175,64 @@ class _HitlPairPageState extends State<HitlPairPage> {
       return;
     }
     HapticFeedback.mediumImpact();
+    setState(() {
+      _busy = false;
+      _pairedCode = code;
+    });
+  }
+
+  /// The last step happens on the computer: the operator types "y" only if
+  /// it shows this same code. If someone else scanned the pairing code first,
+  /// the codes differ and the agent refuses that phone.
+  Widget _confirmOnComputer(String code) {
+    return Column(
+      key: const ValueKey('confirm-computer'),
+      children: [
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: ZipherColors.pagePadding),
+            children: [
+              const Gap(ZipherSpacing.lg),
+              const Center(child: HitlBadge(icon: Icons.laptop_mac_rounded)),
+              const Gap(ZipherSpacing.md),
+              const Text('Confirm on your computer',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: ZipherColors.text90, fontSize: 20, fontWeight: FontWeight.w700)),
+              const Gap(6),
+              const Text('Your terminal is asking whether this phone shows the same code.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: ZipherColors.text60, fontSize: 15, height: 1.4)),
+              const Gap(ZipherSpacing.xl),
+              HitlCard(
+                padding: const EdgeInsets.symmetric(vertical: ZipherSpacing.lg, horizontal: ZipherSpacing.md),
+                child: Column(children: [
+                  Text('${code.substring(0, 3)} ${code.substring(3)}',
+                      style: const TextStyle(
+                          color: ZipherColors.text90,
+                          fontSize: 36,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'JetBrainsMono',
+                          fontFamilyFallback: hitlMonoFallback,
+                          letterSpacing: 2)),
+                  const Gap(ZipherSpacing.sm),
+                  const Text('Type y only if your computer shows this code.',
+                      textAlign: TextAlign.center, style: TextStyle(color: ZipherColors.text60, fontSize: 14)),
+                ]),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+              ZipherColors.pagePadding, ZipherSpacing.smMd, ZipherColors.pagePadding, ZipherSpacing.sm),
+          child: ZipherWidgets.gradientButton(label: 'Done', onPressed: _afterConfirm),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _afterConfirm() async {
+    HapticFeedback.selectionClick();
     if (HitlWatchService.instance.pushSupported && !HitlWatchService.instance.pushEnabled) {
       setState(() => _askPush = true);
     } else {

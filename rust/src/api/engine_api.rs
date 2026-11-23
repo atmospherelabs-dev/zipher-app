@@ -2017,6 +2017,14 @@ pub async fn hitl_complete_pairing(uri: String, keys_hex: String, state_dir: Str
     Ok(serde_json::to_string(&pairing)?)
 }
 
+/// Six-digit code the phone shows after pairing. `zipher pair` asks the
+/// operator to confirm their terminal shows the same one, which catches
+/// someone else's phone answering a leaked pairing code.
+pub fn hitl_paired_code(pairing_json: String, keys_hex: String) -> Result<String> {
+    let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
+    zipher_engine::hitl::phone_paired_code(&pairing, &keys_hex)
+}
+
 /// A decrypted approval request from the paired agent.
 pub struct HitlRequest {
     pub approval_id: String,

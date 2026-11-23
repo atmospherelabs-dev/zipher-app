@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:zipher/pages/hitl/hitl_agent.dart';
 import 'package:zipher/pages/hitl/hitl_approve.dart';
 import 'package:zipher/pages/hitl/hitl_pair.dart';
 import 'package:zipher/pages/hitl/hitl_widgets.dart';
@@ -111,6 +112,32 @@ void main() {
         expect(find.textContaining('relay keeps its push token'), findsOneWidget);
       },
     );
+  });
+
+  testWidgets('confirm on computer', (tester) async {
+    final preview = HitlPairingPreview(
+      relayUrl: 'https://relay.atmospherelabs.dev',
+      agentName: 'Claude on MacBook Pro',
+      checkCode: '482915',
+    );
+    await shoot(tester, '0b-confirm-computer',
+        HitlPairPage(args: HitlPairingArgs('zipher://pair?v=1', preview), debugPairedCode: '730148'), () {
+      expect(find.text('Confirm on your computer'), findsOneWidget);
+      expect(find.text('730 148'), findsOneWidget);
+    });
+  });
+
+  testWidgets('agent screen', (tester) async {
+    HitlWatchService.instance.debugSetPaired('Claude on MacBook Pro');
+    await shoot(tester, '4-agent', const HitlAgentPage(), () {
+      expect(find.text('Claude on MacBook Pro'), findsOneWidget);
+      expect(find.text('Unpair Agent'), findsOneWidget);
+      expect(find.textContaining('Can’t send from this phone'), findsOneWidget);
+    });
+    HitlWatchService.instance.debugSetPaired(null);
+    await shoot(tester, '4b-agent-none', const HitlAgentPage(), () {
+      expect(find.text('No agent paired'), findsOneWidget);
+    });
   });
 
   testWidgets('approved confirmation', (tester) async {

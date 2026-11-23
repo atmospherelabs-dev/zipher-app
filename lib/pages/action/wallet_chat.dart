@@ -12,6 +12,7 @@ import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../coin/coins.dart';
 import '../../services/near_intents.dart';
+import '../../services/hitl_watch_service.dart';
 import '../../services/network_privacy.dart';
 import '../../services/wallet_swap_tracker.dart';
 import '../../services/evm_portfolio_balance.dart';
@@ -2053,6 +2054,17 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                     ? 'Synced'
                     : 'Syncing${progress == null ? "" : " ${(progress * 100).toStringAsFixed(1)}%"}';
         return Row(mainAxisSize: MainAxisSize.min, children: [
+          // A paired agent can ask this phone for approvals; keep it visible.
+          ValueListenableBuilder<bool>(
+              valueListenable: HitlWatchService.instance.paired,
+              builder: (_, paired, __) => !paired
+                  ? const SizedBox.shrink()
+                  : IconButton(
+                      tooltip:
+                          'Paired with ${HitlWatchService.instance.agentName ?? 'an agent'}',
+                      onPressed: () => context.push('/hitl/agent'),
+                      icon: const Icon(Icons.smart_toy_rounded,
+                          size: 18, color: ZipherColors.cyan))),
           ListenableBuilder(
               listenable: _privacy,
               builder: (_, __) => IconButton(

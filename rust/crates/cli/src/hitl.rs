@@ -45,7 +45,18 @@ pub async fn cmd_pair(cfg: &Config, agent_name: &str, relay_url: Option<&str>, n
     loop {
         match session.poll(&cfg.data_dir).await? {
             PairingProgress::Waiting => tokio::time::sleep(Duration::from_secs(2)).await,
-            PairingProgress::Paired => {
+            PairingProgress::Confirm { code } => {
+                println!();
+                println!("  A phone answered. Its screen should now show: {code}");
+                print!("  Does your phone show {code}? [y/N] ");
+                io::Write::flush(&mut io::stdout())?;
+                let mut line = String::new();
+                io::stdin().read_line(&mut line)?;
+                if !matches!(line.trim(), "y" | "Y" | "yes") {
+                    session.reject(&cfg.data_dir).await?;
+                    bail!("Not paired: the codes did not match. Someone else may have scanned the pairing code; run `zipher pair` again somewhere private.");
+                }
+                session.confirm(&cfg.data_dir).await?;
                 println!();
                 println!("  Paired. Sends above your approval threshold now ask your phone first.");
                 println!("  Set the threshold with: zipher policy set approval_threshold <zatoshis>");

@@ -50,12 +50,20 @@ async fn ensure_day(net: &Net, relay: &str, day: &proto::EpochChannel) -> Result
         agent_token_hash: b64(&proto::token_hash(&day.agent_token)),
         phone_token_hash: b64(&proto::token_hash(&day.phone_token)),
         rotated: true,
+        pow: registration_work(day.channel_id).await?,
     })?;
     let r = net.post(&format!("{relay}/v1/channels"), None, Some(body)).await?;
     match r.status {
         201 | 409 => Ok(()),
         s => bail!("Relay refused the mailbox ({s})"),
     }
+}
+
+/// The relay asks for a little work per mailbox so nobody can fill it.
+async fn registration_work(channel_id: proto::ChannelId) -> Result<u64> {
+    tokio::task::spawn_blocking(move || proto::solve_pow(&channel_id, proto::REGISTER_POW_BITS))
+        .await
+        .context("proof of work")
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +206,8 @@ pub struct PairingSession {
     net: Net,
     tor: bool,
     started: std::time::Instant,
+    /// The phone that answered, held until the operator confirms its code.
+    answered: std::sync::Mutex<Option<proto::PhonePublic>>,
     pub start: PairingStart,
 }
 
@@ -206,8 +216,11 @@ pub struct PairingSession {
 pub enum PairingProgress {
     /// Waiting for the phone to scan and confirm.
     Waiting,
-    /// The phone confirmed; approvals now go to it.
-    Paired,
+    /// A phone answered. Ask the operator whether their phone shows `code`,
+    /// then call [`PairingSession::confirm`] or [`PairingSession::reject`].
+    /// Nothing is saved until then: if someone else scanned the pairing code
+    /// first, their phone, not the owner's, would be the one answering.
+    Confirm { code: String },
     /// The pairing code expired; start again.
     Expired,
 }
@@ -231,6 +244,7 @@ pub async fn start_pairing(
         agent_token_hash: b64(&proto::token_hash(&tokens.agent)),
         phone_token_hash: b64(&proto::token_hash(&tokens.phone)),
         rotated: false,
+        pow: registration_work(offer.channel_id).await?,
     })?;
     let r = net.post(&format!("{relay_url}/v1/channels"), None, Some(body)).await?;
     if r.status != 201 {
@@ -244,12 +258,23 @@ pub async fn start_pairing(
         expires_in_secs: PAIRING_TTL_SECS,
         tor: net.is_tor(),
     };
-    Ok(PairingSession { offer, agent, net, tor, started: std::time::Instant::now(), start })
+    Ok(PairingSession {
+        offer,
+        agent,
+        net,
+        tor,
+        started: std::time::Instant::now(),
+        answered: std::sync::Mutex::new(None),
+        start,
+    })
 }
 
 impl PairingSession {
-    /// Check whether the phone has answered; on success, save the pairing.
-    pub async fn poll(&self, data_dir: &str) -> Result<PairingProgress> {
+    /// Check whether a phone has answered.
+    pub async fn poll(&self, _data_dir: &str) -> Result<PairingProgress> {
+        if let Some(phone) = *self.answered.lock().expect("pairing state") {
+            return Ok(PairingProgress::Confirm { code: proto::paired_code(&self.offer.agent_public, &phone) });
+        }
         if self.started.elapsed() >= Duration::from_secs(PAIRING_TTL_SECS) {
             return Ok(PairingProgress::Expired);
         }
@@ -269,7 +294,13 @@ impl PairingSession {
         }
         let pair: proto::PairResponse = r.json()?;
         let phone = proto::verify_pair_response(&self.offer, &pair)?;
+        *self.answered.lock().expect("pairing state") = Some(phone);
+        Ok(PairingProgress::Confirm { code: proto::paired_code(&self.offer.agent_public, &phone) })
+    }
 
+    /// The operator saw the same code on their phone: save the pairing.
+    pub async fn confirm(&self, data_dir: &str) -> Result<()> {
+        let phone = self.answered.lock().expect("pairing state").ok_or_else(|| anyhow!("No phone has answered yet."))?;
         let mut state = load_state(data_dir)?;
         if let Some(old) = state.pairing.take() {
             if let Ok(p) = old.open() {
@@ -288,16 +319,31 @@ impl PairingSession {
         });
         save_state(data_dir, &state)?;
         tracing::info!("[HITL] Paired with phone");
-        Ok(PairingProgress::Paired)
+        Ok(())
+    }
+
+    /// The codes differ: someone else's phone answered. Revoke its mailboxes
+    /// so it learns it was refused, and keep any existing pairing.
+    pub async fn reject(&self, data_dir: &str) -> Result<()> {
+        let Some(phone) = self.answered.lock().expect("pairing state").take() else { return Ok(()) };
+        let p = Paired {
+            relay_url: self.offer.relay_url.clone(),
+            root: self.offer.rotation_root(),
+            agent: proto::AgentSecret::from_bytes(*self.agent.to_bytes()),
+            phone,
+            tor: self.tor,
+        };
+        revoke_days(&p, data_dir).await
     }
 }
 
 /// Revoke today's and the coming week's mailboxes so the phone learns it was
 /// unpaired whenever it next checks.
 async fn revoke_days(p: &Paired, data_dir: &str) -> Result<()> {
-    let net = p.net(data_dir).await?;
+    let base = p.net(data_dir).await?;
     let today = epoch_of(now_unix());
     for e in today..=today + DAYS_AHEAD {
+        let net = base.isolated();
         let day = proto::epoch_channel(&p.root, e);
         ensure_day(&net, &p.relay_url, &day).await?;
         net.post(&channel_url(&p.relay_url, &day, "/revoke"), Some(&day.agent_token), None).await?;
@@ -404,7 +450,7 @@ pub async fn check_approval(data_dir: &str, req: &ApprovalRequest) -> Result<App
     }
     let sealed: proto::Sealed = r.json()?;
     let outcome = proto::open_decision(&p.agent, &p.phone, &day.channel_id, &req.approval_id, &sealed)
-        .and_then(|d| proto::verify_decision(&p.phone, req, &d, now));
+        .and_then(|d| proto::verify_decision(&p.agent, &p.phone, req, &d, now));
     Ok(match outcome {
         Ok(true) => ApprovalOutcome::Approved,
         Ok(false) => ApprovalOutcome::Rejected,
@@ -503,6 +549,13 @@ pub async fn phone_complete_pairing(uri: &str, keys_hex: &str, route: &PhoneRout
     })
 }
 
+/// The code the phone shows after pairing; the operator compares it with the
+/// one in their terminal.
+pub fn phone_paired_code(pairing: &PhonePairing, keys_hex: &str) -> Result<String> {
+    let agent_public: [u8; 32] = unb64(&pairing.agent_public)?;
+    Ok(proto::paired_code(&agent_public, &phone_keys(keys_hex)?.public()))
+}
+
 fn unpaired() -> anyhow::Error {
     anyhow!("This agent was unpaired.")
 }
@@ -517,12 +570,19 @@ pub async fn phone_fetch_requests(
     let keys = phone_keys(keys_hex)?;
     let root = pairing.root()?;
     let agent_public: [u8; 32] = unb64(&pairing.agent_public)?;
-    let net = route.net(&pairing.relay_url).await?;
+    let base = route.net(&pairing.relay_url).await?;
     let now = now_unix();
     let today = epoch_of(now);
     let mut out = Vec::new();
-    // Yesterday covers requests sent just before midnight UTC.
-    for e in [today, today.saturating_sub(1)] {
+    // Yesterday's mailbox only matters for requests sent just before midnight
+    // UTC, which expire within MAX_REQUEST_TTL_SECS. Checking it only then,
+    // on its own circuit, keeps the relay from pairing the two days.
+    let mut days = vec![today];
+    if now - today * proto::EPOCH_SECS <= proto::MAX_REQUEST_TTL_SECS + 60 {
+        days.push(today.saturating_sub(1));
+    }
+    for e in days {
+        let net = base.isolated();
         let day = proto::epoch_channel(&root, e);
         let r: Reply = net.get(&channel_url(&pairing.relay_url, &day, "/requests"), Some(&day.phone_token)).await?;
         match r.status {
@@ -566,7 +626,7 @@ pub async fn phone_submit_decision(
     let root = pairing.root()?;
     let agent_public: [u8; 32] = unb64(&pairing.agent_public)?;
     let day = proto::epoch_channel(&root, epoch_of(request.created_at));
-    let decision = proto::sign_decision(&keys, request, approved, now);
+    let decision = proto::sign_decision(&keys, &agent_public, request, approved, now);
     let sealed = proto::seal_decision(&keys, &agent_public, &day.channel_id, &decision)?;
     let net = route.net(&pairing.relay_url).await?;
     let r = net
@@ -593,9 +653,10 @@ pub async fn phone_set_push(
     token: Option<(&str, bool)>,
 ) -> Result<()> {
     let root = pairing.root()?;
-    let net = route.net(&pairing.relay_url).await?;
+    let base = route.net(&pairing.relay_url).await?;
     let today = epoch_of(now_unix());
     for e in today..=today + DAYS_AHEAD {
+        let net = base.isolated();
         let day = proto::epoch_channel(&root, e);
         ensure_day(&net, &pairing.relay_url, &day).await?;
         let r = match token {
@@ -617,9 +678,10 @@ pub async fn phone_set_push(
 /// Unpair from the phone: revoke today's and the coming week's mailboxes.
 pub async fn phone_unpair(pairing: &PhonePairing, route: &PhoneRoute<'_>) -> Result<()> {
     let root = pairing.root()?;
-    let net = route.net(&pairing.relay_url).await?;
+    let base = route.net(&pairing.relay_url).await?;
     let today = epoch_of(now_unix());
     for e in today..=today + DAYS_AHEAD {
+        let net = base.isolated();
         let day = proto::epoch_channel(&root, e);
         ensure_day(&net, &pairing.relay_url, &day).await?;
         net.post(&channel_url(&pairing.relay_url, &day, "/revoke"), Some(&day.phone_token), None).await?;
@@ -682,7 +744,10 @@ mod tests {
         let keys = phone_generate_keys();
         let phone = phone_complete_pairing(&start.uri, &keys, &route).await.unwrap();
         assert!(phone_complete_pairing(&start.uri, &keys, &route).await.is_err(), "pairing code is single use");
-        assert_eq!(session.poll(&dir).await.unwrap(), PairingProgress::Paired);
+        let code = phone_paired_code(&phone, &keys).unwrap();
+        assert_eq!(session.poll(&dir).await.unwrap(), PairingProgress::Confirm { code });
+        assert!(!state_path(&dir).exists(), "nothing is saved before the operator confirms");
+        session.confirm(&dir).await.unwrap();
         let saved = std::fs::read_to_string(state_path(&dir)).unwrap();
         let secret = start.uri.split("&s=").nth(1).unwrap().split('&').next().unwrap();
         assert!(!saved.contains(secret), "pairing secret must not be stored");
@@ -734,6 +799,7 @@ mod tests {
         let keys = phone_generate_keys();
         let phone = phone_complete_pairing(&session.start.uri, &keys, &route).await.unwrap();
         session.poll(&dir).await.unwrap();
+        session.confirm(&dir).await.unwrap();
         phone_set_push(&phone, &route, Some((&"ab".repeat(32), true))).await.unwrap();
         phone_set_push(&phone, &route, None).await.unwrap();
         phone_unpair(&phone, &route).await.unwrap();
@@ -758,6 +824,24 @@ mod tests {
     /// cargo test -p zipher-engine --lib hitl::tests::manual_phone_flow -- --ignored --nocapture`
     /// Pairs with a real phone, sends one request and reports the verified outcome.
     #[tokio::test]
+    async fn a_phone_the_operator_does_not_recognise_is_refused() {
+        let relay = spawn_relay().await;
+        let dir = temp_dir();
+        let phone_dir = temp_dir();
+        let route = PhoneRoute { state_dir: &phone_dir, use_tor: false };
+        let session = start_pairing(&dir, Some(&relay), "test agent", false).await.unwrap();
+        // Someone who saw the QR code answers first.
+        let keys = phone_generate_keys();
+        let intruder = phone_complete_pairing(&session.start.uri, &keys, &route).await.unwrap();
+        assert!(matches!(session.poll(&dir).await.unwrap(), PairingProgress::Confirm { .. }));
+        session.reject(&dir).await.unwrap();
+        assert!(!status(&dir).unwrap().paired);
+        assert!(session.confirm(&dir).await.is_err());
+        let err = phone_fetch_requests(&intruder, &keys, &route).await.unwrap_err();
+        assert!(err.to_string().contains("unpaired"), "{err}");
+    }
+
+    #[tokio::test]
     #[ignore]
     async fn manual_phone_flow() {
         let relay = std::env::var("ZIPHER_TEST_RELAY").expect("ZIPHER_TEST_RELAY");
@@ -769,7 +853,11 @@ mod tests {
         println!("check code: {} (tor: {})", session.start.check_code, session.start.tor);
         loop {
             match session.poll(&dir).await.unwrap() {
-                PairingProgress::Paired => break,
+                PairingProgress::Confirm { code } => {
+                    println!("paired code: {code}");
+                    session.confirm(&dir).await.unwrap();
+                    break;
+                }
                 PairingProgress::Expired => panic!("pairing expired"),
                 PairingProgress::Waiting => tokio::time::sleep(Duration::from_secs(2)).await,
             }
@@ -796,6 +884,9 @@ mod tests {
                     break;
                 }
             }
+        }
+        if let Ok(secs) = std::env::var("ZIPHER_TEST_KEEP_PAIRED_SECS") {
+            tokio::time::sleep(Duration::from_secs(secs.parse().unwrap_or(120))).await;
         }
         unpair(&dir).await.unwrap();
     }

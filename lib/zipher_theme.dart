@@ -572,13 +572,17 @@ class ZipherWidgets {
                     Icon(icon, color: ZipherColors.cyan.withValues(alpha: 0.9), size: 20),
                     const SizedBox(width: 8),
                   ],
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: ZipherColors.cyan.withValues(alpha: 0.9),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'Inter',
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: ZipherColors.cyan.withValues(alpha: 0.9),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        fontFamily: 'Inter',
+                      ),
                     ),
                   ),
                 ],

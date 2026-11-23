@@ -10,7 +10,6 @@ import 'package:protobuf/protobuf.dart';
 
 import '../accounts.dart';
 import '../services/hitl_watch_service.dart';
-import 'hitl/hitl_widgets.dart' show hitlPushDisclosure;
 import '../services/wallet_service.dart';
 import '../zipher_theme.dart';
 import '../coin/coins.dart';
@@ -301,53 +300,14 @@ class _SettingsState extends State<SettingsPage> {
                       leading: const Icon(Icons.smart_toy_rounded, size: 20),
                       title: const Text('Agent approvals'),
                       subtitle: Text(HitlWatchService.instance.isPaired
-                          ? 'Paired with ${HitlWatchService.instance.agentName ?? 'an agent'}. Its larger sends ask this phone first.'
-                          : 'Run `zipher pair` on your computer and scan the code to approve an agent\'s larger sends here.'),
-                      trailing: HitlWatchService.instance.isPaired
-                          ? TextButton(
-                              onPressed: () async {
-                                await HitlWatchService.instance.unpair();
-                                if (mounted) setState(() {});
-                              },
-                              child: const Text('Unpair'),
-                            )
-                          : null,
+                          ? 'Paired with ${HitlWatchService.instance.agentName ?? 'an agent'}'
+                          : 'Not paired'),
+                      trailing: const Icon(Icons.chevron_right_rounded, color: ZipherColors.text40),
+                      onTap: () async {
+                        await GoRouter.of(context).push('/hitl/agent');
+                        if (mounted) setState(() {});
+                      },
                     ),
-                    if (HitlWatchService.instance.isPaired) ...[
-                      if (HitlWatchService.instance.pushSupported)
-                        _securityToggle(
-                          icon: Icons.notifications_active_rounded,
-                          label: 'Approval notifications',
-                          subtitle: HitlWatchService.instance.pushEnabled
-                              ? hitlPushDisclosure
-                              : 'Off. Requests appear when you open Zipher.',
-                          value: HitlWatchService.instance.pushEnabled,
-                          onChanged: (v) async {
-                            if (v) {
-                              final ok = await HitlWatchService.instance.enablePush();
-                              if (!ok && mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                                    content: Text('Allow notifications for Zipher in iOS Settings first.')));
-                              }
-                            } else {
-                              await HitlWatchService.instance.disablePush();
-                            }
-                            if (mounted) setState(() {});
-                          },
-                        ),
-                      _securityToggle(
-                        icon: Icons.route_rounded,
-                        label: 'Private routing (Tor)',
-                        subtitle: HitlWatchService.instance.useTor
-                            ? 'Approvals reach the relay over Tor, so it never sees your IP address.'
-                            : 'Off: the relay can see this phone\'s IP address.',
-                        value: HitlWatchService.instance.useTor,
-                        onChanged: (v) async {
-                          await HitlWatchService.instance.setUseTor(v);
-                          if (mounted) setState(() {});
-                        },
-                      ),
-                    ],
                     Divider(height: 1, color: ZipherColors.cardBg,
                         indent: 52, endIndent: 16),
                     _securityToggle(

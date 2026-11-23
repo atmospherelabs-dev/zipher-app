@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
@@ -201,17 +202,12 @@ class _HitlPushChoiceState extends State<HitlPushChoice> {
   Future<void> _turnOn() async {
     HapticFeedback.selectionClick();
     setState(() => _busy = true);
-    var ok = false;
+    var result = PushResult.failed;
     try {
-      ok = await HitlWatchService.instance.enablePush();
-    } catch (_) {
-      ok = false;
-    }
+      result = await HitlWatchService.instance.enablePush();
+    } catch (_) {}
     if (!mounted) return;
-    if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Notifications are off. You can turn them on later in Settings.')));
-    }
+    await hitlShowPushResult(context, result);
     await widget.onDone();
   }
 
@@ -268,5 +264,32 @@ class _HitlPushChoiceState extends State<HitlPushChoice> {
               ),
       ),
     ]);
+  }
+}
+
+/// Tell the user what happened. A past refusal can only be undone in iOS
+/// Settings, so offer to open it in a system-style alert.
+Future<void> hitlShowPushResult(BuildContext context, PushResult result) async {
+  final messenger = ScaffoldMessenger.of(context);
+  switch (result) {
+    case PushResult.on:
+      messenger.showSnackBar(const SnackBar(content: Text('Notifications on')));
+    case PushResult.denied:
+      final open = await showCupertinoDialog<bool>(
+        context: context,
+        builder: (ctx) => CupertinoAlertDialog(
+          title: const Text('Notifications Are Off'),
+          content: const Text('To get alerts when your agent needs you, allow notifications for Zipher in Settings.'),
+          actions: [
+            CupertinoDialogAction(child: const Text('Not Now'), onPressed: () => Navigator.of(ctx).pop(false)),
+            CupertinoDialogAction(
+                isDefaultAction: true, child: const Text('Open Settings'), onPressed: () => Navigator.of(ctx).pop(true)),
+          ],
+        ),
+      );
+      if (open == true) await HitlWatchService.instance.openNotificationSettings();
+    case PushResult.failed:
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Couldn’t turn on notifications. Try again from Settings.')));
   }
 }

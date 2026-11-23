@@ -30,6 +30,12 @@ pub const MAX_TOOL_LEN: usize = 64;
 pub const MAX_AGENT_NAME_LEN: usize = 64;
 
 const PAIR_CHECK_PERSONAL: &[u8; 16] = b"ZipherHitlPairCk";
+const PAIRED_PERSONAL: &[u8; 16] = b"ZipherHitlPaired";
+const POW_DOMAIN: &[u8] = b"zipher-relay-pow-v1";
+/// Work required to register a mailbox (about a million hashes). It keeps
+/// one client from filling the relay with channels; real clients register a
+/// few a day.
+pub const REGISTER_POW_BITS: u32 = 20;
 const PROPOSAL_PERSONAL: &[u8; 16] = b"ZipherHitlApprv1";
 const DECISION_DOMAIN: &[u8] = b"zipher-hitl-decision-v1";
 const PAIR_MAC_DOMAIN: &[u8] = b"zipher-hitl-pair-v1";
@@ -229,17 +235,10 @@ impl PairingOffer {
         hkdf32(&self.channel_id, self.pair_secret.as_ref(), b"zipher-hitl-v1 root")
     }
 
-    /// Six-digit code shown by both the agent and the phone.
+    /// Six-digit code shown by both the agent and the phone before pairing.
+    /// It proves the phone scanned this terminal's code, not someone else's.
     pub fn check_code(&self) -> String {
-        let h = blake2b_simd::Params::new()
-            .hash_length(32)
-            .personal(PAIR_CHECK_PERSONAL)
-            .to_state()
-            .update(&self.channel_id)
-            .update(&self.agent_public)
-            .finalize();
-        let n = u64::from_le_bytes(h.as_bytes()[..8].try_into().unwrap()) % 1_000_000;
-        format!("{n:06}")
+        six_digits(PAIR_CHECK_PERSONAL, &[&self.channel_id, &self.agent_public])
     }
 
     pub fn to_uri(&self) -> String {
@@ -337,6 +336,42 @@ impl PhoneKeys {
             ed25519: self.sign.verifying_key().to_bytes(),
         }
     }
+}
+
+fn six_digits(personal: &[u8; 16], parts: &[&[u8]]) -> String {
+    let mut st = blake2b_simd::Params::new().hash_length(32).personal(personal).to_state();
+    for p in parts {
+        st.update(p);
+    }
+    let n = u64::from_le_bytes(st.finalize().as_bytes()[..8].try_into().unwrap()) % 1_000_000;
+    format!("{n:06}")
+}
+
+/// Six-digit code both sides show after pairing, derived from the keys that
+/// were actually pinned. If someone else scanned the pairing code first, the
+/// terminal shows a code the owner's phone does not.
+pub fn paired_code(agent_public: &[u8; 32], phone: &PhonePublic) -> String {
+    six_digits(PAIRED_PERSONAL, &[agent_public, &phone.x25519, &phone.ed25519])
+}
+
+/// Proof of work for `POST /v1/channels`: SHA-256 over the domain, the
+/// channel and the nonce must start with `bits` zero bits.
+pub fn pow_ok(channel_id: &[u8], nonce: u64, bits: u32) -> bool {
+    let h = Sha256::new()
+        .chain_update(POW_DOMAIN)
+        .chain_update(channel_id)
+        .chain_update(nonce.to_le_bytes())
+        .finalize();
+    let lead = u128::from_be_bytes(h[..16].try_into().unwrap()).leading_zeros();
+    lead >= bits
+}
+
+pub fn solve_pow(channel_id: &[u8], bits: u32) -> u64 {
+    let mut nonce = u64::from_le_bytes(random::<8>());
+    while !pow_ok(channel_id, nonce, bits) {
+        nonce = nonce.wrapping_add(1);
+    }
+    nonce
 }
 
 /// Sent by the phone to the relay, read by the agent.
@@ -453,6 +488,16 @@ fn open(key: &[u8; 32], aad: &[u8], sealed: &Sealed) -> Result<Zeroizing<Vec<u8>
         .map_err(|_| anyhow!("message failed authentication"))
 }
 
+/// Characters that could make text on the approval screen say something other
+/// than what it contains: controls, bidirectional overrides, invisible
+/// joiners and separators.
+pub fn misleading_char(c: char) -> bool {
+    c.is_control()
+        || matches!(c,
+            '\u{061C}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}'
+            | '\u{2060}'..='\u{2069}' | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}')
+}
+
 /// The send the agent wants approved. Every field is shown on the phone.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ApprovalRequest {
@@ -489,9 +534,10 @@ impl ApprovalRequest {
         ensure!(self.amount.checked_add(self.fee).is_some(), "amount overflow");
         if let Some(m) = &self.memo {
             ensure!(m.len() <= MAX_MEMO_BYTES, "memo too long");
+            ensure!(!m.chars().any(|c| c != '\n' && misleading_char(c)), "memo contains hidden or control characters");
         }
         if let Some(c) = &self.context_id {
-            ensure!(c.len() <= MAX_CONTEXT_LEN && !c.chars().any(char::is_control), "invalid context id");
+            ensure!(c.len() <= MAX_CONTEXT_LEN && !c.chars().any(misleading_char), "invalid context id");
         }
         ensure!(
             !self.tool.is_empty() && self.tool.len() <= MAX_TOOL_LEN
@@ -578,17 +624,26 @@ pub struct Decision {
     pub signature: String,
 }
 
-fn decision_message(proposal_hash: &[u8; 32], approved: bool, decided_at: u64) -> Vec<u8> {
-    let mut m = Vec::with_capacity(DECISION_DOMAIN.len() + 41);
+/// The signature also covers the agent's key, so a decision only means
+/// something to the agent it was made for.
+fn decision_message(agent_public: &[u8; 32], proposal_hash: &[u8; 32], approved: bool, decided_at: u64) -> Vec<u8> {
+    let mut m = Vec::with_capacity(DECISION_DOMAIN.len() + 73);
     m.extend_from_slice(DECISION_DOMAIN);
+    m.extend_from_slice(agent_public);
     m.extend_from_slice(proposal_hash);
     m.push(approved as u8);
     m.extend_from_slice(&decided_at.to_le_bytes());
     m
 }
 
-pub fn sign_decision(phone: &PhoneKeys, req: &ApprovalRequest, approved: bool, decided_at: u64) -> Decision {
-    let sig = phone.sign.sign(&decision_message(&req.proposal_hash(), approved, decided_at));
+pub fn sign_decision(
+    phone: &PhoneKeys,
+    agent_public: &[u8; 32],
+    req: &ApprovalRequest,
+    approved: bool,
+    decided_at: u64,
+) -> Decision {
+    let sig = phone.sign.sign(&decision_message(agent_public, &req.proposal_hash(), approved, decided_at));
     Decision {
         approval_id: req.approval_id.clone(),
         approved,
@@ -625,7 +680,13 @@ pub fn open_decision(
 
 /// Agent side: accept a decision only if the pinned phone key signed the
 /// agent's own request before it expired. Returns whether it was approved.
-pub fn verify_decision(phone: &PhonePublic, own_request: &ApprovalRequest, d: &Decision, now: u64) -> Result<bool> {
+pub fn verify_decision(
+    agent: &AgentSecret,
+    phone: &PhonePublic,
+    own_request: &ApprovalRequest,
+    d: &Decision,
+    now: u64,
+) -> Result<bool> {
     ensure!(d.approval_id == own_request.approval_id, "approval id mismatch");
     ensure!(now <= own_request.expires_at, "approval expired");
     ensure!(
@@ -634,7 +695,8 @@ pub fn verify_decision(phone: &PhonePublic, own_request: &ApprovalRequest, d: &D
     );
     let key = VerifyingKey::from_bytes(&phone.ed25519).map_err(|_| anyhow!("invalid pinned key"))?;
     let sig = Signature::from_bytes(&unb64::<64>(&d.signature)?);
-    key.verify_strict(&decision_message(&own_request.proposal_hash(), d.approved, d.decided_at), &sig)
+    let msg = decision_message(&agent.public(), &own_request.proposal_hash(), d.approved, d.decided_at);
+    key.verify_strict(&msg, &sig)
         .map_err(|_| anyhow!("decision signature is invalid"))?;
     Ok(d.approved)
 }
@@ -657,6 +719,9 @@ pub mod wire {
         /// A day's mailbox for an existing pairing: usable immediately.
         #[serde(default)]
         pub rotated: bool,
+        /// Nonce for [`super::pow_ok`] over the decoded channel id.
+        #[serde(default)]
+        pub pow: u64,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -744,28 +809,48 @@ mod tests {
         let opened = open_request(&phone, &offer.agent_public, &offer.channel_id, &req.approval_id, &sealed).unwrap();
         assert_eq!(opened, req);
 
-        let d = sign_decision(&phone, &opened, true, now + 20);
+        let d = sign_decision(&phone, &offer.agent_public, &opened, true, now + 20);
         let sealed_d = seal_decision(&phone, &offer.agent_public, &offer.channel_id, &d).unwrap();
         let got = open_decision(&agent, &pinned, &offer.channel_id, &req.approval_id, &sealed_d).unwrap();
-        assert!(verify_decision(&pinned, &req, &got, now + 30).unwrap());
+        assert!(verify_decision(&agent, &pinned, &req, &got, now + 30).unwrap());
 
         // A signature is only valid for the exact proposal the agent holds.
         let mut other = req.clone();
         other.amount += 1;
-        assert!(verify_decision(&pinned, &other, &got, now + 30).is_err());
+        assert!(verify_decision(&agent, &pinned, &other, &got, now + 30).is_err());
         let mut other = req.clone();
         other.address = "u1attacker".into();
-        assert!(verify_decision(&pinned, &other, &got, now + 30).is_err());
+        assert!(verify_decision(&agent, &pinned, &other, &got, now + 30).is_err());
 
         // Flipping the approved flag breaks the signature.
         let mut flipped = got.clone();
         flipped.approved = !flipped.approved;
-        assert!(verify_decision(&pinned, &req, &flipped, now + 30).is_err());
+        assert!(verify_decision(&agent, &pinned, &req, &flipped, now + 30).is_err());
 
         // Too late, or signed by another phone.
-        assert!(verify_decision(&pinned, &req, &got, now + 301).is_err());
-        let stranger = sign_decision(&PhoneKeys::generate(), &req, true, now + 20);
-        assert!(verify_decision(&pinned, &req, &stranger, now + 30).is_err());
+        assert!(verify_decision(&agent, &pinned, &req, &got, now + 301).is_err());
+        let stranger = sign_decision(&PhoneKeys::generate(), &offer.agent_public, &req, true, now + 20);
+        assert!(verify_decision(&agent, &pinned, &req, &stranger, now + 30).is_err());
+
+        // A decision made for another agent does not verify here.
+        let elsewhere = sign_decision(&phone, &AgentSecret::generate().public(), &req, true, now + 20);
+        assert!(verify_decision(&agent, &pinned, &req, &elsewhere, now + 30).is_err());
+    }
+
+    #[test]
+    fn paired_code_tracks_the_pinned_phone() {
+        let (_, offer, phone, pinned) = paired();
+        let mine = paired_code(&offer.agent_public, &pinned);
+        assert_eq!(mine, paired_code(&offer.agent_public, &phone.public()));
+        assert_ne!(mine, paired_code(&offer.agent_public, &PhoneKeys::generate().public()));
+    }
+
+    #[test]
+    fn registration_needs_work() {
+        let c = [7u8; 16];
+        let n = solve_pow(&c, 12);
+        assert!(pow_ok(&c, n, 12));
+        assert!(!pow_ok(&[8u8; 16], n, 12) || !pow_ok(&[9u8; 16], n, 12));
     }
 
     #[test]
@@ -806,8 +891,8 @@ mod tests {
         // Padding is invisible to the receiver.
         assert_eq!(open_request(&phone, &offer.agent_public, &offer.channel_id, &big.approval_id, &b).unwrap(), big);
 
-        let yes = sign_decision(&phone, &small, true, now + 1);
-        let no = sign_decision(&phone, &small, false, now + 1);
+        let yes = sign_decision(&phone, &offer.agent_public, &small, true, now + 1);
+        let no = sign_decision(&phone, &offer.agent_public, &small, false, now + 1);
         let y = seal_decision(&phone, &offer.agent_public, &offer.channel_id, &yes).unwrap();
         let n = seal_decision(&phone, &offer.agent_public, &offer.channel_id, &no).unwrap();
         assert_eq!(ct_len(&y), ct_len(&n));
@@ -826,6 +911,15 @@ mod tests {
         let mut r = request(now);
         r.address = "u1 evil".into();
         assert!(r.validate().is_err());
+        // Text that could fake lines on the approval screen is refused.
+        for bad in ["pay\u{202E}321", "a\u{200B}b", "x\ry", "tab\there"] {
+            let mut r = request(now);
+            r.memo = Some(bad.into());
+            assert!(r.validate().is_err(), "{bad:?}");
+        }
+        let mut r = request(now);
+        r.memo = Some("Invoice 42\nThanks — café".into());
+        assert!(r.validate().is_ok());
         assert!(request(now).validate().is_ok());
     }
 
