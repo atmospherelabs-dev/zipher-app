@@ -44,6 +44,13 @@ class BackupStatus {
     needsReminder.value = !verified && clock >= until;
   }
 
+  /// Whether [walletId] has passed the backup check (or was restored).
+  static Future<bool> isBackedUp(String? walletId) async {
+    if (walletId == null || walletId.isEmpty) return false;
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('$_verifiedKey$walletId') ?? false;
+  }
+
   static bool _legacyVerified(SharedPreferences prefs) => prefs
       .getKeys()
       .any((k) => k.startsWith('seed_verified_') && (prefs.getBool(k) ?? false));

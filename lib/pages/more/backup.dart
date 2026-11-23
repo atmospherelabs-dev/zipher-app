@@ -56,13 +56,18 @@ void _copyWithAutoClear(BuildContext context, String value,
   });
 }
 
+/// Recovery phrase (default) or, with [advanced], viewing and spending keys
+/// plus which wallets are backed up. Both share the same reveal protections.
 class BackupPage extends StatefulWidget {
+  BackupPage({super.key, this.advanced = false});
+
+  final bool advanced;
+
   @override
   State<StatefulWidget> createState() => _BackupState();
 }
 
 class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
-  bool _showSpendingKeys = false;
   bool _seedWordsVisible = false;
   bool _skRevealed = false;
   bool _tskRevealed = false;
@@ -91,15 +96,25 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
     _loadAllWallets();
   }
 
+  /// Which wallets have passed the backup check (advanced view).
+  Map<String, bool> _walletBackedUp = {};
+
   Future<void> _loadAllWallets() async {
     final wallets = await WalletRegistry.instance.getAll();
-    if (mounted) setState(() => _allWallets = wallets);
+    final backedUp = {
+      for (final w in wallets) w.id: await BackupStatus.isBackedUp(w.id),
+    };
+    if (mounted) {
+      setState(() {
+        _allWallets = wallets;
+        _walletBackedUp = backedUp;
+      });
+    }
   }
 
   Future<void> _loadVerificationState() async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'seed_verified_${aa.coin}_${aa.id}';
-    final v = prefs.getBool(key) ?? false;
+    final v =
+        await BackupStatus.isBackedUp(WalletService.instance.activeWalletId);
     if (v && mounted) setState(() => _verificationPassed = true);
   }
 
@@ -259,6 +274,10 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
     }
 
     final backup = _backup!;
+    final seedValue = _keychainSeed ?? backup.seed;
+    if (seedValue != null && !backup.saved) {
+      setActiveAccount(aa.coin, aa.id);
+    }
 
     return Scaffold(
       backgroundColor: ZipherColors.bg,
@@ -266,451 +285,257 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         title: Text(
-          'Backup',
+          widget.advanced ? 'Advanced keys' : 'Recovery phrase',
           style: ZipherType.headline,
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: ZipherColors.text90),
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
       ),
       body: _obscured
-          ? Container(
-              color: ZipherColors.bg,
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.shield_rounded,
-                        size: 48, color: ZipherColors.cardBgElevated),
-                    const Gap(16),
-                    Text(
-                      'Content hidden for security',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: ZipherColors.text40,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          ? Center(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Warning banner
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: ZipherColors.orange.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                      border: Border.all(
-                        color: ZipherColors.orange.withValues(alpha: 0.15),
-                      ),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.warning_amber_rounded,
-                            size: 18,
-                            color: ZipherColors.orange.withValues(alpha: 0.7)),
-                        const Gap(10),
-                        Expanded(
-                          child: Text(
-                            'Never share your seed phrase or spending keys. Anyone with access can steal your funds.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: ZipherColors.orange.withValues(alpha: 0.9),
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  if (isTestnet) ...[
-                    const Gap(12),
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: ZipherColors.orange.withValues(alpha: 0.06),
-                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                        border: Border.all(
-                          color: ZipherColors.orange.withValues(alpha: 0.12),
-                        ),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(Icons.science_rounded,
-                              size: 18,
-                              color:
-                                  ZipherColors.orange.withValues(alpha: 0.7)),
-                          const Gap(10),
-                          Expanded(
-                            child: Text(
-                              'You are viewing a testnet wallet. This seed is independent from your mainnet seed. Testnet coins (TAZ) have no real value.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color:
-                                    ZipherColors.orange.withValues(alpha: 0.8),
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-
-                  const Gap(20),
-
-                  // Wallet info card
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: ZipherColors.cardBg,
-                      borderRadius: BorderRadius.circular(ZipherRadius.card),
-                      border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
-                    ),
-                    child: Column(
-                      children: [
-                        _infoRow(
-                          Icons.account_circle_outlined,
-                          'Account',
-                          '${backup.name ?? 'Unknown'} (#${backup.index})',
-                        ),
-                        _divider(),
-                        _infoRow(
-                          Icons.backup_rounded,
-                          'Backup saved',
-                          backup.saved ? 'Yes' : 'No',
-                          valueColor: backup.saved
-                              ? ZipherColors.green.withValues(alpha: 0.6)
-                              : ZipherColors.orange.withValues(alpha: 0.9),
-                        ),
-                        if (_birthdayHeight != null) ...[
-                          _divider(),
-                          _infoRow(
-                            Icons.cake_outlined,
-                            'Birthday',
-                            'Block $_birthdayHeight',
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-
-                  // Seed coverage
-                  if (_allWallets.length > 1) ...[
-                    const Gap(20),
-                    _sectionHeader(
-                      'Seed Coverage',
-                      'Which accounts each seed phrase covers',
-                      Icons.account_tree_rounded,
-                    ),
-                    const Gap(12),
-                    ..._allWallets.map((w) {
-                      final isCurrent = w.id == aa.walletId;
-                      final accountNames =
-                          w.visibleAccounts.map((a) => a.name).join(', ');
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: isCurrent
-                                ? ZipherColors.cyan.withValues(alpha: 0.04)
-                                : ZipherColors.cardBg,
-                            borderRadius:
-                                BorderRadius.circular(ZipherRadius.lg),
-                            border: Border.all(
-                              color: isCurrent
-                                  ? ZipherColors.cyan.withValues(alpha: 0.12)
-                                  : ZipherColors.borderSubtle,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.key_rounded,
-                                size: 14,
-                                color: isCurrent
-                                    ? ZipherColors.cyan.withValues(alpha: 0.6)
-                                    : ZipherColors.text20,
-                              ),
-                              const Gap(10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Text(
-                                          w.name,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600,
-                                            color: ZipherColors.text60,
-                                          ),
-                                        ),
-                                        if (isCurrent) ...[
-                                          const Gap(6),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 5, vertical: 1),
-                                            decoration: BoxDecoration(
-                                              color: ZipherColors.cyan
-                                                  .withValues(alpha: 0.08),
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                            ),
-                                            child: Text(
-                                              'viewing',
-                                              style: TextStyle(
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.w600,
-                                                color: ZipherColors.cyan
-                                                    .withValues(alpha: 0.7),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                    const Gap(2),
-                                    Text(
-                                      'Covers: $accountNames',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: ZipherColors.text40,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }),
-                  ],
-
-                  const Gap(24),
-
-                  // Viewing keys
-                  _sectionHeader(
-                    'Viewing Keys',
-                    'Read-only — anyone with this can see every transaction',
-                    Icons.visibility_rounded,
-                  ),
-                  const Gap(12),
-
-                  if (backup.uvk != null)
-                    _KeyCard(
-                      onCopy: _copyRecovery,
-                      label: 'Unified Viewing Key',
-                      description:
-                          'Reveals every past and future transaction across all pools — including amounts, memos, and counterparties. Anyone you share this with can audit your entire wallet history. They cannot spend funds.',
-                      value: backup.uvk!,
-                      icon: Icons.visibility_rounded,
-                      revealed: _uvkRevealed,
-                      onToggleReveal: () => _toggleReveal(
-                          _uvkRevealed, () => _uvkRevealed = !_uvkRevealed),
-                      onShowQR: () => _showQR(context, backup.uvk!,
-                          '${s.unifiedViewingKey} of ${backup.name}'),
-                    ),
-
-                  if (backup.fvk != null) ...[
-                    const Gap(12),
-                    _KeyCard(
-                      onCopy: _copyRecovery,
-                      label: 'Full Viewing Key',
-                      description:
-                          'Reveals every shielded (Sapling) transaction — amounts and memos. Anyone you share this with can audit your Sapling wallet history. They cannot spend.',
-                      value: backup.fvk!,
-                      icon: Icons.visibility_outlined,
-                      revealed: _fvkRevealed,
-                      onToggleReveal: () => _toggleReveal(
-                          _fvkRevealed, () => _fvkRevealed = !_fvkRevealed),
-                      onShowQR: () => _showQR(context, backup.fvk!,
-                          '${s.viewingKey} of ${backup.name}'),
-                    ),
-                  ],
-
-                  if (_testnetSeedMissing) ...[
-                    const Gap(20),
-                    Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: ZipherColors.cardBg,
-                        borderRadius: BorderRadius.circular(ZipherRadius.card),
-                        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(Icons.info_outline_rounded,
-                              size: 18, color: ZipherColors.text40),
-                          const Gap(10),
-                          Expanded(
-                            child: Text(
-                              'This testnet wallet was created before seed storage was enabled. '
-                              'Toggle testnet off and back on to recreate it with a stored seed.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: ZipherColors.text40,
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-
-                  const Gap(28),
-
-                  // Spending keys
-                  if (_hasSpendingKeys(backup)) ...[
-                    GestureDetector(
-                      onTap: () => setState(
-                          () => _showSpendingKeys = !_showSpendingKeys),
-                      child: _sectionHeader(
-                        'Spending Keys',
-                        'Full control \u2014 never share these',
-                        Icons.lock_rounded,
-                        trailing: Icon(
-                          _showSpendingKeys
-                              ? Icons.keyboard_arrow_up_rounded
-                              : Icons.keyboard_arrow_down_rounded,
-                          size: 18,
-                          color: ZipherColors.text20,
-                        ),
-                      ),
-                    ),
-                    if (_showSpendingKeys) ...[
-                      const Gap(12),
-
-                      if (backup.tsk != null)
-                        _KeyCard(
-                          onCopy: _copyRecovery,
-                          label: 'Transparent Key',
-                          description:
-                              'Can spend transparent (public) funds only.',
-                          value: backup.tsk!,
-                          icon: Icons.key_rounded,
-                          revealed: _tskRevealed,
-                          onToggleReveal: () => _toggleReveal(
-                              _tskRevealed, () => _tskRevealed = !_tskRevealed),
-                          onShowQR: () => _showQR(context, backup.tsk!,
-                              '${s.transparentKey} of ${backup.name}'),
-                        ),
-
-                      if (backup.sk != null) ...[
-                        const Gap(12),
-                        _KeyCard(
-                          onCopy: _copyRecovery,
-                          label: 'Secret Key',
-                          description:
-                              'Can spend all shielded funds in this account.',
-                          value: backup.sk!,
-                          icon: Icons.vpn_key_rounded,
-                          revealed: _skRevealed,
-                          onToggleReveal: () => _toggleReveal(
-                              _skRevealed, () => _skRevealed = !_skRevealed),
-                          onShowQR: () => _showQR(context, backup.sk!,
-                              '${s.secretKey} of ${backup.name}'),
-                        ),
-                      ],
-
-                      // Seed phrase
-                      if ((_keychainSeed ?? backup.seed) != null) ...[
-                        const Gap(12),
-                        Builder(builder: (ctx) {
-                          final seedValue = _keychainSeed ?? backup.seed!;
-                          final seedLabel =
-                              isTestnet ? 'Testnet Seed Phrase' : 'Seed Phrase';
-                          final seedDesc = isTestnet
-                              ? 'Testnet-only seed \u2014 independent from your mainnet seed. Testnet coins have no value.'
-                              : 'Master key \u2014 derives ALL accounts and keys. If lost, funds are unrecoverable. If stolen, everything is compromised.';
-                          if (!_backup!.saved) {
-                            setActiveAccount(aa.coin, aa.id);
-                          }
-                          return _SeedCard(
-                            onCopy: _copyRecovery,
-                            label: seedLabel,
-                            description: seedDesc,
-                            seedPhrase: backup.index != 0
-                                ? '$seedValue [${backup.index}]'
-                                : seedValue,
-                            wordsVisible: _seedWordsVisible,
-                            onToggleWords: () => _toggleReveal(
-                                _seedWordsVisible,
-                                () => _seedWordsVisible = !_seedWordsVisible),
-                            onShowQR: () => _showQR(context, seedValue,
-                                '${s.seed} of ${backup.name}'),
-                          );
-                        }),
-
-                        if (!_verificationPassed) ...[
-                          const Gap(16),
-                          ZipherButton(
-                            label: 'Verify backup',
-                            icon: Icons.quiz_rounded,
-                            onPressed: () => _startVerification(
-                                (_keychainSeed ?? backup.seed)!),
-                          ),
-                        ],
-
-                        // Verified badge
-                        if (_verificationPassed) ...[
-                          const Gap(16),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            decoration: BoxDecoration(
-                              color: ZipherColors.green.withValues(alpha: 0.08),
-                              borderRadius:
-                                  BorderRadius.circular(ZipherRadius.lg),
-                              border: Border.all(
-                                color:
-                                    ZipherColors.green.withValues(alpha: 0.15),
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.check_circle_rounded,
-                                    size: 18,
-                                    color: ZipherColors.green
-                                        .withValues(alpha: 0.7)),
-                                const Gap(8),
-                                Text(
-                                  'Backup Verified',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: ZipherColors.green
-                                        .withValues(alpha: 0.7),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ],
-                  ],
-
-                  const Gap(40),
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.shield_rounded,
+                      size: 48, color: ZipherColors.text20),
+                  Gap(16),
+                  Text('Hidden while Zipher is in the background',
+                      style: ZipherType.subhead),
                 ],
               ),
+            )
+          : widget.advanced
+              ? _advancedBody(backup, s)
+              : _phraseBody(backup, seedValue, s),
+    );
+  }
+
+  /// One job: show the phrase safely and confirm it was written down.
+  Widget _phraseBody(_Backup backup, String? seedValue, S s) {
+    final backedUp = _verificationPassed;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(ZipherColors.pagePadding,
+                ZipherSpacing.sm, ZipherColors.pagePadding, ZipherSpacing.lg),
+            children: [
+              Row(children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(ZipherRadius.full),
+                    border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12),
+                        width: 0.5),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.account_balance_wallet_outlined,
+                        size: 14, color: ZipherColors.text60),
+                    const Gap(6),
+                    Text(backup.name ?? 'This wallet',
+                        style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: ZipherColors.text90)),
+                  ]),
+                ),
+                const Spacer(),
+                Icon(
+                    backedUp
+                        ? Icons.check_circle_rounded
+                        : Icons.error_outline_rounded,
+                    size: 16,
+                    color: backedUp ? ZipherColors.positive : ZipherColors.warm),
+                const Gap(5),
+                Text(backedUp ? 'Backed up' : 'Not backed up yet',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: backedUp
+                            ? ZipherColors.positive
+                            : ZipherColors.warm)),
+              ]),
+              const Gap(ZipherSpacing.md),
+              if (seedValue != null) ...[
+                _SeedCard(
+                  onCopy: _copyRecovery,
+                  seedPhrase: backup.index != 0
+                      ? '$seedValue [${backup.index}]'
+                      : seedValue,
+                  wordsVisible: _seedWordsVisible,
+                  onToggleWords: () => _toggleReveal(_seedWordsVisible,
+                      () => _seedWordsVisible = !_seedWordsVisible),
+                  onShowQR: () =>
+                      _showQR(context, seedValue, '${s.seed} of ${backup.name}'),
+                ),
+                const Gap(ZipherSpacing.md),
+                Text(
+                    isTestnet
+                        ? 'Testnet-only phrase, separate from your mainnet wallet. Testnet coins have no value.'
+                        : 'Anyone with these words can take your funds. Never share them, and never type them into a website.',
+                    style: ZipherType.footnote),
+              ] else
+                Text(
+                    _testnetSeedMissing
+                        ? 'This testnet wallet was created before phrases were stored. Turn testnet off and on again to recreate it with a phrase.'
+                        : 'This wallet was imported from a viewing key, so it has no recovery phrase. It can show your history but can\'t spend.',
+                    style: ZipherType.subhead),
+            ],
+          ),
+        ),
+        ZipherWidgets.bottomActions([
+          if (seedValue != null && !backedUp)
+            ZipherButton(
+              label: 'I wrote them down',
+              onPressed: () => _startVerification(seedValue),
             ),
+          if (seedValue != null && backedUp)
+            ZipherButton(
+              label: 'Check my backup again',
+              kind: ZipherButtonKind.secondary,
+              onPressed: () => _startVerification(seedValue),
+            ),
+          ZipherButton(
+            label: 'Advanced: viewing and spending keys',
+            kind: ZipherButtonKind.plain,
+            size: ZipherButtonSize.small,
+            color: ZipherColors.text60,
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => BackupPage(advanced: true))),
+          ),
+        ]),
+      ],
+    );
+  }
+
+  /// Keys most people never need, and which wallets are backed up.
+  Widget _advancedBody(_Backup backup, S s) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(ZipherColors.pagePadding,
+          ZipherSpacing.sm, ZipherColors.pagePadding, ZipherSpacing.xl),
+      children: [
+        const Text(
+            'Most people never need these. Your recovery phrase already covers these keys.',
+            style: ZipherType.subhead),
+        const Gap(ZipherSpacing.lg),
+        const Text('Viewing key', style: ZipherType.section),
+        const Gap(ZipherSpacing.sm),
+        if (backup.uvk != null)
+          _KeyCard(
+            onCopy: _copyRecovery,
+            label: 'Unified viewing key',
+            description:
+                'Read-only. Share it to let someone, like an accountant, see this wallet’s full history. They can’t spend.',
+            value: backup.uvk!,
+            icon: Icons.visibility_rounded,
+            revealed: _uvkRevealed,
+            onToggleReveal: () =>
+                _toggleReveal(_uvkRevealed, () => _uvkRevealed = !_uvkRevealed),
+            onShowQR: () => _showQR(context, backup.uvk!,
+                '${s.unifiedViewingKey} of ${backup.name}'),
+          )
+        else
+          const Text('No viewing key is available for this wallet.',
+              style: ZipherType.footnote),
+        if (backup.fvk != null) ...[
+          const Gap(ZipherSpacing.smMd),
+          _KeyCard(
+            onCopy: _copyRecovery,
+            label: 'Sapling viewing key',
+            description: 'Read-only, Sapling pool only.',
+            value: backup.fvk!,
+            icon: Icons.visibility_outlined,
+            revealed: _fvkRevealed,
+            onToggleReveal: () =>
+                _toggleReveal(_fvkRevealed, () => _fvkRevealed = !_fvkRevealed),
+            onShowQR: () => _showQR(
+                context, backup.fvk!, '${s.viewingKey} of ${backup.name}'),
+          ),
+        ],
+        if (backup.tsk != null || backup.sk != null) ...[
+          const Gap(ZipherSpacing.lg),
+          const Text('Spending keys', style: ZipherType.section),
+          const Gap(ZipherSpacing.sm),
+          if (backup.tsk != null)
+            _KeyCard(
+              onCopy: _copyRecovery,
+              label: 'Transparent key',
+              description: 'Full control of public funds. Developers only.',
+              value: backup.tsk!,
+              icon: Icons.key_rounded,
+              revealed: _tskRevealed,
+              onToggleReveal: () => _toggleReveal(
+                  _tskRevealed, () => _tskRevealed = !_tskRevealed),
+              onShowQR: () => _showQR(context, backup.tsk!,
+                  '${s.transparentKey} of ${backup.name}'),
+            ),
+          if (backup.sk != null) ...[
+            const Gap(ZipherSpacing.smMd),
+            _KeyCard(
+              onCopy: _copyRecovery,
+              label: 'Secret key',
+              description:
+                  'Full control of shielded funds. Developers only.',
+              value: backup.sk!,
+              icon: Icons.vpn_key_rounded,
+              revealed: _skRevealed,
+              onToggleReveal: () =>
+                  _toggleReveal(_skRevealed, () => _skRevealed = !_skRevealed),
+              onShowQR: () => _showQR(
+                  context, backup.sk!, '${s.secretKey} of ${backup.name}'),
+            ),
+          ],
+        ],
+        if (_allWallets.isNotEmpty) ...[
+          const Gap(ZipherSpacing.lg),
+          const Text('Your wallets', style: ZipherType.section),
+          const Gap(ZipherSpacing.sm),
+          ZipherWidgets.group([
+            for (final w in _allWallets)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: ZipherSpacing.md, vertical: ZipherSpacing.smMd),
+                child: Row(children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(w.name, style: ZipherType.rowTitle),
+                        const Gap(2),
+                        Text(
+                            w.id == aa.walletId
+                                ? 'Open now · its own recovery phrase'
+                                : 'Its own recovery phrase',
+                            style: ZipherType.footnote),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                      _walletBackedUp[w.id] == true
+                          ? Icons.check_circle_rounded
+                          : Icons.error_outline_rounded,
+                      size: 18,
+                      color: _walletBackedUp[w.id] == true
+                          ? ZipherColors.positive
+                          : ZipherColors.warm),
+                ]),
+              ),
+          ]),
+        ],
+        if (_birthdayHeight != null) ...[
+          const Gap(ZipherSpacing.md),
+          Text('Wallet start: block $_birthdayHeight',
+              style: ZipherType.footnote),
+        ],
+      ],
     );
   }
 
@@ -798,72 +623,6 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
           },
         ),
       ),
-    );
-  }
-
-  bool _hasSpendingKeys(_Backup b) =>
-      _keychainSeed != null || b.seed != null || b.sk != null || b.tsk != null;
-
-  Widget _sectionHeader(String title, String subtitle, IconData icon,
-      {Widget? trailing}) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: ZipherColors.text40),
-        const Gap(8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: ZipherColors.text60,
-                ),
-              ),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: ZipherColors.text40,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (trailing != null) trailing,
-      ],
-    );
-  }
-
-  Widget _infoRow(IconData icon, String label, String value,
-      {Color? valueColor}) {
-    return Row(
-      children: [
-        Icon(icon, size: 15, color: ZipherColors.text20),
-        const Gap(8),
-        Text(
-          label,
-          style: TextStyle(fontSize: 12, color: ZipherColors.text40),
-        ),
-        const Spacer(),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: valueColor ?? ZipherColors.text60,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _divider() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Divider(height: 1, color: ZipherColors.borderSubtle),
     );
   }
 
@@ -1035,8 +794,6 @@ class _KeyCard extends StatelessWidget {
 // ─── Seed card with per-word grid ───────────────────────────────────
 
 class _SeedCard extends StatelessWidget {
-  final String label;
-  final String description;
   final String seedPhrase;
   final bool wordsVisible;
   final VoidCallback? onToggleWords;
@@ -1044,8 +801,6 @@ class _SeedCard extends StatelessWidget {
   final ValueChanged<String> onCopy;
 
   const _SeedCard({
-    required this.label,
-    required this.description,
     required this.seedPhrase,
     required this.wordsVisible,
     this.onToggleWords,
@@ -1053,176 +808,127 @@ class _SeedCard extends StatelessWidget {
     required this.onCopy,
   });
 
+  String get _clean => seedPhrase.replaceAll(RegExp(r'\s*\[\d+\]\s*$'), '');
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.card),
-        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
+    final words = _clean.trim().split(RegExp(r'\s+'));
+    final grid = GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisExtent: 40,
+        crossAxisSpacing: 6,
+        mainAxisSpacing: 6,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.shield_rounded, size: 14, color: ZipherColors.text20),
-              const Gap(6),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: ZipherColors.text60,
-                  ),
-                ),
-              ),
-            ],
+      itemCount: words.length,
+      itemBuilder: (_, i) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(ZipherRadius.sm),
+        ),
+        child: Row(children: [
+          SizedBox(
+            width: 22,
+            child: Text('${i + 1}',
+                style: const TextStyle(fontSize: 11, color: ZipherColors.text20)),
           ),
-          const Gap(6),
-          Text(
-            description,
-            style: TextStyle(
-              fontSize: 11,
-              color: ZipherColors.text40,
-              height: 1.4,
+          Expanded(
+            child: Text(
+              wordsVisible ? words[i] : '••••',
+              maxLines: 1,
+              overflow: TextOverflow.fade,
+              softWrap: false,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: wordsVisible ? ZipherColors.text90 : ZipherColors.text20,
+                letterSpacing: wordsVisible ? 0 : 2,
+              ),
             ),
           ),
-          const Gap(10),
-          Row(
-            children: [
-              GestureDetector(
-                onTap: onToggleWords,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      wordsVisible
-                          ? Icons.visibility_off_rounded
-                          : Icons.visibility_rounded,
-                      size: 13,
-                      color: ZipherColors.text20,
-                    ),
-                    const Gap(4),
-                    Text(
-                      wordsVisible ? 'Hide words' : 'Show words',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: ZipherColors.text40,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const Gap(8),
-          _buildWordGrid(),
-          const Gap(10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              _actionButton(
-                context,
-                Icons.copy_rounded,
-                'Copy',
-                () {
-                  final clean =
-                      seedPhrase.replaceAll(RegExp(r'\s*\[\d+\]\s*$'), '');
-                  onCopy(clean);
-                },
-              ),
-              const Gap(8),
-              _actionButton(context, Icons.qr_code_rounded, 'QR', onShowQR),
-            ],
-          ),
-        ],
+        ]),
       ),
     );
-  }
-
-  Widget _buildWordGrid() {
-    // Parse seed words, strip optional account index suffix like " [1]"
-    final cleanSeed = seedPhrase.replaceAll(RegExp(r'\s*\[\d+\]\s*$'), '');
-    final words = cleanSeed.trim().split(RegExp(r'\s+'));
-    final rows = (words.length / 3).ceil();
-
     return Column(
-      children: List.generate(rows, (row) {
-        return Padding(
-          padding: EdgeInsets.only(bottom: row < rows - 1 ? 6 : 0),
-          child: Row(
-            children: List.generate(3, (col) {
-              final idx = row * 3 + col;
-              if (idx >= words.length) {
-                return const Expanded(child: SizedBox());
-              }
-              return Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    left: col > 0 ? 4 : 0,
-                    right: col < 2 ? 0 : 0,
-                  ),
-                  child: Container(
-                    height: 36,
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    decoration: BoxDecoration(
-                      color: ZipherColors.cardBgElevated,
-                      borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                      border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
-                    ),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 20,
-                          child: Text(
-                            '${idx + 1}',
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w600,
-                              color: ZipherColors.text20,
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            wordsVisible
-                                ? words[idx]
-                                : '\u2022\u2022\u2022\u2022',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: wordsVisible
-                                  ? ZipherColors.text90
-                                  : ZipherColors.text20,
-                              fontFamily: 'JetBrainsMono',
-                              letterSpacing: wordsVisible ? 0 : 2,
-                            ),
-                          ),
-                        ),
-                      ],
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(ZipherSpacing.smMd),
+          decoration: BoxDecoration(
+            color: ZipherColors.cardBg,
+            borderRadius: BorderRadius.circular(ZipherRadius.card),
+            border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
+          ),
+          child: Stack(children: [
+            grid,
+            if (!wordsVisible)
+              Positioned.fill(
+                child: Semantics(
+                  button: true,
+                  label: 'Show recovery phrase',
+                  child: GestureDetector(
+                    onTap: onToggleWords,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: ZipherColors.bg.withValues(alpha: 0.82),
+                        borderRadius: BorderRadius.circular(ZipherRadius.md),
+                      ),
+                      child: const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.visibility_rounded,
+                              size: 26, color: ZipherColors.text90),
+                          Gap(8),
+                          Text('Tap to show', style: ZipherType.rowTitle),
+                          Gap(4),
+                          Text('Make sure no one can see your screen',
+                              style: ZipherType.footnote),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              );
-            }),
-          ),
-        );
-      }),
-    );
-  }
-
-  Widget _actionButton(
-      BuildContext context, IconData icon, String label, VoidCallback? onTap) {
-    return ZipherButton(
-      label: label,
-      icon: icon,
-      kind: ZipherButtonKind.secondary,
-      size: ZipherButtonSize.small,
-      onPressed: onTap,
+              ),
+          ]),
+        ),
+        if (wordsVisible) ...[
+          const Gap(ZipherSpacing.smMd),
+          Row(children: [
+            Expanded(
+              child: ZipherButton(
+                label: 'Hide',
+                icon: Icons.visibility_off_rounded,
+                kind: ZipherButtonKind.secondary,
+                size: ZipherButtonSize.small,
+                onPressed: onToggleWords,
+              ),
+            ),
+            const Gap(8),
+            Expanded(
+              child: ZipherButton(
+                label: 'Copy',
+                icon: Icons.copy_rounded,
+                kind: ZipherButtonKind.secondary,
+                size: ZipherButtonSize.small,
+                onPressed: () => onCopy(_clean),
+              ),
+            ),
+            const Gap(8),
+            Expanded(
+              child: ZipherButton(
+                label: 'QR',
+                icon: Icons.qr_code_rounded,
+                kind: ZipherButtonKind.secondary,
+                size: ZipherButtonSize.small,
+                onPressed: onShowQR,
+              ),
+            ),
+          ]),
+        ],
+      ],
     );
   }
 }

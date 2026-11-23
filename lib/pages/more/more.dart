@@ -80,8 +80,8 @@ class _MorePageState extends State<MorePage> {
               _card([
                 _SettingsItem(
                   icon: Icons.key_rounded,
-                  label: s.seedKeys,
-                  subtitle: 'Back up your recovery phrase and keys',
+                  label: 'Recovery phrase',
+                  subtitle: 'Back up or view your wallet’s words',
                   onTap: () => _navSecured('/more/backup'),
                 ),
                 // Ironwood transfer: only show after NU6.3 activates
