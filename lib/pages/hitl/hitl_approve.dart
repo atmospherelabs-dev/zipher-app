@@ -46,6 +46,7 @@ class _HitlApprovePageState extends State<HitlApprovePage> {
 
   @override
   void dispose() {
+    HitlWatchService.instance.approvalClosed(_req.approvalId);
     _tick?.cancel();
     super.dispose();
   }
@@ -93,11 +94,10 @@ class _HitlApprovePageState extends State<HitlApprovePage> {
     final mins = _remaining ~/ 60;
     final secs = (_remaining % 60).toString().padLeft(2, '0');
 
-    return ListView(
-      key: const ValueKey('review'),
+    final details = ListView(
       padding: const EdgeInsets.symmetric(horizontal: ZipherColors.pagePadding),
       children: [
-        const Gap(ZipherSpacing.md),
+        const Gap(ZipherSpacing.sm),
         const Center(child: HitlBadge(icon: Icons.smart_toy_rounded)),
         const Gap(ZipherSpacing.md),
         Text(agent,
@@ -114,7 +114,7 @@ class _HitlApprovePageState extends State<HitlApprovePage> {
                     color: ZipherColors.text90, fontSize: 34, fontWeight: FontWeight.w700, letterSpacing: -0.5)),
             const Gap(6),
             Text('+ ${formatZat(_req.fee)} ZEC network fee',
-                style: const TextStyle(color: ZipherColors.text60, fontSize: 14, fontFamily: 'JetBrainsMono')),
+                style: const TextStyle(color: ZipherColors.text60, fontSize: 14, fontFamily: 'JetBrainsMono', fontFamilyFallback: hitlMonoFallback)),
           ]),
         ),
         const Gap(ZipherSpacing.smMd),
@@ -159,32 +159,45 @@ class _HitlApprovePageState extends State<HitlApprovePage> {
           ),
           const Gap(ZipherSpacing.smMd),
           Text(expired ? 'Expired' : '$mins:$secs',
-              style: const TextStyle(color: ZipherColors.text40, fontSize: 13, fontFamily: 'JetBrainsMono')),
+              style: const TextStyle(color: ZipherColors.text40, fontSize: 13, fontFamily: 'JetBrainsMono', fontFamilyFallback: hitlMonoFallback)),
         ]),
         const Gap(ZipherSpacing.lg),
-        if (expired) ...[
-          const Text('This request expired. Ask your agent to try again if you still want to send it.',
-              textAlign: TextAlign.center, style: TextStyle(color: ZipherColors.text60, fontSize: 14, height: 1.4)),
-          const Gap(ZipherSpacing.md),
-          ZipherWidgets.ghostButton(label: 'Close', onPressed: () => Navigator.of(context).maybePop()),
-        ] else if (busy)
-          const Padding(
-            padding: EdgeInsets.all(ZipherSpacing.md),
-            child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
-          )
-        else ...[
-          ZipherWidgets.gradientButton(
-            label: 'Approve',
-            onPressed: () => _decide(true),
-          ),
-          const Gap(ZipherSpacing.smMd),
-          ZipherWidgets.ghostButton(label: 'Decline', onPressed: () => _decide(false)),
-          const Gap(ZipherSpacing.md),
-          const Text('Payments can’t be reversed once sent.',
-              textAlign: TextAlign.center, style: TextStyle(color: ZipherColors.text40, fontSize: 13)),
-        ],
-        const Gap(ZipherSpacing.lg),
       ],
+    );
+
+    // Actions stay pinned above the home indicator, like a system sheet.
+    final actions = Padding(
+      padding: const EdgeInsets.fromLTRB(
+          ZipherColors.pagePadding, ZipherSpacing.smMd, ZipherColors.pagePadding, ZipherSpacing.sm),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (expired) ...[
+            const Text('This request expired. Ask your agent to try again if you still want to send it.',
+                textAlign: TextAlign.center, style: TextStyle(color: ZipherColors.text60, fontSize: 14, height: 1.4)),
+            const Gap(ZipherSpacing.md),
+            ZipherWidgets.ghostButton(label: 'Close', onPressed: () => hitlCloseSelf(context)),
+          ] else if (busy)
+            const Padding(
+              padding: EdgeInsets.all(ZipherSpacing.md),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+            )
+          else ...[
+            ZipherWidgets.gradientButton(label: 'Approve', onPressed: () => _decide(true)),
+            const Gap(ZipherSpacing.smMd),
+            ZipherWidgets.ghostButton(label: 'Decline', onPressed: () => _decide(false)),
+            const Gap(ZipherSpacing.sm),
+            const Text('Payments can’t be reversed once sent.',
+                textAlign: TextAlign.center, style: TextStyle(color: ZipherColors.text40, fontSize: 12)),
+          ],
+        ],
+      ),
+    );
+
+    return Column(
+      key: const ValueKey('review'),
+      children: [Expanded(child: details), actions],
     );
   }
 
@@ -212,6 +225,6 @@ class _HitlApprovePageState extends State<HitlApprovePage> {
     approved ? HapticFeedback.mediumImpact() : HapticFeedback.lightImpact();
     setState(() => _stage = approved ? _Stage.approved : _Stage.declined);
     await Future.delayed(const Duration(milliseconds: 1400));
-    if (mounted) Navigator.of(context).maybePop();
+    if (mounted) hitlCloseSelf(context);
   }
 }

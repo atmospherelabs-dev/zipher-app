@@ -55,8 +55,7 @@ class _HitlPairPageState extends State<HitlPairPage> {
     final code = p.checkCode;
     final replacing = HitlWatchService.instance.isPaired;
 
-    return ListView(
-      key: const ValueKey('confirm'),
+    final details = ListView(
       padding: const EdgeInsets.symmetric(horizontal: ZipherColors.pagePadding),
       children: [
         const Gap(ZipherSpacing.lg),
@@ -81,6 +80,7 @@ class _HitlPairPageState extends State<HitlPairPage> {
                     fontSize: 36,
                     fontWeight: FontWeight.w700,
                     fontFamily: 'JetBrainsMono',
+                    fontFamilyFallback: hitlMonoFallback,
                     letterSpacing: 2)),
             const Gap(ZipherSpacing.sm),
             const Text('Make sure this matches the code on your computer.',
@@ -91,19 +91,32 @@ class _HitlPairPageState extends State<HitlPairPage> {
         _point(Icons.lock_rounded, 'End-to-end encrypted. Only this phone can read requests.'),
         _point(Icons.verified_user_rounded, 'Your agent can’t send above its limit without your Face ID.'),
         if (replacing) _point(Icons.swap_horiz_rounded, 'Replaces the agent you paired before.'),
-        const Gap(ZipherSpacing.xl),
-        if (_busy)
-          const Padding(
-            padding: EdgeInsets.all(ZipherSpacing.md),
-            child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
-          )
-        else ...[
-          ZipherWidgets.gradientButton(label: 'Pair', onPressed: _pair),
-          const Gap(ZipherSpacing.smMd),
-          ZipherWidgets.ghostButton(label: 'Cancel', onPressed: () => Navigator.of(context).maybePop()),
-        ],
         const Gap(ZipherSpacing.lg),
       ],
+    );
+
+    final actions = Padding(
+      padding: const EdgeInsets.fromLTRB(
+          ZipherColors.pagePadding, ZipherSpacing.smMd, ZipherColors.pagePadding, ZipherSpacing.sm),
+      child: _busy
+          ? const Padding(
+              padding: EdgeInsets.all(ZipherSpacing.md),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ZipherWidgets.gradientButton(label: 'Pair', onPressed: _pair),
+                const Gap(ZipherSpacing.smMd),
+                ZipherWidgets.ghostButton(label: 'Cancel', onPressed: () => hitlCloseSelf(context)),
+              ],
+            ),
+    );
+
+    return Column(
+      key: const ValueKey('confirm'),
+      children: [Expanded(child: details), actions],
     );
   }
 
@@ -147,6 +160,6 @@ class _HitlPairPageState extends State<HitlPairPage> {
     HapticFeedback.mediumImpact();
     setState(() => _done = true);
     await Future.delayed(const Duration(milliseconds: 1600));
-    if (mounted) Navigator.of(context).maybePop();
+    if (mounted) hitlCloseSelf(context);
   }
 }

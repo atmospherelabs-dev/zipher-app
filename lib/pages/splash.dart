@@ -207,13 +207,16 @@ class _SplashState extends State<SplashPage> {
             appStore.initialized = true;
 
             await minDisplayTime;
-            if (applinkUri != null) {
-              handleUri(applinkUri);
-            } else if (quickAction != null) {
+            if (quickAction != null && applinkUri == null) {
               handleQuickAction(context, quickAction);
             } else {
               logger.d('navigating to /account');
               GoRouter.of(context).go('/account');
+              // A launch link opens on top of the account, so closing it
+              // returns to the wallet instead of a dead splash screen.
+              if (applinkUri != null) {
+                WidgetsBinding.instance.addPostFrameCallback((_) => handleUri(applinkUri));
+              }
             }
           } else {
             await minDisplayTime;

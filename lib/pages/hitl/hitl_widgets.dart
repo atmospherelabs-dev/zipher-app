@@ -4,6 +4,10 @@ import 'package:gap/gap.dart';
 
 import '../../zipher_theme.dart';
 
+/// Monospace for addresses and codes. JetBrains Mono is not bundled, so fall
+/// back to the system mono fonts (Menlo on iOS) rather than a proportional face.
+const hitlMonoFallback = <String>['Menlo', 'Roboto Mono', 'monospace'];
+
 /// Exact ZEC string from zatoshis (integer math, no rounding).
 String formatZat(BigInt zat) {
   final unit = BigInt.from(100000000);
@@ -92,6 +96,7 @@ class HitlDetail extends StatelessWidget {
             fontSize: mono ? 14 : 15,
             height: 1.45,
             fontFamily: mono ? 'JetBrainsMono' : 'Inter',
+            fontFamilyFallback: mono ? hitlMonoFallback : null,
           ),
         ),
       ],
@@ -125,7 +130,9 @@ class _HitlDoneState extends State<HitlDone> with SingleTickerProviderStateMixin
   Widget build(BuildContext context) {
     final scale = CurvedAnimation(parent: _c, curve: Curves.easeOutBack);
     return Center(
-      child: Column(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.xl),
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           ScaleTransition(scale: scale, child: HitlBadge(icon: widget.icon, color: widget.color)),
@@ -143,7 +150,21 @@ class _HitlDoneState extends State<HitlDone> with SingleTickerProviderStateMixin
           ),
         ],
       ),
+      ),
     );
+  }
+}
+
+/// Close this screen only. A plain pop would close whatever is on top, such as
+/// an approval request that arrived while this screen was finishing.
+void hitlCloseSelf(BuildContext context) {
+  final route = ModalRoute.of(context);
+  if (route == null || !route.isActive) return;
+  final nav = Navigator.of(context);
+  if (route.isCurrent) {
+    nav.pop();
+  } else {
+    nav.removeRoute(route);
   }
 }
 
@@ -152,6 +173,6 @@ Widget hitlCloseButton(BuildContext context) => IconButton(
       icon: const Icon(Icons.close_rounded, color: ZipherColors.text60),
       onPressed: () {
         HapticFeedback.selectionClick();
-        Navigator.of(context).maybePop();
+        hitlCloseSelf(context);
       },
     );

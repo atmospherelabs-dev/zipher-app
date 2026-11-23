@@ -35,6 +35,7 @@ class HitlWatchService {
   Timer? _timer;
   bool _polling = false;
   final _shownIds = <String>{};
+  final _openIds = <String>{};
   String? _pairingJson;
   String? _agentName;
 
@@ -74,12 +75,26 @@ class HitlWatchService {
     try {
       preview = await rust_engine.hitlPreviewPairing(uri: uri);
     } catch (e) {
-      _log.w('[HITL] Ignored an invalid pairing link');
+      _log.w('[HITL] Ignored an invalid pairing link: $e');
       return;
     }
-    final context = rootNavigatorKey.currentContext;
-    if (context == null || !context.mounted) return;
-    GoRouter.of(context).push('/hitl/pair', extra: HitlPairingArgs(uri, preview));
+    // A link that launches the app can arrive while it is still unlocking or
+    // loading the wallet. Wait for the navigator instead of dropping it.
+    var context = rootNavigatorKey.currentContext;
+    for (var i = 0; i < 60 && (context == null || !context.mounted); i++) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      context = rootNavigatorKey.currentContext;
+    }
+    if (context == null || !context.mounted) {
+      _log.w('[HITL] Pairing link arrived but the app never became ready');
+      return;
+    }
+    try {
+      GoRouter.of(context).push('/hitl/pair', extra: HitlPairingArgs(uri, preview));
+      _log.i('[HITL] Showing pairing confirmation');
+    } catch (e) {
+      _log.e('[HITL] Could not open pairing confirmation: $e');
+    }
   }
 
   /// Called after the user confirmed the check code and authenticated.
@@ -131,6 +146,9 @@ class HitlWatchService {
   }
 
   void onAppResumed() {
+    // Requests closed without a decision come back when the app returns.
+    // Answered ones are gone from the relay, so they never reappear.
+    _shownIds.retainAll(_openIds);
     if (_pairingJson != null) poll();
   }
 
@@ -155,7 +173,13 @@ class HitlWatchService {
         _showApproval(r);
       }
     } catch (e) {
-      _log.w('[HITL] Poll failed');
+      if (e.toString().contains('unpaired')) {
+        // The agent closed the channel; stop asking a relay that will never answer.
+        _log.i('[HITL] Agent unpaired; clearing local pairing');
+        await unpair();
+      } else {
+        _log.w('[HITL] Poll failed');
+      }
     } finally {
       _polling = false;
     }
@@ -182,8 +206,12 @@ class HitlWatchService {
   void _showApproval(rust_engine.HitlRequest request) {
     final context = rootNavigatorKey.currentContext;
     if (context == null || !context.mounted) return;
+    if (!_openIds.add(request.approvalId)) return;
     GoRouter.of(context).push('/hitl/approve', extra: request);
   }
+
+  /// Called by the approval screen when it goes away, answered or not.
+  void approvalClosed(String approvalId) => _openIds.remove(approvalId);
 }
 
 class HitlPairingArgs {

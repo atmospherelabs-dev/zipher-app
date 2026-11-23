@@ -617,6 +617,51 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Manual device check: `ZIPHER_TEST_RELAY=<url> ZIPHER_PAIR_URI_FILE=<path>
+    /// cargo test -p zipher-engine --lib hitl::tests::manual_phone_flow -- --ignored --nocapture`
+    /// Pairs with a real phone, sends one request and reports the verified outcome.
+    #[tokio::test]
+    #[ignore]
+    async fn manual_phone_flow() {
+        let relay = std::env::var("ZIPHER_TEST_RELAY").expect("ZIPHER_TEST_RELAY");
+        let uri_file = std::env::var("ZIPHER_PAIR_URI_FILE").expect("ZIPHER_PAIR_URI_FILE");
+        let dir = temp_dir();
+        let session = start_pairing(Some(&relay), "Claude on MacBook Pro").await.unwrap();
+        std::fs::write(&uri_file, &session.start.uri).unwrap();
+        println!("check code: {}", session.start.check_code);
+        loop {
+            match session.poll(&dir).await.unwrap() {
+                PairingProgress::Paired => break,
+                PairingProgress::Expired => panic!("pairing expired"),
+                PairingProgress::Waiting => tokio::time::sleep(Duration::from_secs(2)).await,
+            }
+        }
+        let _ = std::fs::remove_file(&uri_file);
+        println!("paired");
+        let req = request_approval(&dir, ApprovalInput {
+            network: "main",
+            address: "u1qx7k3m9wz2vpr5hd8lyn4ecaf6tjgs0ux3wq8m2n7vldk9pz4h6rc5ty8gj2fe3sa0kw7xnl",
+            amount: 150_000_000,
+            fee: 10_000,
+            memo: Some("Invoice #1042 — hosting for December"),
+            context_id: Some("order-1042"),
+            tool: "propose_send",
+        })
+        .await
+        .unwrap();
+        println!("request sent");
+        loop {
+            match check_approval(&dir, &req).await.unwrap() {
+                ApprovalOutcome::Pending => tokio::time::sleep(Duration::from_secs(2)).await,
+                other => {
+                    println!("outcome: {other:?}");
+                    break;
+                }
+            }
+        }
+        unpair(&dir).await.unwrap();
+    }
+
     #[test]
     fn old_plaintext_state_reads_as_unpaired() {
         let dir = temp_dir();

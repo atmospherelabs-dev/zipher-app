@@ -491,6 +491,7 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/hitl/approve',
+      parentNavigatorKey: rootNavigatorKey,
       pageBuilder: (context, state) {
         final extra = state.extra;
         if (extra is rust_engine.HitlRequest) {
@@ -501,6 +502,7 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/hitl/pair',
+      parentNavigatorKey: rootNavigatorKey,
       pageBuilder: (context, state) {
         final extra = state.extra;
         if (extra is HitlPairingArgs) {
