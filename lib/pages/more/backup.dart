@@ -118,11 +118,6 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
     if (v && mounted) setState(() => _verificationPassed = true);
   }
 
-  Future<void> _saveVerificationState(bool passed) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('seed_verified_${aa.coin}_${aa.id}', passed);
-  }
-
   Future<void> _enableScreenProtection() async {
     await ScreenProtector.protectDataLeakageOn();
   }
@@ -594,7 +589,6 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
             if (passed == null) return;
             if (passed) {
               setState(() => _verificationPassed = true);
-              _saveVerificationState(true);
               BackupStatus.instance
                   .markBackedUp(WalletService.instance.activeWalletId);
               ScaffoldMessenger.of(context).showSnackBar(
