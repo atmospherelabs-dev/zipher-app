@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::ServerInfo;
+use rmcp::model::ServerConfig;
 use rmcp::schemars;
 use rmcp::{tool, tool_handler, tool_router, ServerHandler, ServiceExt};
 use secrecy::{ExposeSecret, SecretString};
@@ -1666,7 +1666,7 @@ impl ZipherMcpServer {
 
 #[tool_handler]
 impl ServerHandler for ZipherMcpServer {
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         let mut info = rmcp::model::Implementation::from_build_env();
         info.name = "zipher-mcp-server".into();
         info.version = env!("CARGO_PKG_VERSION").into();
@@ -1674,7 +1674,7 @@ impl ServerHandler for ZipherMcpServer {
         info.description = Some("Headless Zcash wallet with encrypted vault, spending policies, and x402 paywall access".into());
         info.website_url = Some("https://zipher.app".into());
 
-        ServerInfo::default()
+        ServerConfig::default()
             .with_server_info(info)
             .with_instructions(
                 "Zipher: headless Zcash wallet + multi-chain agent toolkit for AI. \

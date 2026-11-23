@@ -57,6 +57,10 @@ tor-key-forge = { path = "vendor/tor-key-forge" }
 zcash_client_backend = { path = "vendor/zcash_client_backend" }
 zcash_client_sqlite = { path = "vendor/zcash_client_sqlite" }
 zcash_pool_migration = { path = "vendor/zcash_pool_migration" }
+# SQLCipher 4.20.0 / SQLite 3.54.1 inside the rusqlite 0.37 interface (RUSTSEC-2026-0459).
+libsqlite3-sys = { path = "vendor/libsqlite3-sys" }
+# Drops postcard default features, removing heapless 0.7 (RUSTSEC-2026-0574..0582).
+frost-core = { path = "vendor/frost-core" }
 
 [workspace.dependencies]
 zcash_protocol = { package = "zakura-protocol", version = "=4.0.0" }
