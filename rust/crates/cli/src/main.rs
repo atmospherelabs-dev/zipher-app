@@ -225,6 +225,9 @@ enum Commands {
         /// Relay URL (default: https://relay.atmospherelabs.dev)
         #[arg(long)]
         relay_url: Option<String>,
+        /// Reach the relay directly instead of over Tor (reveals this machine's IP to the relay)
+        #[arg(long)]
+        no_tor: bool,
     },
 
     /// Forget the paired phone and close the relay channel
@@ -1014,7 +1017,8 @@ async fn main() {
         Commands::Pair {
             device_name,
             relay_url,
-        } => hitl::cmd_pair(&cfg, &device_name, relay_url.as_deref()).await,
+            no_tor,
+        } => hitl::cmd_pair(&cfg, &device_name, relay_url.as_deref(), no_tor).await,
         Commands::Unpair => hitl::cmd_unpair(&cfg).await,
     };
 

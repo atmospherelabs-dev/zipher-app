@@ -21,6 +21,7 @@ class HitlPairPage extends StatefulWidget {
 class _HitlPairPageState extends State<HitlPairPage> {
   bool _busy = false;
   bool _done = false;
+  bool _askPush = false;
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +37,13 @@ class _HitlPairPageState extends State<HitlPairPage> {
       body: SafeArea(
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 250),
-          child: _done
+          child: _askPush
+              ? HitlPushChoice(
+                  key: const ValueKey('push'),
+                  agentName: widget.args.preview.agentName,
+                  onDone: _finish,
+                )
+              : _done
               ? HitlDone(
                   key: const ValueKey('done'),
                   icon: Icons.check_rounded,
@@ -158,7 +165,19 @@ class _HitlPairPageState extends State<HitlPairPage> {
       return;
     }
     HapticFeedback.mediumImpact();
-    setState(() => _done = true);
+    if (HitlWatchService.instance.pushSupported && !HitlWatchService.instance.pushEnabled) {
+      setState(() => _askPush = true);
+    } else {
+      await _finish();
+    }
+  }
+
+  Future<void> _finish() async {
+    if (!mounted) return;
+    setState(() {
+      _askPush = false;
+      _done = true;
+    });
     await Future.delayed(const Duration(milliseconds: 1600));
     if (mounted) hitlCloseSelf(context);
   }

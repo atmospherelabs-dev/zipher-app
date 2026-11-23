@@ -10,11 +10,14 @@ use zipher_engine::hitl::{self, PairingProgress};
 
 use crate::Config;
 
-pub async fn cmd_pair(cfg: &Config, agent_name: &str, relay_url: Option<&str>) -> Result<()> {
+pub async fn cmd_pair(cfg: &Config, agent_name: &str, relay_url: Option<&str>, no_tor: bool) -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         bail!("`zipher pair` must run in an interactive terminal: the pairing link contains a one-time secret that agents must not see.");
     }
-    let session = hitl::start_pairing(relay_url, agent_name).await?;
+    if !no_tor {
+        println!("  Connecting to Tor (first time can take a minute)…");
+    }
+    let session = hitl::start_pairing(&cfg.data_dir, relay_url, agent_name, !no_tor).await?;
     let start = &session.start;
 
     println!();
@@ -36,7 +39,7 @@ pub async fn cmd_pair(cfg: &Config, agent_name: &str, relay_url: Option<&str>) -
     }
     println!();
     println!("  Check code: {}   (the phone must show the same code)", start.check_code);
-    println!("  Relay:      {}", start.relay_url);
+    println!("  Relay:      {} ({})", start.relay_url, if start.tor { "over Tor" } else { "direct" });
     println!("  Waiting up to {} minutes…", start.expires_in_secs / 60);
 
     loop {

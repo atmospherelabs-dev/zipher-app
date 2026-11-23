@@ -2009,8 +2009,11 @@ pub fn hitl_generate_phone_keys() -> String {
 
 /// Complete a pairing the user confirmed. Returns the pairing record (JSON,
 /// contains the phone's relay token) for secure storage.
-pub async fn hitl_complete_pairing(uri: String, keys_hex: String) -> Result<String> {
-    let pairing = zipher_engine::hitl::phone_complete_pairing(&uri, &keys_hex).await?;
+/// `state_dir` is the app documents directory (Tor state lives under it);
+/// `use_tor` routes relay traffic over Tor so the relay never sees the phone's IP.
+pub async fn hitl_complete_pairing(uri: String, keys_hex: String, state_dir: String, use_tor: bool) -> Result<String> {
+    let route = zipher_engine::hitl::PhoneRoute { state_dir: &state_dir, use_tor };
+    let pairing = zipher_engine::hitl::phone_complete_pairing(&uri, &keys_hex, &route).await?;
     Ok(serde_json::to_string(&pairing)?)
 }
 
@@ -2030,9 +2033,15 @@ pub struct HitlRequest {
     pub request_json: String,
 }
 
-pub async fn hitl_fetch_requests(pairing_json: String, keys_hex: String) -> Result<Vec<HitlRequest>> {
+pub async fn hitl_fetch_requests(
+    pairing_json: String,
+    keys_hex: String,
+    state_dir: String,
+    use_tor: bool,
+) -> Result<Vec<HitlRequest>> {
     let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
-    let reqs = zipher_engine::hitl::phone_fetch_requests(&pairing, &keys_hex).await?;
+    let route = zipher_engine::hitl::PhoneRoute { state_dir: &state_dir, use_tor };
+    let reqs = zipher_engine::hitl::phone_fetch_requests(&pairing, &keys_hex, &route).await?;
     reqs.into_iter()
         .map(|r| {
             let request_json = serde_json::to_string(&r)?;
@@ -2060,13 +2069,31 @@ pub async fn hitl_submit_decision(
     keys_hex: String,
     request_json: String,
     approved: bool,
+    state_dir: String,
+    use_tor: bool,
 ) -> Result<()> {
     let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
     let request: zipher_engine::hitl::ApprovalRequest = serde_json::from_str(&request_json)?;
-    zipher_engine::hitl::phone_submit_decision(&pairing, &keys_hex, &request, approved).await
+    let route = zipher_engine::hitl::PhoneRoute { state_dir: &state_dir, use_tor };
+    zipher_engine::hitl::phone_submit_decision(&pairing, &keys_hex, &request, approved, &route).await
 }
 
-pub async fn hitl_unpair(pairing_json: String) -> Result<()> {
+/// Register (or, with `apns_token` None, clear) content-free wake-up pushes
+/// for today's and the coming week's mailboxes.
+pub async fn hitl_set_push(
+    pairing_json: String,
+    apns_token: Option<String>,
+    sandbox: bool,
+    state_dir: String,
+    use_tor: bool,
+) -> Result<()> {
     let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
-    zipher_engine::hitl::phone_unpair(&pairing).await
+    let route = zipher_engine::hitl::PhoneRoute { state_dir: &state_dir, use_tor };
+    zipher_engine::hitl::phone_set_push(&pairing, &route, apns_token.as_deref().map(|t| (t, sandbox))).await
+}
+
+pub async fn hitl_unpair(pairing_json: String, state_dir: String, use_tor: bool) -> Result<()> {
+    let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
+    let route = zipher_engine::hitl::PhoneRoute { state_dir: &state_dir, use_tor };
+    zipher_engine::hitl::phone_unpair(&pairing, &route).await
 }

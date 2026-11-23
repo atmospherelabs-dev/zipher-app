@@ -41,6 +41,9 @@ import app_links
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     engineBridge.pluginRegistry.registrar(forPlugin: "ZipherLaunchLinks")?
       .addSceneDelegate(LaunchLinkBridge.shared)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ZipherPush") {
+      PushBridge.register(with: registrar)
+    }
   }
 
   /// Apply NSFileProtectionComplete to the wallet data directory.
@@ -89,5 +92,54 @@ final class LaunchLinkBridge: NSObject, FlutterSceneLifeCycleDelegate {
       AppLinks.shared.handleLink(url: url)
     }
     return false
+  }
+}
+
+/// Opt-in APNs registration for agent approval wake-ups. Dart asks for a token
+/// only after the user turned notifications on; the token goes to the relay,
+/// never to Atmosphere servers or analytics.
+final class PushBridge: NSObject, FlutterPlugin {
+  private var pending: FlutterResult?
+
+  static func register(with registrar: FlutterPluginRegistrar) {
+    let instance = PushBridge()
+    let channel = FlutterMethodChannel(name: "zipher/push", binaryMessenger: registrar.messenger())
+    registrar.addMethodCallDelegate(instance, channel: channel)
+    registrar.addApplicationDelegate(instance)
+  }
+
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "register":
+      UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+        DispatchQueue.main.async {
+          guard granted else { result(nil); return }
+          self.pending?(nil)
+          self.pending = result
+          UIApplication.shared.registerForRemoteNotifications()
+        }
+      }
+    case "unregister":
+      UIApplication.shared.unregisterForRemoteNotifications()
+      result(nil)
+    case "isSandbox":
+      #if DEBUG
+      result(true)
+      #else
+      result(false)
+      #endif
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+    pending?(deviceToken.map { String(format: "%02x", $0) }.joined())
+    pending = nil
+  }
+
+  func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+    pending?(FlutterError(code: "push_unavailable", message: error.localizedDescription, details: nil))
+    pending = nil
   }
 }

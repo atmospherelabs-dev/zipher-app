@@ -1539,6 +1539,7 @@ impl ZipherMcpServer {
             "agent_name": status.agent_name,
             "relay_url": status.relay_url,
             "paired_at": status.paired_at,
+            "over_tor": status.tor,
             "pending_phone_approval": pending,
         }))
     }
@@ -1951,9 +1952,10 @@ mod security_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let data_dir = dir.to_str().unwrap().to_string();
 
-        let session = zipher_engine::hitl::start_pairing(Some(&relay), "test agent").await.unwrap();
+        let session = zipher_engine::hitl::start_pairing(&data_dir, Some(&relay), "test agent", false).await.unwrap();
         let keys = zipher_engine::hitl::phone_generate_keys();
-        let phone = zipher_engine::hitl::phone_complete_pairing(&session.start.uri, &keys).await.unwrap();
+        let route = zipher_engine::hitl::PhoneRoute { state_dir: &data_dir, use_tor: false };
+        let phone = zipher_engine::hitl::phone_complete_pairing(&session.start.uri, &keys, &route).await.unwrap();
         session.poll(&data_dir).await.unwrap();
 
         let ask = |amount| zipher_engine::hitl::request_approval(&data_dir, zipher_engine::hitl::ApprovalInput {
@@ -1981,16 +1983,16 @@ mod security_tests {
         assert!(s1.reviewed_send.lock().await.is_some());
 
         // Rejected on the phone: refused and consumed.
-        let open = zipher_engine::hitl::phone_fetch_requests(&phone, &keys).await.unwrap().remove(0);
-        zipher_engine::hitl::phone_submit_decision(&phone, &keys, &open, false).await.unwrap();
+        let open = zipher_engine::hitl::phone_fetch_requests(&phone, &keys, &route).await.unwrap().remove(0);
+        zipher_engine::hitl::phone_submit_decision(&phone, &keys, &open, false, &route).await.unwrap();
         assert!(confirm(&s1).await.contains(APPROVAL_REJECTED));
         assert!(s1.reviewed_send.lock().await.is_none());
 
         // Approved: passes the gate and reaches wallet signing (which fails here
         // without a wallet), so the proposal is consumed by the signing attempt.
         let s2 = server(ask(300_000_000).await.unwrap());
-        let open = zipher_engine::hitl::phone_fetch_requests(&phone, &keys).await.unwrap().remove(0);
-        zipher_engine::hitl::phone_submit_decision(&phone, &keys, &open, true).await.unwrap();
+        let open = zipher_engine::hitl::phone_fetch_requests(&phone, &keys, &route).await.unwrap().remove(0);
+        zipher_engine::hitl::phone_submit_decision(&phone, &keys, &open, true, &route).await.unwrap();
         let out = confirm(&s2).await;
         assert!(!out.contains(APPROVAL_PENDING) && !out.contains(APPROVAL_REJECTED), "{out}");
         assert!(s2.reviewed_send.lock().await.is_none());

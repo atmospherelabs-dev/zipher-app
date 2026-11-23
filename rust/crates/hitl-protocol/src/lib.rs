@@ -84,6 +84,41 @@ pub fn derive_tokens(channel_id: &ChannelId, pair_secret: &[u8; 32]) -> ChannelT
 }
 
 // ---------------------------------------------------------------------------
+// Daily channel rotation
+// ---------------------------------------------------------------------------
+
+/// Channels and tokens change every UTC day, so the relay sees an unrelated
+/// mailbox each day. Both sides derive them from a root only they know.
+pub const EPOCH_SECS: u64 = 86_400;
+
+pub fn epoch_of(unix: u64) -> u64 {
+    unix / EPOCH_SECS
+}
+
+/// One day's mailbox.
+pub struct EpochChannel {
+    pub channel_id: ChannelId,
+    pub agent_token: Zeroizing<[u8; 32]>,
+    pub phone_token: Zeroizing<[u8; 32]>,
+}
+
+pub fn epoch_channel(root: &[u8; 32], epoch: u64) -> EpochChannel {
+    let label = |what: &str| {
+        let mut info = format!("zipher-hitl-v1 {what} ").into_bytes();
+        info.extend_from_slice(&epoch.to_le_bytes());
+        info
+    };
+    let id = hkdf32(b"zipher-hitl-v1 rotation", root, &label("channel"));
+    let mut channel_id = [0u8; 16];
+    channel_id.copy_from_slice(&id[..16]);
+    EpochChannel {
+        channel_id,
+        agent_token: hkdf32(b"zipher-hitl-v1 rotation", root, &label("agent-token")),
+        phone_token: hkdf32(b"zipher-hitl-v1 rotation", root, &label("phone-token")),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Pairing
 // ---------------------------------------------------------------------------
 
@@ -186,6 +221,12 @@ impl PairingOffer {
 
     pub fn tokens(&self) -> ChannelTokens {
         derive_tokens(&self.channel_id, &self.pair_secret)
+    }
+
+    /// The long-term secret both sides keep after pairing. The pairing
+    /// secret itself is discarded.
+    pub fn rotation_root(&self) -> Zeroizing<[u8; 32]> {
+        hkdf32(&self.channel_id, self.pair_secret.as_ref(), b"zipher-hitl-v1 root")
     }
 
     /// Six-digit code shown by both the agent and the phone.
@@ -613,6 +654,9 @@ pub mod wire {
         pub channel_id: String,
         pub agent_token_hash: String,
         pub phone_token_hash: String,
+        /// A day's mailbox for an existing pairing: usable immediately.
+        #[serde(default)]
+        pub rotated: bool,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -794,6 +838,23 @@ mod tests {
         assert_eq!(AgentSecret::from_bytes(*agent.to_bytes()).public(), agent.public());
         let zero = PhonePublic { x25519: [0u8; 32], ed25519: phone.public().ed25519 };
         assert!(seal_request(&agent, &zero, &[1u8; 16], &request(1_800_000_000)).is_err());
+    }
+
+    #[test]
+    fn rotation_is_shared_and_unlinkable() {
+        let agent = AgentSecret::generate();
+        let offer = PairingOffer::new("https://relay.example", "a", &agent).unwrap();
+        let phone_view = PairingOffer::from_uri(&offer.to_uri()).unwrap();
+        let root = offer.rotation_root();
+        assert_eq!(*root, *phone_view.rotation_root());
+        let d1 = epoch_channel(&root, 20_000);
+        let d2 = epoch_channel(&root, 20_001);
+        assert_eq!(d1.channel_id, epoch_channel(&phone_view.rotation_root(), 20_000).channel_id);
+        assert_ne!(d1.channel_id, d2.channel_id);
+        assert_ne!(*d1.agent_token, *d2.agent_token);
+        assert_ne!(*d1.agent_token, *d1.phone_token);
+        assert_ne!(d1.channel_id, offer.channel_id);
+        assert_eq!(epoch_of(EPOCH_SECS * 3 + 5), 3);
     }
 
     #[test]

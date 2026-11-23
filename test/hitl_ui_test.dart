@@ -98,6 +98,21 @@ void main() {
     });
   });
 
+  testWidgets('notifications choice', (tester) async {
+    await shoot(
+      tester,
+      '3-push-choice',
+      Scaffold(
+        backgroundColor: ZipherColors.bg,
+        body: SafeArea(child: HitlPushChoice(agentName: 'Claude on MacBook Pro', onDone: () async {})),
+      ),
+      () {
+        expect(find.text('Turn On Notifications'), findsOneWidget);
+        expect(find.textContaining('relay keeps its push token'), findsOneWidget);
+      },
+    );
+  });
+
   testWidgets('approved confirmation', (tester) async {
     await shoot(
       tester,

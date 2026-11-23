@@ -1,20 +1,25 @@
 //! Mobile HITL (human-in-the-loop) approvals over the blind relay.
 //!
-//! Protocol v1, see `docs/hitl-relay-protocol.md`. The relay carries only
-//! ciphertexts. An agent signs a send only after it has verified the paired
-//! phone's Ed25519 signature over the proposal hash it computed itself.
+//! Protocol v1, see `docs/hitl-relay-protocol.md`.
+//! - The relay carries only fixed-size ciphertexts.
+//! - After pairing, both sides use a new mailbox (channel and tokens) every
+//!   UTC day, derived from a root only they know, and reach the relay over Tor
+//!   by default, so the relay cannot link days or learn network addresses.
+//! - An agent signs a send only after it has verified the paired phone's
+//!   Ed25519 signature over the proposal hash it computed itself.
 //!
 //! Agent state lives in `<data_dir>/hitl.json` with mode 0600. It holds the
-//! agent's X25519 secret and relay token, which can read requests and post new
-//! ones but cannot approve anything. Approval needs the phone's signing key,
-//! which never leaves the phone.
+//! agent's X25519 secret and the rotation root, which can read and post
+//! requests but cannot approve anything: that needs the phone's signing key.
 
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use zeroize::Zeroizing;
-use zipher_hitl_protocol::{self as proto, b64, unb64, wire};
+use zipher_hitl_protocol::{self as proto, b64, epoch_of, unb64, wire};
+
+use crate::hitl_net::{Net, Reply};
 
 pub use proto::ApprovalRequest;
 
@@ -23,7 +28,8 @@ pub const DEFAULT_RELAY_URL: &str = "https://relay.atmospherelabs.dev";
 pub const APPROVAL_TTL_SECS: u64 = 300;
 /// How long a pairing code stays valid (the relay drops it after 10 minutes).
 pub const PAIRING_TTL_SECS: u64 = 600;
-const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
+/// Unpairing revokes, and push covers, this many upcoming daily mailboxes.
+const DAYS_AHEAD: u64 = 7;
 
 fn now_unix() -> u64 {
     std::time::SystemTime::now()
@@ -32,15 +38,24 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-fn http() -> Result<reqwest::Client> {
-    reqwest::Client::builder()
-        .timeout(HTTP_TIMEOUT)
-        .build()
-        .context("HTTP client")
+fn channel_url(relay: &str, day: &proto::EpochChannel, rest: &str) -> String {
+    format!("{relay}/v1/channels/{}{rest}", b64(&day.channel_id))
 }
 
-fn bearer(token: &[u8; 32]) -> String {
-    format!("Bearer {}", b64(token))
+/// Make sure a day's mailbox exists. Either side may create it; whoever
+/// comes second gets 409, which is fine.
+async fn ensure_day(net: &Net, relay: &str, day: &proto::EpochChannel) -> Result<()> {
+    let body = serde_json::to_vec(&wire::RegisterChannel {
+        channel_id: b64(&day.channel_id),
+        agent_token_hash: b64(&proto::token_hash(&day.agent_token)),
+        phone_token_hash: b64(&proto::token_hash(&day.phone_token)),
+        rotated: true,
+    })?;
+    let r = net.post(&format!("{relay}/v1/channels"), None, Some(body)).await?;
+    match r.status {
+        201 | 409 => Ok(()),
+        s => bail!("Relay refused the mailbox ({s})"),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -50,13 +65,18 @@ fn bearer(token: &[u8; 32]) -> String {
 #[derive(Clone, Serialize, Deserialize)]
 struct Pairing {
     relay_url: String,
-    channel_id: String,
+    root: String,
     agent_secret: String,
-    agent_token: String,
     phone_x25519: String,
     phone_ed25519: String,
     agent_name: String,
     paired_at: u64,
+    #[serde(default = "default_true")]
+    tor: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -71,8 +91,8 @@ fn state_path(data_dir: &str) -> PathBuf {
 
 fn load_state(data_dir: &str) -> Result<AgentState> {
     match std::fs::read(state_path(data_dir)) {
-        // Files written by the old plaintext relay format have no v1 fields
-        // and parse as "not paired", so users simply pair again.
+        // Older formats have no rotation root and parse as "not paired", so
+        // users simply pair again.
         Ok(bytes) => Ok(serde_json::from_slice(&bytes).unwrap_or_default()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(AgentState::default()),
         Err(e) => Err(e).context("read hitl.json"),
@@ -102,24 +122,30 @@ fn save_state(data_dir: &str, state: &AgentState) -> Result<()> {
 
 struct Paired {
     relay_url: String,
-    channel_id: proto::ChannelId,
+    root: Zeroizing<[u8; 32]>,
     agent: proto::AgentSecret,
-    agent_token: Zeroizing<[u8; 32]>,
     phone: proto::PhonePublic,
+    tor: bool,
 }
 
 impl Pairing {
     fn open(&self) -> Result<Paired> {
         Ok(Paired {
             relay_url: self.relay_url.clone(),
-            channel_id: unb64(&self.channel_id)?,
+            root: Zeroizing::new(unb64(&self.root)?),
             agent: proto::AgentSecret::from_bytes(unb64(&self.agent_secret)?),
-            agent_token: Zeroizing::new(unb64(&self.agent_token)?),
             phone: proto::PhonePublic {
                 x25519: unb64(&self.phone_x25519)?,
                 ed25519: unb64(&self.phone_ed25519)?,
             },
+            tor: self.tor,
         })
+    }
+}
+
+impl Paired {
+    async fn net(&self, data_dir: &str) -> Result<Net> {
+        Net::for_relay(&self.relay_url, self.tor, Path::new(data_dir)).await
     }
 }
 
@@ -130,6 +156,7 @@ pub struct HitlStatus {
     pub relay_url: Option<String>,
     pub agent_name: Option<String>,
     pub paired_at: Option<u64>,
+    pub tor: Option<bool>,
 }
 
 pub fn status(data_dir: &str) -> Result<HitlStatus> {
@@ -139,6 +166,7 @@ pub fn status(data_dir: &str) -> Result<HitlStatus> {
         relay_url: s.pairing.as_ref().map(|p| p.relay_url.clone()),
         agent_name: s.pairing.as_ref().map(|p| p.agent_name.clone()),
         paired_at: s.pairing.as_ref().map(|p| p.paired_at),
+        tor: s.pairing.as_ref().map(|p| p.tor),
     })
 }
 
@@ -158,6 +186,7 @@ pub struct PairingStart {
     pub check_code: String,
     pub relay_url: String,
     pub expires_in_secs: u64,
+    pub tor: bool,
 }
 
 /// An unfinished pairing. It holds the pairing secret in memory only and is
@@ -166,6 +195,8 @@ pub struct PairingStart {
 pub struct PairingSession {
     offer: proto::PairingOffer,
     agent: proto::AgentSecret,
+    net: Net,
+    tor: bool,
     started: std::time::Instant,
     pub start: PairingStart,
 }
@@ -181,33 +212,39 @@ pub enum PairingProgress {
     Expired,
 }
 
-/// Register a new channel with the relay and return the session to poll.
+/// Register a pairing channel with the relay and return the session to poll.
 /// An existing pairing stays active until the new one completes.
-pub async fn start_pairing(relay_url: Option<&str>, agent_name: &str) -> Result<PairingSession> {
+pub async fn start_pairing(
+    data_dir: &str,
+    relay_url: Option<&str>,
+    agent_name: &str,
+    tor: bool,
+) -> Result<PairingSession> {
     let relay_url = relay_url.unwrap_or(DEFAULT_RELAY_URL).trim_end_matches('/').to_string();
     let agent = proto::AgentSecret::generate();
     let offer = proto::PairingOffer::new(&relay_url, agent_name, &agent)?;
     let tokens = offer.tokens();
+    let net = Net::for_relay(&relay_url, tor, Path::new(data_dir)).await?;
 
-    let resp = http()?
-        .post(format!("{relay_url}/v1/channels"))
-        .json(&wire::RegisterChannel {
-            channel_id: b64(&offer.channel_id),
-            agent_token_hash: b64(&proto::token_hash(&tokens.agent)),
-            phone_token_hash: b64(&proto::token_hash(&tokens.phone)),
-        })
-        .send()
-        .await
-        .map_err(|e| anyhow!("Could not reach the relay: {e}"))?;
-    ensure!(resp.status().is_success(), "Relay refused the pairing ({})", resp.status());
+    let body = serde_json::to_vec(&wire::RegisterChannel {
+        channel_id: b64(&offer.channel_id),
+        agent_token_hash: b64(&proto::token_hash(&tokens.agent)),
+        phone_token_hash: b64(&proto::token_hash(&tokens.phone)),
+        rotated: false,
+    })?;
+    let r = net.post(&format!("{relay_url}/v1/channels"), None, Some(body)).await?;
+    if r.status != 201 {
+        bail!("Relay refused the pairing ({})", r.status);
+    }
 
     let start = PairingStart {
         uri: offer.to_uri(),
         check_code: offer.check_code(),
         relay_url,
         expires_in_secs: PAIRING_TTL_SECS,
+        tor: net.is_tor(),
     };
-    Ok(PairingSession { offer, agent, started: std::time::Instant::now(), start })
+    Ok(PairingSession { offer, agent, net, tor, started: std::time::Instant::now(), start })
 }
 
 impl PairingSession {
@@ -217,38 +254,37 @@ impl PairingSession {
             return Ok(PairingProgress::Expired);
         }
         let tokens = self.offer.tokens();
-        let channel = b64(&self.offer.channel_id);
-        let resp = http()?
-            .get(format!("{}/v1/channels/{}/pair", self.offer.relay_url, channel))
-            .header("authorization", bearer(&tokens.agent))
-            .send()
-            .await
-            .map_err(|e| anyhow!("Could not reach the relay: {e}"))?;
-        match resp.status() {
-            reqwest::StatusCode::NO_CONTENT => return Ok(PairingProgress::Waiting),
-            reqwest::StatusCode::NOT_FOUND => return Ok(PairingProgress::Expired),
-            s if !s.is_success() => bail!("Relay returned {s}"),
-            _ => {}
+        let r = self
+            .net
+            .get(
+                &format!("{}/v1/channels/{}/pair", self.offer.relay_url, b64(&self.offer.channel_id)),
+                Some(&tokens.agent),
+            )
+            .await?;
+        match r.status {
+            204 => return Ok(PairingProgress::Waiting),
+            404 => return Ok(PairingProgress::Expired),
+            200 => {}
+            s => bail!("Relay returned {s}"),
         }
-        let pair: proto::PairResponse = resp.json().await.context("pairing response")?;
+        let pair: proto::PairResponse = r.json()?;
         let phone = proto::verify_pair_response(&self.offer, &pair)?;
 
         let mut state = load_state(data_dir)?;
-        // Retire the old channel, if any, now that the new one works.
         if let Some(old) = state.pairing.take() {
             if let Ok(p) = old.open() {
-                let _ = delete_channel(&p).await;
+                let _ = revoke_days(&p, data_dir).await;
             }
         }
         state.pairing = Some(Pairing {
             relay_url: self.offer.relay_url.clone(),
-            channel_id: channel,
+            root: b64(self.offer.rotation_root().as_ref()),
             agent_secret: b64(self.agent.to_bytes().as_ref()),
-            agent_token: b64(tokens.agent.as_ref()),
             phone_x25519: b64(&phone.x25519),
             phone_ed25519: b64(&phone.ed25519),
             agent_name: self.offer.agent_name.clone(),
             paired_at: now_unix(),
+            tor: self.tor,
         });
         save_state(data_dir, &state)?;
         tracing::info!("[HITL] Paired with phone");
@@ -256,21 +292,25 @@ impl PairingSession {
     }
 }
 
-async fn delete_channel(p: &Paired) -> Result<()> {
-    http()?
-        .delete(format!("{}/v1/channels/{}", p.relay_url, b64(&p.channel_id)))
-        .header("authorization", bearer(&p.agent_token))
-        .send()
-        .await?;
+/// Revoke today's and the coming week's mailboxes so the phone learns it was
+/// unpaired whenever it next checks.
+async fn revoke_days(p: &Paired, data_dir: &str) -> Result<()> {
+    let net = p.net(data_dir).await?;
+    let today = epoch_of(now_unix());
+    for e in today..=today + DAYS_AHEAD {
+        let day = proto::epoch_channel(&p.root, e);
+        ensure_day(&net, &p.relay_url, &day).await?;
+        net.post(&channel_url(&p.relay_url, &day, "/revoke"), Some(&day.agent_token), None).await?;
+    }
     Ok(())
 }
 
-/// Forget the phone and close the relay channel.
+/// Forget the phone and revoke the mailboxes.
 pub async fn unpair(data_dir: &str) -> Result<()> {
     let mut state = load_state(data_dir)?;
     if let Some(p) = state.pairing.take() {
         if let Ok(p) = p.open() {
-            let _ = delete_channel(&p).await;
+            let _ = revoke_days(&p, data_dir).await;
         }
     }
     save_state(data_dir, &state)
@@ -291,14 +331,17 @@ pub struct ApprovalInput<'a> {
     pub tool: &'a str,
 }
 
-/// Encrypt the send for the paired phone and post it. Keep the returned
-/// request: the decision is only checked against this copy.
-pub async fn request_approval(data_dir: &str, input: ApprovalInput<'_>) -> Result<ApprovalRequest> {
-    let state = load_state(data_dir)?;
-    let pairing = state
+fn paired(data_dir: &str) -> Result<Paired> {
+    load_state(data_dir)?
         .pairing
-        .ok_or_else(|| anyhow!("No phone is paired. Run `zipher pair` first."))?;
-    let p = pairing.open()?;
+        .ok_or_else(|| anyhow!("No phone is paired. Run `zipher pair` first."))?
+        .open()
+}
+
+/// Encrypt the send for the paired phone and post it to today's mailbox.
+/// Keep the returned request: the decision is only checked against this copy.
+pub async fn request_approval(data_dir: &str, input: ApprovalInput<'_>) -> Result<ApprovalRequest> {
+    let p = paired(data_dir)?;
     let now = now_unix();
     let req = ApprovalRequest {
         approval_id: proto::new_approval_id(),
@@ -312,15 +355,21 @@ pub async fn request_approval(data_dir: &str, input: ApprovalInput<'_>) -> Resul
         created_at: now,
         expires_at: now + APPROVAL_TTL_SECS,
     };
-    let sealed = proto::seal_request(&p.agent, &p.phone, &p.channel_id, &req)?;
-    let resp = http()?
-        .post(format!("{}/v1/channels/{}/requests", p.relay_url, b64(&p.channel_id)))
-        .header("authorization", bearer(&p.agent_token))
-        .json(&wire::PostRequest { approval_id: req.approval_id.clone(), expires_at: req.expires_at, sealed })
-        .send()
-        .await
-        .map_err(|e| anyhow!("Could not reach the relay: {e}"))?;
-    ensure!(resp.status().is_success(), "Relay refused the approval request ({})", resp.status());
+    let day = proto::epoch_channel(&p.root, epoch_of(req.created_at));
+    let sealed = proto::seal_request(&p.agent, &p.phone, &day.channel_id, &req)?;
+    let net = p.net(data_dir).await?;
+    ensure_day(&net, &p.relay_url, &day).await?;
+    let body = serde_json::to_vec(&wire::PostRequest {
+        approval_id: req.approval_id.clone(),
+        expires_at: req.expires_at,
+        sealed,
+    })?;
+    let r = net.post(&channel_url(&p.relay_url, &day, "/requests"), Some(&day.agent_token), Some(body)).await?;
+    match r.status {
+        201 => {}
+        410 => bail!("The phone unpaired this agent. Run `zipher pair` again."),
+        s => bail!("Relay refused the approval request ({s})"),
+    }
     tracing::info!("[HITL] Approval request sent to paired phone");
     Ok(req)
 }
@@ -341,29 +390,20 @@ pub async fn check_approval(data_dir: &str, req: &ApprovalRequest) -> Result<App
     if now > req.expires_at {
         return Ok(ApprovalOutcome::Expired);
     }
-    let pairing = load_state(data_dir)?
-        .pairing
-        .ok_or_else(|| anyhow!("The phone was unpaired while approval was pending."))?;
-    let p = pairing.open()?;
-    let resp = http()?
-        .get(format!(
-            "{}/v1/channels/{}/decisions/{}",
-            p.relay_url,
-            b64(&p.channel_id),
-            req.approval_id
-        ))
-        .header("authorization", bearer(&p.agent_token))
-        .send()
-        .await
-        .map_err(|e| anyhow!("Could not reach the relay: {e}"))?;
-    match resp.status() {
-        reqwest::StatusCode::NO_CONTENT => return Ok(ApprovalOutcome::Pending),
-        reqwest::StatusCode::NOT_FOUND => return Ok(ApprovalOutcome::Expired),
-        s if !s.is_success() => bail!("Relay returned {s}"),
-        _ => {}
+    let p = paired(data_dir).map_err(|_| anyhow!("The phone was unpaired while approval was pending."))?;
+    let day = proto::epoch_channel(&p.root, epoch_of(req.created_at));
+    let net = p.net(data_dir).await?;
+    let r = net
+        .get(&channel_url(&p.relay_url, &day, &format!("/decisions/{}", req.approval_id)), Some(&day.agent_token))
+        .await?;
+    match r.status {
+        204 => return Ok(ApprovalOutcome::Pending),
+        404 | 410 => return Ok(ApprovalOutcome::Expired),
+        200 => {}
+        s => bail!("Relay returned {s}"),
     }
-    let sealed: proto::Sealed = resp.json().await.context("decision")?;
-    let outcome = proto::open_decision(&p.agent, &p.phone, &p.channel_id, &req.approval_id, &sealed)
+    let sealed: proto::Sealed = r.json()?;
+    let outcome = proto::open_decision(&p.agent, &p.phone, &day.channel_id, &req.approval_id, &sealed)
         .and_then(|d| proto::verify_decision(&p.phone, req, &d, now));
     Ok(match outcome {
         Ok(true) => ApprovalOutcome::Approved,
@@ -401,15 +441,33 @@ pub fn phone_generate_keys() -> String {
     hex::encode(proto::PhoneKeys::generate().to_bytes().as_ref())
 }
 
-/// The phone's record of a pairing. `phone_token` is a secret: store the
-/// whole JSON in platform secure storage.
+/// The phone's record of a pairing. `root` is a secret: store the whole JSON
+/// in platform secure storage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PhonePairing {
     pub relay_url: String,
-    pub channel_id: String,
     pub agent_public: String,
-    pub phone_token: String,
+    pub root: String,
     pub agent_name: String,
+}
+
+impl PhonePairing {
+    fn root(&self) -> Result<Zeroizing<[u8; 32]>> {
+        Ok(Zeroizing::new(unb64(&self.root)?))
+    }
+}
+
+/// How the phone reaches the relay.
+pub struct PhoneRoute<'a> {
+    /// App documents directory; Tor keeps its state under it.
+    pub state_dir: &'a str,
+    pub use_tor: bool,
+}
+
+impl PhoneRoute<'_> {
+    async fn net(&self, relay_url: &str) -> Result<Net> {
+        Net::for_relay(relay_url, self.use_tor, Path::new(self.state_dir)).await
+    }
 }
 
 fn phone_keys(keys_hex: &str) -> Result<proto::PhoneKeys> {
@@ -418,55 +476,76 @@ fn phone_keys(keys_hex: &str) -> Result<proto::PhoneKeys> {
 }
 
 /// Answer a pairing offer the user has confirmed.
-pub async fn phone_complete_pairing(uri: &str, keys_hex: &str) -> Result<PhonePairing> {
+pub async fn phone_complete_pairing(uri: &str, keys_hex: &str, route: &PhoneRoute<'_>) -> Result<PhonePairing> {
     let offer = proto::PairingOffer::from_uri(uri)?;
     let keys = phone_keys(keys_hex)?;
     let tokens = offer.tokens();
-    let resp = http()?
-        .post(format!("{}/v1/channels/{}/pair", offer.relay_url, b64(&offer.channel_id)))
-        .header("authorization", bearer(&tokens.phone))
-        .json(&proto::make_pair_response(&offer, &keys))
-        .send()
-        .await
-        .map_err(|e| anyhow!("Could not reach the relay: {e}"))?;
-    match resp.status() {
-        s if s.is_success() => {}
-        reqwest::StatusCode::NOT_FOUND => bail!("This pairing code has expired. Start pairing again on the agent."),
-        reqwest::StatusCode::CONFLICT => bail!("This pairing code was already used."),
+    let net = route.net(&offer.relay_url).await?;
+    let body = serde_json::to_vec(&proto::make_pair_response(&offer, &keys))?;
+    let r = net
+        .post(
+            &format!("{}/v1/channels/{}/pair", offer.relay_url, b64(&offer.channel_id)),
+            Some(&tokens.phone),
+            Some(body),
+        )
+        .await?;
+    match r.status {
+        201 => {}
+        404 => bail!("This pairing code has expired. Start pairing again on the agent."),
+        409 => bail!("This pairing code was already used."),
         s => bail!("Relay returned {s}"),
     }
     Ok(PhonePairing {
         relay_url: offer.relay_url.clone(),
-        channel_id: b64(&offer.channel_id),
         agent_public: b64(&offer.agent_public),
-        phone_token: b64(tokens.phone.as_ref()),
+        root: b64(offer.rotation_root().as_ref()),
         agent_name: offer.agent_name.clone(),
     })
 }
 
-/// Decrypt the agent's open requests. Requests that fail to decrypt or
-/// validate are skipped.
-pub async fn phone_fetch_requests(pairing: &PhonePairing, keys_hex: &str) -> Result<Vec<ApprovalRequest>> {
+fn unpaired() -> anyhow::Error {
+    anyhow!("This agent was unpaired.")
+}
+
+/// Decrypt the agent's open requests from today's and yesterday's mailboxes.
+/// Requests that fail to decrypt or validate are skipped.
+pub async fn phone_fetch_requests(
+    pairing: &PhonePairing,
+    keys_hex: &str,
+    route: &PhoneRoute<'_>,
+) -> Result<Vec<ApprovalRequest>> {
     let keys = phone_keys(keys_hex)?;
-    let channel_id: proto::ChannelId = unb64(&pairing.channel_id)?;
+    let root = pairing.root()?;
     let agent_public: [u8; 32] = unb64(&pairing.agent_public)?;
-    let token: Zeroizing<[u8; 32]> = Zeroizing::new(unb64(&pairing.phone_token)?);
-    let resp = http()?
-        .get(format!("{}/v1/channels/{}/requests", pairing.relay_url, pairing.channel_id))
-        .header("authorization", bearer(&token))
-        .send()
-        .await
-        .map_err(|e| anyhow!("Could not reach the relay: {e}"))?;
-    ensure!(resp.status() != reqwest::StatusCode::NOT_FOUND, "This agent was unpaired.");
-    ensure!(resp.status().is_success(), "Relay returned {}", resp.status());
-    let list: wire::PendingRequests = resp.json().await.context("pending requests")?;
+    let net = route.net(&pairing.relay_url).await?;
     let now = now_unix();
-    Ok(list
-        .requests
-        .iter()
-        .filter_map(|r| proto::open_request(&keys, &agent_public, &channel_id, &r.approval_id, &r.sealed).ok())
-        .filter(|r| r.expires_at >= now)
-        .collect())
+    let today = epoch_of(now);
+    let mut out = Vec::new();
+    // Yesterday covers requests sent just before midnight UTC.
+    for e in [today, today.saturating_sub(1)] {
+        let day = proto::epoch_channel(&root, e);
+        let r: Reply = net.get(&channel_url(&pairing.relay_url, &day, "/requests"), Some(&day.phone_token)).await?;
+        match r.status {
+            200 => {}
+            404 => {
+                if e == today {
+                    // The agent has not used today's mailbox yet.
+                    ensure_day(&net, &pairing.relay_url, &day).await?;
+                }
+                continue;
+            }
+            410 => return Err(unpaired()),
+            s => bail!("Relay returned {s}"),
+        }
+        let list: wire::PendingRequests = r.json()?;
+        out.extend(
+            list.requests
+                .iter()
+                .filter_map(|r| proto::open_request(&keys, &agent_public, &day.channel_id, &r.approval_id, &r.sealed).ok())
+                .filter(|r| r.expires_at >= now && epoch_of(r.created_at) == e),
+        );
+    }
+    Ok(out)
 }
 
 /// Sign and send the user's decision on a request returned by
@@ -476,42 +555,75 @@ pub async fn phone_submit_decision(
     keys_hex: &str,
     request: &ApprovalRequest,
     approved: bool,
+    route: &PhoneRoute<'_>,
 ) -> Result<()> {
     request.validate()?;
     let now = now_unix();
-    ensure!(now <= request.expires_at, "This request has expired.");
+    if now > request.expires_at {
+        bail!("This request has expired.");
+    }
     let keys = phone_keys(keys_hex)?;
-    let channel_id: proto::ChannelId = unb64(&pairing.channel_id)?;
+    let root = pairing.root()?;
     let agent_public: [u8; 32] = unb64(&pairing.agent_public)?;
-    let token: Zeroizing<[u8; 32]> = Zeroizing::new(unb64(&pairing.phone_token)?);
+    let day = proto::epoch_channel(&root, epoch_of(request.created_at));
     let decision = proto::sign_decision(&keys, request, approved, now);
-    let sealed = proto::seal_decision(&keys, &agent_public, &channel_id, &decision)?;
-    let resp = http()?
-        .post(format!(
-            "{}/v1/channels/{}/decisions/{}",
-            pairing.relay_url, pairing.channel_id, request.approval_id
-        ))
-        .header("authorization", bearer(&token))
-        .json(&sealed)
-        .send()
-        .await
-        .map_err(|e| anyhow!("Could not reach the relay: {e}"))?;
-    ensure!(
-        resp.status() != reqwest::StatusCode::NOT_FOUND,
-        "This request is no longer open; it may have expired or been answered."
-    );
-    ensure!(resp.status().is_success(), "Relay returned {}", resp.status());
+    let sealed = proto::seal_decision(&keys, &agent_public, &day.channel_id, &decision)?;
+    let net = route.net(&pairing.relay_url).await?;
+    let r = net
+        .post(
+            &channel_url(&pairing.relay_url, &day, &format!("/decisions/{}", request.approval_id)),
+            Some(&day.phone_token),
+            Some(serde_json::to_vec(&sealed)?),
+        )
+        .await?;
+    match r.status {
+        201 => Ok(()),
+        404 => bail!("This request is no longer open; it may have expired or been answered."),
+        410 => Err(unpaired()),
+        s => bail!("Relay returned {s}"),
+    }
+}
+
+/// Ask for content-free wake-ups on today's and the coming week's mailboxes.
+/// Re-run whenever the app opens so the window keeps moving forward.
+/// `token` is the APNs device token (hex); `sandbox` for development builds.
+pub async fn phone_set_push(
+    pairing: &PhonePairing,
+    route: &PhoneRoute<'_>,
+    token: Option<(&str, bool)>,
+) -> Result<()> {
+    let root = pairing.root()?;
+    let net = route.net(&pairing.relay_url).await?;
+    let today = epoch_of(now_unix());
+    for e in today..=today + DAYS_AHEAD {
+        let day = proto::epoch_channel(&root, e);
+        ensure_day(&net, &pairing.relay_url, &day).await?;
+        let r = match token {
+            Some((token, sandbox)) => {
+                let body = serde_json::to_vec(&serde_json::json!({"platform": "apns", "token": token, "sandbox": sandbox}))?;
+                net.post(&channel_url(&pairing.relay_url, &day, "/push"), Some(&day.phone_token), Some(body)).await?
+            }
+            None => net.post(&channel_url(&pairing.relay_url, &day, "/push/clear"), Some(&day.phone_token), None).await?,
+        };
+        match r.status {
+            204 => {}
+            410 => return Err(unpaired()),
+            s => bail!("Relay refused the push setting ({s})"),
+        }
+    }
     Ok(())
 }
 
-/// Close the channel from the phone.
-pub async fn phone_unpair(pairing: &PhonePairing) -> Result<()> {
-    let token: Zeroizing<[u8; 32]> = Zeroizing::new(unb64(&pairing.phone_token)?);
-    http()?
-        .delete(format!("{}/v1/channels/{}", pairing.relay_url, pairing.channel_id))
-        .header("authorization", bearer(&token))
-        .send()
-        .await?;
+/// Unpair from the phone: revoke today's and the coming week's mailboxes.
+pub async fn phone_unpair(pairing: &PhonePairing, route: &PhoneRoute<'_>) -> Result<()> {
+    let root = pairing.root()?;
+    let net = route.net(&pairing.relay_url).await?;
+    let today = epoch_of(now_unix());
+    for e in today..=today + DAYS_AHEAD {
+        let day = proto::epoch_channel(&root, e);
+        ensure_day(&net, &pairing.relay_url, &day).await?;
+        net.post(&channel_url(&pairing.relay_url, &day, "/revoke"), Some(&day.phone_token), None).await?;
+    }
     Ok(())
 }
 
@@ -534,33 +646,46 @@ mod tests {
         d.to_string_lossy().into_owned()
     }
 
+    fn input(amount: u64) -> ApprovalInput<'static> {
+        ApprovalInput {
+            network: "main",
+            address: "u1merchant",
+            amount,
+            fee: 10_000,
+            memo: Some("invoice 42"),
+            context_id: Some("ctx"),
+            tool: "propose_send",
+        }
+    }
+
     #[tokio::test]
     async fn agent_and_phone_complete_an_approval_over_a_real_relay() {
-        // ZIPHER_TEST_RELAY=<url> runs the same flow against a deployed relay.
-        let relay = match std::env::var("ZIPHER_TEST_RELAY") {
-            Ok(url) => url,
-            Err(_) => spawn_relay().await,
+        // ZIPHER_TEST_RELAY=<url> runs the same flow against a deployed relay
+        // (over Tor unless ZIPHER_TEST_NO_TOR is set).
+        let (relay, tor) = match std::env::var("ZIPHER_TEST_RELAY") {
+            Ok(url) => (url, std::env::var("ZIPHER_TEST_NO_TOR").is_err()),
+            Err(_) => (spawn_relay().await, false),
         };
         let dir = temp_dir();
+        let phone_dir = temp_dir();
+        let route = PhoneRoute { state_dir: &phone_dir, use_tor: tor };
 
-        let session = start_pairing(Some(&relay), "test agent").await.unwrap();
+        let session = start_pairing(&dir, Some(&relay), "test agent", tor).await.unwrap();
         let start = session.start.clone();
+        assert_eq!(start.tor, tor);
         assert_eq!(session.poll(&dir).await.unwrap(), PairingProgress::Waiting);
         assert!(!status(&dir).unwrap().paired);
-        // Nothing secret is written before the phone answers.
-        assert!(!state_path(&dir).exists());
+        assert!(!state_path(&dir).exists(), "nothing secret is written before the phone answers");
 
         let preview = phone_preview_pairing(&start.uri).unwrap();
         assert_eq!(preview.check_code, start.check_code);
         let keys = phone_generate_keys();
-        let phone = phone_complete_pairing(&start.uri, &keys).await.unwrap();
-        assert!(phone_complete_pairing(&start.uri, &keys).await.is_err(), "pairing code is single use");
+        let phone = phone_complete_pairing(&start.uri, &keys, &route).await.unwrap();
+        assert!(phone_complete_pairing(&start.uri, &keys, &route).await.is_err(), "pairing code is single use");
         assert_eq!(session.poll(&dir).await.unwrap(), PairingProgress::Paired);
         let saved = std::fs::read_to_string(state_path(&dir)).unwrap();
         let secret = start.uri.split("&s=").nth(1).unwrap().split('&').next().unwrap();
         assert!(!saved.contains(secret), "pairing secret must not be stored");
-        assert!(status(&dir).unwrap().paired);
-
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -568,53 +693,65 @@ mod tests {
             assert_eq!(mode & 0o777, 0o600);
         }
 
-        let req = request_approval(&dir, ApprovalInput {
-            network: "main",
-            address: "u1merchant",
-            amount: 200_000_000,
-            fee: 10_000,
-            memo: Some("invoice 42"),
-            context_id: Some("ctx"),
-            tool: "propose_send",
-        })
-        .await
-        .unwrap();
-        assert_eq!(check_approval(&dir, &req).await.unwrap(), ApprovalOutcome::Pending);
+        // Phone checks before the agent ever wrote today: no error, nothing pending.
+        assert!(phone_fetch_requests(&phone, &keys, &route).await.unwrap().is_empty());
 
-        let open = phone_fetch_requests(&phone, &keys).await.unwrap();
+        let req = request_approval(&dir, input(200_000_000)).await.unwrap();
+        assert_eq!(check_approval(&dir, &req).await.unwrap(), ApprovalOutcome::Pending);
+        let open = phone_fetch_requests(&phone, &keys, &route).await.unwrap();
         assert_eq!(open, vec![req.clone()]);
-        phone_submit_decision(&phone, &keys, &open[0], true).await.unwrap();
+        phone_submit_decision(&phone, &keys, &open[0], true, &route).await.unwrap();
         assert_eq!(check_approval(&dir, &req).await.unwrap(), ApprovalOutcome::Approved);
-        // Read once; afterwards the relay no longer has it.
-        assert_eq!(check_approval(&dir, &req).await.unwrap(), ApprovalOutcome::Expired);
+        assert_eq!(check_approval(&dir, &req).await.unwrap(), ApprovalOutcome::Expired, "read once");
 
         // A decision the phone signed for a different amount is refused.
-        let req2 = request_approval(&dir, ApprovalInput {
-            network: "main", address: "u1merchant", amount: 300_000_000, fee: 10_000,
-            memo: None, context_id: None, tool: "propose_send",
-        })
-        .await
-        .unwrap();
-        let mut altered = phone_fetch_requests(&phone, &keys).await.unwrap().remove(0);
+        let req2 = request_approval(&dir, input(300_000_000)).await.unwrap();
+        let mut altered = phone_fetch_requests(&phone, &keys, &route).await.unwrap().remove(0);
         altered.amount = 1;
-        phone_submit_decision(&phone, &keys, &altered, true).await.unwrap();
+        phone_submit_decision(&phone, &keys, &altered, true, &route).await.unwrap();
         assert_eq!(check_approval(&dir, &req2).await.unwrap(), ApprovalOutcome::Rejected);
 
-        // Rejections come through as rejections.
-        let req3 = request_approval(&dir, ApprovalInput {
-            network: "main", address: "u1merchant", amount: 300_000_000, fee: 10_000,
-            memo: None, context_id: None, tool: "propose_send",
-        })
-        .await
-        .unwrap();
-        let r3 = phone_fetch_requests(&phone, &keys).await.unwrap().remove(0);
-        phone_submit_decision(&phone, &keys, &r3, false).await.unwrap();
+        let req3 = request_approval(&dir, input(300_000_000)).await.unwrap();
+        let r3 = phone_fetch_requests(&phone, &keys, &route).await.unwrap().remove(0);
+        phone_submit_decision(&phone, &keys, &r3, false, &route).await.unwrap();
         assert_eq!(check_approval(&dir, &req3).await.unwrap(), ApprovalOutcome::Rejected);
 
+        // Unpairing on the agent is visible to the phone.
         unpair(&dir).await.unwrap();
         assert!(!status(&dir).unwrap().paired);
-        assert!(phone_fetch_requests(&phone, &keys).await.is_err());
-        std::fs::remove_dir_all(dir).unwrap();
+        let err = phone_fetch_requests(&phone, &keys, &route).await.unwrap_err();
+        assert!(err.to_string().contains("unpaired"));
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(phone_dir);
+    }
+
+    #[tokio::test]
+    async fn phone_unpair_stops_the_agent() {
+        let relay = spawn_relay().await;
+        let dir = temp_dir();
+        let route = PhoneRoute { state_dir: &dir, use_tor: false };
+        let session = start_pairing(&dir, Some(&relay), "agent", false).await.unwrap();
+        let keys = phone_generate_keys();
+        let phone = phone_complete_pairing(&session.start.uri, &keys, &route).await.unwrap();
+        session.poll(&dir).await.unwrap();
+        phone_set_push(&phone, &route, Some((&"ab".repeat(32), true))).await.unwrap();
+        phone_set_push(&phone, &route, None).await.unwrap();
+        phone_unpair(&phone, &route).await.unwrap();
+        let err = request_approval(&dir, input(1)).await.unwrap_err();
+        assert!(err.to_string().contains("unpaired"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn older_state_reads_as_unpaired() {
+        let dir = temp_dir();
+        std::fs::write(
+            state_path(&dir),
+            r#"{"pairing":{"relay_url":"x","channel_id":"a","agent_secret":"b","agent_token":"c","phone_x25519":"d","phone_ed25519":"e","agent_name":"f","paired_at":1}}"#,
+        )
+        .unwrap();
+        assert!(!status(&dir).unwrap().paired);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Manual device check: `ZIPHER_TEST_RELAY=<url> ZIPHER_PAIR_URI_FILE=<path>
@@ -625,10 +762,11 @@ mod tests {
     async fn manual_phone_flow() {
         let relay = std::env::var("ZIPHER_TEST_RELAY").expect("ZIPHER_TEST_RELAY");
         let uri_file = std::env::var("ZIPHER_PAIR_URI_FILE").expect("ZIPHER_PAIR_URI_FILE");
+        let tor = std::env::var("ZIPHER_TEST_NO_TOR").is_err();
         let dir = temp_dir();
-        let session = start_pairing(Some(&relay), "Claude on MacBook Pro").await.unwrap();
+        let session = start_pairing(&dir, Some(&relay), "Claude on MacBook Pro", tor).await.unwrap();
         std::fs::write(&uri_file, &session.start.uri).unwrap();
-        println!("check code: {}", session.start.check_code);
+        println!("check code: {} (tor: {})", session.start.check_code, session.start.tor);
         loop {
             match session.poll(&dir).await.unwrap() {
                 PairingProgress::Paired => break,
@@ -660,17 +798,5 @@ mod tests {
             }
         }
         unpair(&dir).await.unwrap();
-    }
-
-    #[test]
-    fn old_plaintext_state_reads_as_unpaired() {
-        let dir = temp_dir();
-        std::fs::write(
-            state_path(&dir),
-            r#"{"enabled":true,"relay_url":"https://relay.atmospherelabs.dev","pairing":{"channel_id":"ch_1","device_name":"mobile","paired_at_unix":1,"relay_url":"x"}}"#,
-        )
-        .unwrap();
-        assert!(!status(&dir).unwrap().paired);
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }

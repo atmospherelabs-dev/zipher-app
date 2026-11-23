@@ -893,15 +893,26 @@ Future<String> hitlGeneratePhoneKeys() =>
 
 /// Complete a pairing the user confirmed. Returns the pairing record (JSON,
 /// contains the phone's relay token) for secure storage.
+/// `state_dir` is the app documents directory (Tor state lives under it);
+/// `use_tor` routes relay traffic over Tor so the relay never sees the phone's IP.
 Future<String> hitlCompletePairing(
-        {required String uri, required String keysHex}) =>
-    RustLib.instance.api
-        .crateApiEngineApiHitlCompletePairing(uri: uri, keysHex: keysHex);
+        {required String uri,
+        required String keysHex,
+        required String stateDir,
+        required bool useTor}) =>
+    RustLib.instance.api.crateApiEngineApiHitlCompletePairing(
+        uri: uri, keysHex: keysHex, stateDir: stateDir, useTor: useTor);
 
 Future<List<HitlRequest>> hitlFetchRequests(
-        {required String pairingJson, required String keysHex}) =>
+        {required String pairingJson,
+        required String keysHex,
+        required String stateDir,
+        required bool useTor}) =>
     RustLib.instance.api.crateApiEngineApiHitlFetchRequests(
-        pairingJson: pairingJson, keysHex: keysHex);
+        pairingJson: pairingJson,
+        keysHex: keysHex,
+        stateDir: stateDir,
+        useTor: useTor);
 
 /// Sign and send the user's decision. Call only after the user reviewed the
 /// full request and passed the app's auth barrier.
@@ -909,15 +920,38 @@ Future<void> hitlSubmitDecision(
         {required String pairingJson,
         required String keysHex,
         required String requestJson,
-        required bool approved}) =>
+        required bool approved,
+        required String stateDir,
+        required bool useTor}) =>
     RustLib.instance.api.crateApiEngineApiHitlSubmitDecision(
         pairingJson: pairingJson,
         keysHex: keysHex,
         requestJson: requestJson,
-        approved: approved);
+        approved: approved,
+        stateDir: stateDir,
+        useTor: useTor);
 
-Future<void> hitlUnpair({required String pairingJson}) =>
-    RustLib.instance.api.crateApiEngineApiHitlUnpair(pairingJson: pairingJson);
+/// Register (or, with `apns_token` None, clear) content-free wake-up pushes
+/// for today's and the coming week's mailboxes.
+Future<void> hitlSetPush(
+        {required String pairingJson,
+        String? apnsToken,
+        required bool sandbox,
+        required String stateDir,
+        required bool useTor}) =>
+    RustLib.instance.api.crateApiEngineApiHitlSetPush(
+        pairingJson: pairingJson,
+        apnsToken: apnsToken,
+        sandbox: sandbox,
+        stateDir: stateDir,
+        useTor: useTor);
+
+Future<void> hitlUnpair(
+        {required String pairingJson,
+        required String stateDir,
+        required bool useTor}) =>
+    RustLib.instance.api.crateApiEngineApiHitlUnpair(
+        pairingJson: pairingJson, stateDir: stateDir, useTor: useTor);
 
 class AutoMigrationStatus {
   final String phase;

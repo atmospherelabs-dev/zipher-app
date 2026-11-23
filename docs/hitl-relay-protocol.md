@@ -86,7 +86,8 @@ user to confirm.
 | GET | `/v1/channels/{c}/requests` | phone | list of opaque requests |
 | POST | `/v1/channels/{c}/decisions/{id}` | phone | `nonce`, `ciphertext` |
 | GET | `/v1/channels/{c}/decisions/{id}` | agent | one opaque decision, deleted on read |
-| DELETE | `/v1/channels/{c}` | either | unpair |
+| POST | `/v1/channels/{c}/revoke` | either | unpair (410 afterwards) |
+| POST | `/v1/channels/{c}/push` / `/push/clear` | phone | set or clear the APNs wake-up target |
 
 - Tokens are sent as `Authorization: Bearer` and compared in constant time
   against the stored hash.
@@ -94,6 +95,28 @@ user to confirm.
   unpaired channels expire after 10 minutes.
 - Blobs are capped at 4 KiB. Each channel holds at most 8 open requests.
 - No request bodies, tokens or client IPs are logged.
+
+## Metadata protection
+
+What the relay can and cannot learn, and what limits it:
+
+| Signal | Protection |
+|---|---|
+| Amount, address, memo, fee, approve/decline | End-to-end encrypted. Requests are padded to at least 2 KiB (in 1 KiB steps) and decisions to exactly 256 bytes, so ciphertext length reveals nothing. |
+| Who the agent and phone are (IP address) | Both reach the relay over Tor by default (`zipher pair --no-tor` and the app's "Private routing" switch turn it off). A route that asks for Tor never falls back to a direct connection. |
+| Linking activity over time | After pairing, every UTC day uses a new mailbox: `channel_id` and both tokens are HKDF outputs of a rotation root (`HKDF(pair_secret, salt=channel_id, "zipher-hitl-v1 root")`) and the day number. The pairing secret is then discarded. Either side creates the day's mailbox on first use (`rotated: true`). |
+| Polling pattern | The phone checks today's and yesterday's mailboxes every 5 s while the app is open, whether or not anything is pending. |
+| Unpairing | The side that unpairs revokes today's and the next seven days' mailboxes; the relay answers 410 for eight days, so the other side learns it was unpaired. |
+
+PIR would hide which mailbox a phone reads, but the agent's write already shows that a mailbox is active, so PIR adds little here at a high cost. PIR belongs on the wallet side (fetching specific transactions from lightwalletd).
+
+### Push (opt-in, iOS)
+
+Notifications are off until the user turns them on after pairing or in Settings, next to this disclosure: *"Alerts come through Apple. To wake this phone, the relay keeps its push token, and Apple sees when an alert arrives. Neither can see the payment: the alert only says your agent is waiting."*
+
+- The phone registers its APNs token on today's and the next seven mailboxes, and extends the window once a day when the app opens. With push on, the token links those mailboxes; that is the stated trade-off.
+- The relay sends a generic alert ("Approval needed"), no amount or address, signed with an ES256 provider token. Tokens Apple rejects are dropped.
+- Relay flags: `--apns-key AuthKey.p8 --apns-key-id ID --apns-team-id ID [--apns-topic dev.atmospherelabs.zipher]`. Without them the relay works and phones only see requests while Zipher is open.
 
 ## Scope of v1
 

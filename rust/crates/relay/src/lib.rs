@@ -16,7 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -26,7 +26,11 @@ use zipher_hitl_protocol::{token_matches, unb64, PairResponse, Sealed, MAX_REQUE
 pub const MAX_OPEN_REQUESTS: usize = 8;
 pub const MAX_CHANNELS: usize = 50_000;
 pub const UNPAIRED_TTL: Duration = Duration::from_secs(600);
-pub const REGISTRATIONS_PER_MINUTE: u32 = 120;
+pub const REGISTRATIONS_PER_MINUTE: u32 = 600;
+/// A day's mailbox nobody touched for this long is dropped.
+pub const IDLE_TTL: Duration = Duration::from_secs(3 * 86_400);
+/// Revoked mailboxes answer 410 for this long, so a phone learns it was unpaired.
+pub const REVOKED_TTL_SECS: u64 = 8 * 86_400;
 const BODY_LIMIT: usize = 16 * 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -43,11 +47,15 @@ struct StoredChannel {
     /// Optional wake-up target. Persisted so pushes survive a relay restart.
     #[serde(default)]
     push: Option<push::PushTarget>,
+    /// Set when either side unpaired.
+    #[serde(default)]
+    revoked_at: Option<u64>,
 }
 
 struct Channel {
     stored: StoredChannel,
     created: Instant,
+    last_active: Instant,
     pair_blob: Option<PairResponse>,
     requests: HashMap<String, PostRequest>,
     decisions: HashMap<String, (Sealed, u64)>,
@@ -129,6 +137,7 @@ impl Relay {
                 Channel {
                     stored,
                     created: Instant::now(),
+                    last_active: Instant::now(),
                     pair_blob: None,
                     requests: HashMap::new(),
                     decisions: HashMap::new(),
@@ -143,7 +152,7 @@ impl Relay {
         let saved: HashMap<String, &StoredChannel> = inner
             .channels
             .iter()
-            .filter(|(_, c)| c.stored.paired)
+            .filter(|(_, c)| c.stored.paired || c.stored.revoked_at.is_some())
             .map(|(id, c)| (zipher_hitl_protocol::b64(id), &c.stored))
             .collect();
         let Ok(json) = serde_json::to_vec(&saved) else { return };
@@ -158,14 +167,23 @@ impl Relay {
         }
     }
 
-    /// Drop expired messages and abandoned pairings.
+    /// Drop expired messages, abandoned pairings, idle day mailboxes and old
+    /// revocations.
     pub async fn sweep(&self) {
         let now = now_unix();
         let mut inner = self.inner.lock().await;
-        inner.channels.retain(|_, c| c.stored.paired || c.created.elapsed() < UNPAIRED_TTL);
+        let before = inner.channels.len();
+        inner.channels.retain(|_, c| match c.stored.revoked_at {
+            Some(at) => now < at + REVOKED_TTL_SECS,
+            None if c.stored.paired => c.last_active.elapsed() < IDLE_TTL,
+            None => c.created.elapsed() < UNPAIRED_TTL,
+        });
         for c in inner.channels.values_mut() {
             c.requests.retain(|_, r| r.expires_at >= now);
             c.decisions.retain(|_, (_, exp)| *exp >= now);
+        }
+        if inner.channels.len() != before {
+            self.persist(&inner).await;
         }
     }
 
@@ -173,9 +191,10 @@ impl Relay {
         Router::new()
             .route("/health", get(|| async { "ok" }))
             .route("/v1/channels", post(register))
-            .route("/v1/channels/{c}", axum::routing::delete(unpair))
+            .route("/v1/channels/{c}/revoke", post(revoke))
             .route("/v1/channels/{c}/pair", post(post_pair).get(get_pair))
-            .route("/v1/channels/{c}/push", put(put_push).delete(delete_push))
+            .route("/v1/channels/{c}/push", post(put_push))
+            .route("/v1/channels/{c}/push/clear", post(delete_push))
             .route("/v1/channels/{c}/requests", post(post_request).get(get_requests))
             .route("/v1/channels/{c}/decisions/{id}", post(post_decision).get(get_decision))
             .layer(DefaultBodyLimit::max(BODY_LIMIT))
@@ -192,7 +211,15 @@ fn authed<'a>(inner: &'a mut Inner, c: &str, headers: &HeaderMap, side: Side) ->
         Side::Agent => &ch.stored.agent_hash,
         Side::Phone => &ch.stored.phone_hash,
     };
-    token_matches(&token, hash).then_some(ch)
+    if !token_matches(&token, hash) {
+        return None;
+    }
+    ch.last_active = Instant::now();
+    Some(ch)
+}
+
+fn gone() -> Response {
+    err(StatusCode::GONE, "unpaired")
 }
 
 async fn register(State(relay): State<Relay>, Json(body): Json<RegisterChannel>) -> Response {
@@ -221,8 +248,9 @@ async fn register(State(relay): State<Relay>, Json(body): Json<RegisterChannel>)
     inner.channels.insert(
         id,
         Channel {
-            stored: StoredChannel { agent_hash, phone_hash, paired: false, push: None },
+            stored: StoredChannel { agent_hash, phone_hash, paired: body.rotated, push: None, revoked_at: None },
             created: Instant::now(),
+            last_active: Instant::now(),
             pair_blob: None,
             requests: HashMap::new(),
             decisions: HashMap::new(),
@@ -260,16 +288,20 @@ async fn get_pair(State(relay): State<Relay>, Path(c): Path<String>, headers: He
     Json(blob).into_response()
 }
 
-async fn unpair(State(relay): State<Relay>, Path(c): Path<String>, headers: HeaderMap) -> Response {
+async fn revoke(State(relay): State<Relay>, Path(c): Path<String>, headers: HeaderMap) -> Response {
     let mut inner = relay.inner.lock().await;
-    let ok = authed(&mut inner, &c, &headers, Side::Agent).is_some()
-        || authed(&mut inner, &c, &headers, Side::Phone).is_some();
-    if !ok {
-        return not_found();
-    }
-    if let Ok(id) = unb64::<16>(&c) {
-        inner.channels.remove(&id);
-    }
+    let ch = match authed(&mut inner, &c, &headers, Side::Agent) {
+        Some(ch) => ch,
+        None => match authed(&mut inner, &c, &headers, Side::Phone) {
+            Some(ch) => ch,
+            None => return not_found(),
+        },
+    };
+    ch.stored.revoked_at.get_or_insert(now_unix());
+    ch.stored.push = None;
+    ch.pair_blob = None;
+    ch.requests.clear();
+    ch.decisions.clear();
     relay.persist(&inner).await;
     StatusCode::NO_CONTENT.into_response()
 }
@@ -290,6 +322,9 @@ async fn post_request(
     }
     let mut inner = relay.inner.lock().await;
     let Some(ch) = authed(&mut inner, &c, &headers, Side::Agent) else { return not_found() };
+    if ch.stored.revoked_at.is_some() {
+        return gone();
+    }
     if !ch.stored.paired {
         return err(StatusCode::CONFLICT, "not paired");
     }
@@ -340,6 +375,9 @@ async fn put_push(
     }
     let mut inner = relay.inner.lock().await;
     let Some(ch) = authed(&mut inner, &c, &headers, Side::Phone) else { return not_found() };
+    if ch.stored.revoked_at.is_some() {
+        return gone();
+    }
     if !ch.stored.paired {
         return err(StatusCode::CONFLICT, "not paired");
     }
@@ -360,6 +398,9 @@ async fn get_requests(State(relay): State<Relay>, Path(c): Path<String>, headers
     let now = now_unix();
     let mut inner = relay.inner.lock().await;
     let Some(ch) = authed(&mut inner, &c, &headers, Side::Phone) else { return not_found() };
+    if ch.stored.revoked_at.is_some() {
+        return gone();
+    }
     ch.requests.retain(|_, r| r.expires_at >= now);
     let mut requests: Vec<PostRequest> = ch.requests.values().cloned().collect();
     requests.sort_by_key(|r| r.expires_at);
@@ -377,6 +418,9 @@ async fn post_decision(
     }
     let mut inner = relay.inner.lock().await;
     let Some(ch) = authed(&mut inner, &c, &headers, Side::Phone) else { return not_found() };
+    if ch.stored.revoked_at.is_some() {
+        return gone();
+    }
     // One decision per request, and only while the request is open.
     let Some(req) = ch.requests.remove(&id) else { return not_found() };
     if req.expires_at < now_unix() {
@@ -393,6 +437,9 @@ async fn get_decision(
 ) -> Response {
     let mut inner = relay.inner.lock().await;
     let Some(ch) = authed(&mut inner, &c, &headers, Side::Agent) else { return not_found() };
+    if ch.stored.revoked_at.is_some() {
+        return gone();
+    }
     match ch.decisions.remove(&id) {
         Some((sealed, exp)) if exp >= now_unix() => Json(sealed).into_response(),
         Some(_) => not_found(),
@@ -553,9 +600,11 @@ mod tests {
         let ok = serde_json::json!({"approval_id": new_approval_id(), "expires_at": now + 60, "sealed": sealed});
         assert_eq!(call(&s.app, "POST", &req_path, Some(&tokens.agent), Some(ok)).await.0, StatusCode::TOO_MANY_REQUESTS);
 
-        // Either side can unpair; afterwards the channel is gone.
-        assert_eq!(call(&s.app, "DELETE", &format!("/v1/channels/{}", s.c), Some(&tokens.phone), None).await.0, StatusCode::NO_CONTENT);
-        assert_eq!(call(&s.app, "GET", &req_path, Some(&tokens.phone), None).await.0, StatusCode::NOT_FOUND);
+        // Either side can unpair; afterwards both sides are told so (410).
+        assert_eq!(call(&s.app, "POST", &format!("/v1/channels/{}/revoke", s.c), Some(&tokens.phone), None).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(call(&s.app, "GET", &req_path, Some(&tokens.phone), None).await.0, StatusCode::GONE);
+        let ok = serde_json::json!({"approval_id": new_approval_id(), "expires_at": now + 60, "sealed": sealed});
+        assert_eq!(call(&s.app, "POST", &req_path, Some(&tokens.agent), Some(ok)).await.0, StatusCode::GONE);
     }
 
     #[tokio::test]
@@ -621,9 +670,9 @@ mod tests {
         let push_path = format!("/v1/channels/{c}/push");
         let token = "a".repeat(64);
         let target = serde_json::json!({"platform": "apns", "token": token, "sandbox": true});
-        assert_eq!(call(&app, "PUT", &push_path, Some(&t.agent), Some(target.clone())).await.0, StatusCode::NOT_FOUND);
-        assert_eq!(call(&app, "PUT", &push_path, Some(&t.phone), Some(serde_json::json!({"platform": "apns", "token": "zz"}))).await.0, StatusCode::BAD_REQUEST);
-        assert_eq!(call(&app, "PUT", &push_path, Some(&t.phone), Some(target)).await.0, StatusCode::NO_CONTENT);
+        assert_eq!(call(&app, "POST", &push_path, Some(&t.agent), Some(target.clone())).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(call(&app, "POST", &push_path, Some(&t.phone), Some(serde_json::json!({"platform": "apns", "token": "zz"}))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(call(&app, "POST", &push_path, Some(&t.phone), Some(target)).await.0, StatusCode::NO_CONTENT);
 
         let send = |amount: u64| {
             let now = now_unix();
@@ -667,6 +716,30 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         assert!(relay.inner.lock().await.channels.values().all(|ch| ch.stored.push.is_none()));
+    }
+
+    #[tokio::test]
+    async fn rotated_day_mailboxes_work_without_a_pairing_step() {
+        let app = Relay::new(None).router();
+        let root = [7u8; 32];
+        let day = epoch_channel(&root, 20_416);
+        let c = b64(&day.channel_id);
+        let reg = serde_json::json!({
+            "channel_id": c,
+            "agent_token_hash": b64(&token_hash(&day.agent_token)),
+            "phone_token_hash": b64(&token_hash(&day.phone_token)),
+            "rotated": true,
+        });
+        assert_eq!(call(&app, "POST", "/v1/channels", None, Some(reg.clone())).await.0, StatusCode::CREATED);
+        // The other side registering the same day is harmless.
+        assert_eq!(call(&app, "POST", "/v1/channels", None, Some(reg)).await.0, StatusCode::CONFLICT);
+        let (st, list) = call(&app, "GET", &format!("/v1/channels/{c}/requests"), Some(&day.phone_token), None).await;
+        assert_eq!(st, StatusCode::OK);
+        assert!(list["requests"].as_array().unwrap().is_empty());
+        let now = now_unix();
+        let sealed = Sealed { nonce: b64(&[0u8; 24]), ciphertext: "A".repeat(10) };
+        let post = serde_json::json!({"approval_id": new_approval_id(), "expires_at": now + 60, "sealed": sealed});
+        assert_eq!(call(&app, "POST", &format!("/v1/channels/{c}/requests"), Some(&day.agent_token), Some(post)).await.0, StatusCode::CREATED);
     }
 
     #[tokio::test]

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 
+import '../../services/hitl_watch_service.dart';
 import '../../zipher_theme.dart';
 
 /// Monospace for addresses and codes. JetBrains Mono is not bundled, so fall
@@ -176,3 +177,96 @@ Widget hitlCloseButton(BuildContext context) => IconButton(
         hitlCloseSelf(context);
       },
     );
+
+/// The privacy trade-off of push, said plainly. Shared by the pairing flow
+/// and Settings so the wording never drifts.
+const hitlPushDisclosure =
+    'Alerts come through Apple. To wake this phone, the relay keeps its push '
+    'token, and Apple sees when an alert arrives. Neither can see the payment: '
+    'the alert only says your agent is waiting.';
+
+/// Offered once after pairing (iOS): notifications are off until chosen.
+class HitlPushChoice extends StatefulWidget {
+  final String agentName;
+  final Future<void> Function() onDone;
+  const HitlPushChoice({super.key, required this.agentName, required this.onDone});
+
+  @override
+  State<HitlPushChoice> createState() => _HitlPushChoiceState();
+}
+
+class _HitlPushChoiceState extends State<HitlPushChoice> {
+  bool _busy = false;
+
+  Future<void> _turnOn() async {
+    HapticFeedback.selectionClick();
+    setState(() => _busy = true);
+    var ok = false;
+    try {
+      ok = await HitlWatchService.instance.enablePush();
+    } catch (_) {
+      ok = false;
+    }
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Notifications are off. You can turn them on later in Settings.')));
+    }
+    await widget.onDone();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(children: [
+      Expanded(
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: ZipherColors.pagePadding),
+          children: [
+            const Gap(ZipherSpacing.xl),
+            const Center(child: HitlBadge(icon: Icons.notifications_active_rounded)),
+            const Gap(ZipherSpacing.lg),
+            Text('Get notified when ${widget.agentName} needs you?',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: ZipherColors.text90, fontSize: 20, fontWeight: FontWeight.w700, height: 1.3)),
+            const Gap(ZipherSpacing.md),
+            const Text('Without notifications, requests appear when you open Zipher.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: ZipherColors.text60, fontSize: 15, height: 1.4)),
+            const Gap(ZipherSpacing.lg),
+            HitlCard(
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.visibility_rounded, size: 18, color: ZipherColors.warm.withValues(alpha: 0.9)),
+                const Gap(ZipherSpacing.smMd),
+                const Expanded(
+                  child: Text(hitlPushDisclosure,
+                      style: TextStyle(color: ZipherColors.text60, fontSize: 14, height: 1.45)),
+                ),
+              ]),
+            ),
+            const Gap(ZipherSpacing.sm),
+            const Text('You can change this anytime in Settings.',
+                textAlign: TextAlign.center, style: TextStyle(color: ZipherColors.text40, fontSize: 13)),
+          ],
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(
+            ZipherColors.pagePadding, ZipherSpacing.smMd, ZipherColors.pagePadding, ZipherSpacing.sm),
+        child: _busy
+            ? const Padding(
+                padding: EdgeInsets.all(ZipherSpacing.md),
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ZipherWidgets.gradientButton(label: 'Turn On Notifications', onPressed: _turnOn),
+                  const Gap(ZipherSpacing.smMd),
+                  ZipherWidgets.ghostButton(label: 'Not Now', onPressed: () => widget.onDone()),
+                ],
+              ),
+      ),
+    ]);
+  }
+}

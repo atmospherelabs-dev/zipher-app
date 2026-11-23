@@ -117,10 +117,20 @@ impl Apns {
     }
 
     async fn try_wake(&self, target: &PushTarget, expires_at: u64) -> Result<PushOutcome> {
+        let first = self.wake_at(target, expires_at, target.sandbox).await?;
+        // Debug and release builds get tokens for different APNs environments;
+        // if Apple rejects the token in one, try the other once.
+        if first == PushOutcome::TokenGone && self.base_override.is_none() {
+            return self.wake_at(target, expires_at, !target.sandbox).await;
+        }
+        Ok(first)
+    }
+
+    async fn wake_at(&self, target: &PushTarget, expires_at: u64, sandbox: bool) -> Result<PushOutcome> {
         let base = self
             .base_override
             .as_deref()
-            .unwrap_or(if target.sandbox { SANDBOX } else { PRODUCTION });
+            .unwrap_or(if sandbox { SANDBOX } else { PRODUCTION });
         let body = serde_json::json!({
             "aps": {
                 "alert": {

@@ -57,6 +57,9 @@ xeddsa = "1.0.2"
 snow = "0.9.6"
 uuid = "1"
 zipher-hitl-protocol = { path = "../hitl-protocol" }
+hyper = "1"
+http-body-util = "0.1"
+bytes = "1"
 
 # EVM signing (OWS signer — no tonic/prost, just crypto)
 ows-signer = { path = "../../vendor/ows-signer", version = "=1.0.0" }
