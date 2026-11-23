@@ -68,6 +68,22 @@ class ZChatMessage extends StatelessWidget {
       );
 }
 
+/// The boxed surface for a wallet reply card (reviews, details, status).
+class ZChatCard extends StatelessWidget {
+  const ZChatCard({super.key, required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Container(
+      margin: const EdgeInsets.only(top: ZipherSpacing.sm),
+      padding: const EdgeInsets.all(ZipherSpacing.md),
+      decoration: BoxDecoration(
+          color: ZipherColors.cardBg,
+          borderRadius: BorderRadius.circular(ZipherRadius.card),
+          border: Border.all(color: ZipherColors.borderSubtle, width: .5)),
+      child: child);
+}
+
 class _LongValue extends StatefulWidget {
   const _LongValue(this.value);
   final String value;
@@ -119,15 +135,15 @@ class ZChatShortcut extends StatelessWidget {
             color: Colors.transparent,
             child: InkWell(
                 onTap: onTap,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(ZipherRadius.full),
                 child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
+                        horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
                         color: secondary
                             ? Colors.transparent
                             : ZipherColors.cardBg,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(ZipherRadius.full),
                         border: Border.all(
                             color: secondary
                                 ? Colors.transparent
@@ -135,7 +151,7 @@ class ZChatShortcut extends StatelessWidget {
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       leading ??
                           Icon(icon,
-                              size: 14,
+                              size: 16,
                               color: onTap == null
                                   ? ZipherColors.text40
                                   : secondary
@@ -149,7 +165,7 @@ class ZChatShortcut extends StatelessWidget {
                                   : secondary
                                       ? ZipherColors.text40
                                       : ZipherColors.textPrimary,
-                              fontSize: 13,
+                              fontSize: 14,
                               fontWeight: FontWeight.w500)),
                     ])))),
       );
@@ -213,12 +229,13 @@ class ZChatComposer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final border = OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none);
+        borderRadius: BorderRadius.circular(ZipherRadius.full),
+        borderSide: BorderSide.none);
     return Container(
       decoration: BoxDecoration(
           color: ZipherColors.bg,
           border: Border(
-              top: BorderSide(color: ZipherColors.borderSubtle, width: .5))),
+              top: BorderSide(color: ZipherColors.separator, width: .5))),
       child: SafeArea(
           top: false,
           child: Padding(
@@ -250,7 +267,7 @@ class ZChatComposer extends StatelessWidget {
                           filled: true,
                           fillColor: ZipherColors.cardBg,
                           contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
+                              horizontal: 18, vertical: 12),
                           border: border,
                           enabledBorder: border,
                           disabledBorder: border,
@@ -261,10 +278,13 @@ class ZChatComposer extends StatelessWidget {
                         ))),
                 const SizedBox(width: 8),
                 Container(
+                    width: 44,
+                    height: 44,
                     decoration: BoxDecoration(
-                        color: busy ? ZipherColors.text20 : ZipherColors.cyan,
+                        color: busy ? ZipherColors.surfaceLight : ZipherColors.cyan,
                         shape: BoxShape.circle),
                     child: IconButton(
+                        padding: EdgeInsets.zero,
                         tooltip: busy ? 'Processing request' : 'Send message',
                         onPressed:
                             busy ? null : () => onSubmit(controller.text),

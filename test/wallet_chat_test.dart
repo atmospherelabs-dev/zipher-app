@@ -55,7 +55,7 @@ class _FakeNear extends NearIntentsService {
 }
 
 void main() {
-  testWidgets('privacy icon opens an opaque sheet with scoped Tor controls',
+  testWidgets('status pill opens an opaque sheet with scoped Tor controls',
       (tester) async {
     final privacy = NetworkPrivacy(
         enable: () async {},
@@ -67,7 +67,10 @@ void main() {
         localizationsDelegates: const [S.delegate],
         home: WalletChatPage(privacy: privacy)));
     await tester.pump();
-    await tester.tap(find.byTooltip('Direct connection'));
+    await tester.tap(find.bySemanticsLabel(RegExp('Wallet status')));
+    await tester.pumpAndSettle();
+    expect(find.text('Wallet status'), findsOneWidget);
+    await tester.tap(find.text('Direct connection'));
     await tester.pumpAndSettle();
     expect(find.text('Enable Tor'), findsOneWidget);
     expect(find.text('External VPN / Nym: not verified by Zipher.'),
@@ -168,7 +171,7 @@ void main() {
       });
     }
     expect(find.text('0.75 ZEC'), findsNothing);
-    expect(find.byIcon(Icons.expand_more), findsOneWidget);
+    expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsOneWidget);
     expect(find.byType(ZChatComposer), findsOneWidget);
     await tester.tap(find.bySemanticsLabel(RegExp('Expand balance details')));
     await tester.pumpAndSettle();
@@ -194,7 +197,11 @@ void main() {
       (tester) async {
     await open(tester);
     expect(find.text('Test wallet'), findsOneWidget);
-    expect(find.byTooltip('ZEC fully shielded'), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel(RegExp('Wallet status')));
+    await tester.pumpAndSettle();
+    expect(find.text('ZEC fully shielded'), findsOneWidget);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
     await tester
         .longPress(find.bySemanticsLabel(RegExp('Expand balance details')));
     await tester.pumpAndSettle();
@@ -266,7 +273,7 @@ void main() {
     await tester.tap(find.text('Activity'));
     await tester.tap(find.bySemanticsLabel(RegExp('Expand balance details')));
     await tester.pumpAndSettle();
-    expect(find.text('Confirmed'), findsOneWidget);
+    expect(find.text('Today'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
     await tester.tap(find.text('Chat'));
     await tester.pumpAndSettle();

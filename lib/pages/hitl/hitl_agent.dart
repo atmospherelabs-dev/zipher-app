@@ -84,9 +84,19 @@ class _HitlAgentPageState extends State<HitlAgentPage> {
               textAlign: TextAlign.center,
               style: TextStyle(color: ZipherColors.text90, fontSize: 20, fontWeight: FontWeight.w700)),
           Gap(ZipherSpacing.sm),
-          Text(
-            'Run `zipher pair` on your computer and scan the code with Zipher. '
-            'Your agent will then ask this phone before larger payments.',
+          Text.rich(
+            TextSpan(children: [
+              TextSpan(text: 'Run '),
+              TextSpan(
+                  text: 'zipher pair',
+                  style: TextStyle(
+                      fontFamily: 'JetBrainsMono',
+                      fontFamilyFallback: hitlMonoFallback,
+                      color: ZipherColors.text90)),
+              TextSpan(
+                  text: ' on your computer and scan the code with Zipher. '
+                      'Your agent will then ask this phone before larger payments.'),
+            ]),
             textAlign: TextAlign.center,
             style: TextStyle(color: ZipherColors.text60, fontSize: 15, height: 1.4),
           ),
@@ -171,7 +181,8 @@ class _HitlAgentPageState extends State<HitlAgentPage> {
                 padding: EdgeInsets.all(ZipherSpacing.md),
                 child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
               )
-            : ZipherWidgets.secondaryButton(label: 'Unpair Agent', color: ZipherColors.red, onPressed: _unpair),
+            : ZipherWidgets.secondaryButton(
+                label: 'Unpair Agent', color: ZipherColors.red, width: double.infinity, onPressed: _unpair),
       ),
     ]);
   }

@@ -32,7 +32,8 @@ void main() {
     expect(opened, 'incoming');
     await tester.pumpWidget(panel(99));
     expect(find.text('Received'), findsOneWidget);
-    expect(find.text('Confirmed'), findsOneWidget);
+    // Settled rows stay calm: no status label, only pending ones carry one.
+    expect(find.text('Confirming'), findsNothing);
     expect(find.text('Incoming'), findsNothing);
     expect(find.text('Conversation'), findsNothing);
   });
@@ -66,7 +67,8 @@ void main() {
                 onTransaction: (_) {},
                 onSwap: (id) => opened = id))));
     expect(find.text('Sending'), findsNothing);
-    expect(find.text('NEAR Intents · Swapping'), findsOneWidget);
+    expect(find.text('Swapping'), findsOneWidget);
+    expect(find.text('In progress'), findsOneWidget);
     await tester.tap(find.text('ZEC → ETH'));
     expect(opened, 'deposit');
     expect(tester.takeException(), isNull);
