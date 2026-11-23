@@ -26,6 +26,7 @@ import '../../zipher_theme.dart';
 import '../main/home.dart' show showWalletAccountSwitcher;
 import '../tx.dart' show gotoTx;
 import '../../services/app_log.dart';
+import '../../services/backup_status.dart';
 import 'widgets/wallet_balance_details.dart';
 import 'widgets/wallet_activity_row.dart';
 import 'widgets/wallet_activity_panel.dart';
@@ -145,6 +146,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     _displayName = _account.name;
     // Ready for "send … to <contact>" before the first sync completes.
     unawaited(contacts.fetchContacts());
+    unawaited(BackupStatus.instance.load(_walletId));
     WalletRegistry.instance.changes.addListener(_refreshAccountName);
     _refreshAccountName();
     _swapTracker = WalletSwapTracker(
@@ -2055,9 +2057,140 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                                 ])))));
           }));
 
+  /// Shown until the recovery phrase is backed up. Never reveals the phrase
+  /// itself: "Back up now" asks for Face ID first; "Later" hides it a day.
+  Widget _backupReminder() => ValueListenableBuilder<bool>(
+      valueListenable: BackupStatus.instance.needsReminder,
+      builder: (context, needed, _) => !needed || _testnet
+          ? const SizedBox.shrink()
+          : Container(
+              margin: const EdgeInsets.only(bottom: ZipherSpacing.lg),
+              padding: const EdgeInsets.all(ZipherSpacing.md),
+              decoration: BoxDecoration(
+                  color: ZipherColors.warm.withValues(alpha: .07),
+                  borderRadius: BorderRadius.circular(ZipherRadius.card),
+                  border: Border.all(
+                      color: ZipherColors.warm.withValues(alpha: .30),
+                      width: .5)),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Icon(Icons.key_rounded,
+                          size: 20, color: ZipherColors.warm),
+                      const SizedBox(width: ZipherSpacing.smMd),
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: const [
+                            Text('Back up your wallet',
+                                style: ZipherType.rowTitle),
+                            SizedBox(height: 2),
+                            Text(
+                                'Write down your recovery phrase somewhere private. It’s the only way back in if you lose this phone.',
+                                style: ZipherType.footnote),
+                          ])),
+                    ]),
+                    const SizedBox(height: ZipherSpacing.smMd),
+                    Row(children: [
+                      Expanded(
+                          child: ZipherButton(
+                              label: 'Later',
+                              kind: ZipherButtonKind.secondary,
+                              size: ZipherButtonSize.small,
+                              onPressed: () {
+                                AppLog.instance
+                                    .event('backup', 'reminder_snoozed');
+                                BackupStatus.instance.remindLater(_walletId);
+                              })),
+                      const SizedBox(width: ZipherSpacing.sm),
+                      Expanded(
+                          child: ZipherButton(
+                              label: 'Back up now',
+                              size: ZipherButtonSize.small,
+                              onPressed: _openBackup)),
+                    ]),
+                  ])));
+
+  /// Blocks left before a sync counts as a long first sync worth a card.
+  static const _longSyncBlocks = 20000;
+
+  /// "Finding your funds": shown only during a long sync (restore or first
+  /// open), so routine catch-ups stay quiet in the header pill.
+  Widget _firstSyncCard() => Observer(builder: (_) {
+        final total = syncStatus2.blocksTotal;
+        final left = total - syncStatus2.blocksScanned;
+        if (!syncStatus2.syncing || total == 0 || left < _longSyncBlocks) {
+          return const SizedBox.shrink();
+        }
+        final progress = syncStatus2.blocksProgress ?? 0;
+        final eta = syncStatus2.eta.remainingDuration;
+        final found = _account.poolBalances.total;
+        final timeLeft = eta == null
+            ? 'Working out the time left'
+            : eta.inMinutes < 1
+                ? 'Less than a minute left'
+                : eta.inMinutes < 90
+                    ? 'About ${eta.inMinutes} min left'
+                    : 'About ${(eta.inMinutes / 60).round()} h left';
+        return Container(
+            margin: const EdgeInsets.only(bottom: ZipherSpacing.lg),
+            padding: const EdgeInsets.all(ZipherSpacing.md),
+            decoration: BoxDecoration(
+                color: ZipherColors.cardBg,
+                borderRadius: BorderRadius.circular(ZipherRadius.card),
+                border:
+                    Border.all(color: ZipherColors.borderSubtle, width: .5)),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(children: [
+                    const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2)),
+                    const SizedBox(width: ZipherSpacing.smMd),
+                    const Expanded(
+                        child: Text('Finding your funds',
+                            style: ZipherType.rowTitle)),
+                    Text('${(progress * 100).round()}%',
+                        style: ZipherType.rowValue
+                            .copyWith(color: ZipherColors.text60)),
+                  ]),
+                  const SizedBox(height: ZipherSpacing.smMd),
+                  ClipRRect(
+                      borderRadius: BorderRadius.circular(ZipherRadius.full),
+                      child: LinearProgressIndicator(
+                          value: progress, minHeight: 4)),
+                  const SizedBox(height: ZipherSpacing.sm),
+                  Text(
+                      [
+                        timeLeft,
+                        if (found > 0)
+                          'found ${_assetAmount(found / 1e8)} ZEC so far',
+                      ].join(' · '),
+                      style: ZipherType.footnote),
+                  const SizedBox(height: 2),
+                  const Text(
+                      'You can keep using Zipher. Keeping it open finishes faster.',
+                      style: ZipherType.footnote),
+                ]));
+      });
+
+  Future<void> _openBackup() async {
+    FocusScope.of(context).unfocus();
+    AppLog.instance.event('backup', 'reminder_opened');
+    final ok = await authenticate(context, 'Show your recovery phrase');
+    if (!ok || !mounted) return;
+    await context.push('/more/backup');
+    if (mounted) await BackupStatus.instance.load(_walletId);
+  }
+
   Widget _buildSuggestionChips() => Padding(
       padding: const EdgeInsets.only(top: 18, bottom: 8),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _firstSyncCard(),
+        _backupReminder(),
         const Text('What would you like to do?',
             style: TextStyle(
                 fontSize: 15,

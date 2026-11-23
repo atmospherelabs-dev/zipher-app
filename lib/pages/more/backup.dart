@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../../services/backup_status.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
@@ -769,9 +770,11 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
             if (passed) {
               setState(() => _verificationPassed = true);
               _saveVerificationState(true);
+              BackupStatus.instance
+                  .markBackedUp(WalletService.instance.activeWalletId);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: const Text('Backup verified successfully!'),
+                  content: const Text('Backup verified'),
                   backgroundColor: ZipherColors.green.withValues(alpha: 0.8),
                   behavior: SnackBarBehavior.floating,
                   shape: RoundedRectangleBorder(
