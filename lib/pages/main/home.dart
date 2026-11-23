@@ -1863,18 +1863,21 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
     setState(() => _switching = true);
     final previous = aa;
     final paused = syncStatus2.paused;
-    // Stop refreshes before changing the native wallet. Otherwise an old account
-    // object can ask the newly opened engine for its balance under the old name.
-    syncStatus2.paused = true;
-    syncTimer?.cancel();
-    syncTimer = null;
     try {
       if (fa.accountIndex != 0 && WalletService.useNewEngine) {
         throw StateError('This derived account requires account-aware engine support. Use a separate wallet for now.');
       }
       final profile = await WalletRegistry.instance.getById(fa.walletId);
-      if (fa.walletId != ws.activeWalletId) await ws.switchWallet(fa.walletId);
-      syncStatus2.resetForWalletSwitch();
+      // Stops refreshes before the native wallet changes, so an old account
+      // object can't ask the newly opened engine for its balance.
+      if (fa.walletId != ws.activeWalletId) {
+        await switchActiveWallet(fa.walletId);
+      } else {
+        syncStatus2.paused = true;
+        syncTimer?.cancel();
+        syncTimer = null;
+        syncStatus2.resetForWalletSwitch();
+      }
       final selected = ActiveAccount2(
         coin: activeCoin.coin, id: 1, name: fa.displayName, address: '',
         canPay: !(profile?.isWatchOnly ?? false),
@@ -1892,8 +1895,10 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
       logger.e('[Wallet] account switch failed: $error');
       if (ws.activeWalletId == previous.walletId && ws.isWalletOpen) {
         aa = previous;
-        syncStatus2.paused = paused;
-        if (!paused) startAutoSync();
+        if (syncStatus2.paused != paused) {
+          syncStatus2.paused = paused;
+          if (!paused) startAutoSync();
+        }
       } else {
         // A failed open must not show the closed wallet's balances or actions.
         aa = nullAccount;
@@ -2309,7 +2314,7 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
 
       // If this seed isn't the active wallet, switch to it first
       if (w.id != ws.activeWalletId) {
-        await ws.switchWallet(w.id);
+        await switchActiveWallet(w.id);
       }
 
       // Create the new account in Rust
@@ -2336,6 +2341,7 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
         accountIndex: newIndex,
       );
       aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+      unawaited(startAutoSync());
 
       if (mounted) Navigator.of(context).pop();
       widget.onDone();
