@@ -254,15 +254,18 @@ void main() {
     expect(find.text('I understand'), findsOneWidget);
   });
 
-  testWidgets('onboarding: restore start date', (tester) async {
+  testWidgets('onboarding: restore phrase', (tester) async {
     await shoot(tester, 'onboarding-restore', RestoreAccountPage());
-    expect(find.text('Not sure'), findsOneWidget);
+    // The date question is its own step, not hidden below the words.
+    expect(find.text('Continue'), findsOneWidget);
+    expect(find.text('Not sure'), findsNothing);
   });
 
-  testWidgets('onboarding: restore with a month picked', (tester) async {
-    await shoot(tester, 'onboarding-restore-date', RestoreAccountPage(),
-        act: () async {
+  testWidgets('onboarding: restore start date', (tester) async {
+    await shoot(tester, 'onboarding-restore-date',
+        RestoreAccountPage(initialStep: 1), act: () async {
       Future<void> settle() => tester.pump(const Duration(milliseconds: 400));
+      await settle();
       await tester.ensureVisible(find.text('2025'));
       await settle();
       await tester.tap(find.text('2025'));
@@ -271,9 +274,9 @@ void main() {
       await settle();
       await tester.tap(find.text('Mar'));
       await settle();
-      await tester.ensureVisible(find.textContaining('Starts from'));
-      await settle();
     });
+    expect(find.text('When did you start using it?'), findsOneWidget);
     expect(find.textContaining('Starts from February 2025'), findsOneWidget);
+    expect(find.text('Restore'), findsOneWidget);
   });
 }

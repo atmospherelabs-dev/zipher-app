@@ -19,12 +19,21 @@ import 'bip39_wordlist.dart';
 /// Seed phrase restore — per-word grid with privacy masking, smart paste,
 /// BIP39 autocomplete, and optional wallet birthday.
 class RestoreAccountPage extends StatefulWidget {
+  RestoreAccountPage({super.key, @visibleForTesting this.initialStep = 0});
+
+  /// Tests and screenshots can open the date step directly; the app always
+  /// starts at the phrase, which must validate before the date step.
+  final int initialStep;
+
   @override
   State<RestoreAccountPage> createState() => _RestoreAccountPageState();
 }
 
 class _RestoreAccountPageState extends State<RestoreAccountPage> {
   bool _loading = false;
+
+  /// 0: recovery phrase, 1: when the wallet was first used.
+  late int _step = widget.initialStep;
   String? _error;
   bool _seedVisible = false;
   int _wordCount = 24;
@@ -208,90 +217,150 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
   Widget build(BuildContext context) {
     final showWords = _seedVisible && !_loading;
 
-    return Scaffold(
-      backgroundColor: ZipherColors.bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Gap(8),
-                    IconButton(
-                      tooltip: 'Back',
-                      onPressed: () => GoRouter.of(context).pop(),
-                      icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                          color: ZipherColors.text90, size: 20),
-                    ),
-                    const Gap(12),
-                    const Text('Enter your recovery phrase',
-                        style: ZipherType.largeTitle),
-                    const Gap(8),
-                    const Text(
-                        'The 12 or 24 words you wrote down for this wallet.',
-                        style: ZipherType.subhead),
-                    const Gap(20),
-
-                    // ── Phrase ──
-                    Row(
-                      children: [
-                        ZipherButton(
-                          label: 'Paste',
-                          icon: Icons.content_paste_rounded,
-                          kind: ZipherButtonKind.secondary,
-                          size: ZipherButtonSize.small,
-                          onPressed: _pasteFromClipboard,
-                        ),
-                        const Gap(8),
-                        ZipherButton(
-                          label: _seedVisible ? 'Hide' : 'Show',
-                          icon: _seedVisible
-                              ? Icons.visibility_off_rounded
-                              : Icons.visibility_rounded,
-                          kind: ZipherButtonKind.plain,
-                          size: ZipherButtonSize.small,
-                          color: ZipherColors.text60,
-                          onPressed: () =>
-                              setState(() => _seedVisible = !_seedVisible),
-                        ),
-                        const Spacer(),
-                        _buildWordCountToggle(),
-                      ],
-                    ),
-                    const Gap(12),
-                    _buildWordGrid(showWords),
-                    if (_error != null) ...[
-                      const Gap(10),
-                      Text(
-                        _error!,
-                        style: ZipherType.footnote
-                            .copyWith(color: ZipherColors.negative),
+    return PopScope(
+      canPop: _step == 0 && !_loading,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _step == 1 && !_loading) setState(() => _step = 0);
+      },
+      child: Scaffold(
+        backgroundColor: ZipherColors.bg,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Gap(8),
+                      IconButton(
+                        tooltip: 'Back',
+                        onPressed: _loading
+                            ? null
+                            : () => _step == 1
+                                ? setState(() => _step = 0)
+                                : GoRouter.of(context).pop(),
+                        icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                            color: ZipherColors.text90, size: 20),
                       ),
+                      const Gap(12),
+                      if (_step == 0) ..._phraseStep(showWords),
+                      if (_step == 1) ..._dateStep(),
+                      if (_error != null) ...[
+                        const Gap(10),
+                        Text(
+                          _error!,
+                          style: ZipherType.footnote
+                              .copyWith(color: ZipherColors.negative),
+                        ),
+                      ],
+                      const Gap(24),
                     ],
-                    const Gap(28),
-
-                    // ── When it was first used ──
-                    _buildBirthdaySection(),
-                    const Gap(24),
-                  ],
+                  ),
                 ),
               ),
-            ),
-
-            ZipherWidgets.bottomActions([
-              ZipherButton(
-                label: 'Restore',
-                onPressed: _allFilled ? _restore : null,
-                loading: _loading,
-              ),
-            ]),
-          ],
+              ZipherWidgets.bottomActions([
+                _step == 0
+                    ? ZipherButton(
+                        label: 'Continue',
+                        onPressed: _allFilled ? _continue : null,
+                        loading: _loading,
+                      )
+                    : ZipherButton(
+                        label: 'Restore',
+                        onPressed: _restore,
+                        loading: _loading,
+                      ),
+              ]),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  List<Widget> _phraseStep(bool showWords) => [
+        const Text('Enter your recovery phrase', style: ZipherType.largeTitle),
+        const Gap(8),
+        const Text('The 12 or 24 words you wrote down for this wallet.',
+            style: ZipherType.subhead),
+        const Gap(20),
+        Row(
+          children: [
+            ZipherButton(
+              label: 'Paste',
+              icon: Icons.content_paste_rounded,
+              kind: ZipherButtonKind.secondary,
+              size: ZipherButtonSize.small,
+              onPressed: _pasteFromClipboard,
+            ),
+            const Gap(8),
+            ZipherButton(
+              label: _seedVisible ? 'Hide' : 'Show',
+              icon: _seedVisible
+                  ? Icons.visibility_off_rounded
+                  : Icons.visibility_rounded,
+              kind: ZipherButtonKind.plain,
+              size: ZipherButtonSize.small,
+              color: ZipherColors.text60,
+              onPressed: () => setState(() => _seedVisible = !_seedVisible),
+            ),
+            const Spacer(),
+            _buildWordCountToggle(),
+          ],
+        ),
+        const Gap(12),
+        _buildWordGrid(showWords),
+      ];
+
+  List<Widget> _dateStep() => [
+        const Text('When did you start using it?',
+            style: ZipherType.largeTitle),
+        const Gap(8),
+        const Text(
+            'Roughly is fine; it only makes the first sync faster. If in doubt, pick an earlier year or Not sure.',
+            style: ZipherType.subhead),
+        const Gap(20),
+        _buildBirthdaySection(),
+      ];
+
+  /// Check the phrase before asking about dates, so a typo is fixed here.
+  Future<void> _continue() async {
+    setState(() => _error = null);
+    _validateAllWords();
+    if (_invalidWords.isNotEmpty) {
+      final nums = _invalidWords.map((i) => '#${i + 1}').join(', ');
+      setState(() => _error = 'Check word $nums: it isn’t a recovery word.');
+      return;
+    }
+    final words = _controllers
+        .map((c) => c.text.trim().toLowerCase())
+        .where((w) => w.isNotEmpty)
+        .toList();
+    if (![12, 15, 18, 21, 24].contains(words.length)) {
+      setState(() => _error = 'A recovery phrase has 12 or 24 words.');
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final valid = await WalletService.instance.validateSeed(words.join(' '));
+      if (!mounted) return;
+      setState(() {
+        if (valid) {
+          _step = 1;
+          FocusScope.of(context).unfocus();
+        } else {
+          _error =
+              'These words don’t form a valid recovery phrase. Check their order and spelling.';
+        }
+      });
+    } catch (e) {
+      AppLog.instance.event('restore', 'validate_failed', error: e);
+      if (mounted) setState(() => _error = restoreErrorMessage(e));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   /// Paste the whole phrase at once; the word count is detected.
@@ -307,8 +376,18 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
   }
 
   static const _monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June', 'July',
-    'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
 
   /// Where the scan will start, in words.
@@ -318,7 +397,8 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
       return 'Starts after block $height. Payments before it won’t be found.';
     }
     final date = _selectedDate;
-    if (date == null || isTestnet ||
+    if (date == null ||
+        isTestnet ||
         restoreAnchorForDate(date, testnet: isTestnet) == null) {
       return isTestnet && date != null
           ? 'On testnet, dates can’t shorten the scan, so it covers everything. Enter a block height to go faster.'
@@ -331,7 +411,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
       year -= 1;
     }
     return 'Starts from ${_monthNames[month - 1]} $year, a month early to be safe.';
-  }  // ── Word count toggle (12 | 24) ──────────────────────────────────────
+  } // ── Word count toggle (12 | 24) ──────────────────────────────────────
 
   Widget _buildWordCountToggle() {
     return Container(
@@ -547,11 +627,6 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('When did you start using it?', style: ZipherType.headline),
-        const Gap(4),
-        const Text('Roughly is fine. It only makes the first sync faster.',
-            style: ZipherType.footnote),
-        const Gap(12),
         Wrap(
           spacing: 8,
           runSpacing: 8,
