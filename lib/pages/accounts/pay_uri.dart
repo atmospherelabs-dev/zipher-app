@@ -32,8 +32,18 @@ class _PaymentURIState extends State<PaymentURIPage> {
     _loadAddresses();
   }
 
+  /// A new shielded-only address for this request; see
+  /// [WalletService.nextShieldedAddress]. Null until made, or if it failed.
+  String? _freshShielded;
+
   Future<void> _loadAddresses() async {
-    if (aa.diversifiedAddress.isEmpty) {
+    try {
+      final fresh = await WalletService.instance.nextShieldedAddress();
+      if (mounted) setState(() => _freshShielded = fresh);
+    } catch (_) {
+      // The wallet's existing address still receives; fall back to it.
+    }
+    if (_freshShielded == null && aa.diversifiedAddress.isEmpty) {
       await aa.updateAddress();
       if (mounted) setState(() {});
     }
@@ -54,7 +64,7 @@ class _PaymentURIState extends State<PaymentURIPage> {
     return '${addr.substring(0, 12)}...${addr.substring(addr.length - 12)}';
   }
 
-  String get _shieldedAddress => aa.diversifiedAddress;
+  String get _shieldedAddress => _freshShielded ?? aa.diversifiedAddress;
 
   @override
   Widget build(BuildContext context) {

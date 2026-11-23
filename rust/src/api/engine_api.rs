@@ -115,6 +115,11 @@ pub async fn engine_get_addresses() -> Result<Vec<AddressInfo>> {
     Ok(addrs.into_iter().map(|a| a.into()).collect())
 }
 
+/// A fresh shielded-only receive address (see `engine::query::next_shielded_address`).
+pub async fn engine_next_shielded_address() -> Result<AddressInfo> {
+    Ok(engine::query::next_shielded_address().await?.into())
+}
+
 pub async fn engine_get_transparent_addresses() -> Result<Vec<String>> {
     engine::query::get_transparent_addresses().await
 }

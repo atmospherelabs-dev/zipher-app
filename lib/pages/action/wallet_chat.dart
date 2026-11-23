@@ -81,7 +81,16 @@ class _WalletChat extends StatefulWidget {
 }
 
 class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
-  final _conversation = WalletConversation();
+  final _conversation = WalletConversation(zcashContacts: _zcashContacts);
+
+  /// Saved Zcash contacts (older entries without a chain are Zcash).
+  static List<ZcashContact> _zcashContacts() => [
+        for (final c in contacts.contacts)
+          if ((c.chainId == null || c.chainId!.toLowerCase() == 'zec') &&
+              (c.name?.trim().isNotEmpty ?? false) &&
+              (c.address?.isNotEmpty ?? false))
+            (name: c.name!.trim(), address: c.address!)
+      ];
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final _latestMessageKey = GlobalKey();
@@ -134,6 +143,8 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     _testnet = isTestnet;
     _account = aa;
     _displayName = _account.name;
+    // Ready for "send … to <contact>" before the first sync completes.
+    unawaited(contacts.fetchContacts());
     WalletRegistry.instance.changes.addListener(_refreshAccountName);
     _refreshAccountName();
     _swapTracker = WalletSwapTracker(
@@ -359,22 +370,43 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
         _swap = null;
         _reviewEpoch.value++;
       }
+      // Contacts load with the wallet; a send can name one without waiting.
       final reply = _conversation.accept(text);
       if (reply.prompt != null) {
-        final askingAmount =
-            _conversation.pending?.command == WalletCommand.send &&
-                _conversation.pending?.zatoshis == null;
+        final pending = _conversation.pending;
+        final sending = pending?.command == WalletCommand.send;
+        final askingAmount = sending && pending?.zatoshis == null;
+        final known = sending && pending?.recipient == null
+            ? _zcashContacts().take(6).toList()
+            : const <ZcashContact>[];
         _message(reply.prompt!,
             plain: true,
-            card: askingAmount
-                ? Observer(
-                    builder: (_) => Text(
-                        '${_assetAmount(_account.poolBalances.shielded / 1e8)} ZEC available · fee applies',
-                        style: const TextStyle(
-                            fontFamily: 'JetBrains Mono',
-                            fontSize: 12,
-                            color: ZipherColors.textSecondary)))
-                : null);
+            card: !askingAmount && known.isEmpty
+                ? null
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                        if (askingAmount)
+                          Observer(
+                              builder: (_) => Text(
+                                  '${_assetAmount(_account.poolBalances.shielded / 1e8)} ZEC available · fee applies',
+                                  style: ZipherType.caption)),
+                        if (known.isNotEmpty) ...[
+                          const SizedBox(height: ZipherSpacing.smMd),
+                          // Tapping a contact answers with its name.
+                          Wrap(spacing: 8, runSpacing: 8, children: [
+                            for (final c in known)
+                              ZChatShortcut(
+                                  icon: Icons.person_outline_rounded,
+                                  secondary: true,
+                                  label: c.name,
+                                  onTap: () {
+                                    if (!_current || _busy) return;
+                                    _submit(c.name);
+                                  }),
+                          ]),
+                        ],
+                      ]));
       }
       final request = reply.request;
       if (request == null) return;
@@ -758,7 +790,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     final requested = WalletReceiveAddress.requestedChain(input);
     final matching = choices.where((c) => c.id == requested).toList();
     if (matching.length == 1) {
-      _showReceiveAddress(matching.single);
+      await _showReceiveAddress(matching.single);
       return;
     }
     _choosingAddress = true;
@@ -783,9 +815,24 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
               ]));
   }
 
-  void _showReceiveAddress(WalletReceiveAddress choice) {
+  Future<void> _showReceiveAddress(WalletReceiveAddress choice) async {
     if (!_current) return;
     _choosingAddress = false;
+    // Zcash: hand out a new shielded-only address each time, so payers can't
+    // link payments to each other. Earlier addresses keep receiving. If a new
+    // one can't be made right now, the wallet's existing address still works.
+    var fresh = false;
+    if (choice.id == 'zec' && _wallet.isWalletOpen) {
+      try {
+        final address = await _wallet.nextShieldedAddress();
+        if (!_current) return;
+        choice = WalletReceiveAddress(choice.id, choice.label, address);
+        fresh = true;
+      } catch (e) {
+        AppLog.instance.event('receive', 'fresh_address_failed', error: e);
+        if (!_current) return;
+      }
+    }
     AppLog.instance
         .event('receive', 'address_shown', detail: 'chain=${choice.id}');
     if (choice.id == 'zec' && _wallet.isWalletOpen) boostSyncPolling();
@@ -802,6 +849,13 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
           Text(
               'Send only assets on ${choice.label}${choice.id == 'zec' ? '' : ' mainnet'} to this address.',
               style: TextStyle(fontSize: 12, color: ZipherColors.text60)),
+          if (fresh)
+            const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                    'A new address each time, for privacy. Earlier ones keep working.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: ZipherColors.text40))),
           TextButton.icon(
               icon: const Icon(Icons.copy, size: 18),
               label: const Text('Copy address'),
@@ -2429,18 +2483,13 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                                   child: Text(
                                       '${_assetAmount(b.unconfirmed / 1e8)} ZEC pending confirmation',
                                       style: ZipherType.caption)),
-                            if (!_testnet &&
-                                (!syncStatus2.isSynced ||
-                                    (expanded && incomplete)))
+                            // Sync progress lives in the header's status
+                            // pill; only say when assets are missing.
+                            if (!_testnet && expanded && incomplete)
                               Padding(
                                   padding: const EdgeInsets.only(top: 7),
-                                  child: Text(
-                                      !syncStatus2.isSynced
-                                          ? 'Updating balance…'
-                                          : 'Some assets unavailable',
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          color: ZipherColors.text40))),
+                                  child: Text('Some assets unavailable',
+                                      style: ZipherType.caption)),
                           ])))),
               if (expanded)
                 ConstrainedBox(

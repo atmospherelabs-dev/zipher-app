@@ -989,6 +989,18 @@ class WalletService {
     return rust_wallet.getAddresses();
   }
 
+  /// A fresh shielded-only unified address for receiving. Every call returns
+  /// a new diversified address of the same account, so payers cannot link
+  /// payments to each other; all of them keep receiving.
+  Future<String> nextShieldedAddress() async {
+    _checkBusy();
+    final info = await rust_engine.engineNextShieldedAddress();
+    if (info.hasTransparent) {
+      throw StateError('Receive address must not have a transparent receiver');
+    }
+    return info.address;
+  }
+
   Future<List<String>> getTransparentAddresses() async {
     _checkBusy();
     if (useNewEngine) {

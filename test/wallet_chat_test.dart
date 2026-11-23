@@ -518,7 +518,9 @@ void main() {
     expect(syncStatus2.connectionError, isNull);
     expect(syncStatus2.connected, isTrue);
     expect(find.byTooltip('Syncing 75.0%'), findsOneWidget);
-    expect(find.text('Updating balance…'), findsOneWidget);
+    // Sync shows once, in the status pill, not again under the balance.
+    expect(find.text('75.0%'), findsOneWidget);
+    expect(find.text('Updating balance…'), findsNothing);
     expect(find.text('No funds'), findsNothing);
     syncStatus2.syncing = false;
     await tester.pumpAndSettle();

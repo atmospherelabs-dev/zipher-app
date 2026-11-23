@@ -55,8 +55,32 @@ class ConversationReply {
   const ConversationReply({this.prompt, this.request});
 }
 
+/// A saved Zcash contact the send flow can resolve a typed name to.
+typedef ZcashContact = ({String name, String address});
+
 class WalletConversation {
+  WalletConversation({this.zcashContacts});
+
   WalletRequest? pending;
+
+  /// Saved Zcash contacts, read when a name is typed as the recipient.
+  final List<ZcashContact> Function()? zcashContacts;
+
+  /// Contacts whose name equals [text], ignoring case and outer spaces.
+  /// Exact matches only: a payment must never go to a guessed contact.
+  List<ZcashContact> contactsNamed(String text) {
+    final wanted = text.trim().toLowerCase();
+    if (wanted.isEmpty) return const [];
+    return [
+      for (final c in zcashContacts?.call() ?? const <ZcashContact>[])
+        if (c.name.trim().toLowerCase() == wanted && c.address.isNotEmpty) c
+    ];
+  }
+
+  /// What to say when a typed name is not exactly one contact.
+  static String _unknownContact(String name, int matches) => matches > 1
+      ? 'More than one contact is named “$name”. Paste the address you mean.'
+      : 'No contact named “$name”. Paste their Zcash address, or type a contact’s name.';
 
   static WalletCommand command(String text) {
     final s = text.trim().toLowerCase().replaceFirst(RegExp(r'^/'), '');
@@ -208,7 +232,7 @@ class WalletConversation {
   String get hint {
     final p = pending;
     if (p == null) return 'What would you like to do?';
-    if (p.recipient == null) return 'Paste a Zcash address';
+    if (p.recipient == null) return 'Paste an address or type a contact';
     return 'Amount in ZEC';
   }
 
@@ -241,12 +265,28 @@ class WalletConversation {
         body = body.substring(0, memoMatch.start);
       }
       String? recipient;
+      String? unknownName;
+      var nameMatches = 0;
       final target = RegExp(r'\s+(?:to|into)\s+(\S+)\s*$', caseSensitive: false)
           .firstMatch(body);
-      if (target != null) {
-        final value = target.group(1)!;
-        if (looksLikeAddress(value)) recipient = value;
+      if (target != null && looksLikeAddress(target.group(1)!)) {
+        recipient = target.group(1)!;
         body = body.substring(0, target.start);
+      } else {
+        // "send 0.5 to Alice Smith": a contact name may have several words.
+        final named = RegExp(r'\s+(?:to|into)\s+(.+?)\s*$', caseSensitive: false)
+            .firstMatch(body);
+        if (named != null) {
+          final name = named.group(1)!;
+          final found = contactsNamed(name);
+          if (found.length == 1) {
+            recipient = found.single.address;
+          } else {
+            unknownName = name;
+            nameMatches = found.length;
+          }
+          body = body.substring(0, named.start);
+        }
       }
       body = body
           .replaceFirst(
@@ -257,6 +297,10 @@ class WalletConversation {
       final amount = parseZatoshis(body);
       pending = WalletRequest(cmd,
           zatoshis: amount, recipient: recipient, memo: memo);
+      if (unknownName != null) {
+        return ConversationReply(
+            prompt: _unknownContact(unknownName, nameMatches));
+      }
       if (body.isNotEmpty && amount == null) {
         return const ConversationReply(
             prompt:
@@ -264,9 +308,15 @@ class WalletConversation {
       }
     } else if (pending != null) {
       var p = pending!;
+      final named = contactsNamed(input);
       if (looksLikeAddress(input)) {
         // A pasted address replaces the recipient, so a wrong one is fixable.
         p = p.withFields(recipient: input);
+      } else if (named.length == 1) {
+        // A contact's name, typed or tapped, stands for its saved address.
+        p = p.withFields(recipient: named.single.address);
+      } else if (named.length > 1) {
+        return ConversationReply(prompt: _unknownContact(input, named.length));
       } else if (parseZatoshis(input) != null) {
         p = p.withFields(zatoshis: parseZatoshis(input));
       } else {
@@ -292,6 +342,6 @@ class WalletConversation {
   }
 
   String _prompt(WalletRequest p) => p.recipient == null
-      ? 'Who would you like to send to? Paste their Zcash address.'
+      ? 'Who would you like to send to? Paste their Zcash address or type a contact’s name.'
       : 'How much ZEC would you like to send?';
 }

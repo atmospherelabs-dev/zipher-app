@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
-use zcash_client_backend::data_api::{Account, WalletRead};
+use zcash_client_backend::data_api::{Account, WalletRead, WalletWrite};
 use zcash_keys::keys::UnifiedAddressRequest;
 use zcash_protocol::consensus::NetworkType;
 
@@ -53,6 +53,46 @@ pub async fn get_addresses() -> Result<Vec<AddressInfo>> {
         }
         None => Ok(vec![]),
     }
+}
+
+/// A fresh shielded-only unified address for receiving.
+///
+/// Each call derives and records the next diversified address of the first
+/// account, with Orchard and Sapling receivers and no transparent receiver.
+/// All diversified addresses share the account's viewing key, so funds sent
+/// to any earlier address are still found by sync; handing out a new one
+/// each time only stops senders from linking payments to each other.
+pub async fn next_shielded_address() -> Result<AddressInfo> {
+    let guard = ENGINE.lock().await;
+    let engine = guard
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Engine not initialized"))?;
+
+    let mut db = open_wallet_db(&engine.db_data_path, engine.params, &engine.db_cipher_key)?;
+
+    let account_ids = db
+        .get_account_ids()
+        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
+    let account_id = *account_ids
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("No accounts"))?;
+
+    let (ua, _) = db
+        .get_next_available_address(account_id, UnifiedAddressRequest::SHIELDED)
+        .map_err(|e| anyhow::anyhow!("{:?}", e))?
+        .ok_or_else(|| anyhow::anyhow!("No shielded address available"))?;
+
+    if ua.transparent().is_some() {
+        // SHIELDED never asks for one; refuse rather than hand out a t-receiver.
+        anyhow::bail!("Generated address unexpectedly has a transparent receiver");
+    }
+
+    Ok(AddressInfo {
+        address: ua.encode(&engine.params),
+        has_transparent: false,
+        has_sapling: ua.sapling().is_some(),
+        has_orchard: ua.has_orchard(),
+    })
 }
 
 pub async fn get_transparent_addresses() -> Result<Vec<String>> {
