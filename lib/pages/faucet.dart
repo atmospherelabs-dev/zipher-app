@@ -87,8 +87,8 @@ class _FaucetPageState extends State<FaucetPage> {
                   padding: const EdgeInsets.all(ZipherSpacing.md),
                   decoration: BoxDecoration(
                     color: ZipherColors.cardBg,
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    border: Border.all(color: ZipherColors.borderSubtle),
+                    borderRadius: BorderRadius.circular(ZipherRadius.card),
+                    border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -166,10 +166,8 @@ class _FaucetPageState extends State<FaucetPage> {
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     decoration: BoxDecoration(
                       color: ZipherColors.cardBg,
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                      border: Border.all(
-                        color: ZipherColors.borderSubtle,
-                      ),
+                      borderRadius: BorderRadius.circular(ZipherRadius.card),
+                      border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,

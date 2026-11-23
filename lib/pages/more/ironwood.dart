@@ -278,13 +278,8 @@ class _IronwoodState extends State<IronwoodPage> {
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         title: Text(
-          'IRONWOOD MIGRATION',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          'Ironwood migration',
+          style: ZipherType.headline,
         ),
       ),
       body: SafeArea(
@@ -530,7 +525,7 @@ class _IronwoodState extends State<IronwoodPage> {
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -603,7 +598,7 @@ class _IronwoodState extends State<IronwoodPage> {
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: ZipherColors.borderSubtle),
+            border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -648,7 +643,7 @@ class _IronwoodState extends State<IronwoodPage> {
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: ZipherColors.borderSubtle),
+            border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
           ),
           child: Column(
             children: [
@@ -790,7 +785,7 @@ class _IronwoodState extends State<IronwoodPage> {
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: ZipherColors.borderSubtle),
+            border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
           ),
           child: Column(
             children: [

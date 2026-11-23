@@ -96,7 +96,7 @@ class _FrostBackupShareStepState extends State<FrostBackupShareStep> {
             decoration: BoxDecoration(
               color: ZipherColors.cardBg,
               borderRadius: BorderRadius.circular(ZipherRadius.md),
-              border: Border.all(color: ZipherColors.borderSubtle),
+              border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
             ),
             child: Text(
               preview,

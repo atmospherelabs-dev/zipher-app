@@ -827,10 +827,8 @@ class _BalanceBreakdown extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(
-          color: ZipherColors.borderSubtle,
-        ),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Column(
         children: [
@@ -1149,9 +1147,7 @@ class _ActionButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: ZipherColors.cardBgElevated,
             borderRadius: BorderRadius.circular(ZipherRadius.lg),
-            border: Border.all(
-              color: ZipherColors.borderSubtle,
-            ),
+            border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -1322,10 +1318,8 @@ class _TxRowState extends State<_TxRow> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: ZipherColors.cardBg,
-              borderRadius: BorderRadius.circular(ZipherRadius.lg),
-              border: Border.all(
-                color: ZipherColors.borderSubtle,
-              ),
+              borderRadius: BorderRadius.circular(ZipherRadius.card),
+              border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
             ),
             child: Row(
               children: [
@@ -2221,8 +2215,8 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
                             horizontal: 14, vertical: 12),
                         decoration: BoxDecoration(
                           color: ZipherColors.cardBg,
-                          borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                          border: Border.all(color: ZipherColors.borderSubtle),
+                          borderRadius: BorderRadius.circular(ZipherRadius.card),
+                          border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                         ),
                         child: Row(
                           children: [
@@ -2338,8 +2332,8 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: ZipherColors.cardBg,
-              borderRadius: BorderRadius.circular(ZipherRadius.lg),
-              border: Border.all(color: ZipherColors.borderSubtle),
+              borderRadius: BorderRadius.circular(ZipherRadius.card),
+              border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
             ),
             child: Row(
               children: [

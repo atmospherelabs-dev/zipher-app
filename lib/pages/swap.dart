@@ -377,7 +377,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                       decoration: BoxDecoration(
                         color: ZipherColors.cardBg,
                         borderRadius: BorderRadius.circular(ZipherRadius.md),
-                        border: Border.all(color: ZipherColors.borderSubtle),
+                        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -954,7 +954,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
           height: 56,
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
+            borderRadius: BorderRadius.circular(ZipherRadius.card),
           ),
           child: Row(
             children: [
@@ -1033,7 +1033,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
           height: 56,
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
+            borderRadius: BorderRadius.circular(ZipherRadius.card),
           ),
           child: Row(
             children: [
@@ -1169,7 +1169,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                       decoration: BoxDecoration(
                         color: ZipherColors.cardBg,
                         borderRadius: BorderRadius.circular(ZipherRadius.md),
-                        border: Border.all(color: ZipherColors.borderSubtle),
+                        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                       ),
                       child: TextField(
                         controller: searchController,
@@ -1335,7 +1335,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                   decoration: BoxDecoration(
                     color: ZipherColors.cardBgElevated,
                     borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                    border: Border.all(color: ZipherColors.borderSubtle),
+                    border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                   ),
                   child: Text('USE MY ADDRESS',
                       style: TextStyle(
@@ -1353,7 +1353,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
           height: 52,
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
+            borderRadius: BorderRadius.circular(ZipherRadius.card),
           ),
           child: Row(
             children: [

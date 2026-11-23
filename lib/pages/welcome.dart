@@ -158,9 +158,7 @@ class _WelcomePageState extends State<WelcomePage>
                             color: ZipherColors.cardBg,
                             borderRadius:
                                 BorderRadius.circular(ZipherRadius.md),
-                            border: Border.all(
-                              color: ZipherColors.borderSubtle,
-                            ),
+                            border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -256,7 +254,7 @@ class _WelcomePageState extends State<WelcomePage>
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
             borderRadius: BorderRadius.circular(ZipherRadius.md),
-            border: Border.all(color: ZipherColors.borderSubtle),
+            border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,

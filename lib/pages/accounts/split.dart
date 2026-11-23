@@ -242,18 +242,13 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
         elevation: 0,
         scrolledUnderElevation: 0,
         title: Text(
-          isPrefilled ? 'MULTI-PAY' : 'SPLIT BILL',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          isPrefilled ? 'Multi-pay' : 'Split bill',
+          style: ZipherType.headline,
         ),
         centerTitle: true,
         leading: IconButton(
           icon:
-              Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
+              Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
@@ -435,7 +430,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
           height: 56,
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
+            borderRadius: BorderRadius.circular(ZipherRadius.card),
           ),
           child: TextField(
             controller: _totalController,
@@ -534,7 +529,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
       padding: const EdgeInsets.all(ZipherSpacing.xs),
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
       ),
       child: Row(
         children: [
@@ -620,7 +615,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 decoration: BoxDecoration(
                   color: ZipherColors.cardBg,
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                  borderRadius: BorderRadius.circular(ZipherRadius.card),
                   border: Border.all(
                     color: ZipherColors.cyan.withValues(alpha: 0.12),
                   ),
@@ -658,7 +653,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -796,8 +791,9 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
-                color: ZipherColors.cardBgElevated,
-                borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                color: ZipherColors.cardBg,
+                borderRadius: BorderRadius.circular(ZipherRadius.card),
+                border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
               ),
               child: Text(
                 _truncateAddr(r.addressController.text),
@@ -968,7 +964,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
             Container(
               decoration: BoxDecoration(
                 color: ZipherColors.cardBg,
-                borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                borderRadius: BorderRadius.circular(ZipherRadius.card),
               ),
               child: TextField(
                 controller: controller,
@@ -1045,7 +1041,7 @@ class _SplitBillState extends State<SplitBillPage> with WithLoadingAnimation {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
       ),
       child: Column(
         children: [

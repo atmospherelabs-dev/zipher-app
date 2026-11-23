@@ -886,15 +886,15 @@ class ZipherWidgets {
           shape: BoxShape.circle,
         ),
         child: Icon(
-          Icons.arrow_back_rounded,
-          size: 18,
-          color: ZipherColors.text60,
+          Icons.arrow_back_ios_new_rounded,
+          size: 16,
+          color: ZipherColors.text90,
         ),
       ),
     );
   }
 
-  /// Uppercase sub-page header (e.g. "BACKUP", "ABOUT")
+  /// Sub-page header: back button, centered sentence-case title, actions.
   static Widget pageHeader(
     BuildContext context,
     String title, {
@@ -902,27 +902,34 @@ class ZipherWidgets {
   }) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        ZipherColors.pagePadding,
-        MediaQuery.of(context).padding.top + 14,
-        ZipherColors.pagePadding,
-        16,
+        ZipherSpacing.md,
+        MediaQuery.of(context).padding.top + ZipherSpacing.sm,
+        ZipherSpacing.md,
+        ZipherSpacing.sm,
       ),
-      child: Row(
-        children: [
-          backButton(context),
-          const SizedBox(width: 14),
-          Text(
-            title.toUpperCase(),
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.5,
-              color: ZipherColors.text60,
+      child: SizedBox(
+        height: 44,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 56),
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: ZipherType.headline,
+              ),
             ),
-          ),
-          const Spacer(),
-          if (actions != null) ...actions,
-        ],
+            Row(
+              children: [
+                backButton(context),
+                const Spacer(),
+                if (actions != null) ...actions,
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

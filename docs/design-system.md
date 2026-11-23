@@ -84,6 +84,11 @@ Amounts always carry their unit and direction (`+0.25 ZEC`, `−0.01 ZEC`).
 - **Status dot**: `ZipherWidgets.statusDot`, which always comes with a word
   next to it.
 - **Sheets**: opaque `surface`, drag handle, a `title` heading, then content.
+- **Sub-page header**: iOS back chevron, centered sentence-case `headline`
+  title, actions on the right (`ZipherWidgets.pageHeader`, or the same style
+  in an `AppBar`).
+- **Lighter fill (`surfaceLight`)** is for controls only (inputs, chips, icon
+  tiles, ghost buttons, dialogs), never for content cards.
 
 ## Patterns
 

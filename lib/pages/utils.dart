@@ -458,9 +458,7 @@ Future<bool> showConfirmDialog(
                                   color:
                                       ZipherColors.cardBg,
                                   borderRadius: BorderRadius.circular(ZipherRadius.md),
-                                  border: Border.all(
-                                    color: ZipherColors.borderSubtle,
-                                  ),
+                                  border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                                 ),
                                 child: Center(
                                   child: Text(
@@ -1013,11 +1011,9 @@ class _ContactAutocompleteState extends State<ContactAutocomplete> {
             child: Container(
               constraints: const BoxConstraints(maxHeight: 180),
               decoration: BoxDecoration(
-                color: const Color(0xFF1A1A2E),
+                color: ZipherColors.surfaceLight,
                 borderRadius: BorderRadius.circular(ZipherRadius.md),
-                border: Border.all(
-                  color: ZipherColors.borderSubtle,
-                ),
+                border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.4),

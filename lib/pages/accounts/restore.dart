@@ -386,7 +386,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
         borderRadius: BorderRadius.circular(ZipherRadius.sm),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -849,7 +849,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
         borderRadius: BorderRadius.circular(ZipherRadius.md),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

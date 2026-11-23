@@ -142,9 +142,9 @@ class _Header extends StatelessWidget {
         vertical: ZipherSpacing.md,
       ),
       decoration: BoxDecoration(
-        color: ZipherColors.cardBgElevated,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        color: ZipherColors.cardBg,
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -363,7 +363,7 @@ class _TxRow extends StatelessWidget {
         decoration: BoxDecoration(
           color: ZipherColors.cardBg,
           borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(color: ZipherColors.borderSubtle),
+          border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
         ),
         child: Row(
           children: [
@@ -408,7 +408,7 @@ class _ActionButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: ZipherColors.cardBgElevated,
           borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(color: ZipherColors.borderSubtle),
+          border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
         ),
         alignment: Alignment.center,
         child: Text(label,

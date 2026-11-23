@@ -14,7 +14,7 @@ class FrostHubPage extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: ZipherColors.bg,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         title: Text(
@@ -97,8 +97,8 @@ class _ActionCard extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
-            border: Border.all(color: ZipherColors.borderSubtle),
+            borderRadius: BorderRadius.circular(ZipherRadius.card),
+            border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
           ),
           child: Row(
             children: [

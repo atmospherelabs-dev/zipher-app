@@ -29,18 +29,13 @@ class AboutPage extends StatelessWidget {
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         title: Text(
-          'ABOUT',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          'About',
+          style: ZipherType.headline,
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
       ),
@@ -148,7 +143,7 @@ class AboutPage extends StatelessWidget {
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: ZipherColors.cardBg,
-                borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                borderRadius: BorderRadius.circular(ZipherRadius.card),
               ),
               child: Text(
                 'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. '

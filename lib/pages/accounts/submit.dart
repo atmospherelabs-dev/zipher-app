@@ -222,7 +222,7 @@ class _SubmitTxState extends State<SubmitTxPage> {
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   decoration: BoxDecoration(
                     color: ZipherColors.cardBg,
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                    borderRadius: BorderRadius.circular(ZipherRadius.card),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -444,17 +444,12 @@ class ExportUnsignedTxPage extends StatelessWidget {
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         title: Text(
-          'EXPORT',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          'Export',
+          style: ZipherType.headline,
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
