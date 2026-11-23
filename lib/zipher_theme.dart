@@ -5,10 +5,12 @@ import 'package:flutter/material.dart';
 class ZipherColors {
   // Core backgrounds (Cipherscan/Cipherpay-aligned dark: #08090F)
   static const Color bg = Color(0xFF08090F);
-  static const Color surface = Color(0xFF111219);
-  static const Color surfaceLight = Color(0xFF1B1D26);
-  static const Color border = Color(0xFF1A1D28);
-  static const Color borderLight = Color(0xFF22252F);
+  // Surfaces are neutral near-blacks, barely lifted from the background.
+  // Cards are defined by a hairline, not by a grey fill.
+  static const Color surface = Color(0xFF0F1014);
+  static const Color surfaceLight = Color(0xFF1A1B20);
+  static const Color border = Color(0x17FFFFFF);
+  static const Color borderLight = Color(0x24FFFFFF);
 
   // Brand colors
   static const Color cyan = Color(0xFF00D4FF);
@@ -55,7 +57,7 @@ class ZipherColors {
   static const Color negative = red;
 
   /// Hairline separators inside cards and lists (0.5 pt).
-  static const Color separator = Color(0xFF1F222C);
+  static const Color separator = Color(0x12FFFFFF);
 
   // Gradients
   /// Primary brand gradient (sync bar, gradient buttons). Cyan → warm.

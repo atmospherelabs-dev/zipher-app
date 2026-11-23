@@ -107,17 +107,15 @@ class _HitlApprovePageState extends State<HitlApprovePage> {
         const Text('is asking to send',
             textAlign: TextAlign.center, style: TextStyle(color: ZipherColors.text60, fontSize: 15)),
         const Gap(ZipherSpacing.lg),
-        HitlCard(
-          child: Column(children: [
-            Text('${formatZat(_req.amount)} ZEC',
-                style: const TextStyle(
-                    color: ZipherColors.text90, fontSize: 34, fontWeight: FontWeight.w700, letterSpacing: -0.5)),
-            const Gap(6),
-            Text('+ ${formatZat(_req.fee)} ZEC network fee',
-                style: const TextStyle(color: ZipherColors.text60, fontSize: 14, fontFamily: 'JetBrainsMono', fontFamilyFallback: hitlMonoFallback)),
-          ]),
-        ),
-        const Gap(ZipherSpacing.smMd),
+        // The amount stands on the page itself; only details sit in a card.
+        Column(children: [
+          Text('${formatZat(_req.amount)} ZEC',
+              style: ZipherType.hero.copyWith(fontSize: 40)),
+          const Gap(6),
+          Text('+ ${formatZat(_req.fee)} ZEC network fee',
+              style: ZipherType.subhead.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+        ]),
+        const Gap(ZipherSpacing.lg),
         HitlCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             HitlDetail(

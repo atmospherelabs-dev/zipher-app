@@ -60,9 +60,9 @@ class HitlCard extends StatelessWidget {
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: ZipherColors.cardBgElevated,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        color: ZipherColors.cardBg,
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: child,
     );

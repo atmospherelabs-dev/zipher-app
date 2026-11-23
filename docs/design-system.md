@@ -18,7 +18,9 @@ Short rules for every screen. Tokens and shared widgets are in
 4. **Every icon has one meaning.** If a glyph needs a tooltip to be understood,
    use words instead. The home header has one status pill; details are in the
    Wallet status sheet.
-5. **Dark, quiet surfaces.** No gradients on controls. The only glow is the soft
+5. **Dark, quiet surfaces.** Cards are defined by a hairline, not a grey or
+   blue fill. Neutral near-blacks only. Key figures (an amount to approve)
+   stand on the page, not in a box. No gradients on controls. The only glow is the soft
    cyan light behind the home balance. It must never be clipped.
 
 ## Color
@@ -26,9 +28,10 @@ Short rules for every screen. Tokens and shared widgets are in
 | Token | Use |
 |---|---|
 | `bg` `#08090F` | Page background |
-| `surface` / `cardBg` `#111219` | Cards, sheets, grouped lists |
-| `surfaceLight` `#1B1D26` | Inputs, selected segment, ghost buttons |
-| `separator` | 0.5 pt hairlines inside cards |
+| `surface` / `cardBg` `#0F1014` | Cards, sheets, grouped lists: barely lifted from `bg` |
+| `surfaceLight` `#1A1B20` | Inputs, selected segment, ghost buttons, dialogs |
+| `border` / `borderSubtle` (white 9%) | 0.5 pt outline of cards |
+| `separator` (white 7%) | 0.5 pt hairlines inside cards |
 | `text90 / 60 / 40 / 20` | Primary, secondary, tertiary, disabled text |
 | `cyan` | Actions and brand: primary button, links, selection |
 | `positive` (green) | Received, synced, paired |
