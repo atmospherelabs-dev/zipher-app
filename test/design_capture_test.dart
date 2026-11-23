@@ -5,7 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:zipher/pages/accounts/restore.dart';
 import 'package:zipher/pages/action/widgets/wallet_activity_panel.dart';
+import 'package:zipher/pages/more/about.dart';
+import 'package:zipher/pages/welcome.dart';
 import 'package:zipher/pages/action/widgets/wallet_review_card.dart';
 import 'package:zipher/pages/action/widgets/z_chat_widgets.dart';
 import 'package:zipher/pages/hitl/hitl_agent.dart';
@@ -20,6 +24,14 @@ import 'package:zipher/zipher_theme.dart';
 /// load the macOS system fonts (what iOS shows) and write PNGs there.
 void main() {
   final capture = Platform.environment['ZIPHER_DESIGN_CAPTURE'];
+
+  setUp(() {
+    // Onboarding screens touch plugins that have no native side in tests.
+    SharedPreferences.setMockInitialValues({});
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('screen_protector'), (_) async => null);
+  });
 
   Future<void> loadFonts(WidgetTester tester) async {
     if (capture == null) return;
@@ -47,7 +59,8 @@ void main() {
   }
 
   Future<void> shoot(WidgetTester tester, String name, Widget page,
-      {List<String> images = const []}) async {
+      {List<String> images = const [],
+      Future<void> Function()? act}) async {
     tester.view.physicalSize = const Size(393, 852);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -76,7 +89,16 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
     // Pinned review actions arrive one frame after the review builds.
     await tester.pump(const Duration(milliseconds: 300));
-    expect(tester.takeException(), isNull, reason: name);
+    if (act != null) {
+      await act();
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+    // Plugins without a native side in tests (screen protection, secure
+    // storage) report MissingPluginException; anything else is a real failure.
+    Object? error;
+    while ((error = tester.takeException()) != null) {
+      expect(error, isA<MissingPluginException>(), reason: name);
+    }
     if (capture != null) {
       await tester.runAsync(() async {
         final render = boundary.currentContext!.findRenderObject()
@@ -219,5 +241,42 @@ void main() {
   testWidgets('agent screen', (tester) async {
     HitlWatchService.instance.debugSetPaired('Claude on MacBook Pro');
     await shoot(tester, 'agent', const HitlAgentPage());
+  });
+
+  testWidgets('onboarding: welcome', (tester) async {
+    await shoot(tester, 'onboarding-welcome', WelcomePage(),
+        images: ['assets/zipher_logo.png']);
+  });
+
+  testWidgets('onboarding: one-tap understanding', (tester) async {
+    await shoot(tester, 'onboarding-understand',
+        DisclaimerPage(mode: 'create'));
+    expect(find.text('I understand'), findsOneWidget);
+  });
+
+  testWidgets('onboarding: restore phrase', (tester) async {
+    await shoot(tester, 'onboarding-restore', RestoreAccountPage());
+    // The date question is its own step, not hidden below the words.
+    expect(find.text('Continue'), findsOneWidget);
+    expect(find.text('Not sure'), findsNothing);
+  });
+
+  testWidgets('onboarding: restore start date', (tester) async {
+    await shoot(tester, 'onboarding-restore-date',
+        RestoreAccountPage(initialStep: 1), act: () async {
+      Future<void> settle() => tester.pump(const Duration(milliseconds: 400));
+      await settle();
+      await tester.ensureVisible(find.text('2025'));
+      await settle();
+      await tester.tap(find.text('2025'));
+      await settle();
+      await tester.ensureVisible(find.text('Mar'));
+      await settle();
+      await tester.tap(find.text('Mar'));
+      await settle();
+    });
+    expect(find.text('When did you start using it?'), findsOneWidget);
+    expect(find.textContaining('Starts from February 2025'), findsOneWidget);
+    expect(find.text('Restore'), findsOneWidget);
   });
 }

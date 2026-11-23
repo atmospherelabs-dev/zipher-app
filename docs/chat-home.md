@@ -40,9 +40,17 @@ actually detected; the panel does not predict undiscovered transfers.
 
 - **Send:** `send` → recipient → amount → review → Send ZEC → device authentication. Either field can be
   supplied first. `I want to send 0.5 ZEC to u1…` collects both in one message.
+  The recipient can be a saved Zcash contact's name (`send 0.5 to Alice`, or the
+  name alone at the recipient step); saved contacts are offered as chips. Names
+  match exactly (case-insensitive); a name shared by two contacts or unknown asks
+  for the address instead of guessing, and the review shows `Alice · u1…`.
   Invalid replies retain the draft; `cancel` discards it.
 - **Receive:** `my address` / `receive` → supported-chain buttons → full address,
-  QR and Copy. `my Bitcoin address` goes directly to that address. Available
+  QR and Copy. Zcash shows a new shielded-only unified address (Orchard, plus
+  Sapling where the diversifier allows; never a transparent receiver) each time,
+  so payers can't link payments; all earlier addresses keep receiving. If a new
+  one can't be made, the wallet's existing address is shown. Bitcoin, Solana and
+  EVM addresses are fixed. `my Bitcoin address` goes directly to that address. Available
   mainnet derivations: Zcash, Bitcoin, Solana, Ethereum, Base, Arbitrum, Optimism,
   Polygon and BSC. Foreign choices require the wallet's actual derived address;
   testnet only offers Zcash Testnet. Zcash receive activates fast sync polling.

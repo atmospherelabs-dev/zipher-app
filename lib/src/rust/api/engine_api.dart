@@ -80,6 +80,10 @@ Future<void> engineDeleteWalletData({required String dataDir}) =>
 Future<List<AddressInfo>> engineGetAddresses() =>
     RustLib.instance.api.crateApiEngineApiEngineGetAddresses();
 
+/// A fresh shielded-only receive address (see `engine::query::next_shielded_address`).
+Future<AddressInfo> engineNextShieldedAddress() =>
+    RustLib.instance.api.crateApiEngineApiEngineNextShieldedAddress();
+
 Future<List<String>> engineGetTransparentAddresses() =>
     RustLib.instance.api.crateApiEngineApiEngineGetTransparentAddresses();
 

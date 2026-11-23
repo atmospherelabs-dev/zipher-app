@@ -271,95 +271,118 @@ class DisclaimerPage extends StatefulWidget {
 }
 
 class _DisclaimerState extends State<DisclaimerPage> {
-  final List<bool> _accepted = [false, false, false];
+  /// Three facts a newcomer needs, one line each; one tap to accept.
+  static const _facts = [
+    (Icons.key_rounded, 'Your recovery phrase is the only way back in.'),
+    (Icons.visibility_off_rounded,
+        'We never see it, and can’t restore it for you.'),
+    (Icons.shield_rounded, 'Payments are private by default.'),
+  ];
 
-  bool get _allAccepted => !_accepted.any((e) => !e);
+  void _showTerms() {
+    final s = S.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: ZipherColors.surface,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+              ZipherSpacing.lg, 0, ZipherSpacing.lg, ZipherSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Terms', style: ZipherType.title),
+              const Gap(ZipherSpacing.md),
+              for (final line in [
+                s.disclaimer_1,
+                s.disclaimer_2,
+                s.disclaimer_3,
+                'Zipher is open-source software provided as is, without warranty of any kind. Its authors are not liable for damages arising from its use.',
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(bottom: ZipherSpacing.sm),
+                  child: Text(line, style: ZipherType.subhead),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final s = S.of(context);
+    final creating = widget.mode == 'create';
     return Scaffold(
       backgroundColor: ZipherColors.bg,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Gap(12),
-              // Back button — minimal
-              IconButton(
-                onPressed: () => GoRouter.of(context).pop(),
-                icon: Icon(Icons.arrow_back_rounded,
-                    color: ZipherColors.text60, size: 22),
-              ),
-              const Gap(24),
-              // Title
-              Text(
-                'Self-Custody',
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w700,
-                  color: ZipherColors.text90,
-                  letterSpacing: -0.5,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  ZipherSpacing.sm, ZipherSpacing.sm, ZipherSpacing.sm, 0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: IconButton(
+                  tooltip: 'Back',
+                  onPressed: () => GoRouter.of(context).pop(),
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                      color: ZipherColors.text90, size: 20),
                 ),
               ),
-              const Gap(8),
-              Text(
-                widget.mode == 'create'
-                    ? 'Before creating your wallet, please acknowledge:'
-                    : 'Before restoring, please acknowledge:',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: ZipherColors.text40,
-                  height: 1.4,
-                ),
-              ),
-              const Gap(32),
-              _DisclaimerTile(
-                accepted: _accepted[0],
-                text: s.disclaimer_1,
-                onChanged: (v) => setState(() => _accepted[0] = v),
-              ),
-              const Gap(10),
-              _DisclaimerTile(
-                accepted: _accepted[1],
-                text: s.disclaimer_2,
-                onChanged: (v) => setState(() => _accepted[1] = v),
-              ),
-              const Gap(10),
-              _DisclaimerTile(
-                accepted: _accepted[2],
-                text: s.disclaimer_3,
-                onChanged: (v) => setState(() => _accepted[2] = v),
-              ),
-              const Spacer(),
-              SizedBox(
-                width: double.infinity,
-                child: _creating
-                    ? Center(
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: CircularProgressIndicator(
-                            color: ZipherColors.cyan,
-                            strokeWidth: 2,
-                          ),
-                        ),
-                      )
-                    : ZipherButton(
-                        label: widget.mode == 'create'
-                            ? 'Create account'
-                            : 'Continue',
-                        icon: widget.mode == 'create'
-                            ? Icons.add_rounded
-                            : Icons.arrow_forward_rounded,
-                        onPressed: _allAccepted ? _accept : null,
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: ZipherColors.pagePadding),
+                children: [
+                  const Gap(ZipherSpacing.md),
+                  Text(
+                      creating
+                          ? 'Your wallet, your keys'
+                          : 'Welcome back',
+                      style: ZipherType.largeTitle),
+                  const Gap(ZipherSpacing.sm),
+                  Text(
+                      creating
+                          ? 'Three things to know before you start.'
+                          : 'Three things to know before you restore.',
+                      style: ZipherType.subhead),
+                  const Gap(ZipherSpacing.lg),
+                  ZipherWidgets.group([
+                    for (final (icon, text) in _facts)
+                      Padding(
+                        padding: const EdgeInsets.all(ZipherSpacing.md),
+                        child: Row(children: [
+                          ZipherWidgets.iconTile(icon,
+                              color: ZipherColors.cyan),
+                          const Gap(ZipherSpacing.smMd),
+                          Expanded(
+                              child: Text(text, style: ZipherType.rowTitle)),
+                        ]),
                       ),
+                  ]),
+                ],
               ),
-              const Gap(28),
-            ],
-          ),
+            ),
+            ZipherWidgets.bottomActions([
+              ZipherButton(
+                label: 'I understand',
+                loading: _creating,
+                onPressed: _accept,
+              ),
+              ZipherButton(
+                label: 'Terms',
+                kind: ZipherButtonKind.plain,
+                size: ZipherButtonSize.small,
+                color: ZipherColors.text60,
+                onPressed: _showTerms,
+              ),
+            ]),
+          ],
         ),
       ),
     );
@@ -368,6 +391,7 @@ class _DisclaimerState extends State<DisclaimerPage> {
   bool _creating = false;
 
   void _accept() async {
+    if (_creating) return;
     final prefs = await SharedPreferences.getInstance();
     appSettings.disclaimer = true;
     await appSettings.save(prefs);
@@ -418,76 +442,5 @@ class _DisclaimerState extends State<DisclaimerPage> {
     } else {
       if (mounted) GoRouter.of(context).push('/restore');
     }
-  }
-}
-
-class _DisclaimerTile extends StatelessWidget {
-  final bool accepted;
-  final String text;
-  final ValueChanged<bool> onChanged;
-
-  const _DisclaimerTile({
-    required this.accepted,
-    required this.text,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => onChanged(!accepted),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: accepted
-              ? ZipherColors.green.withValues(alpha: 0.05)
-              : ZipherColors.cardBg,
-          borderRadius: BorderRadius.circular(ZipherRadius.lg),
-          border: Border.all(
-            color: accepted
-                ? ZipherColors.green.withValues(alpha: 0.2)
-                : ZipherColors.borderSubtle,
-          ),
-        ),
-        child: Row(
-          children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 22,
-              height: 22,
-              decoration: BoxDecoration(
-                color: accepted
-                    ? ZipherColors.green
-                    : ZipherColors.cardBgElevated,
-                borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                border: Border.all(
-                  color: accepted
-                      ? ZipherColors.green
-                      : ZipherColors.text10,
-                ),
-              ),
-              child: accepted
-                  ? const Icon(Icons.check_rounded,
-                      size: 14, color: Colors.white)
-                  : null,
-            ),
-            const Gap(14),
-            Expanded(
-              child: Text(
-                text,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: accepted
-                      ? ZipherColors.text90
-                      : ZipherColors.text40,
-                  height: 1.4,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

@@ -591,6 +591,20 @@ class ETA {
   }
 
   @computed
+  /// Estimated time left at the current scan speed, or null if unknown.
+  Duration? get remainingDuration {
+    final p = prev;
+    final c = current;
+    if (p == null || c == null) return null;
+    final elapsed =
+        c.timestamp.millisecondsSinceEpoch - p.timestamp.millisecondsSinceEpoch;
+    if (elapsed <= 0) return null;
+    final speed = (c.height - p.height) / elapsed;
+    if (speed <= 0) return null;
+    final ms = (endHeight - c.height) / speed;
+    return ms <= 0 ? null : Duration(milliseconds: ms.floor());
+  }
+
   String get timeRemaining {
     final defaultMsg = "Calculating ETA";
     final p = prev;

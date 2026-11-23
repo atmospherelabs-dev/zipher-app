@@ -118,59 +118,39 @@ class _WelcomePageState extends State<WelcomePage>
                   const Gap(8),
 
                   // Tagline
-                  Text(
-                    'Zcash for humans and agents',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w400,
-                      color: ZipherColors.text40,
-                      letterSpacing: 0.5,
-                    ),
+                  const Text(
+                    'Private money, simply.',
+                    style: TextStyle(fontSize: 16, color: ZipherColors.text60),
                   ),
 
                   const Spacer(flex: 5),
 
-                  // Create Account button
+                  // One obvious first step, one alternative.
                   ZipherButton(
-                    label: 'Create account',
-                    icon: Icons.add_rounded,
+                    label: 'Create a wallet',
                     onPressed: () => GoRouter.of(context)
                         .push('/disclaimer', extra: 'create'),
                   ),
 
-                  const Gap(12),
+                  const Gap(10),
 
-                  // Import Account
                   ZipherButton(
-                    label: 'Import account',
-                    icon: Icons.download_rounded,
+                    label: 'I already have a wallet',
                     kind: ZipherButtonKind.secondary,
                     onPressed: () => GoRouter.of(context)
                         .push('/disclaimer', extra: 'restore'),
                   ),
 
-                  const Gap(12),
+                  const Gap(6),
 
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _compactAction(
-                          icon: Icons.group_rounded,
-                          label: 'Shared wallet',
-                          onTap: () =>
-                              GoRouter.of(context).push('/wallet/frost'),
-                        ),
-                      ),
-                      const Gap(10),
-                      Expanded(
-                        child: _compactAction(
-                          icon: Icons.link_rounded,
-                          label: 'Join setup',
-                          onTap: () =>
-                              GoRouter.of(context).push('/wallet/join'),
-                        ),
-                      ),
-                    ],
+                  // Shared (FROST) wallets are for groups; keep them reachable
+                  // without competing with the first choice.
+                  ZipherButton(
+                    label: 'Shared wallet',
+                    kind: ZipherButtonKind.plain,
+                    size: ZipherButtonSize.small,
+                    color: ZipherColors.text60,
+                    onPressed: () => _sharedWalletOptions(context),
                   ),
 
                   if (_hasExistingWallets) ...[
@@ -193,16 +173,53 @@ class _WelcomePageState extends State<WelcomePage>
     );
   }
 
-  Widget _compactAction({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return ZipherButton(
-      label: label,
-      icon: icon,
-      kind: ZipherButtonKind.secondary,
-      onPressed: onTap,
+  void _sharedWalletOptions(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: ZipherColors.surface,
+      builder: (sheet) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+              ZipherSpacing.md, 0, ZipherSpacing.md, ZipherSpacing.md),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(
+                    ZipherSpacing.xs, 0, 0, ZipherSpacing.xs),
+                child: Text('Shared wallet', style: ZipherType.title),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(
+                    ZipherSpacing.xs, 0, 0, ZipherSpacing.md),
+                child: Text(
+                    'A wallet several people control together, where payments need more than one approval.',
+                    style: ZipherType.subhead),
+              ),
+              ZipherWidgets.group([
+                ZipherWidgets.row(
+                  icon: Icons.group_add_rounded,
+                  title: 'Create a shared wallet',
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    GoRouter.of(context).push('/wallet/frost');
+                  },
+                ),
+                ZipherWidgets.row(
+                  icon: Icons.link_rounded,
+                  title: 'Join with an invite',
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    GoRouter.of(context).push('/wallet/join');
+                  },
+                ),
+              ]),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
