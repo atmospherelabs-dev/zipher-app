@@ -233,31 +233,20 @@ class SwapHistoryState extends State<SwapHistoryPage>
             const Gap(12),
             Divider(height: 1, color: ZipherColors.cardBg),
             const Gap(10),
-            GestureDetector(
-              onTap: () => GoRouter.of(context)
-                  .push('/swap/status', extra: {
-                    'depositAddress': swap.depositAddress,
-                    'fromCurrency': swap.fromCurrency,
-                    'fromAmount': swap.fromAmount,
-                    'toCurrency': swap.toCurrency,
-                    'toAmount': swap.toAmount,
-                  }),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.track_changes_rounded,
-                      size: 14,
-                      color: ZipherColors.cyan.withValues(alpha: 0.5)),
-                  const Gap(6),
-                  Text(
-                    'Check Status',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: ZipherColors.cyan.withValues(alpha: 0.6),
-                    ),
-                  ),
-                ],
+            Center(
+              child: ZipherButton(
+                label: 'Check status',
+                icon: Icons.track_changes_rounded,
+                kind: ZipherButtonKind.plain,
+                size: ZipherButtonSize.small,
+                onPressed: () => GoRouter.of(context)
+                    .push('/swap/status', extra: {
+                      'depositAddress': swap.depositAddress,
+                      'fromCurrency': swap.fromCurrency,
+                      'fromAmount': swap.fromAmount,
+                      'toCurrency': swap.toCurrency,
+                      'toAmount': swap.toAmount,
+                    }),
               ),
             ),
           ],

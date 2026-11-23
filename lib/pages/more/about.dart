@@ -172,34 +172,11 @@ class AboutPage extends StatelessWidget {
       {required IconData icon,
       required String label,
       required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(ZipherRadius.md),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-        decoration: BoxDecoration(
-          color: ZipherColors.cardBg,
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: ZipherColors.text20),
-            const Gap(8),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                color: ZipherColors.text40,
-              ),
-            ),
-            const Gap(6),
-            Icon(Icons.open_in_new_rounded,
-                size: 12, color: ZipherColors.text10),
-          ],
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      kind: ZipherButtonKind.secondary,
+      onPressed: onTap,
     );
   }
 }
@@ -370,21 +347,14 @@ class _DisclaimerState extends State<DisclaimerPage> {
                           ),
                         ),
                       )
-                    : AnimatedOpacity(
-                        duration: const Duration(milliseconds: 200),
-                        opacity: _allAccepted ? 1.0 : 0.3,
-                        child: IgnorePointer(
-                          ignoring: !_allAccepted,
-                          child: ZipherWidgets.gradientButton(
-                            label: widget.mode == 'create'
-                                ? 'Create Account'
-                                : 'Continue',
-                            icon: widget.mode == 'create'
-                                ? Icons.add_rounded
-                                : Icons.arrow_forward_rounded,
-                            onPressed: _accept,
-                          ),
-                        ),
+                    : ZipherButton(
+                        label: widget.mode == 'create'
+                            ? 'Create account'
+                            : 'Continue',
+                        icon: widget.mode == 'create'
+                            ? Icons.add_rounded
+                            : Icons.arrow_forward_rounded,
+                        onPressed: _allAccepted ? _accept : null,
                       ),
               ),
               const Gap(28),

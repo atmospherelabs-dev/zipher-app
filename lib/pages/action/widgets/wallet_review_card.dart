@@ -182,6 +182,9 @@ class WalletReviewCard extends StatefulWidget {
   /// When set, Cancel / Confirm are pinned by the screen instead of inline.
   final ReviewActionHost? actions;
 
+  /// Identifies the confirm button (its label changes while fees update).
+  static const confirmKey = ValueKey('wallet-review-confirm');
+
   const WalletReviewCard(
       {super.key,
       required this.epoch,
@@ -515,19 +518,15 @@ class _WalletReviewCardState extends State<WalletReviewCard> {
   /// Cancel / Confirm, inline or in the screen's pinned action bar.
   Widget _buttons(bool canConfirm) => Row(children: [
         Expanded(
-            child: TextButton(
-                style: TextButton.styleFrom(
-                    minimumSize: const Size(64, 52),
-                    foregroundColor: ZipherColors.text60,
-                    textStyle: const TextStyle(
-                        fontSize: 17, fontWeight: FontWeight.w500)),
-                onPressed: !_updating ? _cancel : null,
-                child: const FittedBox(
-                    fit: BoxFit.scaleDown, child: Text('Cancel')))),
+            child: ZipherButton(
+                label: 'Cancel',
+                kind: ZipherButtonKind.secondary,
+                onPressed: !_updating ? _cancel : null)),
         const SizedBox(width: ZipherSpacing.smMd),
         Expanded(
             flex: 2,
             child: FilledButton(
+                key: WalletReviewCard.confirmKey,
                 onPressed: canConfirm ? _confirm : null,
                 child: FittedBox(
                     fit: BoxFit.scaleDown,

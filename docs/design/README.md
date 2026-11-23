@@ -15,3 +15,5 @@ with synthetic data:
 | Swap recap | ![](before/swap-recap.png) | ![](after/swap-recap.png) |
 | More | ![](before/more.png) | ![](after/more.png) |
 | Agent | ![](before/agent.png) | ![](after/agent.png) |
+| Buttons (About) | — | ![](after/about-buttons.png) |
+| Buttons (dialog) | — | ![](after/dialog-buttons.png) |

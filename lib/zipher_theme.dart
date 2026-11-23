@@ -231,6 +231,9 @@ class ZipherTheme {
         backgroundColor: ZipherColors.bg,
         foregroundColor: ZipherColors.textPrimary,
         elevation: 0,
+        // No tint or shadow when content scrolls under the bar.
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
         centerTitle: true,
         titleTextStyle: TextStyle(
           fontFamily: 'Inter',
@@ -271,72 +274,17 @@ class ZipherTheme {
         margin: EdgeInsets.zero,
       ),
 
-      // Elevated buttons
+      // Buttons: every Material button maps onto a ZipherButton kind, so
+      // stock widgets and ZipherButton look identical.
       elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: ZipherColors.cyan,
-          foregroundColor: ZipherColors.textOnBrand,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.lg, vertical: ZipherSpacing.md),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ZipherRadius.md),
-          ),
-          textStyle: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-
-      // Filled buttons: the primary action of a screen or card.
+          style: ZipherButtonStyle.of(ZipherButtonKind.primary)),
       filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          backgroundColor: ZipherColors.cyan,
-          foregroundColor: ZipherColors.textOnBrand,
-          disabledBackgroundColor: ZipherColors.surfaceLight,
-          disabledForegroundColor: ZipherColors.text20,
-          minimumSize: const Size(64, 52),
-          padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.md),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ZipherRadius.control),
-          ),
-          textStyle: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-
-      // Outlined buttons
+          style: ZipherButtonStyle.of(ZipherButtonKind.primary)),
       outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: ZipherColors.cyan,
-          side: const BorderSide(color: ZipherColors.border),
-          padding: const EdgeInsets.symmetric(horizontal: ZipherSpacing.lg, vertical: ZipherSpacing.md),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ZipherRadius.md),
-          ),
-          textStyle: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-
-      // Text buttons
+          style: ZipherButtonStyle.of(ZipherButtonKind.secondary)),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: ZipherColors.cyan,
-          textStyle: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
+          style: ZipherButtonStyle.of(ZipherButtonKind.plain,
+              size: ZipherButtonSize.small)),
 
       // FAB
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
@@ -650,62 +598,7 @@ class ZipherWidgets {
   // One primary per screen: solid cyan, 52 pt tall, pinned to the bottom.
   // Secondary is a tint of its color; ghost is a quiet neutral fill.
 
-  static Widget _button({
-    required String label,
-    required VoidCallback onPressed,
-    required Color fill,
-    required Color foreground,
-    IconData? icon,
-    double? width,
-    bool enabled = true,
-  }) {
-    return Opacity(
-      opacity: enabled ? 1.0 : 0.4,
-      child: SizedBox(
-        width: width,
-        child: Material(
-          color: fill,
-          borderRadius: BorderRadius.circular(ZipherRadius.control),
-          child: InkWell(
-            onTap: enabled ? onPressed : null,
-            borderRadius: BorderRadius.circular(ZipherRadius.control),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 52),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: ZipherSpacing.lg, vertical: 14),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (icon != null) ...[
-                      Icon(icon, color: foreground, size: 20),
-                      const SizedBox(width: ZipherSpacing.sm),
-                    ],
-                    Flexible(
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: foreground,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                          fontFamily: 'Inter',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Primary CTA — solid brand fill. Kept under its historical name.
+  /// Primary CTA. Kept under its historical name; prefer [ZipherButton].
   static Widget gradientButton({
     required String label,
     required VoidCallback onPressed,
@@ -713,16 +606,14 @@ class ZipherWidgets {
     double? width,
     bool enabled = true,
   }) =>
-      _button(
-          label: label,
-          onPressed: onPressed,
-          icon: icon,
-          width: width,
-          enabled: enabled,
-          fill: ZipherColors.cyan,
-          foreground: ZipherColors.textOnBrand);
+      _sized(
+          width,
+          ZipherButton(
+              label: label,
+              icon: icon,
+              onPressed: enabled ? onPressed : null));
 
-  /// Secondary CTA — tinted with [color] (red for destructive actions).
+  /// Tinted CTA in [color] (red for destructive). Prefer [ZipherButton].
   static Widget secondaryButton({
     required String label,
     required VoidCallback onPressed,
@@ -731,29 +622,32 @@ class ZipherWidgets {
     Color color = ZipherColors.cyan,
     bool enabled = true,
   }) =>
-      _button(
-          label: label,
-          onPressed: onPressed,
-          icon: icon,
-          width: width,
-          enabled: enabled,
-          fill: color.withValues(alpha: 0.14),
-          foreground: color);
+      _sized(
+          width,
+          ZipherButton(
+              label: label,
+              icon: icon,
+              kind: ZipherButtonKind.tinted,
+              color: color,
+              onPressed: enabled ? onPressed : null));
 
-  /// Ghost button — neutral fill for "Not now", "Cancel".
+  /// Neutral secondary CTA ("Not now", "Cancel"). Prefer [ZipherButton].
   static Widget ghostButton({
     required String label,
     required VoidCallback onPressed,
     IconData? icon,
     double? width,
   }) =>
-      _button(
-          label: label,
-          onPressed: onPressed,
-          icon: icon,
-          width: width,
-          fill: ZipherColors.surfaceLight,
-          foreground: ZipherColors.text90);
+      _sized(
+          width,
+          ZipherButton(
+              label: label,
+              icon: icon,
+              kind: ZipherButtonKind.secondary,
+              onPressed: onPressed));
+
+  static Widget _sized(double? width, Widget child) =>
+      width == null ? child : SizedBox(width: width, child: child);
 
   /// Actions pinned to the bottom of a screen, above the home indicator.
   /// Content scrolls behind; the primary action never does.
@@ -1199,4 +1093,145 @@ class ZipherSegmented<T> extends StatelessWidget {
           ],
         ),
       );
+}
+
+enum ZipherButtonKind {
+  /// The one main action: solid cyan.
+  primary,
+
+  /// Neutral alternative: Cancel, Not now, Copy, View on explorer.
+  secondary,
+
+  /// A colored alternative; with red, a destructive action.
+  tinted,
+
+  /// Text only: inline links and low-emphasis actions.
+  plain,
+}
+
+enum ZipherButtonSize {
+  /// 52 pt, for actions at the bottom of a screen or card.
+  large,
+
+  /// 36 pt pill, for inline actions (Max, Paste, Retry, Copy).
+  small,
+}
+
+/// The single source of button styling. Used by [ZipherButton] and by the
+/// theme for stock Material buttons.
+class ZipherButtonStyle {
+  static ButtonStyle of(ZipherButtonKind kind,
+      {ZipherButtonSize size = ZipherButtonSize.large,
+      Color color = ZipherColors.cyan}) {
+    final large = size == ZipherButtonSize.large;
+    final (Color fill, Color fg) = switch (kind) {
+      ZipherButtonKind.primary => (color, ZipherColors.textOnBrand),
+      ZipherButtonKind.secondary => (
+          ZipherColors.surfaceLight,
+          ZipherColors.text90
+        ),
+      ZipherButtonKind.tinted => (color.withValues(alpha: 0.14), color),
+      ZipherButtonKind.plain => (Colors.transparent, color),
+    };
+    return ButtonStyle(
+      minimumSize: WidgetStatePropertyAll(Size(large ? 64 : 36, large ? 52 : 36)),
+      padding: WidgetStatePropertyAll(EdgeInsets.symmetric(
+          horizontal: large ? ZipherSpacing.lg : 14)),
+      shape: WidgetStatePropertyAll(RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(
+              large ? ZipherRadius.control : ZipherRadius.full))),
+      side: const WidgetStatePropertyAll(BorderSide.none),
+      elevation: const WidgetStatePropertyAll(0),
+      shadowColor: const WidgetStatePropertyAll(Colors.transparent),
+      surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.standard,
+      backgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (!states.contains(WidgetState.disabled)) return fill;
+        return kind == ZipherButtonKind.plain
+            ? Colors.transparent
+            : ZipherColors.surfaceLight;
+      }),
+      foregroundColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.disabled) ? ZipherColors.text20 : fg),
+      iconColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.disabled) ? ZipherColors.text20 : fg),
+      iconSize: WidgetStatePropertyAll(large ? 20 : 16),
+      // iOS-like press feedback: a light dim instead of a ripple.
+      overlayColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.pressed)
+              ? (kind == ZipherButtonKind.primary
+                  ? Colors.black.withValues(alpha: 0.12)
+                  : Colors.white.withValues(alpha: 0.06))
+              : Colors.transparent),
+      splashFactory: NoSplash.splashFactory,
+      textStyle: WidgetStatePropertyAll(TextStyle(
+          fontFamily: 'Inter',
+          fontSize: large ? 17 : 15,
+          fontWeight: FontWeight.w600)),
+    );
+  }
+}
+
+/// The app's button. One primary per screen; pair it with a secondary.
+/// Large buttons fill the available width.
+class ZipherButton extends StatelessWidget {
+  const ZipherButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.kind = ZipherButtonKind.primary,
+    this.size = ZipherButtonSize.large,
+    this.icon,
+    this.color = ZipherColors.cyan,
+    this.loading = false,
+  });
+
+  final String label;
+
+  /// Null disables the button.
+  final VoidCallback? onPressed;
+  final ZipherButtonKind kind;
+  final ZipherButtonSize size;
+  final IconData? icon;
+
+  /// Accent for primary, tinted and plain buttons.
+  final Color color;
+
+  /// Shows a spinner in place of the label and ignores taps.
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final large = size == ZipherButtonSize.large;
+    final style = ZipherButtonStyle.of(kind, size: size, color: color);
+    final fg = kind == ZipherButtonKind.primary
+        ? ZipherColors.textOnBrand
+        : kind == ZipherButtonKind.secondary
+            ? ZipherColors.text90
+            : color;
+    final child = loading
+        ? SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2, color: fg))
+        : Row(mainAxisSize: MainAxisSize.min, children: [
+            if (icon != null) ...[
+              Icon(icon),
+              SizedBox(width: large ? ZipherSpacing.sm : 6),
+            ],
+            Flexible(
+                child: Text(label,
+                    maxLines: 1, overflow: TextOverflow.ellipsis)),
+          ]);
+    // While loading the button keeps its color but ignores taps.
+    final VoidCallback? tap =
+        loading ? (onPressed == null ? null : () {}) : onPressed;
+    final button = kind == ZipherButtonKind.plain
+        ? TextButton(
+            style: style, onPressed: tap, child: child)
+        : FilledButton(
+            style: style, onPressed: tap, child: child);
+    return large ? SizedBox(width: double.infinity, child: button) : button;
+  }
 }

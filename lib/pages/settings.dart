@@ -204,30 +204,12 @@ class _SettingsState extends State<SettingsPage> {
               Row(
                 children: [
                   Expanded(child: _sectionLabel('Server')),
-                  GestureDetector(
-                    onTap: _pinging ? null : _pingAllServers,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.speed_rounded,
-                          size: 13,
-                          color: _pinging
-                              ? ZipherColors.text10
-                              : ZipherColors.cyan.withValues(alpha: 0.5),
-                        ),
-                        const Gap(4),
-                        Text(
-                          _pinging ? 'Testing...' : 'Test latency',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _pinging
-                                ? ZipherColors.text40
-                                : ZipherColors.cyan.withValues(alpha: 0.5),
-                          ),
-                        ),
-                      ],
-                    ),
+                  ZipherButton(
+                    label: _pinging ? 'Testing...' : 'Test latency',
+                    icon: Icons.speed_rounded,
+                    kind: ZipherButtonKind.plain,
+                    size: ZipherButtonSize.small,
+                    onPressed: _pinging ? null : _pingAllServers,
                   ),
                 ],
               ),

@@ -232,15 +232,11 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
                   ),
                 ),
                 const Gap(20),
-                GestureDetector(
-                  onTap: _loadBackup,
-                  child: Text(
-                    'Tap to retry',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: ZipherColors.cyan.withValues(alpha: 0.7),
-                    ),
-                  ),
+                ZipherButton(
+                  label: 'Tap to retry',
+                  kind: ZipherButtonKind.plain,
+                  size: ZipherButtonSize.small,
+                  onPressed: _loadBackup,
                 ),
               ],
             ),
@@ -662,44 +658,11 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
 
                         if (!_verificationPassed) ...[
                           const Gap(16),
-                          Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () => _startVerification(
-                                  (_keychainSeed ?? backup.seed)!),
-                              borderRadius:
-                                  BorderRadius.circular(ZipherRadius.lg),
-                              child: Container(
-                                width: double.infinity,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
-                                decoration: BoxDecoration(
-                                  color:
-                                      ZipherColors.cyan.withValues(alpha: 0.12),
-                                  borderRadius:
-                                      BorderRadius.circular(ZipherRadius.lg),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.quiz_rounded,
-                                        size: 18,
-                                        color: ZipherColors.cyan
-                                            .withValues(alpha: 0.9)),
-                                    const Gap(8),
-                                    Text(
-                                      'Verify Backup',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w700,
-                                        color: ZipherColors.cyan
-                                            .withValues(alpha: 0.9),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
+                          ZipherButton(
+                            label: 'Verify backup',
+                            icon: Icons.quiz_rounded,
+                            onPressed: () => _startVerification(
+                                (_keychainSeed ?? backup.seed)!),
                           ),
                         ],
 
@@ -1056,29 +1019,12 @@ class _KeyCard extends StatelessWidget {
   }
 
   Widget _actionButton(IconData icon, String label, VoidCallback? onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: ZipherColors.cardBgElevated,
-          borderRadius: BorderRadius.circular(ZipherRadius.sm),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 12, color: ZipherColors.text20),
-            const Gap(4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                color: ZipherColors.text40,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      kind: ZipherButtonKind.secondary,
+      size: ZipherButtonSize.small,
+      onPressed: onTap,
     );
   }
 }
@@ -1268,29 +1214,12 @@ class _SeedCard extends StatelessWidget {
 
   Widget _actionButton(
       BuildContext context, IconData icon, String label, VoidCallback? onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: ZipherColors.cardBgElevated,
-          borderRadius: BorderRadius.circular(ZipherRadius.sm),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 12, color: ZipherColors.text20),
-            const Gap(4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                color: ZipherColors.text40,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      kind: ZipherButtonKind.secondary,
+      size: ZipherButtonSize.small,
+      onPressed: onTap,
     );
   }
 }
@@ -1439,12 +1368,9 @@ class _SeedVerificationState extends State<_SeedVerificationPage> {
                 ),
               ],
               const Spacer(flex: 3),
-              SizedBox(
-                width: double.infinity,
-                child: ZipherWidgets.gradientButton(
-                  label: 'Verify',
-                  onPressed: _verify,
-                ),
+              ZipherButton(
+                label: 'Verify',
+                onPressed: _verify,
               ),
               const Gap(16),
             ],

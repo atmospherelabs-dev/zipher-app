@@ -152,40 +152,10 @@ class _NewImportAccountState extends State<NewImportAccountPage>
 
             // Submit button
             const Gap(8),
-            SizedBox(
-              width: double.infinity,
-              child: GestureDetector(
-                onTap: _loading ? null : _onSubmit,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    color: ZipherColors.cyan.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    border: Border.all(
-                      color: ZipherColors.cyan.withValues(alpha: 0.10),
-                    ),
-                  ),
-                  child: Center(
-                    child: _loading
-                        ? SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: ZipherColors.cyan,
-                            ),
-                          )
-                        : Text(
-                            'Create Account',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: ZipherColors.cyan,
-                            ),
-                          ),
-                  ),
-                ),
-              ),
+            ZipherButton(
+              label: 'Create account',
+              onPressed: _onSubmit,
+              loading: _loading,
             ),
 
             const Gap(40),

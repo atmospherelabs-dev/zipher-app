@@ -194,7 +194,6 @@ class _FrostApprovePageState extends State<FrostApprovePage> {
                 icon: Icons.close_rounded,
                 color: ZipherColors.red,
                 onTap: () => GoRouter.of(context).pop(false),
-                filled: false,
               ),
             ],
           ),
@@ -262,43 +261,26 @@ class _Button extends StatelessWidget {
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
-  final bool filled;
 
   const _Button({
     required this.label,
     required this.icon,
     required this.color,
     required this.onTap,
-    this.filled = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 54,
-        decoration: BoxDecoration(
-          color: filled ? color.withValues(alpha: 0.14) : Colors.transparent,
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(color: color.withValues(alpha: 0.28)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 18, color: color),
-            const Gap(8),
-            Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w700,
-                fontSize: 15,
-              ),
-            ),
-          ],
-        ),
-      ),
+    // Cyan is the screen's main action; any other color (red Decline) is a
+    // tinted alternative.
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      color: color,
+      onPressed: onTap,
+      kind: color == ZipherColors.cyan
+          ? ZipherButtonKind.primary
+          : ZipherButtonKind.tinted,
     );
   }
 }

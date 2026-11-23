@@ -408,39 +408,11 @@ class _Button extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 48,
-        decoration: BoxDecoration(
-          color: primary
-              ? ZipherColors.cyan.withValues(alpha: 0.14)
-              : ZipherColors.cardBgElevated,
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(
-            color: primary
-                ? ZipherColors.cyan.withValues(alpha: 0.28)
-                : ZipherColors.borderSubtle,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon,
-                size: 17,
-                color: primary ? ZipherColors.cyan : ZipherColors.text60),
-            const Gap(8),
-            Text(
-              label,
-              style: TextStyle(
-                color: primary ? ZipherColors.cyan : ZipherColors.text90,
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      onPressed: onTap,
+      kind: primary ? ZipherButtonKind.primary : ZipherButtonKind.secondary,
     );
   }
 }

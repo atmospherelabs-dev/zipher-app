@@ -964,31 +964,12 @@ class _ThresholdChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: locked ? null : onTap,
-      child: Container(
-        height: 40,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: selected
-              ? ZipherColors.cyan.withValues(alpha: 0.12)
-              : ZipherColors.cardBgElevated,
-          borderRadius: BorderRadius.circular(ZipherRadius.full),
-          border: Border.all(
-            color: selected
-                ? ZipherColors.cyan.withValues(alpha: 0.25)
-                : ZipherColors.borderSubtle,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? ZipherColors.cyan : ZipherColors.text60,
-            fontWeight: FontWeight.w700,
-            fontSize: 13,
-          ),
-        ),
-      ),
+    // A locked choice keeps its selected tint; tapping it stays a no-op.
+    return ZipherButton(
+      label: label,
+      onPressed: locked ? (selected ? () {} : null) : onTap,
+      size: ZipherButtonSize.small,
+      kind: selected ? ZipherButtonKind.tinted : ZipherButtonKind.secondary,
     );
   }
 }
@@ -1055,40 +1036,7 @@ class _PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 52,
-        decoration: BoxDecoration(
-          color: onTap == null
-              ? ZipherColors.cardBgElevated
-              : ZipherColors.cyan.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(
-            color: onTap == null
-                ? ZipherColors.borderSubtle
-                : ZipherColors.cyan.withValues(alpha: 0.28),
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon,
-                size: 18,
-                color: onTap == null ? ZipherColors.text20 : ZipherColors.cyan),
-            const Gap(8),
-            Text(
-              label,
-              style: TextStyle(
-                color: onTap == null ? ZipherColors.text20 : ZipherColors.cyan,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    return ZipherButton(label: label, icon: icon, onPressed: onTap);
   }
 }
 
@@ -1105,31 +1053,11 @@ class _SecondaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 44,
-        decoration: BoxDecoration(
-          color: ZipherColors.cardBgElevated,
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: ZipherColors.text60),
-            const Gap(8),
-            Text(
-              label,
-              style: TextStyle(
-                color: ZipherColors.text90,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      onPressed: onTap,
+      kind: ZipherButtonKind.secondary,
     );
   }
 }

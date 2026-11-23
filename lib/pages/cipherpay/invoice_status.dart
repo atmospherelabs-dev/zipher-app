@@ -401,23 +401,10 @@ class _ActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 48,
-        decoration: BoxDecoration(
-          color: ZipherColors.cardBgElevated,
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
-        ),
-        alignment: Alignment.center,
-        child: Text(label,
-            style: TextStyle(
-              color: ZipherColors.text90,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            )),
-      ),
+    return ZipherButton(
+      label: label,
+      onPressed: onTap,
+      kind: ZipherButtonKind.secondary,
     );
   }
 }
@@ -434,31 +421,10 @@ class _DoneButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 56,
-        decoration: BoxDecoration(
-          color: primary
-              ? ZipherColors.cyan.withValues(alpha: 0.14)
-              : ZipherColors.cardBgElevated,
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(
-            color: primary
-                ? ZipherColors.cyan.withValues(alpha: 0.28)
-                : ZipherColors.borderSubtle,
-          ),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          label ?? (primary ? 'Done' : 'Back to wallet'),
-          style: TextStyle(
-            color: primary ? ZipherColors.cyan : ZipherColors.text90,
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
+    return ZipherButton(
+      label: label ?? (primary ? 'Done' : 'Back to wallet'),
+      onPressed: onTap,
+      kind: primary ? ZipherButtonKind.primary : ZipherButtonKind.secondary,
     );
   }
 }

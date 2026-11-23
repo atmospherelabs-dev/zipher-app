@@ -199,26 +199,6 @@ class _Button extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 54,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: onTap == null
-              ? ZipherColors.cardBgElevated
-              : ZipherColors.cyan.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(
-              color: onTap == null
-                  ? ZipherColors.borderSubtle
-                  : ZipherColors.cyan.withValues(alpha: 0.28)),
-        ),
-        child: Text(label,
-            style: TextStyle(
-                color: onTap == null ? ZipherColors.text20 : ZipherColors.cyan,
-                fontWeight: FontWeight.w700)),
-      ),
-    );
+    return ZipherButton(label: label, onPressed: onTap);
   }
 }

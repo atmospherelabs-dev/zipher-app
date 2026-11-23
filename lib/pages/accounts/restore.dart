@@ -331,25 +331,11 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
             // Restore button
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-              child: SizedBox(
-                width: double.infinity,
-                child: _loading
-                    ? Center(
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: CircularProgressIndicator(
-                            color: ZipherColors.cyan,
-                            strokeWidth: 2,
-                          ),
-                        ),
-                      )
-                    : ZipherWidgets.gradientButton(
-                        label: _restoreButtonLabel,
-                        icon: Icons.download_done_rounded,
-                        onPressed: _restore,
-                        enabled: _allFilled,
-                      ),
+              child: ZipherButton(
+                label: _restoreButtonLabel,
+                icon: Icons.download_done_rounded,
+                onPressed: _allFilled ? _restore : null,
+                loading: _loading,
               ),
             ),
           ],

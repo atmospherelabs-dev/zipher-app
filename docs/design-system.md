@@ -73,9 +73,22 @@ Amounts always carry their unit and direction (`+0.25 ZEC`, `−0.01 ZEC`).
 
 ## Components
 
-- **Buttons**: `gradientButton` = primary (solid cyan, dark text),
-  `secondaryButton` = tinted (pass `red` for destructive), `ghostButton` =
-  neutral fill. `FilledButton` uses the same primary style through the theme.
+- **Buttons**: always `ZipherButton` (or a stock Material button, which the
+  theme maps onto the same styles through `ZipherButtonStyle`).
+
+  | Kind | Look | Use |
+  |---|---|---|
+  | `primary` | Solid cyan, dark text | The one main action: Send, Confirm, Approve, Done |
+  | `secondary` | Neutral grey fill | Cancel, Not now, Copy, View on explorer |
+  | `tinted` | 14% tint of a color | Destructive (red), or a colored secondary action |
+  | `plain` | Text only, cyan | Links and low-emphasis actions |
+
+  Sizes: `large` is 52 pt, fills the width, radius 14, label 17/600, and goes at
+  the bottom of a screen or card. `small` is a 36 pt pill with a 15/600 label,
+  for inline actions (Max, Paste, Retry, Copy). Pair a primary with a secondary
+  side by side or stacked (primary first when stacked). Press feedback is a
+  light dim, not a ripple. Disabled buttons turn grey; never just fade a
+  primary. Labels use sentence case.
 - **Grouped list**: `ZipherWidgets.group([...rows])` with `ZipherWidgets.row`:
   icon tile, title, optional subtitle, chevron when tappable. Used by More,
   Wallet status and Activity.

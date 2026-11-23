@@ -131,101 +131,55 @@ class _WelcomePageState extends State<WelcomePage>
                   const Spacer(flex: 5),
 
                   // Create Account button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ZipherWidgets.gradientButton(
-                      label: 'Create Account',
-                      icon: Icons.add_rounded,
-                      onPressed: () => GoRouter.of(context)
-                          .push('/disclaimer', extra: 'create'),
-                    ),
+                  ZipherButton(
+                    label: 'Create account',
+                    icon: Icons.add_rounded,
+                    onPressed: () => GoRouter.of(context)
+                        .push('/disclaimer', extra: 'create'),
                   ),
 
                   const Gap(12),
 
-                  // Import Account — ghost button
-                  SizedBox(
-                    width: double.infinity,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => GoRouter.of(context)
-                            .push('/disclaimer', extra: 'restore'),
-                        borderRadius: BorderRadius.circular(ZipherRadius.md),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          decoration: BoxDecoration(
-                            color: ZipherColors.cardBg,
-                            borderRadius:
-                                BorderRadius.circular(ZipherRadius.md),
-                            border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.download_rounded,
-                                size: 18,
-                                color: ZipherColors.text60,
-                              ),
-                              const Gap(8),
-                              Text(
-                                'Import Account',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w500,
-                                  color: ZipherColors.text60,
-                                ),
-                              ),
-                            ],
-                          ),
+                  // Import Account
+                  ZipherButton(
+                    label: 'Import account',
+                    icon: Icons.download_rounded,
+                    kind: ZipherButtonKind.secondary,
+                    onPressed: () => GoRouter.of(context)
+                        .push('/disclaimer', extra: 'restore'),
+                  ),
+
+                  const Gap(12),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _compactAction(
+                          icon: Icons.group_rounded,
+                          label: 'Shared wallet',
+                          onTap: () =>
+                              GoRouter.of(context).push('/wallet/frost'),
                         ),
                       ),
-                    ),
-                  ),
-
-                  const Gap(12),
-
-                  SizedBox(
-                    width: double.infinity,
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _compactAction(
-                            icon: Icons.group_rounded,
-                            label: 'Shared Wallet',
-                            onTap: () =>
-                                GoRouter.of(context).push('/wallet/frost'),
-                          ),
+                      const Gap(10),
+                      Expanded(
+                        child: _compactAction(
+                          icon: Icons.link_rounded,
+                          label: 'Join setup',
+                          onTap: () =>
+                              GoRouter.of(context).push('/wallet/join'),
                         ),
-                        const Gap(10),
-                        Expanded(
-                          child: _compactAction(
-                            icon: Icons.link_rounded,
-                            label: 'Join Setup',
-                            onTap: () =>
-                                GoRouter.of(context).push('/wallet/join'),
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
 
                   if (_hasExistingWallets) ...[
                     const Gap(8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton(
-                        onPressed: () => GoRouter.of(context).go('/'),
-                        child: Text(
-                          'Back to my wallets',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: ZipherColors.text40,
-                          ),
-                        ),
-                      ),
+                    ZipherButton(
+                      label: 'Back to my wallets',
+                      kind: ZipherButtonKind.plain,
+                      color: ZipherColors.text60,
+                      onPressed: () => GoRouter.of(context).go('/'),
                     ),
                   ],
 
@@ -244,38 +198,11 @@ class _WelcomePageState extends State<WelcomePage>
     required String label,
     required VoidCallback onTap,
   }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(ZipherRadius.md),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.md),
-            border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 16, color: ZipherColors.text60),
-              const Gap(7),
-              Flexible(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: ZipherColors.text60,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      kind: ZipherButtonKind.secondary,
+      onPressed: onTap,
     );
   }
 }

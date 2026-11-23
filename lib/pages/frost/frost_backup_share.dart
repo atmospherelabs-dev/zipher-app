@@ -191,32 +191,11 @@ class _MiniButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = enabled ? ZipherColors.cyan : ZipherColors.text40;
-    return GestureDetector(
-      onTap: enabled ? onTap : null,
-      child: Container(
-        height: 44,
-        decoration: BoxDecoration(
-          color: filled ? color.withValues(alpha: 0.14) : Colors.transparent,
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(color: color.withValues(alpha: 0.28)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: color),
-            const Gap(6),
-            Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      onPressed: enabled ? onTap : null,
+      kind: filled ? ZipherButtonKind.primary : ZipherButtonKind.secondary,
     );
   }
 }

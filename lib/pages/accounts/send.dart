@@ -371,26 +371,17 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                     fontWeight: FontWeight.w500,
                     color: ZipherColors.text40)),
             const Spacer(),
-            GestureDetector(
-              onTap: () {
+            ZipherButton(
+              label: 'Max',
+              kind: ZipherButtonKind.tinted,
+              size: ZipherButtonSize.small,
+              onPressed: () {
                 setState(() {
                   _amountZat = _spendable;
                   _deductFee = true;
                   _amountController.text = amountToString2(_spendable);
                 });
               },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: ZipherColors.cyan.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                ),
-                child: Text('MAX',
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: ZipherColors.cyan.withValues(alpha: 0.7))),
-              ),
             ),
           ],
         ),
@@ -802,26 +793,10 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
               ),
             ),
             const Gap(20),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: ZipherColors.border),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                  ),
-                ),
-                child: Text(
-                  'Go back',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: ZipherColors.text60,
-                  ),
-                ),
-              ),
+            ZipherButton(
+              label: 'Go back',
+              kind: ZipherButtonKind.secondary,
+              onPressed: () => Navigator.of(context).pop(),
             ),
           ] else ...[
             _row('To', _shortAddress(widget.address)),
@@ -888,44 +863,27 @@ class _ConfirmSendSheetState extends State<_ConfirmSendSheet> {
               ),
             ),
             const Gap(28),
-            SizedBox(
-              width: double.infinity,
-              child: _sending
-                  ? Center(
-                      child: SizedBox(
-                        width: 36,
-                        height: 36,
-                        child: CircularProgressIndicator(
-                          color: ZipherColors.cyan,
-                          strokeWidth: 2,
-                        ),
-                      ),
-                    )
-                  : ZipherWidgets.gradientButton(
-                      label: 'Confirm & Send',
-                      icon: Icons.check_rounded,
-                      enabled: !_recalculating,
-                      onPressed: () {
-                        if (_sending || _recalculating || _review == null)
-                          return;
-                        setState(() => _sending = true);
-                        final review = _review!;
-                        Navigator.of(context).pop();
-                        widget.onConfirmed(review);
-                      },
-                    ),
+            ZipherButton(
+              label: 'Confirm & send',
+              icon: Icons.check_rounded,
+              loading: _sending,
+              onPressed: _recalculating
+                  ? null
+                  : () {
+                      if (_sending || _recalculating || _review == null)
+                        return;
+                      setState(() => _sending = true);
+                      final review = _review!;
+                      Navigator.of(context).pop();
+                      widget.onConfirmed(review);
+                    },
             ),
             const Gap(8),
             if (!_sending)
-              TextButton(
+              ZipherButton(
+                label: 'Cancel',
+                kind: ZipherButtonKind.secondary,
                 onPressed: () => Navigator.of(context).pop(),
-                child: Text(
-                  'Cancel',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: ZipherColors.text40,
-                  ),
-                ),
               ),
           ],
         ],
