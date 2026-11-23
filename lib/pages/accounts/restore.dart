@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../accounts.dart';
 import '../../coin/coins.dart';
+import '../../services/app_log.dart';
 import '../../services/wallet_service.dart';
 import '../../services/restore_birthday.dart';
 import '../../store2.dart';
@@ -1082,9 +1083,33 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
             const Duration(milliseconds: 500), () => startAutoSync());
       }
     } catch (e) {
-      setState(() => _error = e.toString());
+      // Raw engine errors carry server metadata; keep them in the debug log.
+      AppLog.instance.event('restore', 'failed', error: e);
+      if (mounted) setState(() => _error = restoreErrorMessage(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
+}
+
+/// A sentence for the user when a restore can't start.
+String restoreErrorMessage(Object error) {
+  final text = error.toString().toLowerCase();
+  if (text.contains('invalid seed') || text.contains('mnemonic')) {
+    return 'That recovery phrase isn’t valid. Check each word and try again.';
+  }
+  if (text.contains('tor')) {
+    return 'Couldn’t connect over Tor. Try again, or turn Tor off in Wallet status.';
+  }
+  if (text.contains('get_tree_state') ||
+      text.contains('get_block') ||
+      text.contains('get_latest_block') ||
+      text.contains('transport') ||
+      text.contains('connect') ||
+      text.contains('unavailable') ||
+      text.contains('timed out')) {
+    return 'Couldn’t get what’s needed from the Zcash server to start the restore. '
+        'Try again, or choose another server in Preferences.';
+  }
+  return 'The restore didn’t start. Try again.';
 }

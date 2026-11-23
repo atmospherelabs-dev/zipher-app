@@ -12,6 +12,14 @@ protocol library, fetching the tree state immediately **before** activation so
 the first Sapling block is scanned. This applies to seed and viewing-key restore.
 New-wallet creation keeps its separate `0` = current-tip behavior.
 
+No tree state is requested from the server for an anchor before Sapling: every
+shielded tree is empty there by definition, so the engine builds that chain state
+locally and fetches only the anchor block's hash (`GetBlock`). Zebra-backed
+lightwalletd servers reject `GetTreeState` at pre-Sapling heights
+("z_gettreestate did not return treestate"), which made every full-history
+restore fail on them (fixed 2026-11-23). Restore failures are shown as a short
+sentence; the raw engine error goes to the debug log only.
+
 An explicit positive restore height retains the existing API meaning: it is the
 prior tree-state anchor, and scanning begins with the following block. Choose an
 anchor before the first expected payment. Explicit anchors are never advanced to
