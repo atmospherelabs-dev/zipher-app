@@ -8835,7 +8835,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum 0.8.9",
+ "base64",
  "http-body-util",
+ "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "tokio",

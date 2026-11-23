@@ -6,6 +6,8 @@
 //! only paired channels (their token hashes) are optionally persisted so a
 //! restart does not force everyone to re-pair.
 
+pub mod push;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,7 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -38,6 +40,9 @@ struct StoredChannel {
     agent_hash: [u8; 32],
     phone_hash: [u8; 32],
     paired: bool,
+    /// Optional wake-up target. Persisted so pushes survive a relay restart.
+    #[serde(default)]
+    push: Option<push::PushTarget>,
 }
 
 struct Channel {
@@ -58,6 +63,7 @@ struct Inner {
 pub struct Relay {
     inner: Arc<Mutex<Inner>>,
     state_file: Option<PathBuf>,
+    apns: Option<Arc<push::Apns>>,
 }
 
 fn now_unix() -> u64 {
@@ -96,7 +102,14 @@ impl Relay {
                 registrations_in_window: 0,
             })),
             state_file,
+            apns: None,
         }
+    }
+
+    /// Enable content-free wake-up pushes.
+    pub fn with_apns(mut self, apns: push::Apns) -> Self {
+        self.apns = Some(Arc::new(apns));
+        self
     }
 
     /// Load paired channels saved by a previous run.
@@ -162,6 +175,7 @@ impl Relay {
             .route("/v1/channels", post(register))
             .route("/v1/channels/{c}", axum::routing::delete(unpair))
             .route("/v1/channels/{c}/pair", post(post_pair).get(get_pair))
+            .route("/v1/channels/{c}/push", put(put_push).delete(delete_push))
             .route("/v1/channels/{c}/requests", post(post_request).get(get_requests))
             .route("/v1/channels/{c}/decisions/{id}", post(post_decision).get(get_decision))
             .layer(DefaultBodyLimit::max(BODY_LIMIT))
@@ -207,7 +221,7 @@ async fn register(State(relay): State<Relay>, Json(body): Json<RegisterChannel>)
     inner.channels.insert(
         id,
         Channel {
-            stored: StoredChannel { agent_hash, phone_hash, paired: false },
+            stored: StoredChannel { agent_hash, phone_hash, paired: false, push: None },
             created: Instant::now(),
             pair_blob: None,
             requests: HashMap::new(),
@@ -286,8 +300,60 @@ async fn post_request(
     if ch.requests.len() >= MAX_OPEN_REQUESTS {
         return err(StatusCode::TOO_MANY_REQUESTS, "too many open requests");
     }
+    let expires_at = body.expires_at;
     ch.requests.insert(body.approval_id.clone(), body);
+    let target = ch.stored.push.clone();
+    drop(inner);
+
+    if let (Some(apns), Some(target)) = (relay.apns.clone(), target) {
+        let relay = relay.clone();
+        tokio::spawn(async move {
+            if apns.wake(&target, expires_at).await == push::PushOutcome::TokenGone {
+                relay.forget_push(&c, &target).await;
+            }
+        });
+    }
     StatusCode::CREATED.into_response()
+}
+
+impl Relay {
+    async fn forget_push(&self, c: &str, target: &push::PushTarget) {
+        let Ok(id) = unb64::<16>(c) else { return };
+        let mut inner = self.inner.lock().await;
+        if let Some(ch) = inner.channels.get_mut(&id) {
+            if ch.stored.push.as_ref() == Some(target) {
+                ch.stored.push = None;
+            }
+        }
+        self.persist(&inner).await;
+    }
+}
+
+async fn put_push(
+    State(relay): State<Relay>,
+    Path(c): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<push::PushTarget>,
+) -> Response {
+    if body.validate().is_err() {
+        return err(StatusCode::BAD_REQUEST, "invalid push target");
+    }
+    let mut inner = relay.inner.lock().await;
+    let Some(ch) = authed(&mut inner, &c, &headers, Side::Phone) else { return not_found() };
+    if !ch.stored.paired {
+        return err(StatusCode::CONFLICT, "not paired");
+    }
+    ch.stored.push = Some(body);
+    relay.persist(&inner).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn delete_push(State(relay): State<Relay>, Path(c): Path<String>, headers: HeaderMap) -> Response {
+    let mut inner = relay.inner.lock().await;
+    let Some(ch) = authed(&mut inner, &c, &headers, Side::Phone) else { return not_found() };
+    ch.stored.push = None;
+    relay.persist(&inner).await;
+    StatusCode::NO_CONTENT.into_response()
 }
 
 async fn get_requests(State(relay): State<Relay>, Path(c): Path<String>, headers: HeaderMap) -> Response {
@@ -490,6 +556,117 @@ mod tests {
         // Either side can unpair; afterwards the channel is gone.
         assert_eq!(call(&s.app, "DELETE", &format!("/v1/channels/{}", s.c), Some(&tokens.phone), None).await.0, StatusCode::NO_CONTENT);
         assert_eq!(call(&s.app, "GET", &req_path, Some(&tokens.phone), None).await.0, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn push_is_content_free_signed_and_drops_dead_tokens() {
+        use ring::signature::{EcdsaKeyPair, KeyPair, UnparsedPublicKey, ECDSA_P256_SHA256_FIXED, ECDSA_P256_SHA256_FIXED_SIGNING};
+        use std::sync::Mutex as StdMutex;
+
+        // Mock APNs: records each push, answers 200 then 410.
+        #[derive(Clone, Default)]
+        struct Seen(Arc<StdMutex<Vec<(String, HeaderMap, String)>>>);
+        let seen = Seen::default();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mock = {
+            let seen = seen.clone();
+            let calls = calls.clone();
+            Router::new().route(
+                "/3/device/{token}",
+                post(move |Path(token): Path<String>, headers: HeaderMap, body: String| {
+                    let seen = seen.clone();
+                    let calls = calls.clone();
+                    async move {
+                        seen.0.lock().unwrap().push((token, headers, body));
+                        if calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                            StatusCode::OK
+                        } else {
+                            StatusCode::GONE
+                        }
+                    }
+                }),
+            )
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mock_url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let rng = ring::rand::SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+        let public = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng)
+            .unwrap()
+            .public_key()
+            .as_ref()
+            .to_vec();
+        use base64::Engine as _;
+        let pem = format!(
+            "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
+            base64::engine::general_purpose::STANDARD.encode(pkcs8.as_ref())
+        );
+        let apns = push::Apns::new(&pem, "KEYID12345", "TEAMID1234", "dev.atmospherelabs.zipher", Some(mock_url)).unwrap();
+
+        let relay = Relay::new(None).with_apns(apns);
+        let app = relay.clone().router();
+        let agent = AgentSecret::generate();
+        let offer = PairingOffer::new("https://relay.example", "agent", &agent).unwrap();
+        let t = offer.tokens();
+        let c = b64(&offer.channel_id);
+        let reg = serde_json::json!({"channel_id": c, "agent_token_hash": b64(&token_hash(&t.agent)), "phone_token_hash": b64(&token_hash(&t.phone))});
+        call(&app, "POST", "/v1/channels", None, Some(reg)).await;
+        let phone = PhoneKeys::generate();
+        call(&app, "POST", &format!("/v1/channels/{c}/pair"), Some(&t.phone), Some(serde_json::to_value(make_pair_response(&offer, &phone)).unwrap())).await;
+        let (_, blob) = call(&app, "GET", &format!("/v1/channels/{c}/pair"), Some(&t.agent), None).await;
+        let pinned = verify_pair_response(&offer, &serde_json::from_value(blob).unwrap()).unwrap();
+
+        let push_path = format!("/v1/channels/{c}/push");
+        let token = "a".repeat(64);
+        let target = serde_json::json!({"platform": "apns", "token": token, "sandbox": true});
+        assert_eq!(call(&app, "PUT", &push_path, Some(&t.agent), Some(target.clone())).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(call(&app, "PUT", &push_path, Some(&t.phone), Some(serde_json::json!({"platform": "apns", "token": "zz"}))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(call(&app, "PUT", &push_path, Some(&t.phone), Some(target)).await.0, StatusCode::NO_CONTENT);
+
+        let send = |amount: u64| {
+            let now = now_unix();
+            let req = ApprovalRequest {
+                approval_id: new_approval_id(), network: "main".into(), address: "u1secretaddress".into(),
+                amount, fee: 10_000, memo: Some("secret memo".into()), context_id: None,
+                tool: "propose_send".into(), created_at: now, expires_at: now + 300,
+            };
+            let sealed = seal_request(&agent, &pinned, &offer.channel_id, &req).unwrap();
+            serde_json::to_value(PostRequest { approval_id: req.approval_id.clone(), expires_at: req.expires_at, sealed }).unwrap()
+        };
+        let req_path = format!("/v1/channels/{c}/requests");
+        call(&app, "POST", &req_path, Some(&t.agent), Some(send(123_456_789))).await;
+        for _ in 0..50 {
+            if !seen.0.lock().unwrap().is_empty() { break }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        {
+            let got = seen.0.lock().unwrap();
+            assert_eq!(got.len(), 1);
+            let (tok, headers, body) = &got[0];
+            assert_eq!(tok, &token);
+            assert_eq!(headers["apns-topic"], "dev.atmospherelabs.zipher");
+            assert_eq!(headers["apns-push-type"], "alert");
+            // Nothing about the payment reaches Apple.
+            for secret in ["123456789", "1.23456789", "u1secretaddress", "secret memo"] {
+                assert!(!body.contains(secret), "push leaked {secret}");
+            }
+            // The provider token verifies with the key's public half.
+            let jwt = headers["authorization"].to_str().unwrap().strip_prefix("bearer ").unwrap();
+            let (input, sig) = jwt.rsplit_once('.').unwrap();
+            let sig = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(sig).unwrap();
+            UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, &public).verify(input.as_bytes(), &sig).unwrap();
+        }
+
+        // Second push gets 410 Gone: the relay forgets the token.
+        call(&app, "POST", &req_path, Some(&t.agent), Some(send(1))).await;
+        for _ in 0..50 {
+            let gone = relay.inner.lock().await.channels.values().all(|ch| ch.stored.push.is_none());
+            if gone { break }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(relay.inner.lock().await.channels.values().all(|ch| ch.stored.push.is_none()));
     }
 
     #[tokio::test]

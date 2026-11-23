@@ -375,6 +375,19 @@ fn aad(dir: Direction, channel_id: &ChannelId, approval_id: &str) -> Vec<u8> {
     a
 }
 
+/// Every request is padded to at least this many bytes (then to 1 KiB steps),
+/// and every decision to exactly `DECISION_PAD`, so ciphertext length says
+/// nothing about the amount, memo or whether the phone approved.
+pub const REQUEST_PAD_MIN: usize = 2048;
+pub const DECISION_PAD: usize = 256;
+
+fn padded(mut body: Vec<u8>, min: usize, step: usize) -> Zeroizing<Vec<u8>> {
+    let target = if body.len() <= min { min } else { body.len().div_ceil(step) * step };
+    // JSON ignores trailing whitespace, so the receiver parses it unchanged.
+    body.resize(target, b' ');
+    Zeroizing::new(body)
+}
+
 /// An opaque message as stored by the relay.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Sealed {
@@ -495,7 +508,7 @@ pub fn seal_request(
 ) -> Result<Sealed> {
     req.validate()?;
     let key = message_key(&agent.0, &phone.x25519, channel_id, Direction::AgentToPhone)?;
-    let body = Zeroizing::new(serde_json::to_vec(req)?);
+    let body = padded(serde_json::to_vec(req)?, REQUEST_PAD_MIN, 1024);
     Ok(seal(&key, &aad(Direction::AgentToPhone, channel_id, &req.approval_id), &body))
 }
 
@@ -550,7 +563,8 @@ pub fn seal_decision(
     decision: &Decision,
 ) -> Result<Sealed> {
     let key = message_key(&phone.x, agent_public, channel_id, Direction::PhoneToAgent)?;
-    let body = serde_json::to_vec(decision)?;
+    let body = padded(serde_json::to_vec(decision)?, DECISION_PAD, DECISION_PAD);
+    ensure!(body.len() == DECISION_PAD, "decision too large");
     Ok(seal(&key, &aad(Direction::PhoneToAgent, channel_id, &decision.approval_id), &body))
 }
 
@@ -592,7 +606,7 @@ pub mod wire {
     use serde::{Deserialize, Serialize};
 
     /// Largest opaque field the relay accepts, in base64 characters.
-    pub const MAX_BLOB_CHARS: usize = 4096;
+    pub const MAX_BLOB_CHARS: usize = 8192;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct RegisterChannel {
@@ -727,6 +741,33 @@ mod tests {
         // The relay sees no plaintext fields.
         let wire = serde_json::to_string(&sealed).unwrap();
         assert!(!wire.contains("u1testaddress") && !wire.contains("150000000"));
+    }
+
+    #[test]
+    fn ciphertext_length_reveals_nothing() {
+        let (agent, offer, phone, pinned) = paired();
+        let now = 1_800_000_000;
+        let ct_len = |s: &Sealed| B64.decode(s.ciphertext.as_bytes()).unwrap().len();
+
+        let mut small = request(now);
+        small.memo = None;
+        small.context_id = None;
+        small.amount = 1;
+        let mut big = request(now);
+        big.memo = Some("m".repeat(MAX_MEMO_BYTES));
+        big.amount = u64::MAX / 2;
+        let a = seal_request(&agent, &pinned, &offer.channel_id, &small).unwrap();
+        let b = seal_request(&agent, &pinned, &offer.channel_id, &big).unwrap();
+        assert_eq!(ct_len(&a), ct_len(&b));
+        // Padding is invisible to the receiver.
+        assert_eq!(open_request(&phone, &offer.agent_public, &offer.channel_id, &big.approval_id, &b).unwrap(), big);
+
+        let yes = sign_decision(&phone, &small, true, now + 1);
+        let no = sign_decision(&phone, &small, false, now + 1);
+        let y = seal_decision(&phone, &offer.agent_public, &offer.channel_id, &yes).unwrap();
+        let n = seal_decision(&phone, &offer.agent_public, &offer.channel_id, &no).unwrap();
+        assert_eq!(ct_len(&y), ct_len(&n));
+        assert!(!open_decision(&agent, &pinned, &offer.channel_id, &small.approval_id, &n).unwrap().approved);
     }
 
     #[test]
