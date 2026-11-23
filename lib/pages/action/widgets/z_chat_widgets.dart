@@ -168,7 +168,8 @@ class ZChatShortcut extends StatelessWidget {
       );
 }
 
-/// What is being prepared, pinned above the composer with a way out.
+/// What is being prepared (Send, Swap…), shown as a chip at the start of the
+/// message field so it is clear what the next answer is for. × cancels.
 class ZChatDraftBar extends StatelessWidget {
   const ZChatDraftBar(
       {super.key,
@@ -181,29 +182,48 @@ class ZChatDraftBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-      padding: const EdgeInsets.only(left: 12),
+      height: 28,
+      padding: const EdgeInsets.only(left: 8, right: 3),
       decoration: BoxDecoration(
-          color: ZipherColors.cardBg,
-          borderRadius: BorderRadius.circular(ZipherRadius.md),
-          border: Border.all(color: ZipherColors.borderSubtle, width: 0.5)),
-      child: Row(children: [
+          color: ZipherColors.cyan.withValues(alpha: .14),
+          borderRadius: BorderRadius.circular(ZipherRadius.full),
+          border: Border.all(
+              color: ZipherColors.cyan.withValues(alpha: .30), width: .5)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(icon, size: 14, color: ZipherColors.cyan),
-        const SizedBox(width: 8),
-        Expanded(
+        const SizedBox(width: 4),
+        Flexible(
             child: Text(label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: FontWeight.w500,
-                    color: ZipherColors.textSecondary))),
-        TextButton(
-            style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                foregroundColor: ZipherColors.text40),
-            onPressed: onCancel,
-            child: const Text('Cancel')),
+                    color: ZipherColors.cyan))),
+        const SizedBox(width: 2),
+        Tooltip(
+            message: 'Cancel',
+            child: Semantics(
+                button: true,
+                label: 'Cancel $label',
+                excludeSemantics: true,
+                child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: onCancel,
+                    child: Padding(
+                        // A larger hit area than the visible dot.
+                        padding: const EdgeInsets.all(3),
+                        child: Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                                color: ZipherColors.cyan.withValues(alpha: .20),
+                                shape: BoxShape.circle),
+                            child: Icon(Icons.close_rounded,
+                                size: 12,
+                                color: onCancel == null
+                                    ? ZipherColors.text40
+                                    : ZipherColors.cyan)))))),
       ]));
 }
 
@@ -214,6 +234,9 @@ class ZChatComposer extends StatelessWidget {
   final bool busy;
   final ValueChanged<String> onSubmit;
   final VoidCallback? onScan;
+
+  /// Shown inside the field before the text, e.g. the current flow's chip.
+  final Widget? prefix;
   const ZChatComposer(
       {super.key,
       required this.controller,
@@ -221,7 +244,8 @@ class ZChatComposer extends StatelessWidget {
       required this.hint,
       required this.busy,
       required this.onSubmit,
-      this.onScan});
+      this.onScan,
+      this.prefix});
 
   @override
   Widget build(BuildContext context) {
@@ -250,6 +274,17 @@ class ZChatComposer extends StatelessWidget {
                             color: ZipherColors.textPrimary, fontSize: 15),
                         decoration: InputDecoration(
                           hintText: hint,
+                          prefixIcon: prefix == null
+                              ? null
+                              : Padding(
+                                  padding:
+                                      const EdgeInsets.only(left: 8, right: 6),
+                                  child: ConstrainedBox(
+                                      constraints:
+                                          const BoxConstraints(maxWidth: 150),
+                                      child: prefix)),
+                          prefixIconConstraints:
+                              const BoxConstraints(minWidth: 0, minHeight: 0),
                           suffixIcon: onScan == null
                               ? null
                               : IconButton(

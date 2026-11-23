@@ -1800,14 +1800,14 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
               )),
               ReviewActionBar(host: _reviewActions),
               ListenableBuilder(
-                  listenable: _reviewActions,
-                  builder: (_, __) => _draft == null || _reviewActions.active
-                      ? const SizedBox.shrink()
-                      : ZChatDraftBar(
-                          icon: _draft!.icon,
-                          label: _draft!.label,
-                          onCancel: _busy ? null : () => _submit('cancel'))),
-              ZChatComposer(
+                listenable: _reviewActions,
+                builder: (_, __) => ZChatComposer(
+                prefix: _draft == null || _reviewActions.active
+                    ? null
+                    : ZChatDraftBar(
+                        icon: _draft!.icon,
+                        label: _draft!.label,
+                        onCancel: _busy ? null : () => _submit('cancel')),
                 controller: _input,
                 busy: _busy,
                 onSubmit: _submit,
@@ -1832,7 +1832,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                         : _choosingAddress
                             ? 'Choose a chain'
                             : _conversation.hint,
-              ),
+              )),
             ]))),
             ]),
           ]),

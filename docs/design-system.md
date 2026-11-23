@@ -116,6 +116,10 @@ Amounts always carry their unit and direction (`+0.25 ZEC`, `−0.01 ZEC`).
 - **Chat shortcuts**: one wrapping row of identical glass chips, like
   suggested replies. Send, Receive and Swap get a cyan icon; the rest a
   neutral one. Tapping a chip is the same as typing its word.
+- **Flow in progress**: while a send, swap or contact flow is collecting
+  answers, a small cyan chip (icon, flow name, ×) sits at the start of the
+  message field. × cancels the flow. It hides while a review is open, since
+  the review has its own Cancel.
 - **Activity**: an "In progress" group first, then groups by day (Today,
   Yesterday, a weekday, then dates). Each row has a direction glyph or token
   logo, a title, the time (and memo), and an amount with its sign. A swap shows

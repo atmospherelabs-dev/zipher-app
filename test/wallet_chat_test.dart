@@ -793,7 +793,7 @@ void main() {
       await swapChat(tester, _FakeNear());
       await say(tester, 'swap 1 zec to usdc');
       await tester.tap(find.descendant(
-          of: find.byType(ZChatDraftBar), matching: find.text('Cancel')));
+          of: find.byType(ZChatDraftBar), matching: find.byTooltip('Cancel')));
       await tester.pumpAndSettle();
       expect(find.byType(ZChatDraftBar), findsNothing);
       expect(find.text('Cancelled. What would you like to do next?'),
