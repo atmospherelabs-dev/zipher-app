@@ -2580,9 +2580,20 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
             ? b.total / 1e8 * price
             : null;
         final total = (zecValue ?? 0) + (_portfolio?.evmTotalUsd ?? 0);
-        final hasPrice = zecValue != null ||
-            (_portfolio?.tokens.any((t) => t.priceAvailable && !t.stale) ??
-                false);
+        // Never show a dollar total that silently counts ZEC as \$0: with a
+        // ZEC balance but no ZEC price, the total is unknown.
+        final hasPrice = _testnet
+            ? false
+            : b.total > 0
+                ? zecValue != null
+                : () {
+                    // No ZEC: a total exists if any held asset is priced, or
+                    // if nothing is held at all (an empty wallet is \$0.00).
+                    final held = (_portfolio?.tokens ?? const [])
+                        .where((t) => t.balance > 0);
+                    return held.isEmpty ||
+                        held.any((t) => t.priceAvailable && !t.stale);
+                  }();
         final expanded =
             _balanceExpanded && MediaQuery.viewInsetsOf(context).bottom == 0;
         final incomplete = (b.total > 0 && zecValue == null) ||
@@ -2595,7 +2606,12 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                       ? 'Collapse balance details'
                       : 'Expand balance details') +
                   (incomplete ? ', some assets unavailable' : ''),
+              // No Material ink: a grey rectangle flashed over the hero.
               child: InkWell(
+                  splashFactory: NoSplash.splashFactory,
+                  highlightColor: Colors.transparent,
+                  hoverColor: Colors.transparent,
+                  focusColor: Colors.transparent,
                   onLongPress: _showPools,
                   onTap: () {
                     setState(() => _balanceExpanded = !_balanceExpanded);
