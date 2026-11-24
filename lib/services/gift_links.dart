@@ -394,3 +394,17 @@ bool looksLikeGiftLink(String text) {
   return (fragment.startsWith('v=1&') && fragment.contains('key=zgift')) ||
       (RegExp(r'^v[123]=').hasMatch(fragment) && t.contains('/payment-links/'));
 }
+
+/// A gift link that arrived before this device had a wallet. Held in memory
+/// only (it is a spending secret) and handed to the claim screen once the
+/// wallet exists; lost if the app is closed, in which case the user taps the
+/// link again.
+abstract final class PendingGiftLink {
+  static String? _link;
+  static void hold(String link) => _link = link.trim();
+  static String? take() {
+    final l = _link;
+    _link = null;
+    return l;
+  }
+}

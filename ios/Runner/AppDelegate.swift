@@ -90,8 +90,24 @@ final class LaunchLinkBridge: NSObject, FlutterSceneLifeCycleDelegate {
   ) -> Bool {
     if let url = connectionOptions?.urlContexts.first?.url {
       AppLinks.shared.handleLink(url: url)
+    } else if let url = Self.webpageURL(connectionOptions?.userActivities.first) {
+      // Universal link (https://zipher.to/gift#…) that cold-started the app.
+      AppLinks.shared.handleLink(url: url)
     }
     return false
+  }
+
+  /// Universal links while the app runs. app_links 3.x only observes the
+  /// application delegate, which the scene lifecycle does not call for these.
+  func scene(_ scene: UIScene, continue userActivity: NSUserActivity) -> Bool {
+    guard let url = Self.webpageURL(userActivity) else { return false }
+    AppLinks.shared.handleLink(url: url)
+    return true
+  }
+
+  private static func webpageURL(_ activity: NSUserActivity?) -> URL? {
+    guard let activity, activity.activityType == NSUserActivityTypeBrowsingWeb else { return nil }
+    return activity.webpageURL
   }
 }
 

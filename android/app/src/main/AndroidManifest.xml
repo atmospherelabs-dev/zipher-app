@@ -45,6 +45,14 @@
                 <!-- zipher://pair (agent approvals) and zipher://frost/approve -->
                 <data android:scheme="zipher"/>
             </intent-filter>
+            <!-- Gift links: https://zipher.to/gift#v=1&key=… (the key stays in the
+                 fragment). Verified against zipher.to/.well-known/assetlinks.json. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="zipher.to" android:path="/gift" />
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

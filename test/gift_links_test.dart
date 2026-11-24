@@ -175,4 +175,11 @@ void main() {
     expect(looksLikeGiftLink('zcash:u1abc?amount=1'), isFalse);
     expect(looksLikeGiftLink('http://zipher.to/gift#v=1&key=zgift1abc'), isFalse);
   });
+
+  test('a pending gift link is handed over once', () {
+    expect(PendingGiftLink.take(), isNull);
+    PendingGiftLink.hold(' https://zipher.to/gift#v=1&key=zgift1abc&height=1 ');
+    expect(PendingGiftLink.take(), 'https://zipher.to/gift#v=1&key=zgift1abc&height=1');
+    expect(PendingGiftLink.take(), isNull);
+  });
 }
