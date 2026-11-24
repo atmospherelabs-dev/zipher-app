@@ -7,8 +7,8 @@ import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../accounts.dart';
+import '../coin/coins.dart' show isTestnet;
 import '../zipher_theme.dart';
 import '../generated/intl/messages.dart';
 import '../services/near_intents.dart';
@@ -19,15 +19,6 @@ import 'utils.dart';
 import 'action/wallet_conversation.dart';
 
 // ─── Helpers ────────────────────────────────────────────────
-
-const _cipherScanBase = 'https://cipherscan.app';
-
-void _openOnCipherScan(String txId) {
-  launchUrl(
-    Uri.parse('$_cipherScanBase/tx/$txId'),
-    mode: LaunchMode.externalApplication,
-  );
-}
 
 String _fiatStr(double zecValue) {
   final price = marketPrice.price;
@@ -1184,13 +1175,31 @@ class TransactionState extends State<TransactionPage> {
 
               const Gap(24),
 
-              // ── View on CipherScan ──
+              // ── Explorer: private lookup first, public as fallback ──
+              if (!isTestnet) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: _BottomAction(
+                    label: 'Look Up Privately',
+                    icon: Icons.visibility_off_rounded,
+                    onTap: () => openTxPrivately(tx.fullTxId),
+                  ),
+                ),
+                const Gap(6),
+                const Text(
+                  'ZecBlock’s private explorer can’t see which transaction you look up.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: ZipherColors.text40),
+                ),
+                const Gap(12),
+              ],
               SizedBox(
                 width: double.infinity,
-                child: _BottomAction(
-                  label: 'View on CipherScan',
+                child: ZipherButton(
+                  label: 'View on ZecBlock',
                   icon: Icons.open_in_new_rounded,
-                  onTap: () => _openOnCipherScan(tx.fullTxId),
+                  kind: ZipherButtonKind.plain,
+                  onPressed: () => openTxInExplorer(tx.fullTxId),
                 ),
               ),
 

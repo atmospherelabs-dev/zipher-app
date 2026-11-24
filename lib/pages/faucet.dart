@@ -6,7 +6,7 @@ import '../services/wallet_service.dart';
 import '../zipher_theme.dart';
 
 const _faucetBaseUrl = 'https://testnet.zecfaucet.com/';
-const _explorerUrl = 'https://testnet.cipherscan.app';
+const _explorerUrl = 'https://testnet.zecblock.com';
 
 class FaucetPage extends StatefulWidget {
   @override
@@ -142,9 +142,9 @@ class _FaucetPageState extends State<FaucetPage> {
               ),
               const Gap(16),
 
-              // Explore on CipherScan button
+              // Explore on ZecBlock button
               ZipherButton(
-                label: 'Explore on CipherScan',
+                label: 'Explore on ZecBlock',
                 icon: Icons.explore_rounded,
                 kind: ZipherButtonKind.secondary,
                 onPressed: _openExplorer,
