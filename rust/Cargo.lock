@@ -8731,6 +8731,7 @@ dependencies = [
  "axum 0.8.9",
  "base64",
  "base64ct",
+ "bech32",
  "bip0039",
  "blake2b_simd",
  "bytes",

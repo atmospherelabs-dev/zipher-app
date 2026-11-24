@@ -1,3 +1,4 @@
+import '../../services/gift_links.dart' show looksLikeGiftLink;
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -387,6 +388,12 @@ class _HomeState extends State<HomePageInner> {
                                     // opens the check-code confirmation.
                                     if (code.startsWith('zipher://pair?')) {
                                       HitlWatchService.instance.openPairing(code);
+                                      return true;
+                                    }
+                                    // Gift link: claim screen.
+                                    if (looksLikeGiftLink(code)) {
+                                      GoRouter.of(context)
+                                          .push('/gifts/claim', extra: code.trim());
                                       return true;
                                     }
                                     // CipherPay invoice (checkout URL, memo

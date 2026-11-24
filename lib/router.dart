@@ -1,3 +1,8 @@
+import 'pages/gifts/gift_claim.dart';
+import 'pages/gifts/gift_create.dart';
+import 'pages/gifts/gift_sent.dart';
+import 'pages/gifts/gifts_page.dart';
+import 'services/gift_links.dart' show SentGift;
 import 'pages/unavailable.dart';
 import 'package:flutter/foundation.dart';
 import 'package:showcaseview/showcaseview.dart';
@@ -445,6 +450,24 @@ final router = GoRouter(
             ),
             state);
       },
+    ),
+    GoRoute(
+      path: '/gifts',
+      pageBuilder: (context, state) => _slideUpPage(const GiftsPage(), state),
+    ),
+    GoRoute(
+      path: '/gifts/new',
+      builder: (context, state) => const GiftCreatePage(),
+    ),
+    GoRoute(
+      path: '/gifts/sent',
+      builder: (context, state) =>
+          GiftSentPage(gift: state.extra as SentGift),
+    ),
+    GoRoute(
+      path: '/gifts/claim',
+      builder: (context, state) =>
+          GiftClaimPage(link: state.extra as String),
     ),
     GoRoute(
       path: '/invoice/status',

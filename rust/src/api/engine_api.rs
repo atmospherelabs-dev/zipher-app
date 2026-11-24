@@ -2126,3 +2126,114 @@ pub async fn hitl_unpair(pairing_json: String, state_dir: String, use_tor: bool)
     let route = zipher_engine::hitl::PhoneRoute { state_dir: &state_dir, use_tor };
     zipher_engine::hitl::phone_unpair(&pairing, &route).await
 }
+
+// ---------------------------------------------------------------------------
+// Gift links (ZIP 324 liberated payments). Links are bearer secrets: never
+// log them on either side of the bridge.
+// ---------------------------------------------------------------------------
+
+/// A minted, not yet funded gift. Persist `link` in secure storage before
+/// funding `funding_address` with `funding_amount` through the normal send.
+pub struct EngineGiftMint {
+    pub link: String,
+    pub funding_address: String,
+    pub birthday: u32,
+    pub funding_amount: u64,
+}
+
+pub async fn engine_gift_mint(amount: u64, message: Option<String>, host: Option<String>) -> Result<EngineGiftMint> {
+    let m = engine::gift::mint(amount, message, host).await?;
+    Ok(EngineGiftMint {
+        link: (*m.link).clone(),
+        funding_address: m.funding_address,
+        birthday: m.birthday,
+        funding_amount: m.funding_amount,
+    })
+}
+
+pub struct EngineGiftSummary {
+    pub network_matches: bool,
+    pub testnet: bool,
+    pub birthday: u32,
+    pub stated_amount: Option<u64>,
+    /// Untrusted text written by the sender.
+    pub message: Option<String>,
+    pub funding_address: String,
+    pub legacy: bool,
+}
+
+/// Cheap routing test for pasted or scanned text.
+#[flutter_rust_bridge::frb(sync)]
+pub fn engine_gift_looks_like_link(text: String) -> bool {
+    engine::gift::looks_like_gift(&text)
+}
+
+pub async fn engine_gift_summary(link: String) -> Result<EngineGiftSummary> {
+    let s = engine::gift::summarize(&link).await?;
+    Ok(EngineGiftSummary {
+        network_matches: s.network_matches,
+        testnet: s.testnet,
+        birthday: s.birthday,
+        stated_amount: s.stated_amount,
+        message: s.message,
+        funding_address: s.funding_address,
+        legacy: s.format != engine::gift::LinkFormat::V1,
+    })
+}
+
+/// Opens the gift's temporary wallet; returns a handle.
+pub async fn engine_gift_open(link: String) -> Result<String> {
+    engine::gift::open(&link).await
+}
+
+pub struct EngineGiftStatus {
+    pub spendable: u64,
+    pub pending: u64,
+    pub fee: u64,
+    pub redeemable: u64,
+    pub scanned_height: u32,
+    pub tip_height: u32,
+    pub seen_funding: bool,
+}
+
+pub async fn engine_gift_check(handle: String, destination: Option<String>) -> Result<EngineGiftStatus> {
+    let s = engine::gift::check(&handle, destination.as_deref()).await?;
+    Ok(EngineGiftStatus {
+        spendable: s.spendable,
+        pending: s.pending,
+        fee: s.fee,
+        redeemable: s.redeemable,
+        scanned_height: s.scanned_height,
+        tip_height: s.tip_height,
+        seen_funding: s.seen_funding,
+    })
+}
+
+pub struct EngineGiftSweep {
+    pub txid: String,
+    pub amount: u64,
+    pub fee: u64,
+    pub accepted: bool,
+    /// For logs only.
+    pub detail: Option<String>,
+}
+
+/// Sweeps the gift into `destination`. Call only after review and device
+/// authentication. An Ok result means a transaction exists.
+pub async fn engine_gift_sweep(handle: String, destination: String) -> Result<EngineGiftSweep> {
+    let s = engine::gift::sweep(&handle, &destination).await?;
+    Ok(EngineGiftSweep { txid: s.txid, amount: s.amount, fee: s.fee, accepted: s.accepted, detail: s.detail })
+}
+
+pub async fn engine_gift_resend(handle: String) -> Result<EngineGiftSweep> {
+    let s = engine::gift::resend(&handle).await?;
+    Ok(EngineGiftSweep { txid: s.txid, amount: s.amount, fee: s.fee, accepted: s.accepted, detail: s.detail })
+}
+
+pub async fn engine_gift_close(handle: String) {
+    engine::gift::close(&handle).await
+}
+
+pub async fn engine_gift_remove_leftovers() -> Result<u32> {
+    engine::gift::remove_leftovers().await
+}
