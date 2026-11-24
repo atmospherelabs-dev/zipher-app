@@ -2,7 +2,7 @@ import 'pages/gifts/gift_claim.dart';
 import 'pages/gifts/gift_create.dart';
 import 'pages/gifts/gift_sent.dart';
 import 'pages/gifts/gifts_page.dart';
-import 'services/gift_links.dart' show SentGift;
+import 'services/gift_links.dart' show PendingGiftLink, SentGift;
 import 'pages/unavailable.dart';
 import 'package:flutter/foundation.dart';
 import 'package:showcaseview/showcaseview.dart';
@@ -580,6 +580,19 @@ class _ScaffoldBar extends State<ScaffoldBar> {
   int _knownId = aa.id;
   bool _knownTestnet = isTestnet;
   final Set<int> _staleTabs = {};
+
+  @override
+  void initState() {
+    super.initState();
+    // A gift link opened before this device had a wallet waits here: once
+    // the wallet exists, show its claim screen.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final link = PendingGiftLink.take();
+      if (link != null && mounted && aa.id != 0) {
+        GoRouter.of(context).push('/gifts/claim', extra: link);
+      }
+    });
+  }
 
   void _goToBranch(int i) {
     if (aa.coin != _knownCoin || aa.id != _knownId) {

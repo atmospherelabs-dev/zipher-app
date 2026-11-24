@@ -1,4 +1,4 @@
-import '../services/gift_links.dart' show looksLikeGiftLink;
+import '../services/gift_links.dart' show PendingGiftLink, looksLikeGiftLink;
 import 'dart:async';
 import 'dart:io';
 
@@ -677,7 +677,11 @@ void handleUri(Uri uri) async {
   // screen, which asks before moving anything.
   if (looksLikeGiftLink(raw)) {
     final context = rootNavigatorKey.currentContext;
-    if (context == null || aa.id == 0) return;
+    if (context == null || aa.id == 0) {
+      // No wallet yet: keep it (memory only) until onboarding finishes.
+      PendingGiftLink.hold(raw);
+      return;
+    }
     GoRouter.of(context).push('/gifts/claim', extra: raw);
     return;
   }
