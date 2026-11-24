@@ -5,7 +5,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/wallet_service.dart';
 import '../zipher_theme.dart';
 
-const _faucetBaseUrl = 'https://testnet.zecfaucet.com/';
+// testnet.zecfaucet.com stopped resolving; the faucet now lives here.
+const _faucetBaseUrl = 'https://zecfaucet.com/';
 const _explorerUrl = 'https://testnet.zecblock.com';
 
 class FaucetPage extends StatefulWidget {

@@ -27,6 +27,8 @@ class _HitlApprovePageState extends State<HitlApprovePage> {
   Timer? _tick;
 
   rust_engine.HitlRequest get _req => widget.request;
+  /// The request names its own network; a testnet agent moves TAZ.
+  String get _unit => _req.network == 'test' ? 'TAZ' : 'ZEC';
 
   int get _remaining {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -106,13 +108,23 @@ class _HitlApprovePageState extends State<HitlApprovePage> {
         const Gap(4),
         const Text('is asking to send',
             textAlign: TextAlign.center, style: TextStyle(color: ZipherColors.text60, fontSize: 15)),
+        if (_req.network == 'test') ...[
+          const Gap(6),
+          const Center(
+              child: Text('TESTNET',
+                  style: TextStyle(
+                      color: ZipherColors.orange,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8))),
+        ],
         const Gap(ZipherSpacing.lg),
         // The amount stands on the page itself; only details sit in a card.
         Column(children: [
-          Text('${formatZat(_req.amount)} ZEC',
+          Text('${formatZat(_req.amount)} $_unit',
               style: ZipherType.hero.copyWith(fontSize: 40)),
           const Gap(6),
-          Text('+ ${formatZat(_req.fee)} ZEC network fee',
+          Text('+ ${formatZat(_req.fee)} $_unit network fee',
               style: ZipherType.subhead.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
         ]),
         const Gap(ZipherSpacing.lg),
@@ -204,7 +216,7 @@ class _HitlApprovePageState extends State<HitlApprovePage> {
     if (approved) {
       final ok = await requireSigningAuthorization(
         context,
-        actionSummary: 'Approve sending ${formatZat(_req.amount)} ZEC',
+        actionSummary: 'Approve sending ${formatZat(_req.amount)} $_unit',
       );
       if (!ok || !mounted) return;
     }

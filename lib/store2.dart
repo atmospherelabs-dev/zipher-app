@@ -684,16 +684,26 @@ abstract class _MarketPrice with Store {
 
   @action
   Future<void> update() async {
+    // Testnet coins have no market: never show a mainnet price for TAZ.
+    final c = activeCoin;
+    if (c.marketTicker == null) {
+      clear();
+      return;
+    }
     try {
-      final c = coins[aa.coin];
+      final fetched = await getFxRate(c.currency, appSettings.currency);
+      // The network changed while the request was in flight.
+      if (!identical(activeCoin, c)) return;
       // A failed or rate-limited fetch keeps the last known price rather
       // than erasing it (which made balances read \$0.00).
-      final fresh = await getFxRate(c.currency, appSettings.currency);
-      if (fresh != null && fresh.isFinite && fresh > 0) price = fresh;
+      if (fetched != null && fetched.isFinite && fetched > 0) price = fetched;
     } catch (e) {
       logger.d('Market price update error: $e');
     }
   }
+
+  @action
+  void clear() => price = null;
 
   int? lastChartUpdateTime;
 }

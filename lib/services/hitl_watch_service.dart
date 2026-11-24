@@ -290,14 +290,12 @@ class HitlWatchService {
       if (!_appReady()) return;
       final requests = await rust_engine.hitlFetchRequests(
           pairingJson: pairing, keysHex: keys, stateDir: await _dir(), useTor: _useTor);
-      final network = isTestnet ? 'test' : 'main';
       for (final r in requests) {
-        if (_shownIds.contains(r.approvalId)) continue;
-        _shownIds.add(r.approvalId);
-        if (r.network != network) {
-          _log.w('[HITL] Ignored a request for another network');
-          continue;
-        }
+        if (!claimHitlRequestForDisplay(
+            approvalId: r.approvalId,
+            requestNetwork: r.network,
+            testnet: isTestnet,
+            shownIds: _shownIds)) continue;
         _log.i('[HITL] Approval request received');
         _showApproval(r);
       }
@@ -358,4 +356,20 @@ class HitlPairingArgs {
   final String uri;
   final rust_engine.HitlPairingPreview preview;
   HitlPairingArgs(this.uri, this.preview);
+}
+
+/// Whether a fetched approval request should be shown now, marking it shown.
+///
+/// A request for the other network is left unmarked: it appears once the
+/// user switches to that network, instead of being dropped until the app
+/// next goes to the background.
+@visibleForTesting
+bool claimHitlRequestForDisplay({
+  required String approvalId,
+  required String requestNetwork,
+  required bool testnet,
+  required Set<String> shownIds,
+}) {
+  if (requestNetwork != (testnet ? 'test' : 'main')) return false;
+  return shownIds.add(approvalId);
 }

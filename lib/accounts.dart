@@ -133,8 +133,13 @@ abstract class _AASequence with Store {
   int settingsSeqno = 0;
 }
 
-void setActiveAccount(int coin, int id, {bool? canPayOverride}) {
-  coinSettings = CoinSettingsExtension.load(coin);
+/// Selects account [id] for [coin], keeping that coin's saved settings.
+///
+/// The synchronous `CoinSettingsExtension.load` only returns defaults, so
+/// using it here replaced the saved server choice, custom server URL and fee
+/// preferences with defaults every time this ran.
+Future<void> setActiveAccount(int coin, int id) async {
+  coinSettings = await CoinSettingsExtension.loadAsync(coin);
   coinSettings.account = id;
   coinSettings.save(coin);
   aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;

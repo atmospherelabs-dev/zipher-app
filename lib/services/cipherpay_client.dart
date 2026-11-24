@@ -77,6 +77,11 @@ class CipherPayInvoice {
   }
 }
 
+/// Shown instead of an invoice while the wallet is on testnet.
+const cipherPayTestnetMessage =
+    'CipherPay invoices are paid with mainnet ZEC. Turn off Testnet Mode in '
+    'More to pay this invoice.';
+
 /// Customer-side helper around CipherPay invoices.
 ///
 /// Privacy: we only contact `api.cipherpay.app` in response to an explicit
@@ -105,7 +110,13 @@ class CipherPayClient {
   ///  6. A bare UUID v4
   ///
   /// Returns `null` when nothing matches.
-  static String? extractInvoiceRef(String input) {
+  ///
+  /// On testnet only hosted checkout links are recognised, so the invoice
+  /// page can explain that CipherPay is mainnet-only. Other shapes fall
+  /// through to a plain send: a `zcash-test:` request with a `CP-` memo is an
+  /// ordinary testnet payment request, not an invoice on CipherPay's mainnet
+  /// service.
+  static String? extractInvoiceRef(String input, {bool testnet = false}) {
     final trimmed = input.trim();
     if (trimmed.isEmpty) return null;
 
@@ -116,6 +127,7 @@ class CipherPayClient {
       final uuid = _uuidRegex.firstMatch(trimmed)?.group(0);
       if (uuid != null) return uuid;
     }
+    if (testnet) return null;
 
     // Custom scheme (not yet emitted but reserved).
     if (trimmed.startsWith('cipherpay:')) {

@@ -65,11 +65,6 @@ extension CoinSettingsExtension on CoinSettings {
     if (!hasReceipientPools()) receipientPools = 7;
   }
 
-  static CoinSettings load(int coin) {
-    // Synchronous load not available - use loadAsync or defaults
-    return CoinSettings()..defaults(coin);
-  }
-
   static Future<CoinSettings> loadAsync(int coin) async {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString('coin_settings_$coin') ?? '';

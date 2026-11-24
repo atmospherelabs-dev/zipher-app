@@ -11,7 +11,6 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../accounts.dart';
 import 'accounts/send.dart';
@@ -22,6 +21,7 @@ import '../services/cipherpay_client.dart';
 import '../services/frost_watch_service.dart';
 import '../services/hitl_watch_service.dart';
 import '../services/ironwood_watch_service.dart';
+import '../services/network_mode.dart';
 import '../generated/intl/messages.dart';
 import '../init.dart';
 import '../services/wallet_service.dart';
@@ -100,11 +100,7 @@ class _SplashState extends State<SplashPage> {
                 // testnet, the mainnet files are there — revert and retry.
                 if (isTestnet) {
                   logger.i('No testnet wallet files found, reverting to mainnet');
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setBool('testnet', false);
-                  isTestnet = false;
-                  testnetNotifier.value = false;
-                  await initCoins();
+                  await applyNetworkMode(false, reinitCoins: initCoins);
                   if (mounted) {
                     GoRouter.of(context).go('/');
                     return;
@@ -120,12 +116,6 @@ class _SplashState extends State<SplashPage> {
 
             _setProgress(0.5, 'Opening wallet…');
             logger.d('opening wallet...');
-
-            // On testnet, proactively reset old DBs to avoid Rust panics
-            // from incompatible schema versions (testnet has no real funds)
-            if (isTestnet) {
-              await _resetTestnetIfStale(wallet, activeId);
-            }
 
             try {
               await wallet.openWalletById(activeId);
@@ -232,11 +222,7 @@ class _SplashState extends State<SplashPage> {
           if (isTestnet) {
             logger.i('Testnet init failed, reverting to mainnet');
             try {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('testnet', false);
-              isTestnet = false;
-              testnetNotifier.value = false;
-              await initCoins();
+              await applyNetworkMode(false, reinitCoins: initCoins);
               // Retry splash on mainnet
               if (mounted) {
                 GoRouter.of(context).go('/');
@@ -347,29 +333,6 @@ class _SplashState extends State<SplashPage> {
         await f.delete();
       }
     }
-  }
-
-  /// On testnet, delete stale wallet DBs proactively to avoid Rust panics.
-  /// Uses a version marker file to detect SDK changes.
-  Future<void> _resetTestnetIfStale(WalletService wallet, String walletId) async {
-    const sdkVersion = '0.24.0-rc.4'; // Update when SDK changes
-    final dir = await wallet.walletDir(walletId: walletId);
-    final markerFile = File('$dir/.sdk_version');
-    final dbFile = File('$dir/zipher-data.sqlite');
-
-    if (!await dbFile.exists()) return; // No DB yet, nothing to reset
-
-    final currentMarker = await markerFile.exists()
-        ? await markerFile.readAsString()
-        : '';
-
-    if (currentMarker.trim() != sdkVersion) {
-      logger.i('[Splash] testnet SDK version changed ($currentMarker -> $sdkVersion), resetting DB');
-      await _resetWalletDb(wallet, walletId);
-    }
-
-    // Write current marker
-    await markerFile.writeAsString(sdkVersion);
   }
 
   /// Attempt to restore the wallet from the seed stored in the iOS Keychain.
@@ -710,7 +673,7 @@ void handleUri(Uri uri) async {
   }
 
   // CipherPay deep links: https://cipherpay.app/pay/<uuid>
-  final invoiceRef = CipherPayClient.extractInvoiceRef(raw);
+  final invoiceRef = CipherPayClient.extractInvoiceRef(raw, testnet: isTestnet);
   if (invoiceRef != null) {
     final context = rootNavigatorKey.currentContext;
     if (context == null) return;
