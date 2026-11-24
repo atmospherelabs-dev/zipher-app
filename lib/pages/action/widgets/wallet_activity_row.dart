@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../../services/balance_privacy.dart';
 import '../../../zipher_theme.dart';
 import '../../utils.dart' show Tx;
 
@@ -55,9 +56,15 @@ class WalletActivityTile extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Semantics(
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+      valueListenable: BalancePrivacy.instance.hidden,
+      builder: (_, hide, __) => _build(hide));
+
+  Widget _build(bool hide) => Semantics(
       button: true,
-      label: semanticLabel,
+      // The caller's label names the amount; say only that it is hidden.
+      label: hide ? '$title, amount hidden' : semanticLabel,
+      excludeSemantics: hide,
       child: InkWell(
           onTap: onTap,
           child: Padding(
@@ -89,9 +96,10 @@ class WalletActivityTile extends StatelessWidget {
                     ])),
                 const SizedBox(width: ZipherSpacing.smMd),
                 Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  Text(amount,
-                      style: ZipherType.rowValue.copyWith(color: amountColor)),
-                  if (detail != null || status != null) ...[
+                  Text(hide ? BalancePrivacy.mask : amount,
+                      style: ZipherType.rowValue.copyWith(
+                          color: hide ? ZipherColors.text60 : amountColor)),
+                  if ((detail != null && !hide) || status != null) ...[
                     const SizedBox(height: 3),
                     Text(status ?? detail!,
                         style: ZipherType.footnote.copyWith(

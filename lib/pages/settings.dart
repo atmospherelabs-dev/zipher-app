@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:protobuf/protobuf.dart';
 
 import '../accounts.dart';
+import '../services/balance_privacy.dart';
 import '../services/hitl_watch_service.dart';
 import '../services/wallet_service.dart';
 import '../zipher_theme.dart';
@@ -44,6 +45,7 @@ class _SettingsState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
+    BalancePrivacy.instance.load();
     _selectedCurrency = appSettings.currency;
     currencies = [appSettings.currency];
     coinSettings.lwd = coinSettings.lwd.deepCopy();
@@ -284,6 +286,34 @@ class _SettingsState extends State<SettingsPage> {
                         await GoRouter.of(context).push('/hitl/agent');
                         if (mounted) setState(() {});
                       },
+                    ),
+                    Divider(height: 1, color: ZipherColors.cardBg,
+                        indent: 52, endIndent: 16),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: BalancePrivacy.instance.hidden,
+                      builder: (_, on, __) => _securityToggle(
+                        icon: Icons.visibility_off_rounded,
+                        label: 'Hide balances',
+                        subtitle: 'Mask amounts on the home screen and in activity',
+                        value: on,
+                        onChanged: (v) => BalancePrivacy.instance.setHidden(v),
+                      ),
+                    ),
+                    Divider(height: 1, color: ZipherColors.cardBg,
+                        indent: 52, endIndent: 16),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: BalancePrivacy.instance.gestures,
+                      builder: (_, on, __) => _securityToggle(
+                        icon: Icons.vibration_rounded,
+                        label: 'Shake to hide balances',
+                        subtitle:
+                            'Shake to hide or show amounts; turning the phone face down hides them',
+                        value: on,
+                        onChanged: (v) {
+                          BalancePrivacy.instance.setGestures(v);
+                          if (v) BalancePrivacy.instance.startListening();
+                        },
+                      ),
                     ),
                     Divider(height: 1, color: ZipherColors.cardBg,
                         indent: 52, endIndent: 16),

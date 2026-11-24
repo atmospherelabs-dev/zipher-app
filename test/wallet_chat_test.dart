@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:zipher/services/balance_privacy.dart';
 import 'package:zipher/zipher_theme.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zipher/accounts.dart';
@@ -262,6 +263,22 @@ void main() {
     // A missing price reads as loading, not as a dash or \$0.00.
     expect(find.byType(ZipherLoadingDots), findsWidgets);
     expect(find.text('0.75 ZEC'), findsOneWidget);
+  });
+
+  testWidgets('hidden balances are masked and a tap shows them',
+      (tester) async {
+    await open(tester);
+    marketPrice.price = 40;
+    BalancePrivacy.instance.hidden.value = true;
+    addTearDown(() => BalancePrivacy.instance.hidden.value = false);
+    await tester.pumpAndSettle();
+    expect(find.text(r'$30.00'), findsNothing);
+    expect(find.text(BalancePrivacy.mask), findsOneWidget);
+    expect(find.text('Balance hidden · tap to show'), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel(RegExp('Balance hidden')));
+    await tester.pumpAndSettle();
+    expect(find.text(r'$30.00'), findsOneWidget);
+    expect(BalancePrivacy.instance.hidden.value, false);
   });
 
   testWidgets('recent actions and expanded balance leave room for the keyboard',
