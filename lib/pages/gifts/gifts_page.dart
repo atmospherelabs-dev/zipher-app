@@ -221,6 +221,9 @@ class _ClaimInputSheetState extends State<_ClaimInputSheet> {
             maxLines: 3,
             minLines: 1,
             onSubmitted: _submit,
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
             decoration: InputDecoration(
                 hintText: 'https://…#v=1&key=zgift1…', errorText: _error),
           ),
