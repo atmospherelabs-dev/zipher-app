@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import '../../accounts.dart';
 import '../../appsettings.dart';
 import '../../coin/coins.dart';
+import '../../services/balance_privacy.dart';
 import '../../services/near_intents.dart';
 import '../../services/hitl_watch_service.dart';
 import '../../services/network_privacy.dart';
@@ -171,6 +172,9 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
       ..addListener(_onSwapUpdate);
     _balanceReader = widget.balanceReader ?? EvmPortfolioBalance.createReader();
     WidgetsBinding.instance.addObserver(this);
+    BalancePrivacy.instance.load().then((_) {
+      if (mounted) BalancePrivacy.instance.startListening();
+    });
     if (_wallet.isWalletOpen)
       _portfolioTimer = Timer.periodic(const Duration(seconds: 60), (_) {
         if (mounted && TickerMode.valuesOf(context).enabled)
@@ -199,6 +203,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     _swapTracker.dispose();
     _portfolioTimer?.cancel();
     _priceRetry?.cancel();
+    BalancePrivacy.instance.stopListening();
     WidgetsBinding.instance.removeObserver(this);
     _input.dispose();
     _scroll.dispose();
@@ -215,7 +220,11 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      BalancePrivacy.instance.stopListening();
+    }
     if (state == AppLifecycleState.resumed) {
+      BalancePrivacy.instance.startListening();
       _refreshPortfolio(force: true);
       if (_wallet.isWalletOpen) {
         boostSyncPolling();
@@ -2605,7 +2614,9 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                 }))));
   }
 
-  Widget _buildBalanceHeader() => Observer(builder: (_) {
+  Widget _buildBalanceHeader() => ValueListenableBuilder<bool>(
+      valueListenable: BalancePrivacy.instance.hidden,
+      builder: (_, hide, __) => Observer(builder: (_) {
         final b = _account.poolBalances;
         final price = _zecUsdPrice;
         final zecValue = price != null && price > 0 && !_testnet
@@ -2634,9 +2645,11 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
         return Column(children: [
           Semantics(
               button: true,
-              label: (expanded
-                      ? 'Collapse balance details'
-                      : 'Expand balance details') +
+              label: (hide
+                      ? 'Balance hidden. Show balance'
+                      : expanded
+                          ? 'Collapse balance details'
+                          : 'Expand balance details') +
                   (incomplete ? ', some assets unavailable' : ''),
               // No Material ink: a grey rectangle flashed over the hero.
               child: InkWell(
@@ -2646,13 +2659,19 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                   focusColor: Colors.transparent,
                   onLongPress: _showPools,
                   onTap: () {
+                    if (hide) {
+                      BalancePrivacy.instance.setHidden(false);
+                      return;
+                    }
                     setState(() => _balanceExpanded = !_balanceExpanded);
                     if (_balanceExpanded) _refreshPortfolio();
                   },
                   child: Padding(
                       padding: const EdgeInsets.fromLTRB(28, 22, 28, 22),
                       child: Column(children: [
-                        if (!_testnet && !hasPrice && _pricePending)
+                        if (hide)
+                          Text(BalancePrivacy.mask, style: ZipherType.hero)
+                        else if (!_testnet && !hasPrice && _pricePending)
                           // Same height as the hero figure so nothing jumps.
                           SizedBox(
                               height: (ZipherType.hero.fontSize ?? 48) *
@@ -2672,14 +2691,17 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                                           : '—',
                                   style: ZipherType.hero)),
                         const SizedBox(height: 8),
-                        Text('${_assetAmount(b.shielded / 1e8)} ZEC available',
+                        Text(
+                            hide
+                                ? 'Balance hidden · tap to show'
+                                : '${_assetAmount(b.shielded / 1e8)} ZEC available',
                             style: ZipherType.subhead.copyWith(
                                 fontFeatures: const [
                                   FontFeature.tabularFigures()
                                 ])),
                         // Change and incoming funds are not lost, only not
                         // spendable until they confirm.
-                        if (b.unconfirmed > 0)
+                        if (b.unconfirmed > 0 && !hide)
                           Padding(
                               padding: const EdgeInsets.only(top: 5),
                               child: Text(
@@ -2693,7 +2715,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                               child: Text('Some assets unavailable',
                                   style: ZipherType.caption)),
                       ])))),
-          if (expanded)
+          if (expanded && !hide)
             ConstrainedBox(
                 constraints: BoxConstraints(
                     maxHeight: MediaQuery.sizeOf(context).height * .30),
@@ -2709,7 +2731,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                       _portfolioDetails(),
                     ]))),
         ]);
-      });
+      }));
 
   Widget _buildHomeViews(Widget chat) => ListenableBuilder(
       listenable: _swapTracker,
