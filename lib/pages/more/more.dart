@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -63,13 +62,8 @@ class _MorePageState extends State<MorePage> {
                 _SettingsItem(
                   icon: Icons.info_outline_rounded,
                   label: 'About Zipher',
-                  subtitle: 'Version & disclaimer',
-                  onTap: () async {
-                    final content =
-                        await rootBundle.loadString('assets/about.md');
-                    if (!mounted) return;
-                    GoRouter.of(context).push('/more/about', extra: content);
-                  },
+                  subtitle: 'Version, links & terms',
+                  onTap: () => GoRouter.of(context).push('/more/about'),
                 ),
               ]),
               const Gap(20),

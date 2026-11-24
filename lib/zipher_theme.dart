@@ -1403,3 +1403,43 @@ class _ZipherButtonState extends State<ZipherButton> {
     );
   }
 }
+
+/// The soft cyan glow at the top of the home screen, behind the balance.
+/// Screens that should read as part of home (the splash, About) place it
+/// the same way: first child of a [Stack], full width, from the top edge.
+/// Keep the values in step with the home screen (`wallet_chat.dart`).
+class ZipherTopGlow extends StatelessWidget {
+  const ZipherTopGlow({super.key, this.height = 380, this.intensity = 1});
+
+  /// Height below the status bar; the glow fades out before the bottom.
+  final double height;
+
+  /// Scales the glow's opacity (1 = home).
+  final double intensity;
+
+  static const _center = Alignment(0, -.45);
+
+  @override
+  Widget build(BuildContext context) => Positioned(
+        top: 0,
+        left: 0,
+        right: 0,
+        height: height + MediaQuery.paddingOf(context).top,
+        child: IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: _center,
+                radius: .72,
+                colors: [
+                  ZipherColors.cyan.withValues(alpha: .10 * intensity),
+                  ZipherColors.cyan.withValues(alpha: .03 * intensity),
+                  ZipherColors.cyan.withValues(alpha: 0),
+                ],
+                stops: const [0, .5, 1],
+              ),
+            ),
+          ),
+        ),
+      );
+}

@@ -15,252 +15,238 @@ import '../../appsettings.dart';
 import '../../store2.dart';
 import '../utils.dart';
 
+/// About Zipher: who makes it, which build this is, and where to read more.
+/// Short on purpose; the detail lives behind the links.
 class AboutPage extends StatelessWidget {
-  final String contentTemplate;
-  AboutPage(this.contentTemplate);
+  const AboutPage({super.key});
+
+  static const _repo = 'https://github.com/atmospherelabs-dev/zipher-app';
+
+  /// '1.16.0+749' → ('1.16.0', '749').
+  static (String, String?) get _version {
+    final parts = packageVersion.split('+');
+    return (parts.first, parts.length > 1 ? parts[1] : null);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final id = commitId.substring(0, 8);
+    final (name, build) = _version;
+    final commit = commitId.length > 7 ? commitId.substring(0, 7) : commitId;
 
     return Scaffold(
       backgroundColor: ZipherColors.bg,
-      appBar: AppBar(
-        backgroundColor: ZipherColors.bg,
-        elevation: 0,
-        title: Text(
-          'About',
-          style: ZipherType.headline,
-        ),
-        centerTitle: true,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded,
-              size: 20, color: ZipherColors.text90),
-          onPressed: () => GoRouter.of(context).pop(),
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-        child: Column(
-          children: [
-            // Logo + branding
-            const Gap(16),
-            Image.asset(
-              'assets/zipher_logo.png',
-              width: 56,
-              height: 56,
-              opacity: const AlwaysStoppedAnimation(0.8),
-            ),
-            const Gap(12),
-            Text(
-              'Zipher',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: ZipherColors.text90,
-              ),
-            ),
-            const Gap(4),
-            Text(
-              'by Atmosphere Labs',
-              style: TextStyle(
-                fontSize: 13,
-                color: ZipherColors.cyan.withValues(alpha: 0.7),
-              ),
-            ),
-            const Gap(4),
-            GestureDetector(
-              onTap: () => _openUrl('https://github.com/atmospherelabs-dev/zipher-app/commit/$commitId'),
-              child: Text(
-                'v$packageVersion ($id)',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: ZipherColors.text40,
-                ),
-              ),
-            ),
-
-            const Gap(36),
-
-            // ── Privacy ──
-            _InfoCard(
-              icon: Icons.shield_rounded,
-              iconColor: ZipherColors.purple,
-              title: 'Your Privacy',
-              items: [
-                'Zipher does not collect any data. It has no servers of its own.',
-                'Connects to public lightwalletd nodes for blockchain data and CoinGecko for prices.',
-                'Your IP may be visible to your ISP. Use a VPN or Tor for extra privacy.',
-              ],
-            ),
-
-            const Gap(12),
-
-            // ── Self-Custody ──
-            _InfoCard(
-              icon: Icons.key_rounded,
-              iconColor: ZipherColors.orange,
-              title: 'Self-Custody',
-              items: [
-                'You own your keys. Nobody else can access your funds.',
-                'Back up your seed phrase. If you lose it, your funds are gone forever.',
-                'Zipher cannot recover your keys or reverse transactions.',
-              ],
-            ),
-
-            const Gap(12),
-
-            // ── Open Source ──
-            _InfoCard(
-              icon: Icons.code_rounded,
-              iconColor: ZipherColors.cyan,
-              title: 'Open Source',
-              items: [
-                'Built on open-source Zcash technology (MIT licensed).',
-                'Verify the code yourself on GitHub.',
-              ],
-            ),
-
-            const Gap(24),
-
-            // Links
-            _linkButton(
-              icon: Icons.language_rounded,
-              label: 'atmospherelabs.dev',
-              onTap: () => _openUrl('https://atmospherelabs.dev'),
-            ),
-            const Gap(8),
-            _linkButton(
-              icon: Icons.code_rounded,
-              label: 'View on GitHub',
-              onTap: () => _openUrl('https://github.com/atmospherelabs-dev/zipher-app'),
-            ),
-
-            const Gap(32),
-
-            // Disclaimer
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: ZipherColors.cardBg,
-                borderRadius: BorderRadius.circular(ZipherRadius.card),
-              ),
-              child: Text(
-                'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. '
-                'THE AUTHORS ARE NOT LIABLE FOR ANY DAMAGES ARISING FROM THE USE OF THIS SOFTWARE.',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: ZipherColors.text40,
-                  height: 1.5,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-
-            const Gap(40),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _openUrl(String url) {
-    launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-  }
-
-  Widget _linkButton(
-      {required IconData icon,
-      required String label,
-      required VoidCallback onTap}) {
-    return ZipherButton(
-      label: label,
-      icon: icon,
-      kind: ZipherButtonKind.secondary,
-      onPressed: onTap,
-    );
-  }
-}
-
-class _InfoCard extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final List<String> items;
-
-  const _InfoCard({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.items,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(ZipherSpacing.md),
-      decoration: BoxDecoration(
-        color: iconColor.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(color: iconColor.withValues(alpha: 0.06)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      body: Stack(
         children: [
-            Row(
+          const ZipherTopGlow(height: 340),
+          Column(
             children: [
-              Icon(icon, size: 16, color: iconColor.withValues(alpha: 0.85)),
-              const Gap(8),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: ZipherColors.text60,
+              ZipherWidgets.pageHeader(context, 'About'),
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.fromLTRB(
+                      ZipherColors.pagePadding,
+                      ZipherSpacing.sm,
+                      ZipherColors.pagePadding,
+                      MediaQuery.paddingOf(context).bottom + ZipherSpacing.lg),
+                  children: [
+                    // ── Identity ──
+                    Center(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: Image.asset('assets/zipher_logo.png',
+                            width: 76, height: 76, semanticLabel: 'Zipher'),
+                      ),
+                    ),
+                    const Gap(ZipherSpacing.md),
+                    const Text('Zipher',
+                        textAlign: TextAlign.center,
+                        style: ZipherType.largeTitle),
+                    const Gap(ZipherSpacing.xs),
+                    const Text('Private Zcash, for humans and agents.',
+                        textAlign: TextAlign.center, style: ZipherType.subhead),
+                    const Gap(ZipherSpacing.md),
+                    Center(
+                      child: _VersionPill(
+                        label: build == null
+                            ? 'Version $name · $commit'
+                            : 'Version $name ($build) · $commit',
+                        onTap: () => _open('$_repo/commit/$commitId'),
+                      ),
+                    ),
+                    const Gap(ZipherSpacing.lg),
+
+                    // ── What it stands for, one line each ──
+                    ZipherWidgets.group([
+                      for (final (icon, title, detail) in const [
+                        (
+                          Icons.visibility_off_rounded,
+                          'No tracking',
+                          'No accounts, no analytics, no servers of ours.'
+                        ),
+                        (
+                          Icons.key_rounded,
+                          'Your keys',
+                          'Only your recovery phrase can restore this wallet.'
+                        ),
+                        (
+                          Icons.code_rounded,
+                          'Open source',
+                          'Every line is public. Read it, build it, verify it.'
+                        ),
+                      ])
+                        ZipherWidgets.row(
+                          icon: icon,
+                          iconColor: ZipherColors.cyan,
+                          title: title,
+                          subtitle: detail,
+                        ),
+                    ]),
+                    const Gap(ZipherSpacing.lg),
+
+                    // ── Links ──
+                    ZipherWidgets.sectionLabel('Links'),
+                    const Gap(ZipherSpacing.sm),
+                    ZipherWidgets.group([
+                      _link(Icons.language_rounded, 'Website', 'zipher.to',
+                          () => _open('https://zipher.to')),
+                      _link(Icons.code_rounded, 'Source code', 'GitHub',
+                          () => _open(_repo)),
+                      _link(
+                          Icons.travel_explore_rounded,
+                          'ZecBlock',
+                          'Zcash explorer',
+                          () => _open('https://zecblock.com')),
+                      _link(
+                          Icons.blur_on_rounded,
+                          'Atmosphere Labs',
+                          'atmospherelabs.dev',
+                          () => _open('https://atmospherelabs.dev')),
+                    ]),
+                    const Gap(ZipherSpacing.lg),
+
+                    ZipherWidgets.sectionLabel('Legal'),
+                    const Gap(ZipherSpacing.sm),
+                    ZipherWidgets.group([
+                      _link(Icons.shield_outlined, 'Privacy policy', null,
+                          () => _open('https://zipher.to/privacy')),
+                      ZipherWidgets.row(
+                        icon: Icons.description_outlined,
+                        title: 'Terms of use',
+                        onTap: () => showTermsSheet(context),
+                      ),
+                    ]),
+                    const Gap(ZipherSpacing.lg),
+
+                    // ── Disclaimer ──
+                    const Padding(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: ZipherSpacing.sm),
+                      child: Text(
+                        'Zipher is provided as is, without warranty of any '
+                        'kind. Its authors are not liable for damages '
+                        'arising from its use.',
+                        textAlign: TextAlign.center,
+                        style: ZipherType.caption,
+                      ),
+                    ),
+                    const Gap(ZipherSpacing.sm),
+                    Text(
+                      '© ${DateTime.now().year} Atmosphere Labs',
+                      textAlign: TextAlign.center,
+                      style: ZipherType.caption
+                          .copyWith(color: ZipherColors.text20),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const Gap(10),
-          for (final item in items)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 5),
-                    child: Container(
-                      width: 4,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: ZipherColors.text10,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                  const Gap(10),
-                  Expanded(
-                    child: Text(
-                      item,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: ZipherColors.text40,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
         ],
       ),
     );
   }
+
+  static void _open(String url) =>
+      launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+
+  /// An outbound link: the arrow says it leaves the app.
+  static Widget _link(
+          IconData icon, String title, String? detail, VoidCallback onTap) =>
+      ZipherWidgets.row(
+        icon: icon,
+        title: title,
+        subtitle: detail,
+        onTap: onTap,
+        chevron: false,
+        trailing: const Icon(Icons.north_east_rounded,
+            size: 16, color: ZipherColors.text20),
+      );
+}
+
+/// Build and commit in a frosted capsule; opens the commit on GitHub.
+class _VersionPill extends StatelessWidget {
+  const _VersionPill({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        label: '$label. Opens the commit on GitHub',
+        excludeSemantics: true,
+        child: GestureDetector(
+          onTap: onTap,
+          child: ZipherGlass.blur(
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: ZipherSpacing.smMd, vertical: 6),
+              decoration: ZipherGlass.decoration(),
+              child: Text(label,
+                  style:
+                      ZipherType.caption.copyWith(color: ZipherColors.text60)),
+            ),
+          ),
+        ),
+      );
+}
+
+/// The terms, in a sheet. Shared by About and the first-run disclaimer.
+void showTermsSheet(BuildContext context) {
+  final s = S.of(context);
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    backgroundColor: ZipherColors.surface,
+    builder: (_) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+            ZipherSpacing.lg, 0, ZipherSpacing.lg, ZipherSpacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Terms', style: ZipherType.title),
+            const Gap(ZipherSpacing.md),
+            for (final line in [
+              s.disclaimer_1,
+              s.disclaimer_2,
+              s.disclaimer_3,
+              'Zipher is open-source software provided as is, without warranty of any kind. Its authors are not liable for damages arising from its use.',
+            ])
+              Padding(
+                padding: const EdgeInsets.only(bottom: ZipherSpacing.sm),
+                child: Text(line, style: ZipherType.subhead),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 // ═══════════════════════════════════════════════════════════
-// DISCLAIMER PAGE (kept from original)
+// DISCLAIMER PAGE (first run)
 // ═══════════════════════════════════════════════════════════
 
 class DisclaimerPage extends StatefulWidget {
@@ -274,43 +260,12 @@ class _DisclaimerState extends State<DisclaimerPage> {
   /// Three facts a newcomer needs, one line each; one tap to accept.
   static const _facts = [
     (Icons.key_rounded, 'Your recovery phrase is the only way back in.'),
-    (Icons.visibility_off_rounded,
-        'We never see it, and can’t restore it for you.'),
+    (
+      Icons.visibility_off_rounded,
+      'We never see it, and can’t restore it for you.'
+    ),
     (Icons.shield_rounded, 'Payments are private by default.'),
   ];
-
-  void _showTerms() {
-    final s = S.of(context);
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: ZipherColors.surface,
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-              ZipherSpacing.lg, 0, ZipherSpacing.lg, ZipherSpacing.lg),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Terms', style: ZipherType.title),
-              const Gap(ZipherSpacing.md),
-              for (final line in [
-                s.disclaimer_1,
-                s.disclaimer_2,
-                s.disclaimer_3,
-                'Zipher is open-source software provided as is, without warranty of any kind. Its authors are not liable for damages arising from its use.',
-              ])
-                Padding(
-                  padding: const EdgeInsets.only(bottom: ZipherSpacing.sm),
-                  child: Text(line, style: ZipherType.subhead),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -340,10 +295,7 @@ class _DisclaimerState extends State<DisclaimerPage> {
                     horizontal: ZipherColors.pagePadding),
                 children: [
                   const Gap(ZipherSpacing.md),
-                  Text(
-                      creating
-                          ? 'Your wallet, your keys'
-                          : 'Welcome back',
+                  Text(creating ? 'Your wallet, your keys' : 'Welcome back',
                       style: ZipherType.largeTitle),
                   const Gap(ZipherSpacing.sm),
                   Text(
@@ -379,7 +331,7 @@ class _DisclaimerState extends State<DisclaimerPage> {
                 kind: ZipherButtonKind.plain,
                 size: ZipherButtonSize.small,
                 color: ZipherColors.text60,
-                onPressed: _showTerms,
+                onPressed: () => showTermsSheet(context),
               ),
             ]),
           ],
@@ -411,8 +363,8 @@ class _DisclaimerState extends State<DisclaimerPage> {
 
         final balance = await ws.getBalanceOrZero();
         final addrs = await ws.getAddresses();
-        final profile = await WalletRegistry.instance
-            .getById(ws.activeWalletId!);
+        final profile =
+            await WalletRegistry.instance.getById(ws.activeWalletId!);
 
         aa = ActiveAccount2.fromWallet(
           coin: activeCoin.coin,
@@ -427,7 +379,8 @@ class _DisclaimerState extends State<DisclaimerPage> {
         syncStatus2.resetForWalletSwitch();
         if (mounted) {
           GoRouter.of(context).go('/account');
-          Future.delayed(const Duration(milliseconds: 500), () => startAutoSync());
+          Future.delayed(
+              const Duration(milliseconds: 500), () => startAutoSync());
         }
       } catch (e) {
         logger.e('Create wallet error: $e');
