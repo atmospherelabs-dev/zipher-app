@@ -1403,3 +1403,82 @@ class _ZipherButtonState extends State<ZipherButton> {
     );
   }
 }
+
+/// Three dots pulsing in turn: a value is on its way (a price loading).
+/// Use instead of a dash while a fetch is still expected to succeed.
+class ZipherLoadingDots extends StatefulWidget {
+  final double dotSize;
+  final Color color;
+  final String semanticLabel;
+  const ZipherLoadingDots(
+      {super.key,
+      this.dotSize = 8,
+      this.color = ZipherColors.text60,
+      this.semanticLabel = 'Loading'});
+
+  @override
+  State<ZipherLoadingDots> createState() => _ZipherLoadingDotsState();
+}
+
+class _ZipherLoadingDotsState extends State<ZipherLoadingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1200));
+
+  // With Reduce Motion the dots hold still (also lets widget tests settle).
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final still = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (still) {
+      _c.stop();
+    } else if (!_c.isAnimating) {
+      _c.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    return Semantics(
+      label: widget.semanticLabel,
+      child: ExcludeSemantics(
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (_, __) => Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < 3; i++)
+                Padding(
+                  padding:
+                      EdgeInsets.symmetric(horizontal: widget.dotSize * .35),
+                  child: Opacity(
+                    opacity: reduceMotion ? .6 : _opacity(i),
+                    child: Container(
+                      width: widget.dotSize,
+                      height: widget.dotSize,
+                      decoration: BoxDecoration(
+                          color: widget.color, shape: BoxShape.circle),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Each dot peaks a third of a cycle after the previous one.
+  double _opacity(int i) {
+    final t = (_c.value - i / 3) % 1.0;
+    final wave = t < .5 ? t * 2 : (1 - t) * 2;
+    return .25 + .75 * Curves.easeInOut.transform(wave);
+  }
+}

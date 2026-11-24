@@ -117,6 +117,13 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
   EvmBalanceSnapshot? _portfolio;
   bool _loadingPortfolio = false;
   Timer? _portfolioTimer;
+  // Missing prices are retried a few times (10 s, 20 s); dots show meanwhile.
+  // After that the value reads "—" until the regular refresh finds a price.
+  int _priceMisses = 0;
+  Timer? _priceRetry;
+  static const _maxPriceRetries = 3;
+  bool get _pricePending =>
+      !_testnet && (_loadingPortfolio || _priceMisses < _maxPriceRetries);
   SwapDraft? _swap;
   late final WalletSwapTracker _swapTracker;
   final _reviewPhases = <ValueNotifier<ReviewPhase>>[];
@@ -191,6 +198,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
     WalletRegistry.instance.changes.removeListener(_refreshAccountName);
     _swapTracker.dispose();
     _portfolioTimer?.cancel();
+    _priceRetry?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _input.dispose();
     _scroll.dispose();
@@ -249,8 +257,25 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
       if (mounted) {
         setState(() => _loadingPortfolio = false);
         _portfolioUpdates.value++;
+        _schedulePriceRetry();
       }
     }
+  }
+
+  void _schedulePriceRetry() {
+    if (_testnet) return;
+    if (_zecUsdPrice != null) {
+      _priceMisses = 0;
+      return;
+    }
+    if (_priceRetry?.isActive == true) return;
+    setState(() => _priceMisses++);
+    if (_priceMisses >= _maxPriceRetries) return;
+    _priceRetry = Timer(Duration(seconds: 10 * _priceMisses), () {
+      if (!mounted) return;
+      marketPrice.update().catchError((Object _) {});
+      _refreshPortfolio(force: true);
+    });
   }
 
   @override
@@ -2284,14 +2309,21 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                               fontSize: 11, color: ZipherColors.text40)),
                     ])),
                 Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                  Text(
-                      stale
-                          ? 'Last known'
-                          : dollars == null
-                              ? '—'
-                              : _dollars(dollars),
-                      style: TextStyle(
-                          fontSize: 14, color: ZipherColors.textPrimary)),
+                  if (!stale && dollars == null && _pricePending)
+                    const SizedBox(
+                        height: 20,
+                        child: Center(
+                            child: ZipherLoadingDots(
+                                dotSize: 5, semanticLabel: 'Loading price')))
+                  else
+                    Text(
+                        stale
+                            ? 'Last known'
+                            : dollars == null
+                                ? '—'
+                                : _dollars(dollars),
+                        style: TextStyle(
+                            fontSize: 14, color: ZipherColors.textPrimary)),
                   const SizedBox(height: 2),
                   Text('${_assetAmount(amount)} $symbol',
                       style:
@@ -2620,15 +2652,25 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                   child: Padding(
                       padding: const EdgeInsets.fromLTRB(28, 22, 28, 22),
                       child: Column(children: [
-                        FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                                _testnet
-                                    ? '${WalletConversation.formatZec(b.total)} ZEC'
-                                    : hasPrice
-                                        ? _dollars(total)
-                                        : '—',
-                                style: ZipherType.hero)),
+                        if (!_testnet && !hasPrice && _pricePending)
+                          // Same height as the hero figure so nothing jumps.
+                          SizedBox(
+                              height: (ZipherType.hero.fontSize ?? 48) *
+                                  (ZipherType.hero.height ?? 1.2),
+                              child: const Center(
+                                  child: ZipherLoadingDots(
+                                      dotSize: 10,
+                                      semanticLabel: 'Loading balance value')))
+                        else
+                          FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                  _testnet
+                                      ? '${WalletConversation.formatZec(b.total)} ZEC'
+                                      : hasPrice
+                                          ? _dollars(total)
+                                          : '—',
+                                  style: ZipherType.hero)),
                         const SizedBox(height: 8),
                         Text('${_assetAmount(b.shielded / 1e8)} ZEC available',
                             style: ZipherType.subhead.copyWith(
