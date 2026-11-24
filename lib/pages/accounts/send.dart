@@ -317,7 +317,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                   final text = await scanQRCode(
                     context,
                     validator: (code) {
-                      if (CipherPayClient.extractInvoiceRef(code ?? '') !=
+                      if (CipherPayClient.extractInvoiceRef(code ?? '', testnet: isTestnet) !=
                           null) {
                         return null;
                       }
@@ -327,7 +327,7 @@ class _QuickSendState extends State<QuickSendPage> with WithLoadingAnimation {
                     },
                   );
                   if (text.isEmpty) return;
-                  final invoiceRef = CipherPayClient.extractInvoiceRef(text);
+                  final invoiceRef = CipherPayClient.extractInvoiceRef(text, testnet: isTestnet);
                   if (invoiceRef != null) {
                     if (!context.mounted) return;
                     GoRouter.of(context).push(

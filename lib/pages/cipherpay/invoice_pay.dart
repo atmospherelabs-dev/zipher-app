@@ -37,6 +37,7 @@ class InvoicePayPage extends StatefulWidget {
 }
 
 class _InvoicePayPageState extends State<InvoicePayPage> {
+  final bool _testnet = isTestnet;
   CipherPayInvoice? _invoice;
   Object? _error;
   bool _paying = false;
@@ -47,6 +48,9 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
   void initState() {
     super.initState();
     _invoice = widget.prefetched;
+    // Invoices live on CipherPay's mainnet service; never load or pay one
+    // from a testnet wallet.
+    if (_testnet) return;
     if (_invoice == null) {
       _load();
     } else {
@@ -258,6 +262,9 @@ class _InvoicePayPageState extends State<InvoicePayPage> {
   }
 
   Widget _buildBody() {
+    if (_testnet) {
+      return const _ErrorState(message: cipherPayTestnetMessage);
+    }
     if (_error != null) {
       return _ErrorState(
         message: _friendlyError(_error!),
@@ -759,8 +766,8 @@ class _FooterNote extends StatelessWidget {
 
 class _ErrorState extends StatelessWidget {
   final String message;
-  final VoidCallback onRetry;
-  const _ErrorState({required this.message, required this.onRetry});
+  final VoidCallback? onRetry;
+  const _ErrorState({required this.message, this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -779,13 +786,15 @@ class _ErrorState extends StatelessWidget {
                   fontSize: 14,
                   height: 1.45,
                 )),
-            const Gap(ZipherSpacing.lg),
-            ZipherButton(
-              label: 'Retry',
-              onPressed: onRetry,
-              kind: ZipherButtonKind.plain,
-              size: ZipherButtonSize.small,
-            ),
+            if (onRetry != null) ...[
+              const Gap(ZipherSpacing.lg),
+              ZipherButton(
+                label: 'Retry',
+                onPressed: onRetry,
+                kind: ZipherButtonKind.plain,
+                size: ZipherButtonSize.small,
+              ),
+            ],
           ],
         ),
       ),

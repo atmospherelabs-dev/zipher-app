@@ -270,9 +270,6 @@ class _BackupState extends State<BackupPage> with WidgetsBindingObserver {
 
     final backup = _backup!;
     final seedValue = _keychainSeed ?? backup.seed;
-    if (seedValue != null && !backup.saved) {
-      setActiveAccount(aa.coin, aa.id);
-    }
 
     return Scaffold(
       backgroundColor: ZipherColors.bg,

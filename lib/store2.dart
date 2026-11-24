@@ -683,13 +683,24 @@ abstract class _MarketPrice with Store {
 
   @action
   Future<void> update() async {
+    // Testnet coins have no market: never show a mainnet price for TAZ.
+    final c = activeCoin;
+    if (c.marketTicker == null) {
+      clear();
+      return;
+    }
     try {
-      final c = coins[aa.coin];
-      price = await getFxRate(c.currency, appSettings.currency);
+      final fetched = await getFxRate(c.currency, appSettings.currency);
+      // The network changed while the request was in flight.
+      if (!identical(activeCoin, c)) return;
+      price = fetched;
     } catch (e) {
       logger.d('Market price update error: $e');
     }
   }
+
+  @action
+  void clear() => price = null;
 
   int? lastChartUpdateTime;
 }

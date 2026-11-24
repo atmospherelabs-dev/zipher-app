@@ -18,6 +18,7 @@ import '../src/rust/frb_generated.dart';
 import '../store2.dart' show isSyncBoosted;
 import 'ironwood_watch_service.dart';
 import 'network_privacy.dart';
+import 'wallet_birthdays.dart';
 import 'wallet_registry.dart';
 import 'secure_key_store.dart';
 import 'frost_service.dart';
@@ -163,8 +164,8 @@ class WalletService {
   rust_wallet.ChainType get isTestnetChain => _chainType;
 
   /// Check if a wallet file exists on disk for a specific wallet ID.
-  Future<bool> walletExists({String? walletId}) async {
-    final dir = await walletDir(walletId: walletId);
+  Future<bool> walletExists({String? walletId, bool? testnet}) async {
+    final dir = await walletDir(walletId: walletId, testnet: testnet);
     if (useNewEngine) {
       final dbFile = File('$dir/zipher-data.sqlite');
       return dbFile.existsSync();
@@ -428,6 +429,12 @@ class WalletService {
         dbCipherKey: dbKey,
       );
       await _registerInactiveWallets(walletId);
+      try {
+        await WalletBirthdays.remember(
+            _networkSeedKey(walletId), await rust_engine.engineGetBirthday());
+      } catch (e) {
+        _log.w('[WS] could not record wallet birthday: $e');
+      }
     } else {
       await rust_wallet.openWallet(
         dataDir: dir,
@@ -481,8 +488,9 @@ class WalletService {
           if (seed != null) {
             final dir = await walletDir(walletId: targetWalletId);
             final dbKey = await _getDbCipherKey();
-            final birthday = await getLatestBlockHeight();
-            _log.i('[WS] restoring at height $birthday');
+            final birthday = await WalletBirthdays.forRestore(
+                _networkSeedKey(targetWalletId));
+            _log.i('[WS] restoring from height $birthday (0 = full history)');
             await rust_engine.engineRestoreFromSeed(
               dataDir: dir,
               serverUrl: serverUrl,
@@ -517,8 +525,10 @@ class WalletService {
     }
     final dir = await walletDir(walletId: walletId);
     final dbKey = await _getDbCipherKey();
-    final birthday = await getLatestBlockHeight();
-    _log.i('[WS] restoreAndOpen: restoring at height $birthday');
+    final birthday =
+        await WalletBirthdays.forRestore(networkSeedKey(walletId));
+    _log.i('[WS] restoreAndOpen: restoring from height $birthday '
+        '(0 = full history)');
     await rust_engine.engineRestoreFromSeed(
       dataDir: dir,
       serverUrl: serverUrl,
@@ -558,6 +568,8 @@ class WalletService {
       // user deleted the wallet. Audit finding H5 (2026-05-18).
       await SecureKeyStore.deleteSeedForWallet(walletId);
       await SecureKeyStore.deleteSeedForWallet('${walletId}_testnet');
+      await WalletBirthdays.forget(walletId);
+      await WalletBirthdays.forget('${walletId}_testnet');
 
       // Remove from registry
       await WalletRegistry.instance.delete(walletId);
@@ -774,6 +786,12 @@ class WalletService {
   /// existing WalletProfile.  Uses a brand-new seed so that testnet keys are
   /// completely independent of mainnet — preventing accidental seed leakage.
   Future<void> createNetworkWalletForProfile(String walletId) async {
+    final profile = await WalletRegistry.instance.getById(walletId);
+    if (profile?.isWatchOnly ?? false) {
+      // A shared or watch-only wallet must not silently gain a seed.
+      throw StateError(
+          'Wallet $walletId is watch-only and has no wallet on this network');
+    }
     await _prepareWalletPrivacy();
     final dir = await walletDir(walletId: walletId);
     final height = await getLatestBlockHeight();
@@ -792,6 +810,7 @@ class WalletService {
       dbCipherKey: dbKey,
     );
     await SecureKeyStore.storeSeedForWallet(_networkSeedKey(walletId), seed);
+    await WalletBirthdays.remember(_networkSeedKey(walletId), height);
     await rust_engine.engineCloseWallet();
     _log.i(
         '[WS] network wallet created (independent seed), ready for openWalletById');

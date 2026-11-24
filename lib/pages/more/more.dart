@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../accounts.dart';
 import '../../coin/coins.dart';
 import '../../services/hitl_watch_service.dart';
+import '../../services/network_mode.dart';
+import '../../services/wallet_registry.dart';
 import '../../services/wallet_service.dart';
 import '../../init.dart';
 import '../../zipher_theme.dart';
@@ -237,49 +239,71 @@ class _TestnetToggleState extends State<_TestnetToggle> {
     );
     if (!confirmed) return;
 
+    final ws = WalletService.instance;
+    final activeId = ws.activeWalletId;
+    final profile =
+        activeId == null ? null : await WalletRegistry.instance.getById(activeId);
+    // A shared (FROST) or watch-only wallet has no seed to create a wallet on
+    // the other network from. Switching used to create a fresh single-signer
+    // wallet under the shared wallet's name.
+    if (profile != null &&
+        profile.isWatchOnly &&
+        !await ws.walletExists(walletId: profile.id, testnet: enable)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('This shared or watch-only wallet has no '
+                'counterpart on the other network. Switch to a wallet with a '
+                'recovery phrase first.')));
+      }
+      return;
+    }
+
     setState(() => _switching = true);
 
     try {
-      final ws = WalletService.instance;
-      final activeId = ws.activeWalletId;
-
-      // 1. Always stop sync and close the current wallet first
+      // 1. Stop the old network's sync loop and close its wallet, so no
+      // refresh runs against the closed engine.
+      syncStatus2.paused = true;
+      syncTimer?.cancel();
+      syncTimer = null;
       try {
         await ws.stopSync();
       } catch (_) {}
       if (ws.isWalletOpen) {
         await ws.closeWallet();
       }
-
-      // 2. Switch the network flag
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('testnet', enable);
-      isTestnet = enable;
-      testnetNotifier.value = enable;
-      await initCoins();
-      syncStatus2.resetForWalletSwitch();
-      aa.reset(0);
+      aa = nullAccount;
       aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+
+      // 2. Switch the network flag, settings and price together.
+      await applyNetworkMode(enable, reinitCoins: initCoins);
+      syncStatus2.resetForWalletSwitch();
 
       // 3. Open or create the wallet for the target network.
       // switchWallet handles all cases: existing DB, seed-but-no-DB
       // (restores from seed), and no-seed-no-DB (creates fresh wallet).
-      bool opened = false;
       if (activeId != null) {
         await ws.switchWallet(activeId);
-        opened = true;
-      }
-
-      if (opened) {
-        setActiveAccount(activeCoin.coin, 1);
-        await aa.updateAddress();
-        // Balance may not be available yet on a freshly created wallet;
-        // sync will update it once blocks are scanned.
-        try {
-          await aa.updateBalance();
-        } catch (_) {}
+        await setActiveAccount(activeCoin.coin, 1);
+        // The account object carries its network: a new one is needed, or
+        // every refresh is skipped and the old network's address stays.
+        final account = ActiveAccount2(
+          coin: activeCoin.coin,
+          id: 1,
+          name: profile?.name ?? 'Main',
+          address: '',
+          canPay: !(profile?.isWatchOnly ?? false),
+          walletId: activeId,
+        );
+        aa = account;
         aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
-        await aa.save(prefs);
+        try {
+          await account.update(null);
+        } catch (_) {
+          // A fresh wallet may not have a balance yet; sync fills it in.
+        }
+        final prefs = await SharedPreferences.getInstance();
+        await account.save(prefs);
         if (mounted) {
           GoRouter.of(context).go('/account');
           Future.delayed(
@@ -292,12 +316,8 @@ class _TestnetToggleState extends State<_TestnetToggle> {
       logger.e('Testnet toggle error: $e');
       // Revert the persisted flag so a cold restart doesn't strand the user
       // on a broken network.
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('testnet', !enable);
-      isTestnet = !enable;
-      testnetNotifier.value = !enable;
       try {
-        await initCoins();
+        await applyNetworkMode(!enable, reinitCoins: initCoins);
       } catch (_) {}
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

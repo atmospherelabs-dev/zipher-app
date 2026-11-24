@@ -395,7 +395,8 @@ class _HomeState extends State<HomePageInner> {
                                     // pay screen instead of a bare Send.
                                     final invoiceRef =
                                         CipherPayClient.extractInvoiceRef(
-                                            code);
+                                            code,
+                                            testnet: isTestnet);
                                     if (invoiceRef != null) {
                                       GoRouter.of(context).push(
                                         '/invoice/pay',
