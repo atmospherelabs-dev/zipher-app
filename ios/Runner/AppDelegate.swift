@@ -32,7 +32,10 @@ import app_links
     if let url = options.urlContexts.first?.url {
       AppLinks.shared.handleLink(url: url)
     }
-    return super.application(application, configurationForConnecting: connectingSceneSession, options: options)
+    // FlutterAppDelegate does not implement this method, so calling super
+    // throws "unrecognized selector" whenever a new scene session is created
+    // (first launch after install). Return the Info.plist configuration.
+    return UISceneConfiguration(name: "flutter", sessionRole: connectingSceneSession.role)
   }
 
   // UIScene lifecycle (required when building with the iOS 27 SDK): the scene
