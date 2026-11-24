@@ -620,6 +620,7 @@ class ETA {
   }
 
   @computed
+
   /// Estimated time left at the current scan speed, or null if unknown.
   Duration? get remainingDuration {
     final p = prev;
@@ -685,7 +686,10 @@ abstract class _MarketPrice with Store {
   Future<void> update() async {
     try {
       final c = coins[aa.coin];
-      price = await getFxRate(c.currency, appSettings.currency);
+      // A failed or rate-limited fetch keeps the last known price rather
+      // than erasing it (which made balances read \$0.00).
+      final fresh = await getFxRate(c.currency, appSettings.currency);
+      if (fresh != null && fresh.isFinite && fresh > 0) price = fresh;
     } catch (e) {
       logger.d('Market price update error: $e');
     }

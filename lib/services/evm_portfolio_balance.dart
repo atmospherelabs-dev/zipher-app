@@ -51,6 +51,13 @@ class EvmBalanceReader {
   String? _address;
   EvmBalanceSnapshot? _cached;
   Future<EvmBalanceSnapshot>? _running;
+  // Market prices are public and not tied to an account, so they survive an
+  // account switch. Reused for a minute to stay under the price API's rate
+  // limit, and kept as a fallback no longer than a quote may be old (5 min).
+  Map<String, double> _prices = const {};
+  DateTime? _pricesAt;
+  static const _priceReuse = Duration(seconds: 60);
+  static const _priceMaxAge = Duration(minutes: 5);
 
   EvmBalanceReader(
       {required this.readAsset,
@@ -89,11 +96,29 @@ class EvmBalanceReader {
     return _running = pending;
   }
 
+  /// Merge fresh quotes over the last good ones; a failed or partial fetch
+  /// keeps earlier quotes until they are too old to show.
+  Map<String, double> _rememberPrices(Map<String, double> fresh) {
+    final at = now();
+    if (_pricesAt != null && at.difference(_pricesAt!) > _priceMaxAge) {
+      _prices = const {};
+    }
+    if (fresh.isNotEmpty) {
+      _prices = Map.unmodifiable({..._prices, ...fresh});
+      _pricesAt = at;
+    }
+    return _prices;
+  }
+
   Future<EvmBalanceSnapshot> _fetch(String address,
       {String? bitcoin, String? solana, EvmBalanceSnapshot? previous}) async {
-    final priceFuture = Future.sync(readPrices)
-        .timeout(timeout)
-        .catchError((Object _) => <String, double>{});
+    final pricesAge = _pricesAt == null ? null : now().difference(_pricesAt!);
+    final priceFuture = pricesAge != null && pricesAge < _priceReuse
+        ? Future.value(_prices)
+        : Future.sync(readPrices)
+            .timeout(timeout)
+            .catchError((Object _) => <String, double>{})
+            .then(_rememberPrices);
     final failures = <String>{};
     final rows = <({String chain, String symbol, double amount})>[];
     final tasks = <Future<void>>[];

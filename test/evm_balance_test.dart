@@ -156,4 +156,59 @@ void main() {
     expect(() => EvmPortfolioBalance.parseSolanaBalance({'error': {}}),
         throwsFormatException);
   });
+  test('a failed price fetch after an account switch keeps recent quotes',
+      () async {
+    var clock = DateTime(2026, 11, 23, 12);
+    var priceReads = 0;
+    Map<String, double>? next = {'ETH': 2000, 'ZEC': 40};
+    final reader = EvmBalanceReader(
+        now: () => clock,
+        readPrices: () async {
+          priceReads++;
+          final p = next;
+          if (p == null) throw StateError('rate limited');
+          return p;
+        },
+        readAsset: (chain, _, token) async =>
+            chain == ChainConfig.ethereum && token == null ? 1 : 0);
+    expect((await reader.fetch(address)).zecPriceUsd, 40);
+
+    // Another account, price API now failing: quotes survive the switch.
+    next = null;
+    clock = clock.add(const Duration(minutes: 2));
+    final other = '0x${'2' * 40}';
+    final switched = await reader.fetch(other);
+    expect(priceReads, 2);
+    expect(switched.zecPriceUsd, 40);
+    expect(switched.evmTotalUsd, 2000);
+
+    // A failed fetch does not count as fresh, so the next refresh retries.
+    clock = clock.add(const Duration(seconds: 1));
+    await reader.fetch(other, force: true);
+    expect(priceReads, 3);
+
+    // Past the five-minute limit, old quotes are not shown.
+    clock = clock.add(const Duration(minutes: 6));
+    final stale = await reader.fetch(other, force: true);
+    expect(stale.zecPriceUsd, null);
+    expect(stale.evmTotalUsd, 0);
+  });
+  test('fresh quotes are reused for a minute', () async {
+    var clock = DateTime(2026, 11, 23, 12);
+    var priceReads = 0;
+    final reader = EvmBalanceReader(
+        now: () => clock,
+        readPrices: () async {
+          priceReads++;
+          return {'ZEC': 40};
+        },
+        readAsset: (_, __, ___) async => 0);
+    await reader.fetch(address);
+    clock = clock.add(const Duration(seconds: 30));
+    await reader.fetch('0x${'3' * 40}');
+    expect(priceReads, 1);
+    clock = clock.add(const Duration(seconds: 31));
+    await reader.fetch(address, force: true);
+    expect(priceReads, 2);
+  });
 }

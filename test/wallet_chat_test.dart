@@ -120,6 +120,10 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       theme: ZipherTheme.dark,
       localizationsDelegates: const [S.delegate],
+      // Loading dots repeat forever unless animations are off.
+      builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: child!),
       home: RepaintBoundary(
           key: const ValueKey('chat-preview'),
           child: WalletChatPage(balanceReader: reader, swapService: near)),
@@ -255,6 +259,8 @@ void main() {
     marketPrice.price = null;
     await tester.pumpAndSettle();
     expect(find.text(r'$30.00'), findsNothing);
+    // A missing price reads as loading, not as a dash or \$0.00.
+    expect(find.byType(ZipherLoadingDots), findsWidgets);
     expect(find.text('0.75 ZEC'), findsOneWidget);
   });
 
