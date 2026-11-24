@@ -293,7 +293,7 @@ class ZChatComposer extends StatelessWidget {
                                 ),
                           hintStyle: TextStyle(color: ZipherColors.text40),
                           filled: true,
-                          fillColor: ZipherGlass.fill,
+                          fillColor: ZipherGlass.fillTop,
                           contentPadding: const EdgeInsets.symmetric(
                               horizontal: 18, vertical: 12),
                           border: border,

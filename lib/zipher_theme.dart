@@ -110,13 +110,13 @@ class ZipherSpacing {
 }
 
 /// Frosted glass for small controls that sit on the dark canvas (chips,
-/// header pills, the message field). A light veil with a top sheen and a
-/// brighter hairline reads as glass even where little shows through; the
-/// blur picks up the glow and content scrolling behind.
+/// header pills, the message field). One thin veil (never stacked) with a
+/// top sheen and a bright hairline: the edge carries the glass look, so the
+/// fill stays near clear instead of turning grey on the dark canvas.
 class ZipherGlass {
-  static const Color fill = Color(0x1AFFFFFF); // white 10%
-  static const Color fillTop = Color(0x24FFFFFF); // white 14%
-  static const Color edge = Color(0x2EFFFFFF); // white 18%
+  static const Color fill = Color(0x08FFFFFF); // white 3%
+  static const Color fillTop = Color(0x14FFFFFF); // white 8%
+  static const Color edge = Color(0x29FFFFFF); // white 16%
 
   static BoxDecoration decoration(
           {BorderRadius? radius,
@@ -132,7 +132,7 @@ class ZipherGlass {
           end: Alignment.bottomCenter,
           colors: tint == null
               ? const [fillTop, fill]
-              : [tint.withValues(alpha: .22), tint.withValues(alpha: .12)],
+              : [tint.withValues(alpha: .16), tint.withValues(alpha: .06)],
         ),
         border:
             Border.all(color: tint?.withValues(alpha: .40) ?? edge, width: .5),

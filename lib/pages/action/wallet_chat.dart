@@ -2437,7 +2437,7 @@ class _WalletChatState extends State<_WalletChat> with WidgetsBindingObserver {
                       excludeSemantics: true,
                       child: ZipherGlass.blur(
                           child: Material(
-                              color: ZipherGlass.fill,
+                              color: ZipherGlass.fillTop,
                               shape: const StadiumBorder(
                                   side: BorderSide(
                                       color: ZipherGlass.edge, width: .5)),
