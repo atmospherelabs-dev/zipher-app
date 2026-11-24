@@ -208,12 +208,27 @@ Future<void> showSnackBar(String msg) async {
   await bar.show(rootNavigatorKey.currentContext!);
 }
 
+/// Public block explorer (ZecBlock; cipherscan.app redirects here).
+String get explorerBase =>
+    isTestnet ? 'https://testnet.zecblock.com' : 'https://zecblock.com';
+
+/// ZecBlock's private explorer: lookups are encrypted in the browser, so the
+/// server cannot tell which transaction was looked up. Mainnet only.
+const privateExplorerUrl = 'https://private.zecblock.com';
+
+/// Public lookup. The explorer learns which transaction was opened.
 void openTxInExplorer(String txId) {
-  final base = isTestnet ? 'https://testnet.cipherscan.app' : 'https://cipherscan.app';
   launchUrl(
-    Uri.parse('$base/tx/$txId'),
+    Uri.parse('$explorerBase/tx/$txId'),
     mode: LaunchMode.externalApplication,
   );
+}
+
+/// Private lookup. The ID goes after `#`, which browsers never send to the
+/// server; the page reads it locally, clears it and encrypts the query.
+void openTxPrivately(String txId) {
+  launchUrl(Uri.parse('$privateExplorerUrl/#tx=${txId.toLowerCase()}'),
+      mode: LaunchMode.externalApplication);
 }
 
 String? addressValidator(String? v) {

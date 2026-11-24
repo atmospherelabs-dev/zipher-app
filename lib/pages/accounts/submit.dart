@@ -212,7 +212,7 @@ class _SubmitTxState extends State<SubmitTxPage> {
 
           // Mempool link
           ZipherButton(
-            label: 'View on CipherScan',
+            label: 'View on ZecBlock',
             icon: Icons.pending_outlined,
             kind: ZipherButtonKind.secondary,
             onPressed: _openMempool,
@@ -333,9 +333,7 @@ class _SubmitTxState extends State<SubmitTxPage> {
   }
 
   void _openMempool() {
-    final url = txId != null
-        ? 'https://cipherscan.app/tx/$txId'
-        : 'https://cipherscan.app/mempool';
+    final url = txId != null ? '$explorerBase/tx/$txId' : '$explorerBase/mempool';
     launchUrl(
       Uri.parse(url),
       mode: LaunchMode.externalApplication,

@@ -161,6 +161,11 @@ pub fn known_lightwalletd_servers(params: &Network) -> Vec<String> {
             "https://sa.zec.rocks:443".to_string(),
             "https://eu.zec.rocks:443".to_string(),
             "https://ap.zec.rocks:443".to_string(),
+            "https://rpc.fastz.cash:443".to_string(),
+            "https://na.fastz.cash:443".to_string(),
+            "https://sa.fastz.cash:443".to_string(),
+            "https://eu.fastz.cash:443".to_string(),
+            "https://ap.fastz.cash:443".to_string(),
         ],
         Network::TestNetwork => {
             vec!["https://testnet.zec.rocks:443".to_string()]
@@ -3809,7 +3814,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "manual live-network sync benchmark; no funds or transaction submission"]
     async fn benchmark_live_disposable_restore() {
-        let server = "https://zec.rocks:443";
+        let server_env = std::env::var("ZIPHER_SYNC_BENCH_SERVER");
+        let server = server_env.as_deref().unwrap_or("https://zec.rocks:443");
         let params = Network::MainNetwork;
         let tip = super::super::wallet::fetch_latest_height(server)
             .await

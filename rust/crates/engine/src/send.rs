@@ -362,14 +362,7 @@ async fn broadcast_classified(
     };
     let known_tip = scope.await.map_err(BroadcastFailure::not_submitted)?;
 
-    let known = known_lightwalletd_servers(params);
-    let is_known_primary = known.iter().any(|s| s == primary_url);
-    // A custom or self-hosted primary is contacted on its own.
-    let servers = if !is_known_primary || known.len() <= 1 {
-        vec![primary_url.to_string()]
-    } else {
-        known
-    };
+    let servers = broadcast_targets(&known_lightwalletd_servers(params), primary_url);
 
     let mut handles = Vec::with_capacity(servers.len());
     for url in servers {
@@ -866,9 +859,61 @@ async fn build_and_broadcast(
     }
 }
 
+
+/// Operator of a known server: the registrable domain (zec.rocks, fastz.cash,
+/// cipherscan.app), so regional hosts of one operator count once.
+fn server_operator(url: &str) -> String {
+    let host = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split([':', '/'])
+        .next()
+        .unwrap_or_default();
+    let labels: Vec<&str> = host.split('.').collect();
+    labels[labels.len().saturating_sub(2)..].join(".")
+}
+
+/// Where to broadcast: the chosen server, plus one server of each other known
+/// operator for redundancy. Never every region of every operator (each one
+/// learns the sender's IP when Tor is off). A custom or self-hosted primary
+/// is contacted on its own.
+fn broadcast_targets(known: &[String], primary: &str) -> Vec<String> {
+    if !known.iter().any(|s| s == primary) {
+        return vec![primary.to_string()];
+    }
+    let mut operators = vec![server_operator(primary)];
+    let mut targets = vec![primary.to_string()];
+    for url in known {
+        let op = server_operator(url);
+        if !operators.contains(&op) {
+            operators.push(op);
+            targets.push(url.clone());
+        }
+    }
+    targets
+}
+
 #[cfg(test)]
 mod broadcast_outcome_tests {
     use super::*;
+
+    #[test]
+    fn broadcast_reaches_one_server_per_operator() {
+        let known = known_lightwalletd_servers(&Network::MainNetwork);
+        let targets = broadcast_targets(&known, "https://eu.zec.rocks:443");
+        assert_eq!(targets[0], "https://eu.zec.rocks:443");
+        assert_eq!(
+            targets.iter().map(|u| server_operator(u)).collect::<Vec<_>>(),
+            ["zec.rocks", "cipherscan.app", "fastz.cash"]
+        );
+        let fastz = broadcast_targets(&known, "https://na.fastz.cash:443");
+        assert_eq!(fastz.len(), 3);
+        assert_eq!(fastz[0], "https://na.fastz.cash:443");
+        assert_eq!(
+            broadcast_targets(&known, "https://my.node:9067"),
+            ["https://my.node:9067"]
+        );
+    }
 
     fn rejected(message: &str) -> ServerReply {
         ServerReply::Rejected(message.to_string())

@@ -15,7 +15,7 @@ class ZcashTestCoin extends CoinBase {
   AssetImage image = AssetImage('assets/zcash.png');
   List<LWInstance> lwd = [
     LWInstance("Zec.rocks Testnet (NU6.3)", "https://testnet.zec.rocks:443"),
-    LWInstance("CipherScan Testnet", "https://lightwalletd.testnet.cipherscan.app:443"),
+    LWInstance("ZecBlock Testnet", "https://lightwalletd.testnet.cipherscan.app:443"),
   ];
   int defaultAddrMode = 0;
   int defaultUAType = 7; // TSO
@@ -23,5 +23,5 @@ class ZcashTestCoin extends CoinBase {
   bool supportsMultisig = false;
   bool supportsLedger = false;
   List<double> weights = [0.05, 0.25, 2.50];
-  List<String> blockExplorers = ["https://testnet.cipherscan.app/tx"];
+  List<String> blockExplorers = ["https://testnet.zecblock.com/tx"];
 }
