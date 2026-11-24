@@ -113,6 +113,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   EngineFrostWalletView dco_decode_engine_frost_wallet_view(dynamic raw);
 
   @protected
+  EngineGiftMint dco_decode_engine_gift_mint(dynamic raw);
+
+  @protected
+  EngineGiftStatus dco_decode_engine_gift_status(dynamic raw);
+
+  @protected
+  EngineGiftSummary dco_decode_engine_gift_summary(dynamic raw);
+
+  @protected
+  EngineGiftSweep dco_decode_engine_gift_sweep(dynamic raw);
+
+  @protected
   EngineInvoice dco_decode_engine_invoice(dynamic raw);
 
   @protected
@@ -418,6 +430,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   EngineFrostWalletView sse_decode_engine_frost_wallet_view(
       SseDeserializer deserializer);
+
+  @protected
+  EngineGiftMint sse_decode_engine_gift_mint(SseDeserializer deserializer);
+
+  @protected
+  EngineGiftStatus sse_decode_engine_gift_status(SseDeserializer deserializer);
+
+  @protected
+  EngineGiftSummary sse_decode_engine_gift_summary(
+      SseDeserializer deserializer);
+
+  @protected
+  EngineGiftSweep sse_decode_engine_gift_sweep(SseDeserializer deserializer);
 
   @protected
   EngineInvoice sse_decode_engine_invoice(SseDeserializer deserializer);
@@ -754,6 +779,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_engine_frost_wallet_view(
       EngineFrostWalletView self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_gift_mint(
+      EngineGiftMint self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_gift_status(
+      EngineGiftStatus self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_gift_summary(
+      EngineGiftSummary self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_engine_gift_sweep(
+      EngineGiftSweep self, SseSerializer serializer);
 
   @protected
   void sse_encode_engine_invoice(EngineInvoice self, SseSerializer serializer);

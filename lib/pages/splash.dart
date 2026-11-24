@@ -1,3 +1,4 @@
+import '../services/gift_links.dart' show looksLikeGiftLink;
 import 'dart:async';
 import 'dart:io';
 
@@ -603,6 +604,15 @@ void handleUri(Uri uri) async {
   // Opens a confirmation screen; never pairs silently.
   if (uri.scheme == 'zipher' && uri.host == 'pair') {
     await HitlWatchService.instance.openPairing(raw);
+    return;
+  }
+
+  // Gift links carry a spending key in the fragment: open the claim
+  // screen, which asks before moving anything.
+  if (looksLikeGiftLink(raw)) {
+    final context = rootNavigatorKey.currentContext;
+    if (context == null || aa.id == 0) return;
+    GoRouter.of(context).push('/gifts/claim', extra: raw);
     return;
   }
 

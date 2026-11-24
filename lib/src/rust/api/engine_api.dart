@@ -965,6 +965,43 @@ Future<void> hitlUnpair(
     RustLib.instance.api.crateApiEngineApiHitlUnpair(
         pairingJson: pairingJson, stateDir: stateDir, useTor: useTor);
 
+Future<EngineGiftMint> engineGiftMint(
+        {required BigInt amount, String? message, String? host}) =>
+    RustLib.instance.api.crateApiEngineApiEngineGiftMint(
+        amount: amount, message: message, host: host);
+
+/// Cheap routing test for pasted or scanned text.
+bool engineGiftLooksLikeLink({required String text}) =>
+    RustLib.instance.api.crateApiEngineApiEngineGiftLooksLikeLink(text: text);
+
+Future<EngineGiftSummary> engineGiftSummary({required String link}) =>
+    RustLib.instance.api.crateApiEngineApiEngineGiftSummary(link: link);
+
+/// Opens the gift's temporary wallet; returns a handle.
+Future<String> engineGiftOpen({required String link}) =>
+    RustLib.instance.api.crateApiEngineApiEngineGiftOpen(link: link);
+
+Future<EngineGiftStatus> engineGiftCheck(
+        {required String handle, String? destination}) =>
+    RustLib.instance.api.crateApiEngineApiEngineGiftCheck(
+        handle: handle, destination: destination);
+
+/// Sweeps the gift into `destination`. Call only after review and device
+/// authentication. An Ok result means a transaction exists.
+Future<EngineGiftSweep> engineGiftSweep(
+        {required String handle, required String destination}) =>
+    RustLib.instance.api.crateApiEngineApiEngineGiftSweep(
+        handle: handle, destination: destination);
+
+Future<EngineGiftSweep> engineGiftResend({required String handle}) =>
+    RustLib.instance.api.crateApiEngineApiEngineGiftResend(handle: handle);
+
+Future<void> engineGiftClose({required String handle}) =>
+    RustLib.instance.api.crateApiEngineApiEngineGiftClose(handle: handle);
+
+Future<int> engineGiftRemoveLeftovers() =>
+    RustLib.instance.api.crateApiEngineApiEngineGiftRemoveLeftovers();
+
 class AutoMigrationStatus {
   final String phase;
   final int totalTargets;
@@ -1433,6 +1470,164 @@ class EngineFrostWalletView {
           address == other.address &&
           groupPublicKeyHex == other.groupPublicKeyHex &&
           orchardFvkHex == other.orchardFvkHex;
+}
+
+/// A minted, not yet funded gift. Persist `link` in secure storage before
+/// funding `funding_address` with `funding_amount` through the normal send.
+class EngineGiftMint {
+  final String link;
+  final String fundingAddress;
+  final int birthday;
+  final BigInt fundingAmount;
+
+  const EngineGiftMint({
+    required this.link,
+    required this.fundingAddress,
+    required this.birthday,
+    required this.fundingAmount,
+  });
+
+  @override
+  int get hashCode =>
+      link.hashCode ^
+      fundingAddress.hashCode ^
+      birthday.hashCode ^
+      fundingAmount.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineGiftMint &&
+          runtimeType == other.runtimeType &&
+          link == other.link &&
+          fundingAddress == other.fundingAddress &&
+          birthday == other.birthday &&
+          fundingAmount == other.fundingAmount;
+}
+
+class EngineGiftStatus {
+  final BigInt spendable;
+  final BigInt pending;
+  final BigInt fee;
+  final BigInt redeemable;
+  final int scannedHeight;
+  final int tipHeight;
+  final bool seenFunding;
+
+  const EngineGiftStatus({
+    required this.spendable,
+    required this.pending,
+    required this.fee,
+    required this.redeemable,
+    required this.scannedHeight,
+    required this.tipHeight,
+    required this.seenFunding,
+  });
+
+  @override
+  int get hashCode =>
+      spendable.hashCode ^
+      pending.hashCode ^
+      fee.hashCode ^
+      redeemable.hashCode ^
+      scannedHeight.hashCode ^
+      tipHeight.hashCode ^
+      seenFunding.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineGiftStatus &&
+          runtimeType == other.runtimeType &&
+          spendable == other.spendable &&
+          pending == other.pending &&
+          fee == other.fee &&
+          redeemable == other.redeemable &&
+          scannedHeight == other.scannedHeight &&
+          tipHeight == other.tipHeight &&
+          seenFunding == other.seenFunding;
+}
+
+class EngineGiftSummary {
+  final bool networkMatches;
+  final bool testnet;
+  final int birthday;
+  final BigInt? statedAmount;
+
+  /// Untrusted text written by the sender.
+  final String? message;
+  final String fundingAddress;
+  final bool legacy;
+
+  const EngineGiftSummary({
+    required this.networkMatches,
+    required this.testnet,
+    required this.birthday,
+    this.statedAmount,
+    this.message,
+    required this.fundingAddress,
+    required this.legacy,
+  });
+
+  @override
+  int get hashCode =>
+      networkMatches.hashCode ^
+      testnet.hashCode ^
+      birthday.hashCode ^
+      statedAmount.hashCode ^
+      message.hashCode ^
+      fundingAddress.hashCode ^
+      legacy.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineGiftSummary &&
+          runtimeType == other.runtimeType &&
+          networkMatches == other.networkMatches &&
+          testnet == other.testnet &&
+          birthday == other.birthday &&
+          statedAmount == other.statedAmount &&
+          message == other.message &&
+          fundingAddress == other.fundingAddress &&
+          legacy == other.legacy;
+}
+
+class EngineGiftSweep {
+  final String txid;
+  final BigInt amount;
+  final BigInt fee;
+  final bool accepted;
+
+  /// For logs only.
+  final String? detail;
+
+  const EngineGiftSweep({
+    required this.txid,
+    required this.amount,
+    required this.fee,
+    required this.accepted,
+    this.detail,
+  });
+
+  @override
+  int get hashCode =>
+      txid.hashCode ^
+      amount.hashCode ^
+      fee.hashCode ^
+      accepted.hashCode ^
+      detail.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EngineGiftSweep &&
+          runtimeType == other.runtimeType &&
+          txid == other.txid &&
+          amount == other.amount &&
+          fee == other.fee &&
+          accepted == other.accepted &&
+          detail == other.detail;
 }
 
 /// A CipherPay invoice as the customer sees it.

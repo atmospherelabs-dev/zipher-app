@@ -23,6 +23,7 @@ futures-util = "0.3"
 tonic = { version = "0.14", features = ["channel", "tls-ring", "tls-webpki-roots"] }
 rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
 bip0039 = { version = "0.14", features = ["rand"] }
+bech32 = "0.11"
 
 # Shared stable wallet layer and Zakura Common cryptography
 zcash_protocol = { workspace = true }

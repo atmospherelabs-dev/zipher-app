@@ -53,6 +53,12 @@ class _MorePageState extends State<MorePage> {
                   subtitle: 'Manage saved addresses',
                   onTap: () => _nav('/more/contacts'),
                 ),
+                _SettingsItem(
+                  icon: Icons.card_giftcard_rounded,
+                  label: 'Gift ZEC',
+                  subtitle: 'Send or claim a gift link',
+                  onTap: () => GoRouter.of(context).push('/gifts'),
+                ),
                 _AgentItem(onTap: () => _nav('/hitl/agent')),
                 _SettingsItem(
                   icon: Icons.tune_rounded,
