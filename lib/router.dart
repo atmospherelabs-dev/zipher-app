@@ -348,8 +348,7 @@ final router = GoRouter(
                   ),
                   GoRoute(
                       path: 'about',
-                      builder: (context, state) =>
-                          AboutPage(state.extra as String)),
+                      builder: (context, state) => const AboutPage()),
                   GoRoute(
                     path: 'submit_tx',
                     builder: (context, state) =>

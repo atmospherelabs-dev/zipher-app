@@ -100,8 +100,8 @@ flutter_icons:
   image_path: "assets/zipher-app.png"
 
 flutter_native_splash:
-  color_dark: "#0A0E2A"
-  color: "#0A0E2A"
+  color_dark: "#08090F"
+  color: "#08090F"
 
 
 # For information on the generic Dart part of this file, see the
@@ -120,7 +120,6 @@ flutter:
   assets:
     - assets/sapling-spend.params
     - assets/sapling-output.params
-    - assets/about.md
     - assets/zcash.png
     - assets/zipher_logo.png
     - assets/cipherpay_logo_mark.png

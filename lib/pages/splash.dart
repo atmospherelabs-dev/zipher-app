@@ -51,10 +51,10 @@ class _SplashState extends State<SplashPage> {
           }
           if (!appSettings.hasMemo()) appSettings.memo = s.sendFrom(APP_NAME);
 
-          _setProgress(0.1, 'Initializing...');
+          _setProgress(0.1, 'Starting…');
           await initCoins();
 
-          _setProgress(0.2, 'Checking wallets...');
+          _setProgress(0.2, 'Checking wallets…');
           final wallet = WalletService.instance;
           final registry = WalletRegistry.instance;
           logger.i('[Splash] server=${wallet.serverUrl}');
@@ -118,7 +118,7 @@ class _SplashState extends State<SplashPage> {
               }
             }
 
-            _setProgress(0.5, 'Opening wallet...');
+            _setProgress(0.5, 'Opening wallet…');
             logger.d('opening wallet...');
 
             // On testnet, proactively reset old DBs to avoid Rust panics
@@ -147,7 +147,7 @@ class _SplashState extends State<SplashPage> {
                   final shouldReset = await _showDbCorruptDialog();
                   if (shouldReset) {
                     await _resetWalletDb(wallet, activeId);
-                    _setProgress(0.5, 'Restoring wallet...');
+                    _setProgress(0.5, 'Restoring wallet…');
                     final restored = await _autoRestoreFromKeychain(wallet, activeId);
                     if (!restored) {
                       appStore.initialized = true;
@@ -164,7 +164,7 @@ class _SplashState extends State<SplashPage> {
             }
             logger.d('wallet opened');
 
-            _setProgress(0.7, 'Loading wallet data...');
+            _setProgress(0.7, 'Loading wallet data…');
             try {
               final profile = await registry.getById(activeId);
               final birthday = await wallet.getBirthday();
@@ -263,12 +263,12 @@ class _SplashState extends State<SplashPage> {
   }
 
   Future<Uri?> _registerURLHandler() async {
-    _setProgress(0.3, 'Register Payment URI handlers');
+    _setProgress(0.3, 'Setting up payment links…');
     return await registerURLHandler();
   }
 
   Future<String?> _registerQuickActions() async {
-    _setProgress(0.4, 'Register App Launcher actions');
+    _setProgress(0.4, 'Setting up shortcuts…');
     String? launchPage;
     final quickActions = QuickActions();
     await quickActions.initialize((quick_action) {
@@ -423,6 +423,9 @@ class _SplashState extends State<SplashPage> {
   }
 }
 
+/// The loading screen. It is the first frame of home: same canvas and the
+/// same glow at the top, so opening the wallet feels like one surface
+/// settling rather than a switch between two screens.
 class LoadProgress extends StatefulWidget {
   LoadProgress({Key? key}) : super(key: key);
 
@@ -434,82 +437,91 @@ class _LoadProgressState extends State<LoadProgress>
     with SingleTickerProviderStateMixin {
   var _value = 0.0;
   String _message = "";
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnimation;
+
+  /// Slow breathing of the halo behind the mark. Held still under
+  /// Reduce Motion.
+  late final AnimationController _breath = AnimationController(
+    duration: const Duration(milliseconds: 2400),
+    vsync: this,
+  );
 
   @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 2000),
-      vsync: this,
-    )..repeat(reverse: true);
-    _pulseAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _breath
+        ..stop()
+        ..value = .5;
+    } else if (!_breath.isAnimating) {
+      _breath.repeat(reverse: true);
+    }
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
+    _breath.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final motion =
+        reduceMotion ? Duration.zero : const Duration(milliseconds: 450);
+    final message = _message.isNotEmpty ? _message : s.loading;
+
     return Scaffold(
       backgroundColor: ZipherColors.bg,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment(0, -0.3),
-            radius: 1.2,
-            colors: [
-              Color(0xFF0D1640),
-              ZipherColors.bg,
-            ],
+      body: Stack(
+        children: [
+          const ZipherTopGlow(),
+          SafeArea(
+            child: SizedBox(
+              width: double.infinity,
+              child: Column(
+                children: [
+                  const Spacer(flex: 5),
+                  _Mark(breath: _breath),
+                  const SizedBox(height: ZipherSpacing.lg),
+                  ZipherWidgets.brandText(fontSize: 26),
+                  const SizedBox(height: ZipherSpacing.sm),
+                  if (isTestnet)
+                    const _TestnetPill()
+                  else
+                    const Text('Zcash for humans and agents',
+                        style: ZipherType.subhead),
+                  const Spacer(flex: 6),
+                  Semantics(
+                    label: message,
+                    value: '${(_value * 100).round()}%',
+                    child: SizedBox(
+                      width: 148,
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween(end: _value.clamp(0, 1)),
+                        duration: motion,
+                        curve: Curves.easeOutCubic,
+                        builder: (_, v, __) => _ProgressLine(value: v),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: ZipherSpacing.smMd),
+                  ExcludeSemantics(
+                    child: AnimatedSwitcher(
+                      duration: motion,
+                      child: Text(
+                        message,
+                        key: ValueKey(message),
+                        style: ZipherType.caption,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: ZipherSpacing.xl),
+                ],
+              ),
+            ),
           ),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              FadeTransition(
-                opacity: _pulseAnimation,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(ZipherRadius.xl),
-                  child: Image.asset('assets/zipher_logo.png', height: 80),
-                ),
-              ),
-              const SizedBox(height: ZipherSpacing.lg),
-              ZipherWidgets.brandText(fontSize: 32),
-              const SizedBox(height: ZipherSpacing.sm),
-              Text(
-                isTestnet ? 'Testnet Mode' : 'Zcash for humans and agents',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: isTestnet
-                      ? ZipherColors.orange
-                      : ZipherColors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: ZipherSpacing.xxl),
-              SizedBox(
-                width: 200,
-                child: ZipherWidgets.syncProgressBar(_value),
-              ),
-              const SizedBox(height: ZipherSpacing.md),
-              Text(
-                _message.isNotEmpty ? _message : s.loading,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: ZipherColors.textMuted,
-                ),
-              ),
-            ],
-          ),
-        ),
+        ],
       ),
     );
   }
@@ -520,6 +532,97 @@ class _LoadProgressState extends State<LoadProgress>
       _message = message;
     });
   }
+}
+
+/// The Z mark with a soft halo that breathes behind it.
+class _Mark extends StatelessWidget {
+  const _Mark({required this.breath});
+
+  final Animation<double> breath;
+
+  static const _size = 72.0;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: _size * 2.4,
+        height: _size * 2.4,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            AnimatedBuilder(
+              animation: breath,
+              builder: (_, __) {
+                final t = Curves.easeInOut.transform(breath.value);
+                return DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(colors: [
+                      ZipherColors.cyan.withValues(alpha: .10 + .08 * t),
+                      ZipherColors.cyan.withValues(alpha: 0),
+                    ]),
+                  ),
+                  child: const SizedBox.expand(),
+                );
+              },
+            ),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(_size * .24),
+              child: Image.asset('assets/zipher_logo.png',
+                  width: _size, height: _size, semanticLabel: 'Zipher'),
+            ),
+          ],
+        ),
+      );
+}
+
+/// A thin capsule track with a cyan fill.
+class _ProgressLine extends StatelessWidget {
+  const _ProgressLine({required this.value});
+
+  final double value;
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+        borderRadius: BorderRadius.circular(ZipherRadius.full),
+        child: SizedBox(
+          height: 3,
+          child: Stack(
+            children: [
+              const Positioned.fill(
+                child: ColoredBox(color: ZipherGlass.fillTop),
+              ),
+              FractionallySizedBox(
+                widthFactor: value,
+                child: const DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius:
+                        BorderRadius.all(Radius.circular(ZipherRadius.full)),
+                    color: ZipherColors.cyan,
+                  ),
+                  child: SizedBox.expand(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+/// Shown in place of the tagline when the app runs on testnet.
+class _TestnetPill extends StatelessWidget {
+  const _TestnetPill();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(
+            horizontal: ZipherSpacing.smMd, vertical: ZipherSpacing.xs),
+        decoration: ZipherGlass.decoration(tint: ZipherColors.orange),
+        child: const Text('Testnet',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: ZipherColors.orange)),
+      );
 }
 
 /// Migrate legacy single-wallet directory to UUID-based layout.
