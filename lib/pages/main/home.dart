@@ -16,6 +16,7 @@ import '../../zipher_theme.dart';
 import '../../services/near_intents.dart';
 import '../../router.dart' show InvoicePayArgs;
 import '../../services/cipherpay_client.dart';
+import '../../services/hitl_watch_service.dart';
 import '../accounts/send.dart';
 import '../accounts/split.dart';
 import '../scan.dart';
@@ -338,6 +339,39 @@ class _HomeState extends State<HomePageInner> {
                               ),
                             ),
                             const Spacer(),
+                            // Paired agent: visible whenever one can ask
+                            // this phone for approvals.
+                            ValueListenableBuilder<bool>(
+                              valueListenable:
+                                  HitlWatchService.instance.paired,
+                              builder: (context, paired, _) => !paired
+                                  ? const SizedBox.shrink()
+                                  : Padding(
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: Semantics(
+                                        button: true,
+                                        label: 'Paired agent',
+                                        child: GestureDetector(
+                                          onTap: () => GoRouter.of(context)
+                                              .push('/hitl/agent'),
+                                          child: Container(
+                                            width: 36,
+                                            height: 36,
+                                            decoration: BoxDecoration(
+                                              color: ZipherColors.cyan
+                                                  .withValues(alpha: 0.14),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(
+                                              Icons.smart_toy_rounded,
+                                              size: 18,
+                                              color: ZipherColors.cyan,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                            ),
                             // QR scan shortcut
                             GestureDetector(
                               onTap: () async {
@@ -349,6 +383,12 @@ class _HomeState extends State<HomePageInner> {
                                 GoRouter.of(context).push(
                                   '/scan',
                                   extra: ScanQRContext((code) {
+                                    // Agent pairing code from `zipher pair`:
+                                    // opens the check-code confirmation.
+                                    if (code.startsWith('zipher://pair?')) {
+                                      HitlWatchService.instance.openPairing(code);
+                                      return true;
+                                    }
                                     // CipherPay invoice (checkout URL, memo
                                     // code, or zcash: URI with CP-XXXX memo)
                                     // takes priority — show the rich invoice
@@ -787,10 +827,8 @@ class _BalanceBreakdown extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        border: Border.all(
-          color: ZipherColors.borderSubtle,
-        ),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Column(
         children: [
@@ -909,40 +947,14 @@ class _BalanceBreakdown extends StatelessWidget {
                           ),
                         ),
                         const Gap(10),
-                        GestureDetector(
-                          onTap: shieldableTransparentBal > 0 ? onShield : null,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: ZipherColors.cardBgElevated,
-                              borderRadius:
-                                  BorderRadius.circular(ZipherRadius.sm),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.shield_rounded,
-                                  size: 12,
-                                  color: barColor
-                                      .withValues(alpha: 0.85),
-                                ),
-                                const Gap(5),
-                                Text(
-                                  'Shield',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: shieldableTransparentBal > 0
-                                        ? ZipherColors.text60
-                                        : ZipherColors.text20,
-                                    letterSpacing: 0.3,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                        ZipherButton(
+                          label: 'Shield',
+                          icon: Icons.shield_rounded,
+                          kind: ZipherButtonKind.tinted,
+                          size: ZipherButtonSize.small,
+                          color: ZipherColors.cyan,
+                          onPressed:
+                              shieldableTransparentBal > 0 ? onShield : null,
                         ),
                       ],
                     ],
@@ -1099,37 +1111,11 @@ class _ActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: ZipherColors.cardBgElevated,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
-            border: Border.all(
-              color: ZipherColors.borderSubtle,
-            ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 20, color: ZipherColors.text60),
-              const Gap(8),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: ZipherColors.text90,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      kind: ZipherButtonKind.secondary,
+      onPressed: onTap,
     );
   }
 }
@@ -1282,10 +1268,8 @@ class _TxRowState extends State<_TxRow> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: ZipherColors.cardBg,
-              borderRadius: BorderRadius.circular(ZipherRadius.lg),
-              border: Border.all(
-                color: ZipherColors.borderSubtle,
-              ),
+              borderRadius: BorderRadius.circular(ZipherRadius.card),
+              border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
             ),
             child: Row(
               children: [
@@ -1594,36 +1578,12 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
                   ),
                 ],
                 const Spacer(),
-                GestureDetector(
-                  onTap: _addAccount,
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: ZipherColors.cyan.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(ZipherRadius.md),
-                      border: Border.all(
-                        color: ZipherColors.cyan.withValues(alpha: 0.08),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.add_rounded,
-                            size: 14,
-                            color: ZipherColors.cyan.withValues(alpha: 0.7)),
-                        const Gap(5),
-                        Text(
-                          'Add Account',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: ZipherColors.cyan.withValues(alpha: 0.7),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                ZipherButton(
+                  label: 'Add account',
+                  icon: Icons.add_rounded,
+                  kind: ZipherButtonKind.tinted,
+                  size: ZipherButtonSize.small,
+                  onPressed: _addAccount,
                 ),
               ],
             ),
@@ -1903,18 +1863,21 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
     setState(() => _switching = true);
     final previous = aa;
     final paused = syncStatus2.paused;
-    // Stop refreshes before changing the native wallet. Otherwise an old account
-    // object can ask the newly opened engine for its balance under the old name.
-    syncStatus2.paused = true;
-    syncTimer?.cancel();
-    syncTimer = null;
     try {
       if (fa.accountIndex != 0 && WalletService.useNewEngine) {
         throw StateError('This derived account requires account-aware engine support. Use a separate wallet for now.');
       }
       final profile = await WalletRegistry.instance.getById(fa.walletId);
-      if (fa.walletId != ws.activeWalletId) await ws.switchWallet(fa.walletId);
-      syncStatus2.resetForWalletSwitch();
+      // Stops refreshes before the native wallet changes, so an old account
+      // object can't ask the newly opened engine for its balance.
+      if (fa.walletId != ws.activeWalletId) {
+        await switchActiveWallet(fa.walletId);
+      } else {
+        syncStatus2.paused = true;
+        syncTimer?.cancel();
+        syncTimer = null;
+        syncStatus2.resetForWalletSwitch();
+      }
       final selected = ActiveAccount2(
         coin: activeCoin.coin, id: 1, name: fa.displayName, address: '',
         canPay: !(profile?.isWatchOnly ?? false),
@@ -1932,8 +1895,10 @@ class _AccountSwitcherSheetState extends State<_AccountSwitcherSheet> {
       logger.e('[Wallet] account switch failed: $error');
       if (ws.activeWalletId == previous.walletId && ws.isWalletOpen) {
         aa = previous;
-        syncStatus2.paused = paused;
-        if (!paused) startAutoSync();
+        if (syncStatus2.paused != paused) {
+          syncStatus2.paused = paused;
+          if (!paused) startAutoSync();
+        }
       } else {
         // A failed open must not show the closed wallet's balances or actions.
         aa = nullAccount;
@@ -2181,8 +2146,8 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
                             horizontal: 14, vertical: 12),
                         decoration: BoxDecoration(
                           color: ZipherColors.cardBg,
-                          borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                          border: Border.all(color: ZipherColors.borderSubtle),
+                          borderRadius: BorderRadius.circular(ZipherRadius.card),
+                          border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                         ),
                         child: Row(
                           children: [
@@ -2298,8 +2263,8 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: ZipherColors.cardBg,
-              borderRadius: BorderRadius.circular(ZipherRadius.lg),
-              border: Border.all(color: ZipherColors.borderSubtle),
+              borderRadius: BorderRadius.circular(ZipherRadius.card),
+              border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
             ),
             child: Row(
               children: [
@@ -2349,7 +2314,7 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
 
       // If this seed isn't the active wallet, switch to it first
       if (w.id != ws.activeWalletId) {
-        await ws.switchWallet(w.id);
+        await switchActiveWallet(w.id);
       }
 
       // Create the new account in Rust
@@ -2376,6 +2341,7 @@ class _AddAccountSheetState extends State<_AddAccountSheet> {
         accountIndex: newIndex,
       );
       aaSequence.seqno = DateTime.now().microsecondsSinceEpoch;
+      unawaited(startAutoSync());
 
       if (mounted) Navigator.of(context).pop();
       widget.onDone();

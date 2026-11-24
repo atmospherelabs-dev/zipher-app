@@ -56,6 +56,10 @@ frost-core = { version = "3.0", features = ["serde"] }
 xeddsa = "1.0.2"
 snow = "0.9.6"
 uuid = "1"
+zipher-hitl-protocol = { path = "../hitl-protocol" }
+hyper = "1"
+http-body-util = "0.1"
+bytes = "1"
 
 # EVM signing (OWS signer — no tonic/prost, just crypto)
 ows-signer = { path = "../../vendor/ows-signer", version = "=1.0.0" }
@@ -68,6 +72,8 @@ scrypt = "0.11"
 default = []
 
 [dev-dependencies]
+zipher-relay = { path = "../relay" }
+axum = "0.8"
 base64ct = "1"
 hex-literal = "1"
 tor-llcrypto = "=0.35.0"

@@ -32,20 +32,36 @@ class _PaymentURIState extends State<PaymentURIPage> {
     _loadAddresses();
   }
 
+  /// A new shielded-only address for this request; see
+  /// [WalletService.nextShieldedAddress]. Null until made, or if it failed.
+  String? _freshShielded;
+
   Future<void> _loadAddresses() async {
-    if (aa.diversifiedAddress.isEmpty) {
+    final ws = WalletService.instance;
+    final generation = ws.walletGeneration;
+    // An address fetched for one wallet must never be shown after a switch:
+    // the payer would be paying the previous wallet.
+    bool current() => mounted && ws.walletGeneration == generation;
+    try {
+      final fresh = await ws.nextShieldedAddress();
+      if (current()) setState(() => _freshShielded = fresh);
+    } catch (_) {
+      // The wallet's existing address still receives; fall back to it.
+    }
+    if (!current()) return;
+    if (_freshShielded == null && aa.diversifiedAddress.isEmpty) {
       await aa.updateAddress();
-      if (mounted) setState(() {});
+      if (current()) setState(() {});
     }
     try {
-      final addrs = await WalletService.instance.getTransparentAddresses();
-      if (addrs.isNotEmpty && mounted) {
+      final addrs = await ws.getTransparentAddresses();
+      if (addrs.isNotEmpty && current()) {
         setState(() => _transparentAddress = addrs.first);
       }
     } catch (_) {}
-    if (aa.chainAddresses == null) {
+    if (current() && aa.chainAddresses == null) {
       await aa.updateChainAddresses();
-      if (mounted) setState(() {});
+      if (current()) setState(() {});
     }
   }
 
@@ -54,7 +70,7 @@ class _PaymentURIState extends State<PaymentURIPage> {
     return '${addr.substring(0, 12)}...${addr.substring(addr.length - 12)}';
   }
 
-  String get _shieldedAddress => aa.diversifiedAddress;
+  String get _shieldedAddress => _freshShielded ?? aa.diversifiedAddress;
 
   @override
   Widget build(BuildContext context) {
@@ -67,8 +83,8 @@ class _PaymentURIState extends State<PaymentURIPage> {
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         title: Text(
@@ -193,63 +209,26 @@ class _PaymentURIState extends State<PaymentURIPage> {
               const Gap(32),
 
               // Request Payment button
-              SizedBox(
-                width: double.infinity,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => _openRequestPayment(shielded),
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.06),
-                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.08),
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.qr_code_rounded,
-                                  size: 20,
-                                  color: ZipherColors.text60),
-                              const Gap(10),
-                              Text(
-                                'Request Payment',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                  color: ZipherColors.text60,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const Gap(6),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.lock_rounded,
-                                  size: 11,
-                                  color: ZipherColors.text20),
-                              const Gap(4),
-                              Text(
-                                'Uses your shielded address',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: ZipherColors.text20,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+              ZipherButton(
+                label: 'Request payment',
+                icon: Icons.qr_code_rounded,
+                onPressed: () => _openRequestPayment(shielded),
+              ),
+              const Gap(8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.lock_rounded,
+                      size: 11, color: ZipherColors.text20),
+                  const Gap(4),
+                  Text(
+                    'Uses your shielded address',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: ZipherColors.text20,
                     ),
                   ),
-                ),
+                ],
               ),
 
               const Gap(32),
@@ -940,38 +919,11 @@ class _SheetButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = accent ? ZipherColors.cyan : Colors.white;
-    final bgAlpha = accent ? 0.12 : 0.06;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(ZipherRadius.md),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: bgAlpha),
-            borderRadius: BorderRadius.circular(ZipherRadius.md),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon,
-                  size: 18, color: color.withValues(alpha: accent ? 0.9 : 0.5)),
-              const Gap(8),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: color.withValues(alpha: accent ? 0.9 : 0.6),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      onPressed: onTap,
+      kind: accent ? ZipherButtonKind.primary : ZipherButtonKind.secondary,
     );
   }
 }

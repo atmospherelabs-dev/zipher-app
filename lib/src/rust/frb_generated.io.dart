@@ -162,6 +162,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   double dco_decode_f_64(dynamic raw);
 
   @protected
+  HitlPairingPreview dco_decode_hitl_pairing_preview(dynamic raw);
+
+  @protected
+  HitlRequest dco_decode_hitl_request(dynamic raw);
+
+  @protected
   int dco_decode_i_32(dynamic raw);
 
   @protected
@@ -220,6 +226,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<EngineVanWitness> dco_decode_list_engine_van_witness(dynamic raw);
+
+  @protected
+  List<HitlRequest> dco_decode_list_hitl_request(dynamic raw);
 
   @protected
   List<IronwoodDenomGroup> dco_decode_list_ironwood_denom_group(dynamic raw);
@@ -469,6 +478,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   double sse_decode_f_64(SseDeserializer deserializer);
 
   @protected
+  HitlPairingPreview sse_decode_hitl_pairing_preview(
+      SseDeserializer deserializer);
+
+  @protected
+  HitlRequest sse_decode_hitl_request(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
@@ -536,6 +552,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   List<EngineVanWitness> sse_decode_list_engine_van_witness(
       SseDeserializer deserializer);
+
+  @protected
+  List<HitlRequest> sse_decode_list_hitl_request(SseDeserializer deserializer);
 
   @protected
   List<IronwoodDenomGroup> sse_decode_list_ironwood_denom_group(
@@ -797,6 +816,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_f_64(double self, SseSerializer serializer);
 
   @protected
+  void sse_encode_hitl_pairing_preview(
+      HitlPairingPreview self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_hitl_request(HitlRequest self, SseSerializer serializer);
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
@@ -863,6 +889,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_engine_van_witness(
       List<EngineVanWitness> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_hitl_request(
+      List<HitlRequest> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_ironwood_denom_group(

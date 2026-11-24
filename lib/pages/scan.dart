@@ -46,17 +46,12 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         title: Text(
-          'SCAN',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          'Scan',
+          style: ZipherType.headline,
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_ios_new_rounded, size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
@@ -127,7 +122,7 @@ class _ScanQRCodeState extends State<ScanQRCodePage> {
                   Container(
                     decoration: BoxDecoration(
                       color: ZipherColors.cardBg,
-                      borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                      borderRadius: BorderRadius.circular(ZipherRadius.card),
                     ),
                     child: FormBuilderTextField(
                       name: 'qr',

@@ -268,24 +268,67 @@ fn restore_tree_height<P: Parameters>(params: &P, requested: u32) -> Result<u64>
     Ok(u64::from(u32::from(activation).saturating_sub(1)))
 }
 
+/// Fetch the hash of the block at `height` (used for anchors before Sapling).
+async fn fetch_block_hash(
+    server_url: &str,
+    height: u64,
+) -> Result<zcash_primitives::block::BlockHash> {
+    let mut client = connect_wallet_lwd(server_url).await?;
+    let block = client
+        .get_block(BlockId {
+            height,
+            hash: vec![],
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("get_block failed: {:?}", e))?
+        .into_inner();
+    Ok(block.hash())
+}
+
 /// Fetch tree state and build an AccountBirthday.
 /// `recover_until`: if `true`, also fetches the chain tip for recover-until
 /// (used by restore flows that need to scan from birthday to tip).
-async fn build_birthday(
+///
+/// Before Sapling activation there are no shielded note commitment trees, so
+/// the prior chain state is empty by definition. Zebra-backed lightwalletd
+/// servers refuse `GetTreeState` at those heights ("z_gettreestate did not
+/// return treestate"), which broke full-history restores; build the empty
+/// state locally and ask the server only for the block hash.
+async fn build_birthday<P: Parameters>(
     server_url: &str,
+    params: &P,
     height: u64,
     with_recover_until: bool,
 ) -> Result<(AccountBirthday, u64)> {
-    let tree_state = fetch_tree_state(server_url, height).await?;
     let recover_until = if with_recover_until {
         let tip = fetch_latest_height(server_url).await?;
         Some(BlockHeight::from_u32(tip as u32))
     } else {
         None
     };
-    let birthday = AccountBirthday::from_treestate(tree_state, recover_until)
-        .map_err(|_| anyhow::anyhow!("Failed to create account birthday from tree state"))?;
+    let birthday = if before_sapling(params, height) {
+        let hash = fetch_block_hash(server_url, height).await?;
+        AccountBirthday::from_parts(
+            zcash_client_backend::data_api::chain::ChainState::empty(
+                BlockHeight::from_u32(height as u32),
+                hash,
+            ),
+            recover_until,
+        )
+    } else {
+        let tree_state = fetch_tree_state(server_url, height).await?;
+        AccountBirthday::from_treestate(tree_state, recover_until)
+            .map_err(|_| anyhow::anyhow!("Failed to create account birthday from tree state"))?
+    };
     Ok((birthday, height))
+}
+
+/// Whether the block at `height` precedes Sapling activation, so every
+/// shielded tree is still empty after it.
+fn before_sapling<P: Parameters>(params: &P, height: u64) -> bool {
+    params
+        .activation_height(NetworkUpgrade::Sapling)
+        .map_or(false, |sapling| height < u64::from(u32::from(sapling)))
 }
 
 /// Store the engine singleton after wallet init.
@@ -296,6 +339,7 @@ async fn activate_engine(
     birthday_height: u64,
     db_cipher_key: Option<String>,
 ) {
+    super::sync::reset_for_new_wallet().await;
     let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
     let transport = WALLET_TRANSPORT.lock().await.clone();
     *ENGINE.lock().await = Some(engine_with_transport(
@@ -350,7 +394,7 @@ pub async fn create(
     let (db_data_path, _) = db_paths(data_dir);
 
     let height = resolve_height(server_url, chain_height).await?;
-    let (birthday, _) = build_birthday(server_url, height, false).await?;
+    let (birthday, _) = build_birthday(server_url, &params, height, false).await?;
 
     let entropy: [u8; 32] = rand::random();
     let mnemonic = bip0039::Mnemonic::<bip0039::English>::from_entropy(&entropy)
@@ -394,7 +438,7 @@ pub async fn restore(
     let seed = SecretVec::new(mnemonic.to_seed("").to_vec());
 
     let height = restore_tree_height(&params, birthday_height)?;
-    let (birthday, _) = build_birthday(server_url, height, true).await?;
+    let (birthday, _) = build_birthday(server_url, &params, height, true).await?;
 
     let mut db = open_wallet_db(&db_data_path, params, &db_cipher_key)?;
     init_wallet_db(&mut db, None).map_err(|e| anyhow::anyhow!("init_wallet_db: {:?}", e))?;
@@ -428,7 +472,7 @@ pub async fn restore_from_ufvk(
     let (db_data_path, _) = db_paths(data_dir);
 
     let height = restore_tree_height(&params, birthday_height)?;
-    let (birthday, _) = build_birthday(server_url, height, true).await?;
+    let (birthday, _) = build_birthday(server_url, &params, height, true).await?;
 
     let ufvk = zcash_keys::keys::UnifiedFullViewingKey::decode(&params, ufvk_str)
         .map_err(|e| anyhow::anyhow!("Invalid UFVK: {:?}", e))?;
@@ -506,6 +550,7 @@ pub async fn open(
         .map_err(|e| anyhow::anyhow!("get_account_birthday error: {:?}", e))?;
     tracing::debug!("opened wallet, birthday={}", u32::from(birthday));
 
+    super::sync::reset_for_new_wallet().await;
     let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
     let transport = WALLET_TRANSPORT.lock().await.clone();
     *ENGINE.lock().await = Some(engine_with_transport(
@@ -523,7 +568,7 @@ pub async fn open(
 /// Close the wallet: stop sync, wait for it, then drop the engine.
 pub async fn close() {
     tracing::info!("[engine] close wallet — stopping sync first");
-    super::sync::stop().await;
+    super::sync::reset_for_new_wallet().await;
 
     let _submission_lifecycle = super::SUBMISSION_LIFECYCLE.write().await;
     *ENGINE.lock().await = None;
@@ -599,6 +644,35 @@ mod privacy_tests {
                 assert!(u32::from(birthday.height()) < first_payment);
             }
         }
+    }
+
+    #[test]
+    fn full_restore_anchor_uses_a_local_empty_tree_state() {
+        for network in [Network::MainNetwork, Network::TestNetwork] {
+            let sapling = u32::from(network.activation_height(NetworkUpgrade::Sapling).unwrap());
+            let anchor = restore_tree_height(&network, 0).unwrap();
+            // The full-history anchor never asks the server for a tree state.
+            assert!(before_sapling(&network, anchor));
+            assert!(before_sapling(&network, 1));
+            assert!(!before_sapling(&network, u64::from(sapling)));
+            assert!(!before_sapling(&network, u64::from(sapling) + 1));
+        }
+    }
+
+    /// Network check against a Zebra-backed server, which refuses
+    /// `GetTreeState` before Sapling. Run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn full_restore_birthday_builds_against_a_live_server() {
+        let network = Network::MainNetwork;
+        let anchor = restore_tree_height(&network, 0).unwrap();
+        let (birthday, _) = build_birthday("https://zec.rocks:443", &network, anchor, false)
+            .await
+            .expect("full-history birthday");
+        assert_eq!(
+            birthday.height(),
+            network.activation_height(NetworkUpgrade::Sapling).unwrap()
+        );
     }
 
     #[test]

@@ -296,8 +296,8 @@ class TxPageState extends State<TxPage> {
                     child: Row(
                       children: [
                         IconButton(
-                          icon: Icon(Icons.arrow_back_rounded,
-                              color: ZipherColors.text60),
+                          icon: Icon(Icons.arrow_back_ios_new_rounded,
+                              size: 20, color: ZipherColors.text90),
                           onPressed: () => Navigator.of(context).pop(),
                         ),
                         Text(
@@ -394,8 +394,8 @@ class _EmptyActivity extends StatelessWidget {
           child: Row(
             children: [
               IconButton(
-                icon: Icon(Icons.arrow_back_rounded,
-                    color: ZipherColors.text60),
+                icon: Icon(Icons.arrow_back_ios_new_rounded,
+                    size: 20, color: ZipherColors.text90),
                 onPressed: () => Navigator.of(context).pop(),
               ),
               Text(
@@ -583,8 +583,8 @@ class _TxRowState extends State<_TxRow> {
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
-            border: Border.all(color: ZipherColors.borderSubtle),
+            borderRadius: BorderRadius.circular(ZipherRadius.card),
+            border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
           ),
           foregroundDecoration: isMessage
               ? BoxDecoration(
@@ -1012,13 +1012,8 @@ class TransactionState extends State<TransactionPage> {
         elevation: 0,
         leading: ZipherWidgets.backButton(context),
         title: Text(
-          'TRANSACTION',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          'Transaction',
+          style: ZipherType.headline,
         ),
         centerTitle: false,
       ),
@@ -1480,36 +1475,11 @@ class _BottomAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(ZipherRadius.md),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.md),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon,
-                  size: 16,
-                  color: ZipherColors.text60),
-              const Gap(8),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: ZipherColors.text60,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return ZipherButton(
+      label: label,
+      icon: icon,
+      kind: ZipherButtonKind.secondary,
+      onPressed: onTap,
     );
   }
 }

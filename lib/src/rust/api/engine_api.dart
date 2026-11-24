@@ -80,6 +80,10 @@ Future<void> engineDeleteWalletData({required String dataDir}) =>
 Future<List<AddressInfo>> engineGetAddresses() =>
     RustLib.instance.api.crateApiEngineApiEngineGetAddresses();
 
+/// A fresh shielded-only receive address (see `engine::query::next_shielded_address`).
+Future<AddressInfo> engineNextShieldedAddress() =>
+    RustLib.instance.api.crateApiEngineApiEngineNextShieldedAddress();
+
 Future<List<String>> engineGetTransparentAddresses() =>
     RustLib.instance.api.crateApiEngineApiEngineGetTransparentAddresses();
 
@@ -883,6 +887,83 @@ Future<IronwoodSdkProgress> engineIronwoodSdkStatus() =>
 /// Cancel an in-progress SDK migration.
 Future<void> engineIronwoodSdkCancel() =>
     RustLib.instance.api.crateApiEngineApiEngineIronwoodSdkCancel();
+
+Future<HitlPairingPreview> hitlPreviewPairing({required String uri}) =>
+    RustLib.instance.api.crateApiEngineApiHitlPreviewPairing(uri: uri);
+
+/// New phone keys (hex). Store in secure storage.
+Future<String> hitlGeneratePhoneKeys() =>
+    RustLib.instance.api.crateApiEngineApiHitlGeneratePhoneKeys();
+
+/// Complete a pairing the user confirmed. Returns the pairing record (JSON,
+/// contains the phone's relay token) for secure storage.
+/// `state_dir` is the app documents directory (Tor state lives under it);
+/// `use_tor` routes relay traffic over Tor so the relay never sees the phone's IP.
+Future<String> hitlCompletePairing(
+        {required String uri,
+        required String keysHex,
+        required String stateDir,
+        required bool useTor}) =>
+    RustLib.instance.api.crateApiEngineApiHitlCompletePairing(
+        uri: uri, keysHex: keysHex, stateDir: stateDir, useTor: useTor);
+
+/// Six-digit code the phone shows after pairing. `zipher pair` asks the
+/// operator to confirm their terminal shows the same one, which catches
+/// someone else's phone answering a leaked pairing code.
+Future<String> hitlPairedCode(
+        {required String pairingJson, required String keysHex}) =>
+    RustLib.instance.api.crateApiEngineApiHitlPairedCode(
+        pairingJson: pairingJson, keysHex: keysHex);
+
+Future<List<HitlRequest>> hitlFetchRequests(
+        {required String pairingJson,
+        required String keysHex,
+        required String stateDir,
+        required bool useTor}) =>
+    RustLib.instance.api.crateApiEngineApiHitlFetchRequests(
+        pairingJson: pairingJson,
+        keysHex: keysHex,
+        stateDir: stateDir,
+        useTor: useTor);
+
+/// Sign and send the user's decision. Call only after the user reviewed the
+/// full request and passed the app's auth barrier.
+Future<void> hitlSubmitDecision(
+        {required String pairingJson,
+        required String keysHex,
+        required String requestJson,
+        required bool approved,
+        required String stateDir,
+        required bool useTor}) =>
+    RustLib.instance.api.crateApiEngineApiHitlSubmitDecision(
+        pairingJson: pairingJson,
+        keysHex: keysHex,
+        requestJson: requestJson,
+        approved: approved,
+        stateDir: stateDir,
+        useTor: useTor);
+
+/// Register (or, with `apns_token` None, clear) content-free wake-up pushes
+/// for today's and the coming week's mailboxes.
+Future<void> hitlSetPush(
+        {required String pairingJson,
+        String? apnsToken,
+        required bool sandbox,
+        required String stateDir,
+        required bool useTor}) =>
+    RustLib.instance.api.crateApiEngineApiHitlSetPush(
+        pairingJson: pairingJson,
+        apnsToken: apnsToken,
+        sandbox: sandbox,
+        stateDir: stateDir,
+        useTor: useTor);
+
+Future<void> hitlUnpair(
+        {required String pairingJson,
+        required String stateDir,
+        required bool useTor}) =>
+    RustLib.instance.api.crateApiEngineApiHitlUnpair(
+        pairingJson: pairingJson, stateDir: stateDir, useTor: useTor);
 
 class AutoMigrationStatus {
   final String phase;
@@ -2036,6 +2117,96 @@ class EvmSwapQuoteResult {
           destDecimals == other.destDecimals &&
           priceRouteJson == other.priceRouteJson &&
           tokenTransferProxy == other.tokenTransferProxy;
+}
+
+/// Shown to the user before they confirm pairing with an agent.
+class HitlPairingPreview {
+  final String relayUrl;
+  final String agentName;
+
+  /// Must match the code printed by `zipher pair` on the agent.
+  final String checkCode;
+
+  const HitlPairingPreview({
+    required this.relayUrl,
+    required this.agentName,
+    required this.checkCode,
+  });
+
+  @override
+  int get hashCode =>
+      relayUrl.hashCode ^ agentName.hashCode ^ checkCode.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is HitlPairingPreview &&
+          runtimeType == other.runtimeType &&
+          relayUrl == other.relayUrl &&
+          agentName == other.agentName &&
+          checkCode == other.checkCode;
+}
+
+/// A decrypted approval request from the paired agent.
+class HitlRequest {
+  final String approvalId;
+  final String network;
+  final String address;
+  final BigInt amount;
+  final BigInt fee;
+  final String? memo;
+  final String? contextId;
+  final String tool;
+  final BigInt createdAt;
+  final BigInt expiresAt;
+
+  /// Pass back unchanged to [`hitl_submit_decision`].
+  final String requestJson;
+
+  const HitlRequest({
+    required this.approvalId,
+    required this.network,
+    required this.address,
+    required this.amount,
+    required this.fee,
+    this.memo,
+    this.contextId,
+    required this.tool,
+    required this.createdAt,
+    required this.expiresAt,
+    required this.requestJson,
+  });
+
+  @override
+  int get hashCode =>
+      approvalId.hashCode ^
+      network.hashCode ^
+      address.hashCode ^
+      amount.hashCode ^
+      fee.hashCode ^
+      memo.hashCode ^
+      contextId.hashCode ^
+      tool.hashCode ^
+      createdAt.hashCode ^
+      expiresAt.hashCode ^
+      requestJson.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is HitlRequest &&
+          runtimeType == other.runtimeType &&
+          approvalId == other.approvalId &&
+          network == other.network &&
+          address == other.address &&
+          amount == other.amount &&
+          fee == other.fee &&
+          memo == other.memo &&
+          contextId == other.contextId &&
+          tool == other.tool &&
+          createdAt == other.createdAt &&
+          expiresAt == other.expiresAt &&
+          requestJson == other.requestJson;
 }
 
 class IronwoodDenomGroup {

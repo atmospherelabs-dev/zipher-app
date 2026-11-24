@@ -175,4 +175,55 @@ void main() {
     expect(WalletConversation.formatZec(1), '0.00000001');
     expect(WalletConversation.formatZec(123456789), '1.23456789');
   });
+
+  group('contact names as recipients', () {
+    final alice = 'u1alice${'a' * 80}';
+    final bob = 'u1bob${'b' * 80}';
+    final bobToo = 'u1bobtoo${'c' * 80}';
+    WalletConversation chat() => WalletConversation(
+        zcashContacts: () => [
+              (name: 'Alice Smith', address: alice),
+              (name: 'Bob', address: bob),
+              (name: 'bob', address: bobToo),
+            ]);
+
+    test('a one-line send to a contact resolves to its saved address', () {
+      final request = chat().accept('send 0.5 ZEC to alice smith').request!;
+      expect(request.recipient, alice);
+      expect(request.zatoshis, 50000000);
+    });
+
+    test('typing a contact name at the recipient step fills the address', () {
+      final c = chat();
+      c.accept('send');
+      c.accept('  ALICE SMITH ');
+      expect(c.pending!.recipient, alice);
+      expect(c.accept('0.1').request!.recipient, alice);
+    });
+
+    test('an ambiguous name never picks a contact', () {
+      final c = chat();
+      final reply = c.accept('send 1 ZEC to bob');
+      expect(reply.request, isNull);
+      expect(reply.prompt, contains('More than one contact'));
+      expect(c.pending!.recipient, isNull);
+      expect(c.accept('Bob').prompt, contains('More than one contact'));
+      expect(c.pending!.recipient, isNull);
+    });
+
+    test('an unknown name asks for an address and keeps the amount', () {
+      final c = chat();
+      final reply = c.accept('send 1 ZEC to carol');
+      expect(reply.prompt, contains('No contact named “carol”'));
+      expect(c.pending!.zatoshis, 100000000);
+      expect(c.pending!.recipient, isNull);
+    });
+
+    test('partial names do not match', () {
+      final c = chat();
+      c.accept('send 1 ZEC');
+      expect(c.accept('Alice').request, isNull);
+      expect(c.pending!.recipient, isNull);
+    });
+  });
 }

@@ -207,13 +207,16 @@ class _SplashState extends State<SplashPage> {
             appStore.initialized = true;
 
             await minDisplayTime;
-            if (applinkUri != null) {
-              handleUri(applinkUri);
-            } else if (quickAction != null) {
+            if (quickAction != null && applinkUri == null) {
               handleQuickAction(context, quickAction);
             } else {
               logger.d('navigating to /account');
               GoRouter.of(context).go('/account');
+              // A launch link opens on top of the account, so closing it
+              // returns to the wallet instead of a dead splash screen.
+              if (applinkUri != null) {
+                WidgetsBinding.instance.addPostFrameCallback((_) => handleUri(applinkUri));
+              }
             }
           } else {
             await minDisplayTime;
@@ -302,7 +305,7 @@ class _SplashState extends State<SplashPage> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A1A2E),
+        backgroundColor: ZipherColors.surfaceLight,
         title: const Text('Wallet Database Upgrade Required',
             style: TextStyle(color: Colors.white)),
         content: const Text(
@@ -596,9 +599,10 @@ void handleUri(Uri uri) async {
     return;
   }
 
-  // HITL pairing deep link: zipher://pair?channel=...&relay=...
+  // HITL pairing link (protocol v1): zipher://pair?v=1&r=...&c=...
+  // Opens a confirmation screen; never pairs silently.
   if (uri.scheme == 'zipher' && uri.host == 'pair') {
-    await HitlWatchService.instance.pairFromUri(uri);
+    await HitlWatchService.instance.openPairing(raw);
     return;
   }
 

@@ -115,6 +115,11 @@ pub async fn engine_get_addresses() -> Result<Vec<AddressInfo>> {
     Ok(addrs.into_iter().map(|a| a.into()).collect())
 }
 
+/// A fresh shielded-only receive address (see `engine::query::next_shielded_address`).
+pub async fn engine_next_shielded_address() -> Result<AddressInfo> {
+    Ok(engine::query::next_shielded_address().await?.into())
+}
+
 pub async fn engine_get_transparent_addresses() -> Result<Vec<String>> {
     engine::query::get_transparent_addresses().await
 }
@@ -328,7 +333,15 @@ pub async fn engine_get_sync_progress() -> Result<EngineSyncProgress> {
     })
 }
 
+/// Bumped on every subscription; a forwarder thread exits once it is no
+/// longer the newest, so resubscribing (each wallet switch does) never
+/// leaves an extra thread blocked on the broadcast channel.
+static SYNC_EVENTS_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
+    use std::sync::atomic::Ordering;
+    let generation = SYNC_EVENTS_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let mut receiver = engine::sync::subscribe_events();
     // Send a definitive startup marker so Dart can confirm the event pipeline
     // is actually wired up end-to-end in the binary the user is running.
@@ -364,10 +377,14 @@ pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
         let mut forwarded: u64 = 0;
         let mut lagged_total: u64 = 0;
         loop {
-            match receiver.blocking_recv() {
+            let received = receiver.blocking_recv();
+            if SYNC_EVENTS_GENERATION.load(Ordering::SeqCst) != generation {
+                break;
+            }
+            match received {
                 Ok(event) => {
                     forwarded += 1;
-                    let _ = sink.add(EngineSyncEvent {
+                    let delivered = sink.add(EngineSyncEvent {
                         event_type: event.event_type,
                         scanning_up_to: event.scanning_up_to,
                         phase: event.phase,
@@ -385,6 +402,10 @@ pub fn engine_sync_events(sink: StreamSink<EngineSyncEvent>) -> Result<()> {
                         blocks_scanned: event.blocks_scanned,
                         blocks_total: event.blocks_total,
                     });
+                    if delivered.is_err() {
+                        // Dart cancelled the stream.
+                        break;
+                    }
                     if forwarded % 200 == 0 {
                         let _ = sink.add(EngineSyncEvent {
                             event_type: "engine_log".to_string(),
@@ -1980,4 +2001,128 @@ fn report_to_ffi(r: engine::ironwood_v2::ProgressReport) -> IronwoodSdkProgress 
         next_due_height: r.next_due_height,
         fees_paid_zat: r.fees_paid_zat,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Agent approvals (HITL relay, protocol v1) — phone side
+// ---------------------------------------------------------------------------
+//
+// Secrets crossing this boundary (`keys_hex`, `pairing_json`) must be kept in
+// platform secure storage by the caller and never logged.
+
+/// Shown to the user before they confirm pairing with an agent.
+pub struct HitlPairingPreview {
+    pub relay_url: String,
+    pub agent_name: String,
+    /// Must match the code printed by `zipher pair` on the agent.
+    pub check_code: String,
+}
+
+pub fn hitl_preview_pairing(uri: String) -> Result<HitlPairingPreview> {
+    let p = zipher_engine::hitl::phone_preview_pairing(&uri)?;
+    Ok(HitlPairingPreview { relay_url: p.relay_url, agent_name: p.agent_name, check_code: p.check_code })
+}
+
+/// New phone keys (hex). Store in secure storage.
+pub fn hitl_generate_phone_keys() -> String {
+    zipher_engine::hitl::phone_generate_keys()
+}
+
+/// Complete a pairing the user confirmed. Returns the pairing record (JSON,
+/// contains the phone's relay token) for secure storage.
+/// `state_dir` is the app documents directory (Tor state lives under it);
+/// `use_tor` routes relay traffic over Tor so the relay never sees the phone's IP.
+pub async fn hitl_complete_pairing(uri: String, keys_hex: String, state_dir: String, use_tor: bool) -> Result<String> {
+    let route = zipher_engine::hitl::PhoneRoute { state_dir: &state_dir, use_tor };
+    let pairing = zipher_engine::hitl::phone_complete_pairing(&uri, &keys_hex, &route).await?;
+    Ok(serde_json::to_string(&pairing)?)
+}
+
+/// Six-digit code the phone shows after pairing. `zipher pair` asks the
+/// operator to confirm their terminal shows the same one, which catches
+/// someone else's phone answering a leaked pairing code.
+pub fn hitl_paired_code(pairing_json: String, keys_hex: String) -> Result<String> {
+    let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
+    zipher_engine::hitl::phone_paired_code(&pairing, &keys_hex)
+}
+
+/// A decrypted approval request from the paired agent.
+pub struct HitlRequest {
+    pub approval_id: String,
+    pub network: String,
+    pub address: String,
+    pub amount: u64,
+    pub fee: u64,
+    pub memo: Option<String>,
+    pub context_id: Option<String>,
+    pub tool: String,
+    pub created_at: u64,
+    pub expires_at: u64,
+    /// Pass back unchanged to [`hitl_submit_decision`].
+    pub request_json: String,
+}
+
+pub async fn hitl_fetch_requests(
+    pairing_json: String,
+    keys_hex: String,
+    state_dir: String,
+    use_tor: bool,
+) -> Result<Vec<HitlRequest>> {
+    let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
+    let route = zipher_engine::hitl::PhoneRoute { state_dir: &state_dir, use_tor };
+    let reqs = zipher_engine::hitl::phone_fetch_requests(&pairing, &keys_hex, &route).await?;
+    reqs.into_iter()
+        .map(|r| {
+            let request_json = serde_json::to_string(&r)?;
+            Ok(HitlRequest {
+                approval_id: r.approval_id,
+                network: r.network,
+                address: r.address,
+                amount: r.amount,
+                fee: r.fee,
+                memo: r.memo,
+                context_id: r.context_id,
+                tool: r.tool,
+                created_at: r.created_at,
+                expires_at: r.expires_at,
+                request_json,
+            })
+        })
+        .collect()
+}
+
+/// Sign and send the user's decision. Call only after the user reviewed the
+/// full request and passed the app's auth barrier.
+pub async fn hitl_submit_decision(
+    pairing_json: String,
+    keys_hex: String,
+    request_json: String,
+    approved: bool,
+    state_dir: String,
+    use_tor: bool,
+) -> Result<()> {
+    let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
+    let request: zipher_engine::hitl::ApprovalRequest = serde_json::from_str(&request_json)?;
+    let route = zipher_engine::hitl::PhoneRoute { state_dir: &state_dir, use_tor };
+    zipher_engine::hitl::phone_submit_decision(&pairing, &keys_hex, &request, approved, &route).await
+}
+
+/// Register (or, with `apns_token` None, clear) content-free wake-up pushes
+/// for today's and the coming week's mailboxes.
+pub async fn hitl_set_push(
+    pairing_json: String,
+    apns_token: Option<String>,
+    sandbox: bool,
+    state_dir: String,
+    use_tor: bool,
+) -> Result<()> {
+    let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
+    let route = zipher_engine::hitl::PhoneRoute { state_dir: &state_dir, use_tor };
+    zipher_engine::hitl::phone_set_push(&pairing, &route, apns_token.as_deref().map(|t| (t, sandbox))).await
+}
+
+pub async fn hitl_unpair(pairing_json: String, state_dir: String, use_tor: bool) -> Result<()> {
+    let pairing: zipher_engine::hitl::PhonePairing = serde_json::from_str(&pairing_json)?;
+    let route = zipher_engine::hitl::PhoneRoute { state_dir: &state_dir, use_tor };
+    zipher_engine::hitl::phone_unpair(&pairing, &route).await
 }

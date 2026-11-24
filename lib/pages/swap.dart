@@ -377,7 +377,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                       decoration: BoxDecoration(
                         color: ZipherColors.cardBg,
                         borderRadius: BorderRadius.circular(ZipherRadius.md),
-                        border: Border.all(color: ZipherColors.borderSubtle),
+                        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -460,8 +460,9 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                     ),
 
                   // Confirm button
-                  GestureDetector(
-                    onTap: () async {
+                  ZipherButton(
+                    label: 'Confirm',
+                    onPressed: () async {
                       final authorized = await requireSigningAuthorization(ctx,
                           actionSummary: 'Confirm reviewed swap');
                       if (!authorized || !mounted) return;
@@ -469,22 +470,6 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                       await Future.delayed(const Duration(milliseconds: 300));
                       _executeSwap(quote, amountStr);
                     },
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      decoration: BoxDecoration(
-                        color: ZipherColors.cyan.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-                      ),
-                      child: Center(
-                        child: Text('Confirm',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: ZipherColors.cyan.withValues(alpha: 0.9),
-                            )),
-                      ),
-                    ),
                   ),
                 ],
               ),
@@ -763,30 +748,17 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                   fontSize: 13, color: ZipherColors.text40, height: 1.5),
             ),
             const Gap(24),
-            GestureDetector(
-              onTap: () {
+            ZipherButton(
+              label: 'Retry',
+              kind: ZipherButtonKind.tinted,
+              size: ZipherButtonSize.small,
+              onPressed: () {
                 setState(() {
                   _loadingTokens = true;
                   _error = null;
                 });
                 _loadTokens();
               },
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                decoration: BoxDecoration(
-                  color: ZipherColors.cyan.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(ZipherRadius.md),
-                  border: Border.all(
-                      color: ZipherColors.cyan.withValues(alpha: 0.15)),
-                ),
-                child: Text('Retry',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: ZipherColors.cyan.withValues(alpha: 0.8),
-                    )),
-              ),
             ),
           ],
         ),
@@ -922,8 +894,11 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                 ],
               ),
               const Gap(8),
-              GestureDetector(
-                onTap: () {
+              ZipherButton(
+                label: 'Max',
+                kind: ZipherButtonKind.tinted,
+                size: ZipherButtonSize.small,
+                onPressed: () {
                   final maxZec = _spendableZat / ZECUNIT;
                   final fee = 0.00001;
                   final maxSend = maxZec - fee;
@@ -931,20 +906,6 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                   _amountController.text = maxSend.toStringAsFixed(8);
                   _onAmountChanged('');
                 },
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: ZipherColors.cyan.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                  ),
-                  child: Text('MAX',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: ZipherColors.cyan.withValues(alpha: 0.6),
-                      )),
-                ),
               ),
             ],
           ],
@@ -954,7 +915,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
           height: 56,
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
+            borderRadius: BorderRadius.circular(ZipherRadius.card),
           ),
           child: Row(
             children: [
@@ -1033,7 +994,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
           height: 56,
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
+            borderRadius: BorderRadius.circular(ZipherRadius.card),
           ),
           child: Row(
             children: [
@@ -1169,7 +1130,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                       decoration: BoxDecoration(
                         color: ZipherColors.cardBg,
                         borderRadius: BorderRadius.circular(ZipherRadius.md),
-                        border: Border.all(color: ZipherColors.borderSubtle),
+                        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
                       ),
                       child: TextField(
                         controller: searchController,
@@ -1324,27 +1285,14 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
                     )),
               )
             else if (canSuggest)
-              GestureDetector(
-                onTap: () {
+              ZipherButton(
+                label: 'Use my address',
+                kind: ZipherButtonKind.secondary,
+                size: ZipherButtonSize.small,
+                onPressed: () {
                   _addressController.text = ownAddr;
                   setState(() => _error = null);
                 },
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: ZipherColors.cardBgElevated,
-                    borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                    border: Border.all(color: ZipherColors.borderSubtle),
-                  ),
-                  child: Text('USE MY ADDRESS',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
-                        color: ZipherColors.text40,
-                      )),
-                ),
               ),
           ],
         ),
@@ -1353,7 +1301,7 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
           height: 52,
           decoration: BoxDecoration(
             color: ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
+            borderRadius: BorderRadius.circular(ZipherRadius.card),
           ),
           child: Row(
             children: [
@@ -1554,54 +1502,11 @@ class _NearSwapPageState extends State<NearSwapPage> with WithLoadingAnimation {
     final enabled =
         hasAmount && hasAddress && _selectedToken != null && !_loadingQuote;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: enabled ? _getQuote : null,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            color: enabled
-                ? ZipherColors.cyan.withValues(alpha: 0.12)
-                : ZipherColors.cardBg,
-            borderRadius: BorderRadius.circular(ZipherRadius.lg),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (_loadingQuote)
-                SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: ZipherColors.cyan.withValues(alpha: 0.6),
-                  ),
-                )
-              else ...[
-                Icon(Icons.swap_horiz_rounded,
-                    size: 20,
-                    color: enabled
-                        ? ZipherColors.cyan.withValues(alpha: 0.9)
-                        : ZipherColors.text10),
-                const Gap(10),
-                Text(
-                  'Get a quote',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: enabled
-                        ? ZipherColors.cyan.withValues(alpha: 0.9)
-                        : ZipherColors.text40,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
+    return ZipherButton(
+      label: 'Get a quote',
+      icon: Icons.swap_horiz_rounded,
+      loading: _loadingQuote,
+      onPressed: enabled ? _getQuote : null,
     );
   }
 

@@ -6,6 +6,7 @@ pub mod evm_swap;
 pub mod fees;
 pub mod frost;
 pub mod hitl;
+pub(crate) mod hitl_net;
 pub mod ironwood;
 pub mod ironwood_v2;
 pub mod mpp;

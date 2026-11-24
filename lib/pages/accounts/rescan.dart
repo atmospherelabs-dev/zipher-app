@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../zipher_theme.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../services/wallet_service.dart';
@@ -67,11 +68,10 @@ class _RescanState extends State<RescanPage> {
                         TextStyle(color: Theme.of(context).colorScheme.error)),
                 const SizedBox(height: 16),
               ],
-              FilledButton(
-                onPressed: _running ? null : _recover,
-                child: Text(
-                    _running ? 'Starting recovery…' : 'Recover transactions'),
-              ),
+              ZipherButton(
+                key: const ValueKey('rescan-recover'),
+                label: _running ? 'Starting recovery…' : 'Recover transactions',
+                onPressed: _running ? null : _recover),
             ],
           ),
         ),

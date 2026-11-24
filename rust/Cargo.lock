@@ -4266,6 +4266,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+
+[[package]]
 name = "quinn"
 version = "0.11.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5696,7 +5702,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -8700,6 +8706,7 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "ows-lib",
+ "qrcode",
  "reqwest",
  "secrecy",
  "serde",
@@ -8721,16 +8728,20 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm 0.10.3",
  "anyhow",
+ "axum 0.8.9",
  "base64",
  "base64ct",
  "bip0039",
  "blake2b_simd",
+ "bytes",
  "ff",
  "frost-core",
  "frost-rerandomized",
  "futures-util",
  "hex",
  "hex-literal",
+ "http-body-util",
+ "hyper",
  "incrementalmerkletree",
  "lazy_static",
  "nonempty",
@@ -8774,7 +8785,29 @@ dependencies = [
  "zcash_script",
  "zeroize",
  "zip32",
+ "zipher-hitl-protocol",
+ "zipher-relay",
  "zipher-rng-compat",
+]
+
+[[package]]
+name = "zipher-hitl-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "blake2b_simd",
+ "chacha20poly1305 0.10.1",
+ "ed25519-dalek",
+ "hkdf",
+ "hmac 0.12.1",
+ "rand 0.8.7",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -8782,6 +8815,7 @@ name = "zipher-mcp-server"
 version = "0.3.1-rc.1"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "dirs",
  "ows-lib",
  "ows-signer",
@@ -8798,6 +8832,24 @@ dependencies = [
  "zakura-protocol",
  "zeroize",
  "zipher-engine",
+ "zipher-relay",
+]
+
+[[package]]
+name = "zipher-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.8.9",
+ "base64",
+ "http-body-util",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower 0.5.3",
+ "zipher-hitl-protocol",
 ]
 
 [[package]]

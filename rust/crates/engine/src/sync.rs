@@ -359,6 +359,26 @@ pub async fn stop() {
     emit_progress_event("phase_changed", None, None).await;
 }
 
+/// Stops sync and forgets everything the previous wallet reported.
+///
+/// Progress is process-wide, and [`set_progress`] only ever raises it, so
+/// without this a newly opened wallet inherits the old wallet's heights and
+/// [`ensure_synced`] can pass before the new wallet has scanned anything.
+/// Called whenever the active engine is replaced or dropped.
+pub async fn reset_for_new_wallet() {
+    stop().await;
+    {
+        let mut p = SYNC_PROGRESS.lock().await;
+        *p = SyncProgressInfo {
+            phase: SYNC_PHASE_IDLE.to_string(),
+            ..SyncProgressInfo::default()
+        };
+    }
+    STUCK_REORG_HEIGHT.store(0, Ordering::SeqCst);
+    STUCK_REORG_COUNT.store(0, Ordering::SeqCst);
+    emit_progress_event("phase_changed", None, None).await;
+}
+
 struct SyncTasks {
     scan: Option<tokio::task::JoinHandle<()>>,
     mempool: Option<tokio::task::JoinHandle<()>>,
@@ -978,7 +998,7 @@ async fn sync_once(
             }
             emit_progress_event("phase_changed", None, None).await;
 
-            let downloaded = download_range(&mut lwd, &range_clone).await?;
+            let downloaded = download_range(params, &mut lwd, &range_clone).await?;
             let verify_stats = downloaded.as_ref().map(|d| d.stats());
             let scan_started = Instant::now();
             let outcome = tokio::task::block_in_place(|| {
@@ -1094,7 +1114,7 @@ async fn sync_once(
                     }
                     let committed_before = wallet_fully_scanned_height(&mut db_data).unwrap_or(0);
                     let batch_started = Instant::now();
-                    let downloaded = download_range(&mut lwd, &current_range).await?;
+                    let downloaded = download_range(params, &mut lwd, &current_range).await?;
                     let download_ms = batch_started.elapsed().as_millis() as u64;
                     emit_log(&format!(
                         "batch {} [{:?}] {}..{}: downloaded in {} ms",
@@ -1168,6 +1188,7 @@ async fn sync_once(
                 // for up to 30 s after sync gave up on the pass.
                 let fetch_handle = AbortOnDrop::new(tokio::spawn(async move {
                     fetch_prefetched_ranges(
+                        params,
                         fetch_server_url,
                         fetch_client,
                         plan,
@@ -2437,6 +2458,7 @@ fn adjust_batch_size(current: u32, scan_elapsed_ms: u64) -> u32 {
 /// to the primary; if the primary also fails, the error propagates up
 /// and `sync_forever` handles retry / backoff.
 async fn fetch_prefetched_ranges(
+    params: Network,
     primary_server_url: String,
     primary_client: CompactTxStreamerClient<tonic::transport::Channel>,
     mut plan: BatchPlan,
@@ -2484,7 +2506,7 @@ async fn fetch_prefetched_ranges(
                 clients.insert(server_url.clone(), client);
             }
             let mut client = clients[&server_url].clone();
-            download_range(&mut client, &scan_range).await
+            download_range(params, &mut client, &scan_range).await
         }
         .await;
 
@@ -2505,7 +2527,7 @@ async fn fetch_prefetched_ranges(
                     batch_idx, error
                 ));
                 let mut primary = clients[&primary_server_url].clone();
-                (download_range(&mut primary, &scan_range).await?, true)
+                (download_range(params, &mut primary, &scan_range).await?, true)
             }
             Err(error) => return Err(error),
         };
@@ -2617,6 +2639,7 @@ fn smaller_download_batch(requested: u32, received: u32) -> u32 {
 
 /// Download independent block and tree-state requests on the same HTTP/2 channel.
 async fn download_range(
+    params: Network,
     lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
     scan_range: &zcash_client_backend::data_api::scanning::ScanRange,
 ) -> Result<Option<DownloadedRange>> {
@@ -2648,7 +2671,7 @@ async fn download_range(
         tokio::try_join!(
             download_blocks(lwd, range_start, range_end, &received),
             async {
-                let state = download_chain_state(&mut tree_client, range_start).await?;
+                let state = download_chain_state(params, &mut tree_client, range_start).await?;
                 tree_ready.store(true, Ordering::Relaxed);
                 Ok::<_, anyhow::Error>(state)
             },
@@ -3272,13 +3295,39 @@ async fn interruptible_sleep(ms: u64) -> Result<()> {
     Ok(())
 }
 
+/// Chain state just before `block_height`, which the scanner needs to start a
+/// batch there.
+///
+/// Before Sapling activation every shielded tree is empty by definition, and
+/// Zebra-backed lightwalletd servers refuse `GetTreeState` at those heights
+/// ("z_gettreestate did not return treestate"). A full-history wallet's first
+/// batch starts at Sapling activation, so it would never get past it; build
+/// the empty state locally and ask only for the block hash.
 async fn download_chain_state(
+    params: Network,
     lwd: &mut CompactTxStreamerClient<tonic::transport::Channel>,
     block_height: BlockHeight,
 ) -> Result<zcash_client_backend::data_api::chain::ChainState> {
     let prior_height = u32::from(block_height)
         .checked_sub(1)
         .ok_or_else(|| anyhow::anyhow!("cannot request tree state before genesis"))?;
+    if params
+        .activation_height(NetworkUpgrade::Sapling)
+        .map_or(false, |sapling| prior_height < u32::from(sapling))
+    {
+        let block = lwd
+            .get_block(BlockId {
+                height: u64::from(prior_height),
+                hash: vec![],
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("get_block: {:?}", e))?
+            .into_inner();
+        return Ok(zcash_client_backend::data_api::chain::ChainState::empty(
+            BlockHeight::from_u32(prior_height),
+            block.hash(),
+        ));
+    }
     let tree_state = lwd
         .get_tree_state(BlockId {
             height: u64::from(prior_height),
@@ -3842,5 +3891,21 @@ mod tests {
             );
             assert!(!dir.path().join("zipher-cache.sqlite").exists());
         }
+    }
+}
+
+#[cfg(test)]
+mod wallet_switch_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn new_wallet_does_not_inherit_previous_progress() {
+        set_progress(2_000_000, 2_000_001).await;
+        assert!(is_synced().await);
+        reset_for_new_wallet().await;
+        assert!(!is_synced().await);
+        assert!(ensure_synced().await.is_err());
+        let p = get_progress().await;
+        assert_eq!((p.synced_height, p.latest_height), (0, 0));
     }
 }

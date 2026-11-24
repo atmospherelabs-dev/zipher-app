@@ -2,14 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:screen_protector/screen_protector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../accounts.dart';
 import '../../coin/coins.dart';
+import '../../services/app_log.dart';
+import '../../services/backup_status.dart';
 import '../../services/wallet_service.dart';
 import '../../services/restore_birthday.dart';
+import '../../services/restore_checkpoints.dart';
 import '../../store2.dart';
 import '../../zipher_theme.dart';
 import 'bip39_wordlist.dart';
@@ -17,12 +19,21 @@ import 'bip39_wordlist.dart';
 /// Seed phrase restore — per-word grid with privacy masking, smart paste,
 /// BIP39 autocomplete, and optional wallet birthday.
 class RestoreAccountPage extends StatefulWidget {
+  RestoreAccountPage({super.key, @visibleForTesting this.initialStep = 0});
+
+  /// Tests and screenshots can open the date step directly; the app always
+  /// starts at the phrase, which must validate before the date step.
+  final int initialStep;
+
   @override
   State<RestoreAccountPage> createState() => _RestoreAccountPageState();
 }
 
 class _RestoreAccountPageState extends State<RestoreAccountPage> {
   bool _loading = false;
+
+  /// 0: recovery phrase, 1: when the wallet was first used.
+  late int _step = widget.initialStep;
   String? _error;
   bool _seedVisible = false;
   int _wordCount = 24;
@@ -34,7 +45,6 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
   List<String> _suggestions = [];
 
   DateTime? _selectedDate;
-  bool _showDatePicker = false;
   int? _expandedYear;
   bool _showBlockInput = false;
   final _blockHeightController = TextEditingController();
@@ -207,186 +217,208 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
   Widget build(BuildContext context) {
     final showWords = _seedVisible && !_loading;
 
-    return Scaffold(
-      backgroundColor: ZipherColors.bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Gap(12),
-                    IconButton(
-                      onPressed: () => GoRouter.of(context).pop(),
-                      icon: Icon(Icons.arrow_back_rounded,
-                          color: ZipherColors.text60, size: 22),
-                    ),
-                    const Gap(24),
-                    Text(
-                      'Import Account',
-                      style: TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w700,
-                        color: ZipherColors.text90,
-                        letterSpacing: -0.5,
+    return PopScope(
+      canPop: _step == 0 && !_loading,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _step == 1 && !_loading) setState(() => _step = 0);
+      },
+      child: Scaffold(
+        backgroundColor: ZipherColors.bg,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Gap(8),
+                      IconButton(
+                        tooltip: 'Back',
+                        onPressed: _loading
+                            ? null
+                            : () => _step == 1
+                                ? setState(() => _step = 0)
+                                : GoRouter.of(context).pop(),
+                        icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                            color: ZipherColors.text90, size: 20),
                       ),
-                    ),
-                    const Gap(8),
-                    Text(
-                      'Enter your seed phrase to restore an existing Zcash wallet.',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: ZipherColors.text40,
-                        height: 1.4,
-                      ),
-                    ),
-                    const Gap(24),
-
-                    // ── 1 · Wallet birthday ──────────────────────────────────
-                    // Surfaced first so it isn't missed at the bottom of a
-                    // long seed-phrase grid. Setting this turns a 30-minute
-                    // restore into a 30-second one for recent wallets.
-                    _sectionStep(number: '1', label: 'Wallet birthday'),
-                    const Gap(10),
-                    _buildBirthdaySection(),
-                    const Gap(10),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 1),
-                          child: Icon(Icons.info_outline_rounded,
-                              size: 14, color: ZipherColors.text20),
-                        ),
-                        const Gap(8),
-                        Expanded(
-                          child: Text(
-                            _birthdayInfoText,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: ZipherColors.text40,
-                              height: 1.4,
-                            ),
-                          ),
+                      const Gap(12),
+                      if (_step == 0) ..._phraseStep(showWords),
+                      if (_step == 1) ..._dateStep(),
+                      if (_error != null) ...[
+                        const Gap(10),
+                        Text(
+                          _error!,
+                          style: ZipherType.footnote
+                              .copyWith(color: ZipherColors.negative),
                         ),
                       ],
-                    ),
-                    const Gap(24),
-
-                    // ── 2 · Seed phrase ──────────────────────────────────────
-                    _sectionStep(number: '2', label: 'Seed phrase'),
-                    const Gap(10),
-                    Row(
-                      children: [
-                        GestureDetector(
-                          onTap: () =>
-                              setState(() => _seedVisible = !_seedVisible),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                _seedVisible
-                                    ? Icons.visibility_off_rounded
-                                    : Icons.visibility_rounded,
-                                size: 14,
-                                color: ZipherColors.text20,
-                              ),
-                              const Gap(4),
-                              Text(
-                                _seedVisible ? 'Hide All' : 'Show All',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  color: ZipherColors.text40,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Spacer(),
-                        _buildWordCountToggle(),
-                      ],
-                    ),
-                    const Gap(12),
-                    _buildWordGrid(showWords),
-                    if (_error != null) ...[
-                      const Gap(10),
-                      Text(
-                        _error!,
-                        style: TextStyle(
-                          color: ZipherColors.red.withValues(alpha: 0.8),
-                          fontSize: 13,
-                        ),
-                      ),
+                      const Gap(24),
                     ],
-                    const Gap(24),
-                  ],
+                  ),
                 ),
               ),
-            ),
-
-            // Restore button
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-              child: SizedBox(
-                width: double.infinity,
-                child: _loading
-                    ? Center(
-                        child: SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: CircularProgressIndicator(
-                            color: ZipherColors.cyan,
-                            strokeWidth: 2,
-                          ),
-                        ),
+              ZipherWidgets.bottomActions([
+                _step == 0
+                    ? ZipherButton(
+                        label: 'Continue',
+                        onPressed: _allFilled ? _continue : null,
+                        loading: _loading,
                       )
-                    : ZipherWidgets.gradientButton(
-                        label: _restoreButtonLabel,
-                        icon: Icons.download_done_rounded,
+                    : ZipherButton(
+                        label: 'Restore',
                         onPressed: _restore,
-                        enabled: _allFilled,
+                        loading: _loading,
                       ),
-              ),
-            ),
-          ],
+              ]),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  String get _restoreButtonLabel {
-    if (_blockHeightController.text.trim().isNotEmpty) {
-      return 'Restore after block ${_blockHeightController.text.trim()}';
+  List<Widget> _phraseStep(bool showWords) => [
+        const Text('Enter your recovery phrase', style: ZipherType.largeTitle),
+        const Gap(8),
+        const Text('The 12 or 24 words you wrote down for this wallet.',
+            style: ZipherType.subhead),
+        const Gap(20),
+        Row(
+          children: [
+            ZipherButton(
+              label: 'Paste',
+              icon: Icons.content_paste_rounded,
+              kind: ZipherButtonKind.secondary,
+              size: ZipherButtonSize.small,
+              onPressed: _pasteFromClipboard,
+            ),
+            const Gap(8),
+            ZipherButton(
+              label: _seedVisible ? 'Hide' : 'Show',
+              icon: _seedVisible
+                  ? Icons.visibility_off_rounded
+                  : Icons.visibility_rounded,
+              kind: ZipherButtonKind.plain,
+              size: ZipherButtonSize.small,
+              color: ZipherColors.text60,
+              onPressed: () => setState(() => _seedVisible = !_seedVisible),
+            ),
+            const Spacer(),
+            _buildWordCountToggle(),
+          ],
+        ),
+        const Gap(12),
+        _buildWordGrid(showWords),
+      ];
+
+  List<Widget> _dateStep() => [
+        const Text('When did you start using it?',
+            style: ZipherType.largeTitle),
+        const Gap(8),
+        const Text(
+            'Roughly is fine; it only makes the first sync faster. If in doubt, pick an earlier year or Not sure.',
+            style: ZipherType.subhead),
+        const Gap(20),
+        _buildBirthdaySection(),
+      ];
+
+  /// Check the phrase before asking about dates, so a typo is fixed here.
+  Future<void> _continue() async {
+    setState(() => _error = null);
+    _validateAllWords();
+    if (_invalidWords.isNotEmpty) {
+      final nums = _invalidWords.map((i) => '#${i + 1}').join(', ');
+      setState(() => _error = 'Check word $nums: it isn’t a recovery word.');
+      return;
     }
-    return 'Restore (full scan)';
+    final words = _controllers
+        .map((c) => c.text.trim().toLowerCase())
+        .where((w) => w.isNotEmpty)
+        .toList();
+    if (![12, 15, 18, 21, 24].contains(words.length)) {
+      setState(() => _error = 'A recovery phrase has 12 or 24 words.');
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final valid = await WalletService.instance.validateSeed(words.join(' '));
+      if (!mounted) return;
+      setState(() {
+        if (valid) {
+          _step = 1;
+          FocusScope.of(context).unfocus();
+        } else {
+          _error =
+              'These words don’t form a valid recovery phrase. Check their order and spelling.';
+        }
+      });
+    } catch (e) {
+      AppLog.instance.event('restore', 'validate_failed', error: e);
+      if (mounted) setState(() => _error = restoreErrorMessage(e));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
-  String get _birthdayInfoText {
-    if (_blockHeightController.text.trim().isNotEmpty) {
-      return 'Scanning after block ${_blockHeightController.text.trim()}. '
-          'Transactions at or before this height won\'t appear.';
-    }
-    if (_selectedDate != null) {
-      return 'The selected date cannot safely determine a block height. '
-          'A full history scan takes longer and recovers earlier transactions too. '
-          'Enter a known block height to shorten the scan.';
-    }
-    return 'Full scan from chain activation. '
-        'This is thorough but takes longer.';
+  /// Paste the whole phrase at once; the word count is detected.
+  Future<void> _pasteFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text?.trim() ?? '';
+    if (text.isEmpty || !mounted) return;
+    final words = text.split(RegExp(r'[\s,]+'));
+    if (words.length == 12 || words.length == 24) _setWordCount(words.length);
+    _handlePaste(0, text);
+    // Don't leave the phrase on the clipboard for other apps.
+    await Clipboard.setData(const ClipboardData(text: ''));
   }
 
-  // ── Word count toggle (12 | 24) ──────────────────────────────────────
+  static const _monthNames = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+
+  /// Where the scan will start, in words.
+  String get _startSummary {
+    final height = _blockHeightController.text.trim();
+    if (height.isNotEmpty) {
+      return 'Starts after block $height. Payments before it won’t be found.';
+    }
+    final date = _selectedDate;
+    if (date == null ||
+        isTestnet ||
+        restoreAnchorForDate(date, testnet: isTestnet) == null) {
+      return isTestnet && date != null
+          ? 'On testnet, dates can’t shorten the scan, so it covers everything. Enter a block height to go faster.'
+          : 'Scans everything since 2018. Slower, but finds every payment.';
+    }
+    var year = date.year;
+    var month = date.month - 1;
+    if (month == 0) {
+      month = 12;
+      year -= 1;
+    }
+    return 'Starts from ${_monthNames[month - 1]} $year, a month early to be safe.';
+  } // ── Word count toggle (12 | 24) ──────────────────────────────────────
 
   Widget _buildWordCountToggle() {
     return Container(
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
         borderRadius: BorderRadius.circular(ZipherRadius.sm),
-        border: Border.all(color: ZipherColors.borderSubtle),
+        border: Border.all(color: ZipherColors.borderSubtle, width: 0.5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -586,247 +618,102 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
   // ── Step header ──────────────────────────────────────────────────────
   // Compact "1 · Wallet birthday" / "2 · Seed phrase" header so the two
   // import inputs read as a numbered checklist instead of a scroll soup.
-  Widget _sectionStep({required String number, required String label}) {
-    return Row(
-      children: [
-        Container(
-          width: 20,
-          height: 20,
-          decoration: BoxDecoration(
-            color: ZipherColors.cyan.withValues(alpha: 0.10),
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: ZipherColors.cyan.withValues(alpha: 0.25),
-              width: 0.5,
-            ),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            number,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: ZipherColors.cyan.withValues(alpha: 0.85),
-            ),
-          ),
-        ),
-        const Gap(10),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: ZipherColors.text90,
-            letterSpacing: 0.2,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── Birthday section ─────────────────────────────────────────────────
-
   Widget _buildBirthdaySection() {
+    final now = DateTime.now();
+    final years = [
+      for (int y = now.year; y >= _sapling.year; y--) y,
+    ];
+    final picking = _selectedDate != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Date picker header
-        GestureDetector(
-          onTap: () => setState(() {
-            _showDatePicker = !_showDatePicker;
-            if (!_showDatePicker) _expandedYear = null;
-          }),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: _selectedDate != null
-                  ? ZipherColors.cyan.withValues(alpha: 0.04)
-                  : ZipherColors.cardBg,
-              borderRadius: BorderRadius.circular(ZipherRadius.md),
-              border: Border.all(
-                color: _selectedDate != null
-                    ? ZipherColors.cyan.withValues(alpha: 0.15)
-                    : ZipherColors.borderSubtle,
-              ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _choiceChip(
+              label: 'Not sure',
+              selected: !picking && _blockHeightController.text.isEmpty,
+              onTap: () => setState(() {
+                _selectedDate = null;
+                _expandedYear = null;
+                _blockHeightController.clear();
+                _showBlockInput = false;
+              }),
             ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.calendar_today_rounded,
-                  size: 16,
-                  color: _selectedDate != null
-                      ? ZipherColors.cyan.withValues(alpha: 0.7)
-                      : ZipherColors.text20,
-                ),
-                const Gap(12),
-                Expanded(
+            for (final year in years)
+              _choiceChip(
+                label: '$year',
+                selected: _selectedDate?.year == year,
+                onTap: () => setState(() {
+                  // A year alone means January; the month row can narrow it.
+                  _selectedDate = DateTime(year);
+                  _expandedYear = year;
+                  _blockHeightController.clear();
+                  _showBlockInput = false;
+                }),
+              ),
+          ],
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          child: _expandedYear != null
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _selectedDate != null
-                            ? DateFormat.yMMM().format(_selectedDate!)
-                            : 'Wallet birthday',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: _selectedDate != null
-                              ? ZipherColors.text90
-                              : ZipherColors.text60,
-                        ),
-                      ),
-                      if (_selectedDate == null &&
-                          _blockHeightController.text.trim().isEmpty) ...[
-                        const Gap(2),
-                        Text(
-                          'Optional \u2014 speeds up scanning',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: ZipherColors.text40,
-                          ),
-                        ),
-                      ],
+                      const Text('Remember the month? (optional)',
+                          style: ZipherType.footnote),
+                      const Gap(8),
+                      _buildMonthGrid(_expandedYear!, now),
                     ],
                   ),
-                ),
-                if (_selectedDate != null)
-                  GestureDetector(
-                    onTap: () => setState(() {
-                      _selectedDate = null;
-                      _expandedYear = null;
-                    }),
-                    child: Icon(
-                      Icons.close_rounded,
-                      size: 16,
-                      color: ZipherColors.text20,
-                    ),
-                  )
-                else
-                  Icon(
-                    _showDatePicker
-                        ? Icons.keyboard_arrow_up_rounded
-                        : Icons.keyboard_arrow_down_rounded,
-                    size: 18,
-                    color: ZipherColors.text20,
-                  ),
-              ],
-            ),
-          ),
-        ),
-
-        // Year/month grid
-        AnimatedSize(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOutCubic,
-          child: _showDatePicker
-              ? Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: _buildYearMonthPicker(),
                 )
               : const SizedBox.shrink(),
         ),
-
-        const Gap(10),
-
-        // "Or enter block height" toggle
-        GestureDetector(
-          onTap: () => setState(() {
-            _showBlockInput = !_showBlockInput;
-            if (!_showBlockInput) {
-              _blockHeightController.clear();
-            }
-          }),
-          child: Row(
-            children: [
-              Icon(
-                Icons.tag_rounded,
-                size: 14,
-                color: _showBlockInput
-                    ? ZipherColors.cyan.withValues(alpha: 0.6)
-                    : ZipherColors.text20,
-              ),
-              const Gap(6),
-              Text(
-                'Or enter block height',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: _showBlockInput
-                      ? ZipherColors.cyan.withValues(alpha: 0.7)
-                      : ZipherColors.text40,
-                ),
-              ),
-              const Gap(4),
-              Icon(
-                _showBlockInput
-                    ? Icons.keyboard_arrow_up_rounded
-                    : Icons.keyboard_arrow_right_rounded,
-                size: 16,
-                color: ZipherColors.text20,
-              ),
-            ],
+        const Gap(12),
+        Text(_startSummary, style: ZipherType.footnote),
+        const Gap(4),
+        Wrap(spacing: 4, children: [
+          ZipherButton(
+            label: 'Pick an exact date',
+            kind: ZipherButtonKind.plain,
+            size: ZipherButtonSize.small,
+            onPressed: _pickExactDate,
           ),
-        ),
-
+          ZipherButton(
+            label: _showBlockInput ? 'Hide block height' : 'Use a block height',
+            kind: ZipherButtonKind.plain,
+            size: ZipherButtonSize.small,
+            color: ZipherColors.text60,
+            onPressed: () => setState(() {
+              _showBlockInput = !_showBlockInput;
+              if (!_showBlockInput) _blockHeightController.clear();
+            }),
+          ),
+        ]),
         AnimatedSize(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
           child: _showBlockInput
               ? Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: SizedBox(
-                    height: 42,
-                    child: TextField(
-                      controller: _blockHeightController,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                      ],
-                      onChanged: (v) {
-                        if (v.isNotEmpty && _selectedDate != null) {
-                          setState(() {
-                            _selectedDate = null;
-                            _showDatePicker = false;
-                            _expandedYear = null;
-                          });
-                        } else {
-                          setState(() {});
-                        }
-                      },
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: ZipherColors.text90,
-                        fontFamily: 'JetBrainsMono',
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'e.g. 2500000',
-                        hintStyle: TextStyle(
-                          fontSize: 14,
-                          color: ZipherColors.text20,
-                        ),
-                        filled: true,
-                        fillColor: ZipherColors.cardBg,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                        isDense: true,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                          borderSide:
-                              BorderSide(color: ZipherColors.borderSubtle),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                          borderSide:
-                              BorderSide(color: ZipherColors.borderSubtle),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                          borderSide: BorderSide(
-                            color: ZipherColors.cyan.withValues(alpha: 0.4),
-                          ),
-                        ),
-                      ),
+                  child: TextField(
+                    controller: _blockHeightController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    onChanged: (v) => setState(() {
+                      if (v.isNotEmpty) {
+                        _selectedDate = null;
+                        _expandedYear = null;
+                      }
+                    }),
+                    style: ZipherType.body,
+                    decoration: const InputDecoration(
+                      hintText: 'Block height, e.g. 2500000',
+                      isDense: true,
                     ),
                   ),
                 )
@@ -836,94 +723,59 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
     );
   }
 
-  Widget _buildYearMonthPicker() {
+  Future<void> _pickExactDate() async {
     final now = DateTime.now();
-    final startYear = _sapling.year + 1;
-    final years = <int>[];
-    for (int y = startYear; y <= now.year; y++) {
-      years.add(y);
-    }
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? now,
+      firstDate: _sapling,
+      lastDate: now,
+      helpText: 'When did you start using this wallet?',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _selectedDate = picked;
+      _expandedYear = picked.year;
+      _blockHeightController.clear();
+      _showBlockInput = false;
+    });
+  }
 
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.md),
-        border: Border.all(color: ZipherColors.borderSubtle),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'When was this wallet created?',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: ZipherColors.text40,
+  Widget _choiceChip(
+          {required String label,
+          required bool selected,
+          required VoidCallback onTap}) =>
+      Semantics(
+        button: true,
+        selected: selected,
+        child: GestureDetector(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: selected
+                  ? ZipherColors.cyan.withValues(alpha: 0.14)
+                  : Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(ZipherRadius.full),
+              border: Border.all(
+                color: selected
+                    ? ZipherColors.cyan.withValues(alpha: 0.4)
+                    : Colors.white.withValues(alpha: 0.12),
+                width: 0.5,
+              ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: selected ? ZipherColors.cyan : ZipherColors.text90,
+              ),
             ),
           ),
-          const Gap(12),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: years.map((year) {
-              final isSelected = _selectedDate?.year == year;
-              final isExpanded = _expandedYear == year;
-              return GestureDetector(
-                onTap: () => setState(() {
-                  if (_expandedYear == year) {
-                    _expandedYear = null;
-                  } else {
-                    _expandedYear = year;
-                  }
-                }),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: isExpanded
-                        ? ZipherColors.cyan.withValues(alpha: 0.12)
-                        : isSelected
-                            ? ZipherColors.cyan.withValues(alpha: 0.08)
-                            : Colors.white.withValues(alpha: 0.02),
-                    borderRadius: BorderRadius.circular(ZipherRadius.sm),
-                    border: Border.all(
-                      color: isExpanded
-                          ? ZipherColors.cyan.withValues(alpha: 0.3)
-                          : isSelected
-                              ? ZipherColors.cyan.withValues(alpha: 0.2)
-                              : ZipherColors.borderSubtle,
-                    ),
-                  ),
-                  child: Text(
-                    '$year',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: isExpanded || isSelected
-                          ? ZipherColors.cyan
-                          : ZipherColors.text60,
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            child: _expandedYear != null
-                ? Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: _buildMonthGrid(_expandedYear!, now),
-                  )
-                : const SizedBox.shrink(),
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
 
   Widget _buildMonthGrid(int year, DateTime now) {
     const months = [
@@ -964,10 +816,8 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
               ? null
               : () => setState(() {
                     _selectedDate = DateTime(year, i + 1);
-                    _showDatePicker = false;
-                    _expandedYear = null;
-                    // Clear block height if user picks a date
                     _blockHeightController.clear();
+                    _showBlockInput = false;
                   }),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
@@ -1044,6 +894,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
       final birthday = restoreBirthdayFromInput(
         blockHeight: _blockHeightController.text,
         selectedDate: _selectedDate,
+        testnet: isTestnet,
       );
 
       final walletName = isTestnet ? 'Testnet Wallet' : 'Restored Wallet';
@@ -1061,6 +912,8 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
       print('[Restore] calling restoreWallet...');
       await ws.restoreWallet(walletName, seed, birthday);
       print('[Restore] restoreWallet returned');
+      // The user already had the phrase; no backup reminder for this wallet.
+      await BackupStatus.instance.markBackedUp(ws.activeWalletId);
 
       aa = ActiveAccount2(
         coin: activeCoin.coin,
@@ -1068,6 +921,7 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
         name: walletName,
         address: '',
         canPay: true,
+        walletId: ws.activeWalletId ?? '',
       );
 
       final prefs = await SharedPreferences.getInstance();
@@ -1082,9 +936,33 @@ class _RestoreAccountPageState extends State<RestoreAccountPage> {
             const Duration(milliseconds: 500), () => startAutoSync());
       }
     } catch (e) {
-      setState(() => _error = e.toString());
+      // Raw engine errors carry server metadata; keep them in the debug log.
+      AppLog.instance.event('restore', 'failed', error: e);
+      if (mounted) setState(() => _error = restoreErrorMessage(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
+}
+
+/// A sentence for the user when a restore can't start.
+String restoreErrorMessage(Object error) {
+  final text = error.toString().toLowerCase();
+  if (text.contains('invalid seed') || text.contains('mnemonic')) {
+    return 'That recovery phrase isn’t valid. Check each word and try again.';
+  }
+  if (text.contains('tor')) {
+    return 'Couldn’t connect over Tor. Try again, or turn Tor off in Wallet status.';
+  }
+  if (text.contains('get_tree_state') ||
+      text.contains('get_block') ||
+      text.contains('get_latest_block') ||
+      text.contains('transport') ||
+      text.contains('connect') ||
+      text.contains('unavailable') ||
+      text.contains('timed out')) {
+    return 'Couldn’t get what’s needed from the Zcash server to start the restore. '
+        'Try again, or choose another server in Preferences.';
+  }
+  return 'The restore didn’t start. Try again.';
 }

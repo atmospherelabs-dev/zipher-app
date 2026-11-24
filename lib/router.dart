@@ -38,8 +38,11 @@ import 'pages/frost/frost_recovery.dart';
 import 'pages/frost/frost_sign_coordinator.dart';
 import 'pages/frost/frost_hub.dart';
 import 'pages/hitl/hitl_approve.dart';
+import 'pages/hitl/hitl_agent.dart';
+import 'pages/hitl/hitl_pair.dart';
 import 'services/cipherpay_client.dart';
 import 'services/hitl_watch_service.dart';
+import 'src/rust/api/engine_api.dart' as rust_engine;
 import 'pages/tx.dart';
 import 'pages/scan.dart';
 import 'pages/showqr.dart';
@@ -489,10 +492,28 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/hitl/approve',
+      parentNavigatorKey: rootNavigatorKey,
       pageBuilder: (context, state) {
         final extra = state.extra;
-        if (extra is HitlApprovalRequest) {
+        if (extra is rust_engine.HitlRequest) {
           return _slideUpPage(HitlApprovePage(request: extra), state);
+        }
+        return _slideUpPage(const Scaffold(), state);
+      },
+    ),
+    GoRoute(
+      path: '/hitl/agent',
+      parentNavigatorKey: rootNavigatorKey,
+      pageBuilder: (context, state) =>
+          _slideUpPage(const HitlAgentPage(), state),
+    ),
+    GoRoute(
+      path: '/hitl/pair',
+      parentNavigatorKey: rootNavigatorKey,
+      pageBuilder: (context, state) {
+        final extra = state.extra;
+        if (extra is HitlPairingArgs) {
+          return _slideUpPage(HitlPairPage(args: extra), state);
         }
         return _slideUpPage(const Scaffold(), state);
       },
@@ -623,14 +644,18 @@ class _ScaffoldBar extends State<ScaffoldBar> {
                                 duration: const Duration(milliseconds: 200),
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 16, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: isActive
-                                      ? ZipherColors.cyan
-                                          .withValues(alpha: 0.10)
-                                      : Colors.transparent,
-                                  borderRadius:
-                                      BorderRadius.circular(ZipherRadius.md),
-                                ),
+                                decoration: isActive
+                                    ? ZipherGlass.decoration(
+                                        radius: BorderRadius.circular(
+                                            ZipherRadius.md),
+                                        tint: ZipherColors.cyan)
+                                    : BoxDecoration(
+                                        border: Border.all(
+                                            color: Colors.transparent,
+                                            width: .5),
+                                        borderRadius: BorderRadius.circular(
+                                            ZipherRadius.md),
+                                      ),
                                 child: Icon(
                                   isActive
                                       ? activeIcons[navIndex]

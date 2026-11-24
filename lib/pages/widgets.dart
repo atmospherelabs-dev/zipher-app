@@ -36,7 +36,7 @@ class Panel extends StatelessWidget {
       decoration: BoxDecoration(
         color: ZipherColors.surface,
         borderRadius: BorderRadius.circular(ZipherRadius.md),
-        border: Border.all(color: ZipherColors.border),
+        border: Border.all(color: ZipherColors.border, width: 0.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -218,7 +218,7 @@ class MosaicWidget extends StatelessWidget {
             decoration: BoxDecoration(
               color: ZipherColors.surface,
               borderRadius: BorderRadius.circular(ZipherRadius.md),
-              border: Border.all(color: ZipherColors.border),
+              border: Border.all(color: ZipherColors.border, width: 0.5),
             ),
             child: ListTile(
               leading: SizedBox(width: 40, child: button.icon),

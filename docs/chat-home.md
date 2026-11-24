@@ -9,17 +9,20 @@ classic dashboard remains at `/account/overview`; mainnet navigation is Home and
 Home uses one dollar portfolio total. Tapping it expands asset rows; holding the
 amount or tapping the ZEC row opens the pool sheet. Unknown prices are not guessed
 or added to the total. USD Zcash quotes are kept separate from other fiat settings.
-The top-left account control opens the existing account switcher. A top-right
-shield lights up for fully shielded ZEC, alongside a green/yellow/red sync dot with
-its current percentage. Both controls open their details.
+The top-left account control opens the existing account switcher. The top right
+has one status pill: a green/yellow/red sync dot with its word or percentage, and a
+lock while Zcash traffic uses Tor. It opens Wallet status, which lists sync, network
+route (Tor controls), shielding (pool sheet) and the paired agent. The agent screen
+is also in More → Agent. Design rules: `docs/design-system.md`.
 
 Shared opaque surface and text tokens keep sheets, chat cards, inputs and pages
 consistent. The pool sheet uses the root navigator and an opaque surface, covering
 the composer and bottom navigation. Pool colors use the shared pool tokens.
-Home has two mutually exclusive tabs: Chat and Activity. Chat is the default and
+Home has two mutually exclusive views, Chat and Activity. There is no tab bar: the header's Activity button (with a badge counting items in progress) switches to Activity, whose Done button returns to the chat. Chat is the default and
 contains messages, action shortcuts and the composer. Activity uses the full
 remaining height, with pending Zcash transfers and active NEAR Intents swaps
-first, followed by recent transactions and completed swap results. Chat controls
+first ("In progress"), followed by settled transactions and swap results grouped
+by day. Chat controls
 are hidden in Activity; returning to Chat preserves its messages, draft and scroll.
 The Activity badge counts pending items. New events update the badge without
 changing the user's selected tab. Each row opens its transaction or swap details;
@@ -37,9 +40,17 @@ actually detected; the panel does not predict undiscovered transfers.
 
 - **Send:** `send` → recipient → amount → review → Send ZEC → device authentication. Either field can be
   supplied first. `I want to send 0.5 ZEC to u1…` collects both in one message.
+  The recipient can be a saved Zcash contact's name (`send 0.5 to Alice`, or the
+  name alone at the recipient step); saved contacts are offered as chips. Names
+  match exactly (case-insensitive); a name shared by two contacts or unknown asks
+  for the address instead of guessing, and the review shows `Alice · u1…`.
   Invalid replies retain the draft; `cancel` discards it.
 - **Receive:** `my address` / `receive` → supported-chain buttons → full address,
-  QR and Copy. `my Bitcoin address` goes directly to that address. Available
+  QR and Copy. Zcash shows a new shielded-only unified address (Orchard, plus
+  Sapling where the diversifier allows; never a transparent receiver) each time,
+  so payers can't link payments; all earlier addresses keep receiving. If a new
+  one can't be made, the wallet's existing address is shown. Bitcoin, Solana and
+  EVM addresses are fixed. `my Bitcoin address` goes directly to that address. Available
   mainnet derivations: Zcash, Bitcoin, Solana, Ethereum, Base, Arbitrum, Optimism,
   Polygon and BSC. Foreign choices require the wallet's actual derived address;
   testnet only offers Zcash Testnet. Zcash receive activates fast sync polling.
@@ -76,7 +87,7 @@ separately through configured Alchemy RPC or public RPC services, which necessar
 receive the public EVM address; these reads remain separate from private Zcash scanning. Chat messages/drafts stay in memory and are
 reset on wallet changes. Existing swap records remain in local SwapStore.
 Provider quotes necessarily disclose recipient/refund addresses to NEAR Intents;
-this is described in the review. Cross-chain privacy is not equivalent to a
+this is described under the review's Details. Cross-chain privacy is not equivalent to a
 shielded Zcash transfer.
 
 ## Payment correctness
@@ -88,6 +99,8 @@ address characters cannot become payment amounts. The Rust engine remains the
 checksum/network/available-funds authority.
 
 A send review includes the complete recipient, amount, actual fee and total.
+While a review is open, Cancel and Confirm are pinned above the composer; the
+priority-fee choice, swap limits and addresses are under Details.
 Review cards are one-use, including cancellation and taps before a frame rebuild.
 Starting another command invalidates the old review. WalletService checks the
 proposal revision, wallet and network before accessing signing keys; proposal

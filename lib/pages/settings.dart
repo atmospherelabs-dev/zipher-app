@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:protobuf/protobuf.dart';
 
 import '../accounts.dart';
+import '../services/hitl_watch_service.dart';
 import '../services/wallet_service.dart';
 import '../zipher_theme.dart';
 import '../coin/coins.dart';
@@ -106,18 +107,13 @@ class _SettingsState extends State<SettingsPage> {
         backgroundColor: ZipherColors.bg,
         elevation: 0,
         title: Text(
-          'PREFERENCES',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1.5,
-            color: ZipherColors.text60,
-          ),
+          'Preferences',
+          style: ZipherType.headline,
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded,
-              color: ZipherColors.text60),
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              size: 20, color: ZipherColors.text90),
           onPressed: () => GoRouter.of(context).pop(),
         ),
         actions: [
@@ -142,7 +138,7 @@ class _SettingsState extends State<SettingsPage> {
               Container(
                 decoration: BoxDecoration(
                   color: ZipherColors.cardBg,
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                  borderRadius: BorderRadius.circular(ZipherRadius.card),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: DropdownButtonHideUnderline(
@@ -175,7 +171,7 @@ class _SettingsState extends State<SettingsPage> {
               Container(
                 decoration: BoxDecoration(
                   color: ZipherColors.cardBg,
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                  borderRadius: BorderRadius.circular(ZipherRadius.card),
                 ),
                 child: TextField(
                   controller: TextEditingController(text: appSettings.memo),
@@ -208,30 +204,12 @@ class _SettingsState extends State<SettingsPage> {
               Row(
                 children: [
                   Expanded(child: _sectionLabel('Server')),
-                  GestureDetector(
-                    onTap: _pinging ? null : _pingAllServers,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.speed_rounded,
-                          size: 13,
-                          color: _pinging
-                              ? ZipherColors.text10
-                              : ZipherColors.cyan.withValues(alpha: 0.5),
-                        ),
-                        const Gap(4),
-                        Text(
-                          _pinging ? 'Testing...' : 'Test latency',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _pinging
-                                ? ZipherColors.text40
-                                : ZipherColors.cyan.withValues(alpha: 0.5),
-                          ),
-                        ),
-                      ],
-                    ),
+                  ZipherButton(
+                    label: _pinging ? 'Testing...' : 'Test latency',
+                    icon: Icons.speed_rounded,
+                    kind: ZipherButtonKind.plain,
+                    size: ZipherButtonSize.small,
+                    onPressed: _pinging ? null : _pingAllServers,
                   ),
                 ],
               ),
@@ -250,7 +228,7 @@ class _SettingsState extends State<SettingsPage> {
                       horizontal: 16, vertical: 14),
                   decoration: BoxDecoration(
                     color: ZipherColors.cardBg,
-                    borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                    borderRadius: BorderRadius.circular(ZipherRadius.card),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -284,7 +262,7 @@ class _SettingsState extends State<SettingsPage> {
               Container(
                 decoration: BoxDecoration(
                   color: ZipherColors.cardBg,
-                  borderRadius: BorderRadius.circular(ZipherRadius.lg),
+                  borderRadius: BorderRadius.circular(ZipherRadius.card),
                 ),
                 child: Column(
                   children: [
@@ -292,6 +270,20 @@ class _SettingsState extends State<SettingsPage> {
                       leading: Icon(Icons.lock_rounded, size: 20),
                       title: Text('Payment confirmation'),
                       subtitle: Text('Face ID or device passcode is required after every payment review.'),
+                    ),
+                    Divider(height: 1, color: ZipherColors.cardBg,
+                        indent: 52, endIndent: 16),
+                    ListTile(
+                      leading: const Icon(Icons.smart_toy_rounded, size: 20),
+                      title: const Text('Agent approvals'),
+                      subtitle: Text(HitlWatchService.instance.isPaired
+                          ? 'Paired with ${HitlWatchService.instance.agentName ?? 'an agent'}'
+                          : 'Not paired'),
+                      trailing: const Icon(Icons.chevron_right_rounded, color: ZipherColors.text40),
+                      onTap: () async {
+                        await GoRouter.of(context).push('/hitl/agent');
+                        if (mounted) setState(() {});
+                      },
                     ),
                     Divider(height: 1, color: ZipherColors.cardBg,
                         indent: 52, endIndent: 16),
@@ -325,7 +317,7 @@ class _SettingsState extends State<SettingsPage> {
     return Container(
       decoration: BoxDecoration(
         color: ZipherColors.cardBg,
-        borderRadius: BorderRadius.circular(ZipherRadius.lg),
+        borderRadius: BorderRadius.circular(ZipherRadius.card),
       ),
       child: Column(
         children: [

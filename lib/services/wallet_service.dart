@@ -450,11 +450,13 @@ class WalletService {
   /// a fresh wallet is auto-created with an independent seed.
   Future<void> switchWallet(String targetWalletId) async {
     _checkBusy();
-    await _prepareWalletPrivacy();
     _log.i('[WS] switchWallet from=$_activeWalletId to=$targetWalletId');
     if (_activeWalletId == targetWalletId && _walletOpen) return;
+    // Claim the lock before the first await: a second tap arriving during
+    // the privacy check must fail fast instead of running a second switch.
     _busy = true;
     try {
+      await _prepareWalletPrivacy();
       if (_walletOpen) {
         _log.i('[WS] closing current wallet...');
         await _snapshotAndClose();
@@ -987,6 +989,18 @@ class WalletService {
       return rust_engine.engineGetAddresses();
     }
     return rust_wallet.getAddresses();
+  }
+
+  /// A fresh shielded-only unified address for receiving. Every call returns
+  /// a new diversified address of the same account, so payers cannot link
+  /// payments to each other; all of them keep receiving.
+  Future<String> nextShieldedAddress() async {
+    _checkBusy();
+    final info = await rust_engine.engineNextShieldedAddress();
+    if (info.hasTransparent) {
+      throw StateError('Receive address must not have a transparent receiver');
+    }
+    return info.address;
   }
 
   Future<List<String>> getTransparentAddresses() async {

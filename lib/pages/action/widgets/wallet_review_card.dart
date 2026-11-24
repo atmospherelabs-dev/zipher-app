@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
 
 import '../../../services/near_intents.dart' show CurrencyIcon;
@@ -73,6 +74,71 @@ class ReviewData {
   final SwapReview? swap;
 }
 
+/// Where an open review puts its Cancel / Confirm buttons when the screen
+/// pins them to the bottom (the chat). Only the newest open review owns it;
+/// a closed, replaced or disposed review gives it up.
+class ReviewActionHost extends ChangeNotifier {
+  Object? _owner;
+  WidgetBuilder? _builder;
+  bool _scheduled = false;
+
+  WidgetBuilder? get builder => _builder;
+  bool get active => _builder != null;
+
+  void _notifySoon() {
+    // Reviews report from their own build; tell listeners after the frame.
+    if (_scheduled) return;
+    _scheduled = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _scheduled = false;
+      notifyListeners();
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  void show(Object owner, WidgetBuilder builder) {
+    _owner = owner;
+    _builder = builder;
+    _notifySoon();
+  }
+
+  void release(Object owner) {
+    if (_owner != owner) return;
+    _owner = null;
+    _builder = null;
+    _notifySoon();
+  }
+}
+
+/// Pinned action area for [ReviewActionHost]; empty when no review is open.
+class ReviewActionBar extends StatelessWidget {
+  const ReviewActionBar({super.key, required this.host});
+  final ReviewActionHost host;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: host,
+      builder: (context, _) {
+        final builder = host.builder;
+        return AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            alignment: Alignment.bottomCenter,
+            child: builder == null
+                ? const SizedBox(width: double.infinity)
+                : Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(ZipherSpacing.md,
+                        ZipherSpacing.smMd, ZipherSpacing.md, ZipherSpacing.sm),
+                    decoration: const BoxDecoration(
+                        color: ZipherColors.bg,
+                        border: Border(
+                            top: BorderSide(
+                                color: ZipherColors.separator, width: .5))),
+                    child: builder(context)));
+      });
+}
+
 enum ReviewPhase {
   open,
   sending,
@@ -113,6 +179,12 @@ class WalletReviewCard extends StatefulWidget {
   /// Clock for the quote deadline; the device clock unless a test supplies one.
   final DateTime Function()? now;
 
+  /// When set, Cancel / Confirm are pinned by the screen instead of inline.
+  final ReviewActionHost? actions;
+
+  /// Identifies the confirm button (its label changes while fees update).
+  static const confirmKey = ValueKey('wallet-review-confirm');
+
   const WalletReviewCard(
       {super.key,
       required this.epoch,
@@ -125,7 +197,8 @@ class WalletReviewCard extends StatefulWidget {
       this.phase,
       this.onRequote,
       this.expiryMargin = const Duration(minutes: 2),
-      this.now});
+      this.now,
+      this.actions});
   @override
   State<WalletReviewCard> createState() => _WalletReviewCardState();
 }
@@ -142,11 +215,18 @@ class _WalletReviewCardState extends State<WalletReviewCard> {
   late int _fee = widget.data.fee;
   Timer? _clock;
 
-  static const _label = TextStyle(fontSize: 12, color: ZipherColors.text40);
-  static const _mono = TextStyle(
-      fontFamily: 'JetBrains Mono',
-      fontSize: 12,
-      color: ZipherColors.textSecondary);
+  static const _label = TextStyle(fontSize: 15, color: ZipherColors.text40);
+  static const _value = TextStyle(
+      fontSize: 15,
+      fontWeight: FontWeight.w500,
+      color: ZipherColors.text90,
+      fontFeatures: [FontFeature.tabularFigures()]);
+  static final _mono = ZipherType.mono.copyWith(fontSize: 12);
+
+  /// Inner panel fill for each side of the exchange.
+  static final _panel = BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.035),
+      borderRadius: BorderRadius.circular(ZipherRadius.lg));
 
   @override
   void initState() {
@@ -162,6 +242,7 @@ class _WalletReviewCardState extends State<WalletReviewCard> {
   @override
   void dispose() {
     widget.phase?.removeListener(_refresh);
+    widget.actions?.release(this);
     _clock?.cancel();
     super.dispose();
   }
@@ -208,88 +289,98 @@ class _WalletReviewCardState extends State<WalletReviewCard> {
 
   String _zec(int zatoshis) => '${WalletConversation.formatZec(zatoshis)} ZEC';
 
-  Widget _row(String label, String value, {bool strong = false}) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: _label),
-        const SizedBox(width: 16),
-        Expanded(
-            child: Text(value,
-                textAlign: TextAlign.right,
-                style: _mono.copyWith(
-                    fontWeight: strong ? FontWeight.w600 : FontWeight.w400,
-                    color: strong
-                        ? ZipherColors.textPrimary
-                        : ZipherColors.textSecondary))),
-      ]));
+  /// A fact row: label on the left, value pinned to the right edge.
+  Widget _row(String label, String value,
+          {bool strong = false, Widget? trailing}) =>
+      Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(children: [
+            Text(label, style: _label),
+            const SizedBox(width: ZipherSpacing.md),
+            Expanded(
+                child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(value,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: _value.copyWith(
+                            fontWeight:
+                                strong ? FontWeight.w600 : FontWeight.w500)))),
+            if (trailing != null) ...[
+              const SizedBox(width: ZipherSpacing.xs),
+              trailing,
+            ],
+          ]));
 
+  /// One side of the exchange in its own panel: label, amount, then the
+  /// dollar value and network; the token logo sits on the right.
   Widget _side(
           {required Widget icon,
           required String label,
           required String amount,
           String? caption,
           double? usd}) =>
-      Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-        icon,
-        const SizedBox(width: 12),
-        Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label.toUpperCase(),
-              style: const TextStyle(
-                  fontSize: 10,
-                  letterSpacing: 1.1,
-                  fontWeight: FontWeight.w600,
-                  color: ZipherColors.text40)),
-          const SizedBox(height: 3),
-          FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(amount,
-                  style: const TextStyle(
-                      fontFamily: 'JetBrains Mono',
-                      fontSize: 20,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: -.6,
-                      color: ZipherColors.textPrimary))),
-          if (caption != null)
-            Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(caption, style: _label)),
-        ])),
-        if (usd != null)
-          Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Text('≈ ${WalletAmounts.dollars(usd)}',
-                  style: const TextStyle(
-                      fontSize: 12, color: ZipherColors.textSecondary))),
-      ]);
+      Container(
+          padding: const EdgeInsets.fromLTRB(
+              ZipherSpacing.md, 12, ZipherSpacing.md, 12),
+          decoration: _panel,
+          child: Row(children: [
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(label, style: _label.copyWith(fontSize: 13)),
+                  const SizedBox(height: 4),
+                  FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(amount, style: ZipherType.amount)),
+                  if (caption != null || usd != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                        [
+                          if (usd != null) '≈ ${WalletAmounts.dollars(usd)}',
+                          if (caption != null) caption,
+                        ].join(' · '),
+                        style: ZipherType.footnote),
+                  ],
+                ])),
+            const SizedBox(width: ZipherSpacing.smMd),
+            icon,
+          ]));
 
   Widget _amounts() {
     final data = widget.data;
     final swap = data.swap;
     final price = data.zecUsd;
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      _side(
-          icon: const CurrencyIcon(symbol: 'ZEC', size: 32),
-          label: swap == null ? 'You send' : 'You pay',
-          amount: _zec(data.zatoshis),
-          usd: price == null ? null : data.zatoshis / 1e8 * price),
-      if (swap != null) ...[
-        const Padding(
-            padding: EdgeInsets.only(left: 8, top: 4, bottom: 4),
-            child: Align(
-                alignment: Alignment.centerLeft,
-                child: Icon(Icons.arrow_downward_rounded,
-                    size: 16, color: ZipherColors.text20))),
+    final pay = _side(
+        icon: const CurrencyIcon(symbol: 'ZEC', size: 40),
+        label: swap == null ? 'You send' : 'You pay',
+        amount: _zec(data.zatoshis),
+        usd: price == null ? null : data.zatoshis / 1e8 * price);
+    if (swap == null) return pay;
+    // Two panels joined by a round swap badge, the familiar exchange layout.
+    return Stack(alignment: Alignment.center, children: [
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        pay,
+        const SizedBox(height: 6),
         _side(
             icon: CurrencyIcon(
-                symbol: swap.symbol, blockchain: swap.chain, size: 32),
-            label: 'You receive · estimated',
+                symbol: swap.symbol, blockchain: swap.chain, size: 40),
+            label: 'You receive',
             amount: '${swap.estimated} ${swap.symbol}',
             caption: 'on ${swap.network}',
             usd: swap.usd),
-      ],
+      ]),
+      Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+              color: ZipherColors.cardBg,
+              shape: BoxShape.circle,
+              border: Border.all(color: ZipherColors.bg, width: 3)),
+          child: const Icon(Icons.arrow_downward_rounded,
+              size: 16, color: ZipherColors.text60)),
     ]);
   }
 
@@ -299,89 +390,172 @@ class _WalletReviewCardState extends State<WalletReviewCard> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       InkWell(
           onTap: () => setState(() => _showAddress = !_showAddress),
-          child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 9),
-              child: Row(children: [
-                const Text('To', style: _label),
-                const SizedBox(width: 16),
-                Expanded(
-                    child: Text(
-                        note == null
-                            ? WalletAmounts.shortAddress(data.recipient,
-                                head: 12, tail: 12)
-                            : '$note · ${WalletAmounts.shortAddress(data.recipient, head: 6, tail: 6)}',
-                        textAlign: TextAlign.right,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            _mono.copyWith(color: ZipherColors.textPrimary))),
-                const SizedBox(width: 4),
-                Icon(_showAddress ? Icons.expand_less : Icons.expand_more,
-                    size: 16, color: ZipherColors.text40),
-              ]))),
+          child: _row(
+              'To',
+              note == null
+                  ? WalletAmounts.shortAddress(data.recipient,
+                      head: 8, tail: 6)
+                  : '$note · ${WalletAmounts.shortAddress(data.recipient, head: 6, tail: 6)}',
+              trailing: Icon(
+                  _showAddress ? Icons.expand_less : Icons.expand_more,
+                  size: 18,
+                  color: ZipherColors.text40))),
       if (_showAddress)
         Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: SelectableText(data.recipient,
-                style: _mono.copyWith(fontSize: 11, height: 1.5))),
+            padding: const EdgeInsets.only(bottom: ZipherSpacing.sm),
+            child: SelectableText(data.recipient, style: _mono)),
     ]);
   }
 
-  Widget _swapRows(SwapReview swap) {
+  /// The few facts needed to decide. Everything else is under Details.
+  Widget _summary() {
+    final data = widget.data;
+    final swap = data.swap;
     final left = _timeLeft;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      if (swap.rate != null) _row('Rate', swap.rate!),
-      _row('Minimum received', '${swap.minimum} ${swap.symbol}'),
-      if (swap.eta != null)
-        _row('Arrives in', WalletAmounts.duration(swap.eta!)),
+      _recipient(),
+      if (swap?.rate != null) _row('Rate', swap!.rate!),
+      _row('Network fee', _updating ? 'Updating…' : _zec(_fee)),
+      if (swap == null)
+        _row('Total', _updating ? '—' : _zec(data.zatoshis + _fee),
+            strong: true),
+      if (swap?.eta != null)
+        _row('Arrives in', WalletAmounts.duration(swap!.eta!)),
       if (left != null && left > Duration.zero && left.inMinutes < 15)
         _row('Quote expires in', '${left.inMinutes + 1} min'),
+      if (data.memo != null) _detail('Memo', data.memo!),
     ]);
   }
 
-  Widget _swapDetails(SwapReview swap) =>
-      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        InkWell(
-            onTap: () => setState(() => _showDetails = !_showDetails),
-            child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 7),
-                child: Row(children: [
-                  const Expanded(child: Text('Details', style: _label)),
-                  Icon(_showDetails ? Icons.expand_less : Icons.expand_more,
-                      size: 16, color: ZipherColors.text40),
-                ]))),
-        if (_showDetails) ...[
-          _row('Slippage limit', swap.slippage),
+  Widget _details() {
+    final data = widget.data;
+    final swap = data.swap;
+    if (swap == null && widget.onPriorityChanged == null) {
+      return const SizedBox.shrink();
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      InkWell(
+          onTap: () => setState(() => _showDetails = !_showDetails),
+          child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(children: [
+                Text('Details',
+                    style: _label.copyWith(
+                        color: ZipherColors.cyan, fontWeight: FontWeight.w500)),
+                const SizedBox(width: 2),
+                Icon(_showDetails ? Icons.expand_less : Icons.expand_more,
+                    size: 18, color: ZipherColors.cyan),
+              ]))),
+      if (_showDetails) ...[
+        if (swap != null) ...[
+          _row('Minimum received', '${swap.minimum} ${swap.symbol}'),
+          _row('Total',
+              _updating ? '—' : _zec(data.zatoshis + _fee)),
           _row('Swap fee', '${swap.appFee} · included in the rate'),
+          _row('Slippage limit', swap.slippage),
           if (swap.expiry != null)
             _row('Quote valid until',
                 DateFormat('MMM d, HH:mm').format(swap.expiry!.toLocal())),
+        ],
+        if (widget.onPriorityChanged != null)
+          Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(children: [
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      const Text('Priority fee',
+                          style: TextStyle(
+                              fontSize: 14, color: ZipherColors.text90)),
+                      Text(
+                          _priority
+                              ? '10× standard fee rate · confirmation time is not guaranteed'
+                              : 'Standard fee · recommended',
+                          style: ZipherType.footnote.copyWith(fontSize: 12)),
+                    ])),
+                Switch.adaptive(
+                    value: _priority,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    onChanged: !_updating ? _changeFee : null),
+              ])),
+        if (swap != null) ...[
           _detail('ZEC deposit address', swap.depositAddress),
           _detail('Refund address', swap.refundAddress),
+          _note(Icons.info_outline_rounded,
+              'NEAR Intents runs this swap and sees the destination and refund addresses. The ${swap.network} transfer is public.'),
         ],
-      ]);
+      ],
+    ]);
+  }
 
   Widget _detail(String label, String value) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label, style: _label),
         const SizedBox(height: 3),
-        SelectableText(value, style: _mono.copyWith(fontSize: 11, height: 1.4)),
+        SelectableText(value, style: _mono),
       ]));
 
   Widget _note(IconData icon, String text, {Color? color}) => Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: ZipherSpacing.sm),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(
             padding: const EdgeInsets.only(top: 1),
-            child: Icon(icon, size: 13, color: color ?? ZipherColors.text40)),
-        const SizedBox(width: 8),
+            child: Icon(icon, size: 14, color: color ?? ZipherColors.text40)),
+        const SizedBox(width: ZipherSpacing.sm),
         Expanded(
             child: Text(text,
-                style: TextStyle(
-                    fontSize: 11,
-                    height: 1.4,
-                    color: color ?? ZipherColors.text40))),
+                style: ZipherType.footnote
+                    .copyWith(fontSize: 12, color: color))),
       ]));
+
+  void _cancel() {
+    if (_used || _updating || widget.epoch.value != widget.expectedEpoch) {
+      return;
+    }
+    setState(() {
+      _used = true;
+      _cancelled = true;
+    });
+    widget.onCancel();
+  }
+
+  Future<void> _confirm() async {
+    if (_used ||
+        _updating ||
+        _feeFailed ||
+        _lapsed ||
+        widget.epoch.value != widget.expectedEpoch) return;
+    setState(() => _used = true);
+    await widget.onConfirm();
+  }
+
+  /// Cancel / Confirm, inline or in the screen's pinned action bar.
+  /// The confirm action, inline or in the screen's pinned action bar.
+  Widget _buttons(bool canConfirm) => ZipherButton(
+      key: WalletReviewCard.confirmKey,
+      label: _updating ? 'Updating…' : widget.confirmLabel,
+      onPressed: canConfirm ? _confirm : null);
+
+  /// Title of the card with the way out on the right.
+  Widget _header(bool active) => Padding(
+      padding: const EdgeInsets.only(bottom: ZipherSpacing.sm),
+      child: SizedBox(
+          height: 32,
+          child: Row(children: [
+            Expanded(
+                child: Text(
+                    widget.data.swap == null ? 'Review payment' : 'Review swap',
+                    style: ZipherType.headline)),
+            if (active)
+              ZipherButton(
+                  label: 'Cancel',
+                  kind: ZipherButtonKind.plain,
+                  size: ZipherButtonSize.small,
+                  color: ZipherColors.text60,
+                  onPressed: !_updating ? _cancel : null),
+          ])));
 
   /// What became of a review that can no longer be confirmed.
   ({IconData? icon, String text, Color color}) _closed(bool replaced) {
@@ -441,34 +615,38 @@ class _WalletReviewCardState extends State<WalletReviewCard> {
       valueListenable: widget.epoch,
       builder: (_, epoch, __) {
         final data = widget.data;
-        final swap = data.swap;
         final current = epoch == widget.expectedEpoch;
         final active = !_used &&
             current &&
             !_lapsed &&
             (widget.phase?.value ?? ReviewPhase.open) == ReviewPhase.open;
-        final canConfirm = active && !_updating && !_feeFailed;
+        final host = widget.actions;
+        if (host != null) {
+          if (active) {
+            host.show(this, (_) => _buttons(!_updating && !_feeFailed));
+          } else {
+            host.release(this);
+          }
+        }
         if (!active) {
           final closed = _closed(!current);
           return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 _amounts(),
-                const SizedBox(height: 12),
-                const Divider(height: 1),
-                const SizedBox(height: 10),
+                const SizedBox(height: ZipherSpacing.smMd),
                 Row(children: [
                   if (closed.icon == null)
                     const SizedBox(
-                        width: 13,
-                        height: 13,
+                        width: 14,
+                        height: 14,
                         child: CircularProgressIndicator(strokeWidth: 1.5))
                   else
-                    Icon(closed.icon, size: 15, color: closed.color),
-                  const SizedBox(width: 8),
+                    Icon(closed.icon, size: 16, color: closed.color),
+                  const SizedBox(width: ZipherSpacing.sm),
                   Expanded(
                       child: Text(closed.text,
-                          style: TextStyle(fontSize: 12, color: closed.color))),
+                          style: TextStyle(fontSize: 13, color: closed.color))),
                   if (_lapsed && !_used && current && widget.onRequote != null)
                     TextButton(
                         onPressed: widget.onRequote,
@@ -479,85 +657,22 @@ class _WalletReviewCardState extends State<WalletReviewCard> {
         return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              _header(true),
               _amounts(),
-              const SizedBox(height: 10),
-              const Divider(height: 1),
-              _recipient(),
-              if (swap != null) _swapRows(swap),
-              _row('Network fee', _updating ? 'Updating…' : _zec(_fee)),
-              _row('Total', _updating ? '—' : _zec(data.zatoshis + _fee),
-                  strong: true),
-              if (data.memo != null) _detail('Memo', data.memo!),
-              if (widget.onPriorityChanged != null)
-                Row(children: [
-                  Expanded(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        const Text('Priority fee',
-                            style: TextStyle(
-                                fontSize: 13, color: ZipherColors.textPrimary)),
-                        Text(
-                            _priority
-                                ? '10× standard fee rate · confirmation time is not guaranteed'
-                                : 'Standard fee · recommended',
-                            style: const TextStyle(
-                                fontSize: 11,
-                                height: 1.4,
-                                color: ZipherColors.text40)),
-                      ])),
-                  Switch.adaptive(
-                      value: _priority,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      onChanged: !_updating ? _changeFee : null),
-                ]),
-              if (swap != null) _swapDetails(swap),
+              const SizedBox(height: ZipherSpacing.sm),
+              _summary(),
               if (data.warning != null)
                 _note(Icons.visibility_outlined, data.warning!,
                     color: ZipherColors.warm),
-              if (swap != null)
-                _note(Icons.info_outline_rounded,
-                    'NEAR Intents runs this swap and sees the destination and refund addresses. The ${swap.network} transfer is public.'),
+              _details(),
               if (_feeFailed)
                 TextButton(
                     onPressed: !_updating ? () => _changeFee(_priority) : null,
                     child: const Text('Fee update failed. Retry')),
-              const SizedBox(height: 10),
-              Row(children: [
-                Expanded(
-                    child: TextButton(
-                        onPressed: !_updating
-                            ? () {
-                                if (_used ||
-                                    widget.epoch.value != widget.expectedEpoch)
-                                  return;
-                                setState(() {
-                                  _used = true;
-                                  _cancelled = true;
-                                });
-                                widget.onCancel();
-                              }
-                            : null,
-                        child: const Text('Cancel'))),
-                const SizedBox(width: 12),
-                Expanded(
-                    flex: 2,
-                    child: FilledButton(
-                        onPressed: canConfirm
-                            ? () async {
-                                if (_used ||
-                                    _updating ||
-                                    _feeFailed ||
-                                    _lapsed ||
-                                    widget.epoch.value != widget.expectedEpoch)
-                                  return;
-                                setState(() => _used = true);
-                                await widget.onConfirm();
-                              }
-                            : null,
-                        child: Text(
-                            _updating ? 'Updating…' : widget.confirmLabel))),
-              ]),
+              if (host == null) ...[
+                const SizedBox(height: ZipherSpacing.sm),
+                _buttons(!_updating && !_feeFailed),
+              ],
             ]);
       });
 }

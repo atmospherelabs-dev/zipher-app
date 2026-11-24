@@ -27,3 +27,7 @@ dirs = "6"
 reqwest = "0.13"
 
 uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+zipher-relay = { path = "../relay" }
+axum = "0.8"

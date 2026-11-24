@@ -38,9 +38,18 @@
                 <data
                         android:scheme="zcash"/>
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- zipher://pair (agent approvals) and zipher://frost/approve -->
+                <data android:scheme="zipher"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <!-- Links are handled by app_links (splash.dart handleUri), not by the router. -->
+        <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

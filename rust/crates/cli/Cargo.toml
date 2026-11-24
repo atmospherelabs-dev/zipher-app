@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 zipher-engine = { path = "../engine" }
+qrcode = { version = "0.14", default-features = false }
 ows-lib = { path = "../../vendor/ows-lib" }
 clap = { version = "4", features = ["derive", "env"] }
 tokio = { version = "1", features = ["full"] }
