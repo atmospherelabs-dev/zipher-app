@@ -249,6 +249,18 @@ struct CipherpayInvoiceParams {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct PayInvoiceParams {
+    /// CipherPay invoice ID or hosted checkout URL (https://cipherpay.app/pay/<invoice-id>).
+    /// Only the ID is used; the payment request is always read from the configured CipherPay API.
+    invoice: String,
+    /// Pay a higher fee for inclusion priority.
+    #[serde(default)]
+    priority: bool,
+    /// Context identifier for audit trail
+    context_id: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct CipherpayCheckParams {
     /// CipherPay invoice ID to check
     invoice_id: String,
@@ -344,6 +356,9 @@ struct ReviewedSend {
     /// paired phone. confirm_send signs only after the phone's signed approval
     /// of exactly this request verifies.
     approval: Option<zipher_engine::hitl::ApprovalRequest>,
+    /// Set by pay_invoice. confirm_send re-reads the invoice and signs only if
+    /// it is still payable with exactly this address, amount and memo.
+    invoice: Option<zipher_engine::cipherpay::InvoicePayment>,
 }
 
 #[derive(Clone)]
@@ -454,6 +469,71 @@ impl ZipherMcpServer {
     async fn propose_send(&self, Parameters(params): Parameters<ProposeSendParams>) -> String {
         let _payment = PAYMENT_OPERATION.lock().await;
         self.reviewed_send.lock().await.take();
+        self.propose_reviewed(params, None, "propose_send").await
+    }
+
+    #[tool(description = "Prepare payment of a CipherPay invoice (shop checkout) from its invoice ID or checkout URL. Reads the invoice's payment request from the CipherPay API, checks it is still payable on this wallet's network, and creates a reviewed send of the exact amount and memo under the spending policy. Returns the merchant, amount and fee for review; call confirm_send with the proposal_id to sign. confirm_send re-checks the invoice before signing. Then use cipherpay_check_invoice to follow its status.")]
+    async fn pay_invoice(&self, Parameters(params): Parameters<PayInvoiceParams>) -> String {
+        let _payment = PAYMENT_OPERATION.lock().await;
+        self.reviewed_send.lock().await.take();
+        let network = self.network_id();
+        let id = match zipher_engine::cipherpay::invoice_id_from_ref(&params.invoice) {
+            Ok(id) => id,
+            Err(e) => return err_response(&e),
+        };
+        let request = match zipher_engine::cipherpay::fetch_payment_request(&id).await {
+            Ok(r) => r,
+            Err(e) => return err_response(&e),
+        };
+        let payment = match zipher_engine::cipherpay::invoice_payment(&request, &id, network) {
+            Ok(p) => p,
+            Err(e) => {
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "pay_invoice", None, None, None,
+                    params.context_id.as_deref(), None, Some(&format!("invoice {id}: {e:#}")),
+                ).ok();
+                return err_response(&e);
+            }
+        };
+        let proposal = self.propose_reviewed(ProposeSendParams {
+            address: payment.address.clone(),
+            amount: payment.amount_zatoshis,
+            memo: Some(payment.memo.clone()),
+            priority: params.priority,
+            context_id: params.context_id,
+        }, Some(payment.clone()), "pay_invoice").await;
+        // Attach what is being bought to the reviewed proposal.
+        let mut value: serde_json::Value = match serde_json::from_str(&proposal) {
+            Ok(v) => v,
+            Err(_) => return proposal,
+        };
+        if let Some(data) = value.get_mut("data").and_then(|d| d.as_object_mut()) {
+            data.insert("invoice".into(), serde_json::json!({
+                "invoice_id": payment.invoice_id,
+                "merchant": request.merchant.name,
+                "merchant_origin": request.merchant.origin,
+                "description": request.description,
+                "memo": payment.memo,
+                "amount_zatoshis": payment.amount_zatoshis,
+                "platform_fee_not_sent_zatoshis": payment.platform_fee_not_sent_zatoshis,
+                "expires_at": request.expires_at,
+                "checkout_url": request.checkout_url,
+            }));
+        }
+        serde_json::to_string_pretty(&value).unwrap_or(proposal)
+    }
+
+    fn network_id(&self) -> &'static str {
+        if self.network == Network::TestNetwork { "zcash:testnet" } else { "zcash:mainnet" }
+    }
+
+    /// Caller holds PAYMENT_OPERATION and has cleared any previous proposal.
+    async fn propose_reviewed(
+        &self,
+        params: ProposeSendParams,
+        invoice: Option<zipher_engine::cipherpay::InvoicePayment>,
+        tool: &'static str,
+    ) -> String {
         let policy = match zipher_engine::policy::load_policy_checked(&self.data_dir) {
             Ok(p) => p, Err(e) => return err_response(&e),
         };
@@ -473,7 +553,7 @@ impl ZipherMcpServer {
                 needs_phone_approval = true;
             } else {
             zipher_engine::audit::log_event(
-                &self.data_dir, "propose_send", Some(&params.address),
+                &self.data_dir, tool, Some(&params.address),
                 Some(params.amount), None, params.context_id.as_deref(),
                 None, Some(&violation.to_string()),
             ).ok();
@@ -500,12 +580,12 @@ impl ZipherMcpServer {
                         fee,
                         memo: memo.as_deref(),
                         context_id: params.context_id.as_deref(),
-                        tool: "propose_send",
+                        tool,
                     }).await {
                         Ok(req) => Some(req),
                         Err(e) => {
                             zipher_engine::audit::log_event(
-                                &self.data_dir, "propose_send", Some(&params.address),
+                                &self.data_dir, tool, Some(&params.address),
                                 Some(send_amount), Some(fee), params.context_id.as_deref(),
                                 None, Some(&format!("approval request failed: {e:#}")),
                             ).ok();
@@ -522,10 +602,11 @@ impl ZipherMcpServer {
                     address: params.address.clone(), amount: send_amount, fee,
                     context_id: params.context_id.clone(),
                     approval,
+                    invoice,
                 });
                 if let Some(expires_at) = expires_at {
                     zipher_engine::audit::log_event(
-                        &self.data_dir, "propose_send", Some(&params.address),
+                        &self.data_dir, tool, Some(&params.address),
                         Some(send_amount), Some(fee), params.context_id.as_deref(),
                         None, Some("sent to paired phone for approval"),
                     ).ok();
@@ -541,7 +622,7 @@ impl ZipherMcpServer {
                     }));
                 }
                 zipher_engine::audit::log_event(
-                    &self.data_dir, "propose_send", Some(&params.address),
+                    &self.data_dir, tool, Some(&params.address),
                     Some(send_amount), Some(fee), params.context_id.as_deref(),
                     None, None,
                 ).ok();
@@ -571,7 +652,7 @@ impl ZipherMcpServer {
             }
             Err(e) => {
                 zipher_engine::audit::log_event(
-                    &self.data_dir, "propose_send", Some(&params.address),
+                    &self.data_dir, tool, Some(&params.address),
                     Some(params.amount), None, params.context_id.as_deref(),
                     None, Some(&format!("{:#}", e)),
                 ).ok();
@@ -637,6 +718,33 @@ impl ZipherMcpServer {
                     None, Some(reason),
                 ).ok();
                 return err_code_response(APPROVAL_REJECTED, reason);
+            }
+        }
+        if let Some(invoice) = &held.invoice {
+            // The invoice may have expired, been paid or moved to a cross-chain
+            // route since review. Sign only if it still asks for exactly this.
+            let current = match zipher_engine::cipherpay::fetch_payment_request(&invoice.invoice_id).await {
+                Ok(r) => zipher_engine::cipherpay::invoice_payment(&r, &invoice.invoice_id, self.network_id()),
+                // Could not check: keep the proposal so the agent can retry.
+                Err(e) if !format!("{e:#}").contains("INVALID_PROPOSAL") => {
+                    return err_code_response(NETWORK_TIMEOUT, &format!("Could not re-check the invoice before signing; nothing was sent: {e:#}"));
+                }
+                Err(e) => Err(e),
+            };
+            let refusal = match current {
+                Ok(p) if p.address == invoice.address && p.amount_zatoshis == invoice.amount_zatoshis
+                    && p.memo == invoice.memo && p.amount_zatoshis == held.amount => None,
+                Ok(_) => Some("The invoice's payment details changed since review.".to_string()),
+                Err(e) => Some(format!("{e:#}")),
+            };
+            if let Some(reason) = refusal {
+                self.reviewed_send.lock().await.take();
+                zipher_engine::audit::log_event(
+                    &self.data_dir, "confirm_send", Some(&held.address),
+                    Some(held.amount), Some(held.fee), held.context_id.as_deref(),
+                    None, Some(&format!("invoice {}: {reason}", invoice.invoice_id)),
+                ).ok();
+                return err_code_response(INVALID_PROPOSAL, &format!("Invoice no longer payable as reviewed; nothing was sent. {reason}"));
             }
         }
         let reviewed = {
@@ -1916,6 +2024,77 @@ mod security_tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Serves one canned HTTP response per connection, in order.
+    fn canned_http(responses: Vec<(u16, String)>) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for (status, body) in responses {
+                let (mut conn, _) = listener.accept().unwrap();
+                let mut buf = [0u8; 4096];
+                let _ = conn.read(&mut buf);
+                let _ = write!(conn, "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn invoice_proposal_is_rechecked_before_signing() {
+        const ID: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        let address = <zcash_address::ZcashAddress as zcash_address::ToAddress>::from_sapling(
+            zcash_protocol::consensus::NetworkType::Main, [7u8; 43]).encode();
+        let request = |payable: bool, amount: u64| serde_json::json!({
+            "version": 1, "invoice_id": ID, "network": "zcash:mainnet",
+            "status": if payable { "pending" } else { "confirmed" }, "payable": payable,
+            "not_payable_reason": if payable { serde_json::Value::Null } else { "already_paid".into() },
+            "expires_at": "2099-01-01T00:00:00Z", "merchant": {"name": "Shop"},
+            "outputs": if payable { serde_json::json!([{"address": address, "amount_zatoshis": amount,
+                "memo": "CP-AB12CD34", "purpose": "invoice", "required": true}]) } else { serde_json::json!([]) },
+        }).to_string();
+        // 1: backend error keeps the proposal. 2: amount changed. 3: already paid.
+        let base = canned_http(vec![
+            (503, "{}".into()),
+            (200, request(true, 2_000)),
+            (200, request(false, 0)),
+        ]);
+        std::env::set_var("CIPHERPAY_URL", &base);
+        let dir = std::env::temp_dir().join(format!("zipher-mcp-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let held = ReviewedSend {
+            id: "p".into(), address: address.clone(), amount: 1_000, fee: 10_000, context_id: None, approval: None,
+            invoice: Some(zipher_engine::cipherpay::InvoicePayment {
+                invoice_id: ID.into(), address: address.clone(), amount_zatoshis: 1_000,
+                memo: "CP-AB12CD34".into(), platform_fee_not_sent_zatoshis: 0,
+            }),
+        };
+        let server = ZipherMcpServer {
+            data_dir: dir.to_str().unwrap().to_string(),
+            seed: Arc::new(RwLock::new(Some(SecretString::new("dummy-test-secret".into())))),
+            locked: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            network: Network::MainNetwork,
+            seed_source: Arc::new(SeedSource::None),
+            reviewed_send: Arc::new(tokio::sync::Mutex::new(Some(held.clone()))),
+        };
+        let confirm = || server.confirm_send(Parameters(ConfirmSendParams { proposal_id: "p".into(), context_id: None }));
+
+        let unreachable = confirm().await;
+        assert!(unreachable.contains(NETWORK_TIMEOUT), "{unreachable}");
+        assert!(server.reviewed_send.lock().await.is_some(), "kept for retry");
+
+        let changed = confirm().await;
+        assert!(changed.contains(INVALID_PROPOSAL) && changed.contains("changed"), "{changed}");
+        assert!(server.reviewed_send.lock().await.is_none(), "changed invoice drops the proposal");
+
+        *server.reviewed_send.lock().await = Some(held);
+        let paid = confirm().await;
+        assert!(paid.contains(INVALID_PROPOSAL) && paid.contains("already_paid"), "{paid}");
+        assert!(server.reviewed_send.lock().await.is_none());
+        std::env::remove_var("CIPHERPAY_URL");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[tokio::test]
     async fn replaced_proposal_cannot_be_confirmed_or_consumed() {
         let dir = std::env::temp_dir().join(format!("zipher-mcp-test-{}", uuid::Uuid::new_v4()));
@@ -1928,6 +2107,7 @@ mod security_tests {
             seed_source: Arc::new(SeedSource::None),
             reviewed_send: Arc::new(tokio::sync::Mutex::new(Some(ReviewedSend {
                 id: "proposal-b".into(), address: "b".into(), amount: 10, fee: 1, context_id: None, approval: None,
+                invoice: None,
             }))),
         };
         let result = server.confirm_send(Parameters(ConfirmSendParams {
@@ -1970,7 +2150,7 @@ mod security_tests {
             seed_source: Arc::new(SeedSource::None),
             reviewed_send: Arc::new(tokio::sync::Mutex::new(Some(ReviewedSend {
                 id: "p".into(), address: "u1merchant".into(), amount: req.amount, fee: 10_000,
-                context_id: None, approval: Some(req),
+                context_id: None, approval: Some(req), invoice: None,
             }))),
         };
         let confirm = |s: &ZipherMcpServer| {
@@ -2023,6 +2203,7 @@ mod security_tests {
             seed_source: Arc::new(SeedSource::None),
             reviewed_send: Arc::new(tokio::sync::Mutex::new(Some(ReviewedSend {
                 id: "preserved-proposal".into(), address: "fixture".into(), amount: 1, fee: 1, context_id: None, approval: None,
+                invoice: None,
             }))),
         };
         let response = server.session_open(Parameters(SessionOpenParams {

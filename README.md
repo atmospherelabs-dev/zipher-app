@@ -53,6 +53,7 @@ zipher-cli --human polymarket list --keyword bitcoin
 - **Cross-chain swaps** — ZEC to any asset via NEAR Intents (BTC, ETH, SOL, USDT, BNB, 140+ tokens)
 - **Prediction markets** — Polymarket discovery, position lookup, and alpha trade tooling
 - **x402/MPP payments** — `pay_url` auto-detects x402 or MPP paywalls, pays, retries with credential
+- **Shop checkouts** — `pay_invoice` pays a CipherPay invoice from its ID or checkout URL: reads the invoice's payment request from the CipherPay API, proposes the exact amount and memo under the spending policy, and re-checks the invoice before `confirm_send` signs
 - **OWS vault** — `wallet init` stores the mnemonic in the encrypted OWS vault; CLI/MCP decrypt it when needed
 - **Spending policy** — per-tx limits, daily caps, allowlist, rate limiting, approval thresholds
 - **Audit log** — every spend recorded with timestamps, context IDs, and error tracking
@@ -68,7 +69,7 @@ The MCP server exposes the full agent toolkit over stdio, compatible with Claude
 |--------|-------|
 | **Wallet** | `wallet_status`, `get_balance`, `validate_address`, `sync_status`, `get_transactions` |
 | **Send** | `propose_send`, `confirm_send`, `shield_funds` |
-| **Payments** | `pay_x402`, `pay_url` |
+| **Payments** | `pay_x402`, `pay_url`, `pay_invoice` |
 | **Swaps** | `swap_tokens`, `swap_quote`, `swap_execute`, `swap_status` |
 | **Sessions** | `session_open`, `session_request`, `session_list`, `session_close` |
 | **Market Agent** | `market_research` (web research for prediction markets, generic) |
